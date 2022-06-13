@@ -1,3 +1,5 @@
+use tokio::time::error::Elapsed;
+
 extern crate axum;
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug)]
@@ -48,6 +50,7 @@ async fn respone_msvc_compile(axum::extract::Json(compileInfo) : axum::extract::
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
+    getLocalCompileIncludeFilesPath();
 
     let router = axum::Router::new()
             .route("/hello", axum::routing::get(get_hello_info))
@@ -96,4 +99,26 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
         }
         return false;
     }           
+}
+
+fn getLocalCompileIncludeFilesPath() -> String {
+
+    let vswhere = std::path::Path::new(r"C:\Program Files (x86)").join("Microsoft Visual Studio")
+    .join("Installer").join("vswhere.exe");
+    println!("vs path:{:?}", vswhere);
+
+    let is_exist = vswhere.exists();
+    if is_exist {
+        println!("vs where is exits"); 
+
+    } else {
+        println!("vs where is not exits:{:?}", vswhere); 
+    }
+    
+    let exe =  std::process::Command::new(vswhere).arg("");
+    
+    let path = std::env::var_os("PATH");
+    println!("PATH: {:?}", path); 
+
+    return "".to_string();
 }
