@@ -101,24 +101,51 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
     }           
 }
 
-fn getLocalCompileIncludeFilesPath() -> String {
+fn getVSInstallPath() -> Option<String> {
 
-    let vswhere = std::path::Path::new(r"C:\Program Files (x86)").join("Microsoft Visual Studio")
+    let programfilespath = std::env::var_os("PROGRAMFILES(X86)").unwrap();
+    //"C:\Program Files (x86)"
+    let vswhere = std::path::Path::new(programfilespath.to_str().unwrap()).join("Microsoft Visual Studio")
     .join("Installer").join("vswhere.exe");
-    println!("vs path:{:?}", vswhere);
 
     let is_exist = vswhere.exists();
     if is_exist {
-        println!("vs where is exits"); 
+        println!("vs where is exits:{:?}", vswhere); 
 
     } else {
         println!("vs where is not exits:{:?}", vswhere); 
+        return None
     }
     
-    let exe =  std::process::Command::new(vswhere).arg("");
-    
-    let path = std::env::var_os("PATH");
-    println!("PATH: {:?}", path); 
+    let result =  std::process::Command::new(vswhere)
+    .arg("-latest")
+    .arg("-products").arg("*")
+    .arg("-requires").arg("Microsoft.VisualStudio.Component.VC.Tools.x86.x64")
+    .arg("-property").arg("installationPath")
+    .output()
+    .expect("failed to execute vswhere.exe");
 
-    return "".to_string();
+    if result.status.success() {
+        let vsinstallpath = String::from_utf8_lossy(&result.stdout);
+        return Some(vsinstallpath.to_string())
+    }
+    else {
+        println!("execute vswhere.exe failed");
+        return None
+    }
+}
+
+fn getLocalCompileIncludeFilesPath() -> String {
+
+    let vsinstallpath = getVSInstallPath();
+    match vsinstallpath {
+        None => {
+            println!("execute vswhere.exe failed");
+        },
+        Some(vspath) => {
+            println!("execute vswhere.exe failed");
+            let includepath = std::path::Path::new(vspath.as_str());
+        },
+    };
+    "".to_string()
 }
