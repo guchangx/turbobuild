@@ -1,6 +1,10 @@
+use std::{io::Read, iter::FromIterator};
+
 use tokio::time::error::Elapsed;
+use winapi::um::winreg::RegOpenKeyExW;
 
 extern crate axum;
+extern crate winapi;
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug)]
 struct CompileInfo {
@@ -50,7 +54,18 @@ async fn respone_msvc_compile(axum::extract::Json(compileInfo) : axum::extract::
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    getLocalCompileIncludeFilesPath();
+    let _ = getwinsdkincludespath();
+    let includepath = getLocalCompileIncludeFilesPath();
+    match includepath {
+        Some(file) => {
+            println!("include path:{:?}", file);
+        },
+        _ => {
+            println!("include path do not find");
+        },
+    };
+
+
 
     let router = axum::Router::new()
             .route("/hello", axum::routing::get(get_hello_info))
@@ -86,7 +101,6 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
                     .expect("failed to execute compoiler process!");
 
     if result.status.success() {
-
         println!("build success!");
         return true;
     }
@@ -111,41 +125,184 @@ fn getVSInstallPath() -> Option<String> {
     let is_exist = vswhere.exists();
     if is_exist {
         println!("vs where is exits:{:?}", vswhere); 
+            
+        let result =  std::process::Command::new(vswhere)
+        .arg("-latest")
+        .arg("-products").arg("*")
+        .arg("-requires").arg("Microsoft.VisualStudio.Component.VC.Tools.x86.x64")
+        .arg("-property").arg("installationPath")
+        .output();
 
+        match result {
+            Ok(output) => {
+                if output.status.success() {
+                    let mut vsinstallpath = String::from_utf8_lossy(&output.stdout);
+                    let purevsinstallpath = vsinstallpath.replace("\r\n", "");
+                    return Some(purevsinstallpath)
+                }
+                else {
+                    println!("execute vswhere.exe result error: {:?}", output.status.code());
+                    return None
+                }
+            },
+            Err(error) => {
+                println!("execute vswhere.exe failed: {:?}", error);
+                return None
+            },
+        }
     } else {
-        println!("vs where is not exits:{:?}", vswhere); 
+        println!("vs where is not exits: {:?}", vswhere); 
         return None
     }
-    
-    let result =  std::process::Command::new(vswhere)
-    .arg("-latest")
-    .arg("-products").arg("*")
-    .arg("-requires").arg("Microsoft.VisualStudio.Component.VC.Tools.x86.x64")
-    .arg("-property").arg("installationPath")
-    .output()
-    .expect("failed to execute vswhere.exe");
 
-    if result.status.success() {
-        let vsinstallpath = String::from_utf8_lossy(&result.stdout);
-        return Some(vsinstallpath.to_string())
-    }
-    else {
-        println!("execute vswhere.exe failed");
-        return None
-    }
 }
 
-fn getLocalCompileIncludeFilesPath() -> String {
+fn getLocalCompileIncludeFilesPath() ->Option<String> {
 
     let vsinstallpath = getVSInstallPath();
     match vsinstallpath {
         None => {
-            println!("execute vswhere.exe failed");
+            println!("get vs install path failed");
         },
         Some(vspath) => {
-            println!("execute vswhere.exe failed");
-            let includepath = std::path::Path::new(vspath.as_str());
+            println!("get vs install path:{} and join vc tools version default text", vspath.clone());
+            //C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build
+            let vcauxiliarybuildpath = std::path::Path::new(vspath.as_str()).join("VC").join("Auxiliary").join("Build")
+            .join("Microsoft.VCToolsVersion.default.txt");
+            if vcauxiliarybuildpath.exists() {
+                let versionfile = std::fs::File::open(vcauxiliarybuildpath);
+                match versionfile {
+                    Ok(mut file) => {
+
+                        let mut vctoolsversion = String::new();
+                        let _version = file.read_to_string(&mut vctoolsversion);
+                        if vctoolsversion.len() > 2 
+                        {
+                            let purevctoolsversion = vctoolsversion.replace("\r\n", "");
+                            println!("msvc version is : {:?}", vctoolsversion);
+                            let msvcincludepath = std::path::Path::new(vspath.as_str()).join("vc").join("Tools").join("MSVC")
+                                    .join(purevctoolsversion.as_str()).join("include");
+                            
+                            if msvcincludepath.exists() {
+                                println!("msvc include path: {:?}", msvcincludepath);
+                                return Some(msvcincludepath.into_os_string().into_string().unwrap())
+                            }
+                            else {
+                                println!("do not open vc auxiliary build path: {:?}", msvcincludepath);
+                            }
+                            
+                        };
+
+                    },
+                    Err(error) => {
+                        println!("do not open vc auxiliary build path: {:?}", error);
+                        return None;
+                    },
+                };
+            } else {
+                println!("vc tools version default do not exist: {:?}", vcauxiliarybuildpath);
+                return None;
+            }
         },
     };
-    "".to_string()
+    return None; 
+}
+
+
+fn getwinsdkincludespath() -> String {
+    use std::os::windows::ffi::OsStrExt;
+    use std::iter::once;
+    use std::ptr::null_mut;
+    println!("get windows SDKs kit version.");
+    unsafe {
+
+        //HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Microsoft SDKs\Windows\v10
+        let mut subKey: Vec<u16> = std::ffi::OsStr::new(r"SOFTWARE\WOW6432Node\Microsoft\Microsoft SDKs\Windows\v10.0").encode_wide().chain(once(0)).collect();
+        let mut phkResult: winapi::shared::minwindef::HKEY = null_mut();
+        let openstatus = winapi::um::winreg::RegOpenKeyW(winapi::um::winreg::HKEY_LOCAL_MACHINE, 
+            subKey.as_ptr(), &mut phkResult);
+        
+        if openstatus == winapi::shared::winerror::SEC_E_OK {
+
+            let valuename: Vec<u16> = std::ffi::OsStr::new("InstallationFolder").encode_wide().chain(once(0)).collect();
+
+            let mut dword: winapi::shared::minwindef::DWORD = 128;
+            let mut data = vec![0; 128 as usize];
+
+            let querystatus = winapi::um::winreg::RegQueryValueExW(phkResult, valuename.as_ptr(), null_mut(), 
+              &mut winapi::um::winnt::REG_SZ, data.as_mut_ptr(), &mut dword);
+
+            let mut winkits_path = String::new();
+            if querystatus == winapi::shared::winerror::SEC_E_OK {
+
+                data.set_len(dword as usize);
+                let words = std::slice::from_raw_parts(data.as_ptr() as *const u16, data.len() / 2);
+                winkits_path = String::from_utf16_lossy(words);
+
+                winkits_path = winkits_path.trim_end_matches('\0').to_string();
+                println!("Windows Kits path: {:?}", winkits_path)
+            }
+            else {
+                println!("get regedit InstallationFolder failed . error code: {:?}", querystatus);
+            }
+            let product_version: Vec<u16> = std::ffi::OsStr::new("ProductVersion").encode_wide().chain(once(0)).collect();
+
+            let mut version_data = vec![0; 32];
+            let mut version_len : winapi::shared::minwindef::DWORD = 32;
+            let query_version_status = winapi::um::winreg::RegQueryValueExW(phkResult, product_version.as_ptr(), null_mut(),
+             &mut winapi::um::winnt::REG_SZ, version_data.as_mut_ptr(),  &mut version_len);
+
+            let mut winkits_version = String::new();
+            if query_version_status == winapi::shared::winerror::SEC_E_OK {
+
+                version_data.set_len(version_len as usize);
+                let words = std::slice::from_raw_parts(version_data.as_ptr() as *const u16, version_data.len() / 2);
+                winkits_version = String::from_utf16_lossy(words);
+                winkits_version = winkits_version.trim_end_matches('\0').to_string();
+                winkits_version.push_str(".0");
+                println!("sdk version query result: {:?}", winkits_version);
+
+            }
+            else {
+                println!("get regedit sdks version failed . error code: {:?}", query_version_status);
+            }
+
+            if !winkits_path.is_empty() && !winkits_version.is_empty()
+            {
+                let includepath = std::path::Path::new(winkits_path.as_str()).join("Include").join(winkits_version.as_str());
+                println!("includes path is: {:?}", includepath);
+                let mut includespath : Vec<String> = Vec::new();
+                let cppwinrt_include = includepath.join("cppwinrt");
+                println!("cppwinrt path: {:?}", cppwinrt_include);
+                if cppwinrt_include.exists() {
+                    includespath.push(cppwinrt_include.into_os_string().into_string().unwrap());
+                }
+
+                let shared_include = includepath.join("shared");
+                if shared_include.exists() {
+                    includespath.push(shared_include.into_os_string().into_string().unwrap());
+                }
+
+                let ucrt_include = includepath.join("ucrt");
+                if ucrt_include.exists() {
+                    includespath.push(ucrt_include.into_os_string().into_string().unwrap());
+                }
+
+                let um_include = includepath.join("um");
+                if um_include.exists() {
+                    includespath.push(um_include.into_os_string().into_string().unwrap());
+                }
+
+                let winrt_include = includepath.join("winrt");
+                if winrt_include.exists() {
+                    includespath.push(winrt_include.into_os_string().into_string().unwrap());
+                }
+            }
+             
+        } else {
+            println!("open regedit failed, error: {:?}.", openstatus);
+        }
+        return "".to_string()
+    }
+
 }

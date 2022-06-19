@@ -10,4 +10,5 @@ axum = {version = "0.5.6", features = ["json"]}
 tokio = {version = "1.18.2", features = ["rt-multi-thread", "macros"]}
 serde_json = "1.0.81"
 serde = "1.0.137"
-serde_derive = "1.0.137" 
+serde_derive = "1.0.137"
+winapi = "0.3.9"
