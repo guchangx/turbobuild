@@ -79,20 +79,29 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
 
     let winkitslincludes = getwinsdkincludespath();
 
-    for include in winkitslincludes {
-        //compilerargs.push("/I".to_string() + &"\"".to_string() + include + '"');
+    match winkitslincludes {
+        Some(includes) => {
+            for include in includes {
+                compilerargs.insert(1, "/I".to_string() + &r#"""#.to_string() + &include + &r#"""#.to_string());
+            }
+        },
+        _ => {
+            println!("do not get win kits includes");
+        },
     }
 
     let includepath = getLocalCompileIncludeFilesPath();
     match includepath {
-        Some(file) => {
-            println!("include path:{:?}", file);
+        Some(filepath) => {
+            compilerargs.insert(1, "/I".to_string() + &r#"""#.to_string() + &filepath + &r#"""#.to_string());
+            println!("include path:{:?}", filepath);
         },
         _ => {
-            println!("include path do not find");
+            println!("msvc include path do not find");
         },
     };
 
+    println!("compile args: {:?}", compilerargs);
 
     let workpath = std::env::current_dir().unwrap();
     println!("current exe path:{:?}", workpath.clone());
