@@ -54,18 +54,6 @@ async fn respone_msvc_compile(axum::extract::Json(compileInfo) : axum::extract::
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
-    let _ = getwinsdkincludespath();
-    let includepath = getLocalCompileIncludeFilesPath();
-    match includepath {
-        Some(file) => {
-            println!("include path:{:?}", file);
-        },
-        _ => {
-            println!("include path do not find");
-        },
-    };
-
-
 
     let router = axum::Router::new()
             .route("/hello", axum::routing::get(get_hello_info))
@@ -88,6 +76,23 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
     use std::process::{Stdio};
     let compilerfilepath = compilerargs.last().unwrap();
     println!("compiler file path: {:?}", compilerfilepath);
+
+    let winkitslincludes = getwinsdkincludespath();
+
+    for include in winkitslincludes {
+        //compilerargs.push("/I".to_string() + &"\"".to_string() + include + '"');
+    }
+
+    let includepath = getLocalCompileIncludeFilesPath();
+    match includepath {
+        Some(file) => {
+            println!("include path:{:?}", file);
+        },
+        _ => {
+            println!("include path do not find");
+        },
+    };
+
 
     let workpath = std::env::current_dir().unwrap();
     println!("current exe path:{:?}", workpath.clone());
@@ -209,7 +214,7 @@ fn getLocalCompileIncludeFilesPath() ->Option<String> {
 }
 
 
-fn getwinsdkincludespath() -> String {
+fn getwinsdkincludespath() -> Option<Vec<String>> {
     use std::os::windows::ffi::OsStrExt;
     use std::iter::once;
     use std::ptr::null_mut;
@@ -270,7 +275,7 @@ fn getwinsdkincludespath() -> String {
             if !winkits_path.is_empty() && !winkits_version.is_empty()
             {
                 let includepath = std::path::Path::new(winkits_path.as_str()).join("Include").join(winkits_version.as_str());
-                println!("includes path is: {:?}", includepath);
+               
                 let mut includespath : Vec<String> = Vec::new();
                 let cppwinrt_include = includepath.join("cppwinrt");
                 println!("cppwinrt path: {:?}", cppwinrt_include);
@@ -290,19 +295,23 @@ fn getwinsdkincludespath() -> String {
 
                 let um_include = includepath.join("um");
                 if um_include.exists() {
-                    includespath.push(um_include.into_os_string().into_string().unwrap());
+                    includespath.push(um_include.clone().into_os_string().into_string().unwrap());
+                }
+
+                if um_include.join("winsdkver.h").exists() || um_include.join("windows.h").exists() {
+                    println!("winsdkver.h and windows.h files exists");
                 }
 
                 let winrt_include = includepath.join("winrt");
                 if winrt_include.exists() {
                     includespath.push(winrt_include.into_os_string().into_string().unwrap());
                 }
+                return Some(includespath)
             }
              
         } else {
             println!("open regedit failed, error: {:?}.", openstatus);
         }
-        return "".to_string()
+        return None
     }
-
 }
