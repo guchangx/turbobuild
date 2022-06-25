@@ -82,7 +82,8 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
     match winkitslincludes {
         Some(includes) => {
             for include in includes {
-                compilerargs.insert(1, "/I".to_string() + &r#"""#.to_string() + &include + &r#"""#.to_string());
+                compilerargs.push("/I".to_string());
+                compilerargs.push(include)
             }
         },
         _ => {
@@ -92,9 +93,9 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
 
     let includepath = getLocalCompileIncludeFilesPath();
     match includepath {
-        Some(filepath) => {
-            compilerargs.insert(1, "/I".to_string() + &r#"""#.to_string() + &filepath + &r#"""#.to_string());
-            println!("include path:{:?}", filepath);
+        Some(includefilepath) => {
+            compilerargs.push("/I".to_string());
+            compilerargs.push(includefilepath);
         },
         _ => {
             println!("msvc include path do not find");
