@@ -81,9 +81,10 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
 
     match winkitslincludes {
         Some(includes) => {
-            for include in includes {
-                compilerargs.push("/I".to_string());
-                compilerargs.push(include)
+            for mut include in includes {
+                let mut instruct = "/I".to_string();
+                instruct += &include;
+                compilerargs.push(instruct);
             }
         },
         _ => {
@@ -94,15 +95,14 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
     let includepath = getLocalCompileIncludeFilesPath();
     match includepath {
         Some(includefilepath) => {
-            compilerargs.push("/I".to_string());
-            compilerargs.push(includefilepath);
+            let mut instruct = "/I".to_string();
+            instruct += &includefilepath;
+            compilerargs.push(instruct);
         },
         _ => {
             println!("msvc include path do not find");
         },
     };
-
-    println!("compile args: {:?}", compilerargs);
 
     let workpath = std::env::current_dir().unwrap();
     println!("current exe path:{:?}", workpath.clone());
@@ -199,7 +199,7 @@ fn getLocalCompileIncludeFilesPath() ->Option<String> {
                                     .join(purevctoolsversion.as_str()).join("include");
                             
                             if msvcincludepath.exists() {
-                                println!("msvc include path: {:?}", msvcincludepath);
+                                //println!("msvc include path: {:#?}", msvcincludepath);
                                 return Some(msvcincludepath.into_os_string().into_string().unwrap())
                             }
                             else {
