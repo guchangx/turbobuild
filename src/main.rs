@@ -74,14 +74,8 @@ async fn main() {
 
 fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, compilerargs:&mut Vec<String>) -> bool{
     use std::process::{Stdio};
-    let compilerfilepath = compilerargs.last().unwrap();
-    println!("compiler file path: {:?}", compilerfilepath);
 
     let winkitslincludes = getwinsdkincludespath();
-
-    for include in winkitslincludes {
-        //compilerargs.push("/I".to_string() + &"\"".to_string() + include + '"');
-    }
 
     let includepath = getLocalCompileIncludeFilesPath();
     match includepath {
@@ -93,10 +87,9 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
         },
     };
 
-
     let workpath = std::env::current_dir().unwrap();
-    println!("current exe path:{:?}", workpath.clone());
-
+    println!("current exe path:{:?}, compile path: {}, do compile job path: {}", workpath.clone(), compilerpath, workingdir);
+    println!("client compiler args size: {}", compilerargs.len());
     let result = std::process::Command::new(compilerpath)
                     .current_dir(workingdir)
                     .args(compilerargs.clone())
