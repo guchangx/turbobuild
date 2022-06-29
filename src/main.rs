@@ -77,13 +77,28 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
 
     let winkitslincludes = getwinsdkincludespath();
 
-    let includepath = getLocalCompileIncludeFilesPath();
-    match includepath {
-        Some(file) => {
-            println!("include path:{:?}", file);
+    match winkitslincludes {
+        Some(includes) => {
+            for mut include in includes {
+                let mut instruct = "/I".to_string();
+                instruct += &include;
+                compilerargs.push(instruct);
+            }
         },
         _ => {
-            println!("include path do not find");
+            println!("do not get win kits includes");
+        },
+    }
+
+    let includepath = getLocalCompileIncludeFilesPath();
+    match includepath {
+        Some(includefilepath) => {
+            let mut instruct = "/I".to_string();
+            instruct += &includefilepath;
+            compilerargs.push(instruct);
+        },
+        _ => {
+            println!("msvc include path do not find");
         },
     };
 
@@ -182,7 +197,7 @@ fn getLocalCompileIncludeFilesPath() ->Option<String> {
                                     .join(purevctoolsversion.as_str()).join("include");
                             
                             if msvcincludepath.exists() {
-                                println!("msvc include path: {:?}", msvcincludepath);
+                                //println!("msvc include path: {:#?}", msvcincludepath);
                                 return Some(msvcincludepath.into_os_string().into_string().unwrap())
                             }
                             else {
