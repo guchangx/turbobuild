@@ -6,11 +6,12 @@ use winapi::um::winreg::RegOpenKeyExW;
 extern crate axum;
 extern crate winapi;
 
-#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug)]
+
+#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
 struct CompileInfo {
-    compiler_path: String,
-    work_dir: String,
-    compiler_args: Vec<String>,
+    compiler_path: std::ffi::OsString,
+    work_dir: std::ffi::OsString,
+    compiler_args:  Vec<std::ffi::OsString>,
 }
 
 async fn get_hello_info() -> &'static str
@@ -40,13 +41,11 @@ struct CompileRequest {
 
 async fn respone_msvc_compile(axum::extract::Json(compileInfo) : axum::extract::Json<CompileInfo>) -> axum::extract::Json<String> {
 
-    
     println!("compiler path {:?}", compileInfo.compiler_path);
     println!("compiler work path {:?}", compileInfo.work_dir);
-    println!("compile args: {:?}",  compileInfo.compiler_args);
 
     let mut args =  compileInfo.compiler_args;
-    startlocalcompiler(String::from(""), compileInfo.work_dir, 
+    startlocalcompiler(std::ffi::OsString::from(""), compileInfo.work_dir, 
                    compileInfo.compiler_path, &mut args);
     
     axum::extract::Json("{compile done}".to_string())
@@ -72,7 +71,7 @@ async fn main() {
     }  
 }
 
-fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, compilerargs:&mut Vec<String>) -> bool{
+fn startlocalcompiler(key: std::ffi::OsString, workingdir: std::ffi::OsString, compilerpath: std::ffi::OsString, compilerargs:&mut  Vec<std::ffi::OsString>) -> bool{
     use std::process::{Stdio};
 
     let winkitslincludes = getwinsdkincludespath();
@@ -82,7 +81,7 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
             for mut include in includes {
                 let mut instruct = "/I".to_string();
                 instruct += &include;
-                compilerargs.push(instruct);
+                compilerargs.push(std::ffi::OsString::from(instruct));
             }
         },
         _ => {
@@ -95,7 +94,7 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
         Some(includefilepath) => {
             let mut instruct = "/I".to_string();
             instruct += &includefilepath;
-            compilerargs.push(instruct);
+            compilerargs.push(std::ffi::OsString::from(instruct));
         },
         _ => {
             println!("msvc include path do not find");
@@ -103,8 +102,8 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
     };
 
     let workpath = std::env::current_dir().unwrap();
-    println!("current exe path:{:?}, compile path: {}, do compile job path: {}", workpath.clone(), compilerpath, workingdir);
-    println!("client compiler args size: {}", compilerargs.len());
+    println!("current exe path:{:?}, compile path: {:?}, do compile job path: {:?}", workpath.clone(), compilerpath, workingdir);
+
     let result = std::process::Command::new(compilerpath)
                     .current_dir(workingdir)
                     .args(compilerargs.clone())
@@ -112,15 +111,18 @@ fn startlocalcompiler(key: String, workingdir: String, compilerpath: String, com
                     .stderr(Stdio::piped())
                     .output()
                     .expect("failed to execute compoiler process!");
-
+    
     if result.status.success() {
+        let output = String::from_utf8_lossy(&result.stdout);
+        for line in output.lines() {
+            println!("{:#?}", line);
+        }
         println!("build success!");
         return true;
     }
     else {
         let output = String::from_utf8_lossy(&result.stdout);
         let outputlines = output.lines();
-        println!("file compiler error:");
         for line in outputlines {
             println!("{:#?}", line);
         }
