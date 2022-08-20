@@ -41,9 +41,6 @@ struct CompileRequest {
 
 async fn respone_msvc_compile(axum::extract::Json(compileInfo) : axum::extract::Json<CompileInfo>) -> axum::extract::Json<String> {
 
-    println!("compiler path {:?}", compileInfo.compiler_path);
-    println!("compiler work path {:?}", compileInfo.work_dir);
-
     let mut args =  compileInfo.compiler_args;
     startlocalcompiler(std::ffi::OsString::from(""), compileInfo.work_dir, 
                    compileInfo.compiler_path, &mut args);
@@ -71,8 +68,8 @@ async fn main() {
     }  
 }
 
-fn startlocalcompiler(key: std::ffi::OsString, workingdir: std::ffi::OsString, compilerpath: std::ffi::OsString, compilerargs:&mut  Vec<std::ffi::OsString>) -> bool{
-    use std::process::{Stdio};
+fn startlocalcompiler(key: std::ffi::OsString, workingdir: std::ffi::OsString, compilerpath: std::ffi::OsString, compilerargs:&mut  Vec<std::ffi::OsString>) -> bool {
+    use std::process::{Stdio, ChildStdin, ChildStderr};
 
     let winkitslincludes = getwinsdkincludespath();
 
@@ -102,32 +99,51 @@ fn startlocalcompiler(key: std::ffi::OsString, workingdir: std::ffi::OsString, c
     };
 
     let workpath = std::env::current_dir().unwrap();
-    println!("current exe path:{:?}, compile path: {:?}, do compile job path: {:?}", workpath.clone(), compilerpath, workingdir);
+    //println!("current exe path:{:?}, compile path: {:?}, do compile job path: {:?}", workpath.clone(), compilerpath, workingdir);
 
-    let result = std::process::Command::new(compilerpath)
-                    .current_dir(workingdir)
-                    .args(compilerargs.clone())
-                    .stdout(Stdio::piped())
-                    .stderr(Stdio::piped())
-                    .output()
-                    .expect("failed to execute compoiler process!");
+    // let result = std::process::Command::new(compilerpath)
+    //                 .current_dir(workingdir)
+    //                 .args(compilerargs.clone())
+    //                 .stdout(Stdio::piped())
+    //                 .stderr(Stdio::piped())
+    //                 .output()
+    //                 .expect("failed to execute compoiler process!");
     
-    if result.status.success() {
-        let output = String::from_utf8_lossy(&result.stdout);
-        for line in output.lines() {
-            println!("{:#?}", line);
+    // if result.status.success() {
+    //     let output = String::from_utf8_lossy(&result.stdout);
+    //     for line in output.lines() {
+    //         println!("{:#?}", line);
+    //     }
+    //     println!("build success!");
+    //     return true;
+    // }
+    // else {
+    //     let output = String::from_utf8_lossy(&result.stdout);
+    //     let outputlines = output.lines();
+    //     for line in outputlines {
+    //         println!("{:#?}", line);
+    //     }
+    //     return false;
+    // } 
+
+    let exit_status = std::process::Command::new(compilerpath)
+                            .current_dir(workingdir)
+                            .args(compilerargs.clone())
+                            .status();
+        match exit_status {
+            Ok(status) => {
+                if status.success() {
+                    return true
+                }
+                else {
+                    return false
+                }
+            },
+            Err(error) => {
+                println!("do compile failed, error info: {:?}", error);
+                return false;
+            }
         }
-        println!("build success!");
-        return true;
-    }
-    else {
-        let output = String::from_utf8_lossy(&result.stdout);
-        let outputlines = output.lines();
-        for line in outputlines {
-            println!("{:#?}", line);
-        }
-        return false;
-    }           
 }
 
 fn getVSInstallPath() -> Option<String> {
@@ -139,7 +155,7 @@ fn getVSInstallPath() -> Option<String> {
 
     let is_exist = vswhere.exists();
     if is_exist {
-        println!("vs where is exits:{:?}", vswhere); 
+        //println!("vs where is exits:{:?}", vswhere); 
             
         let result =  std::process::Command::new(vswhere)
         .arg("-latest")
@@ -180,7 +196,6 @@ fn getLocalCompileIncludeFilesPath() ->Option<String> {
             println!("get vs install path failed");
         },
         Some(vspath) => {
-            println!("get vs install path:{} and join vc tools version default text", vspath.clone());
             //C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build
             let vcauxiliarybuildpath = std::path::Path::new(vspath.as_str()).join("VC").join("Auxiliary").join("Build")
             .join("Microsoft.VCToolsVersion.default.txt");
@@ -194,7 +209,6 @@ fn getLocalCompileIncludeFilesPath() ->Option<String> {
                         if vctoolsversion.len() > 2 
                         {
                             let purevctoolsversion = vctoolsversion.replace("\r\n", "");
-                            println!("msvc version is : {:?}", vctoolsversion);
                             let msvcincludepath = std::path::Path::new(vspath.as_str()).join("vc").join("Tools").join("MSVC")
                                     .join(purevctoolsversion.as_str()).join("include");
                             
@@ -228,7 +242,6 @@ fn getwinsdkincludespath() -> Option<Vec<String>> {
     use std::os::windows::ffi::OsStrExt;
     use std::iter::once;
     use std::ptr::null_mut;
-    println!("get windows SDKs kit version.");
     unsafe {
 
         //HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Microsoft SDKs\Windows\v10
@@ -255,7 +268,6 @@ fn getwinsdkincludespath() -> Option<Vec<String>> {
                 winkits_path = String::from_utf16_lossy(words);
 
                 winkits_path = winkits_path.trim_end_matches('\0').to_string();
-                println!("Windows Kits path: {:?}", winkits_path)
             }
             else {
                 println!("get regedit InstallationFolder failed . error code: {:?}", querystatus);
@@ -275,7 +287,6 @@ fn getwinsdkincludespath() -> Option<Vec<String>> {
                 winkits_version = String::from_utf16_lossy(words);
                 winkits_version = winkits_version.trim_end_matches('\0').to_string();
                 winkits_version.push_str(".0");
-                println!("sdk version query result: {:?}", winkits_version);
 
             }
             else {
@@ -288,7 +299,7 @@ fn getwinsdkincludespath() -> Option<Vec<String>> {
                
                 let mut includespath : Vec<String> = Vec::new();
                 let cppwinrt_include = includepath.join("cppwinrt");
-                println!("cppwinrt path: {:?}", cppwinrt_include);
+
                 if cppwinrt_include.exists() {
                     includespath.push(cppwinrt_include.into_os_string().into_string().unwrap());
                 }
@@ -309,7 +320,7 @@ fn getwinsdkincludespath() -> Option<Vec<String>> {
                 }
 
                 if um_include.join("winsdkver.h").exists() || um_include.join("windows.h").exists() {
-                    println!("winsdkver.h and windows.h files exists");
+                    //println!("winsdkver.h and windows.h files exists");
                 }
 
                 let winrt_include = includepath.join("winrt");
