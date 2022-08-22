@@ -1,4 +1,4 @@
-use std::{io::Read, iter::FromIterator};
+use std::{io::Read, iter::FromIterator, borrow::Cow};
 
 use tokio::time::error::Elapsed;
 use winapi::um::winreg::RegOpenKeyExW;
@@ -38,14 +38,31 @@ struct CompileRequest {
     compilerpath: String,
     compilerargs: Vec<String>,
 }
+#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug)]
+struct CompileResult {
+    compile_filename: String,
+    compile_status: bool,
+    compile_output: String,
+}
 
-async fn respone_msvc_compile(axum::extract::Json(compileInfo) : axum::extract::Json<CompileInfo>) -> axum::extract::Json<String> {
+async fn respone_msvc_compile(axum::extract::Json(compileInfo) : axum::extract::Json<CompileInfo>) -> axum::extract::Json<serde_json::Value> {
 
     let mut args =  compileInfo.compiler_args;
-    startlocalcompiler(std::ffi::OsString::from(""), compileInfo.work_dir, 
+    let (compile_status, compile_output) = startlocalcompiler(std::ffi::OsString::from(""), compileInfo.work_dir, 
                    compileInfo.compiler_path, &mut args);
-    
-    axum::extract::Json("{compile done}".to_string())
+    let compile_filename = if compile_status {
+        compile_output.clone()
+    }
+    else {
+        "".to_string()
+    };
+
+    let result = CompileResult {
+        compile_filename,
+        compile_status: compile_status,
+        compile_output: compile_output,
+    };
+    axum::extract::Json(serde_json::json!(result))
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -68,7 +85,7 @@ async fn main() {
     }  
 }
 
-fn startlocalcompiler(key: std::ffi::OsString, workingdir: std::ffi::OsString, compilerpath: std::ffi::OsString, compilerargs:&mut  Vec<std::ffi::OsString>) -> bool {
+fn startlocalcompiler(key: std::ffi::OsString, workingdir: std::ffi::OsString, compilerpath: std::ffi::OsString, compilerargs:&mut  Vec<std::ffi::OsString>) -> (bool, String) {
     use std::process::{Stdio, ChildStdin, ChildStderr};
 
     let winkitslincludes = getwinsdkincludespath();
@@ -100,50 +117,45 @@ fn startlocalcompiler(key: std::ffi::OsString, workingdir: std::ffi::OsString, c
 
     let workpath = std::env::current_dir().unwrap();
     //println!("current exe path:{:?}, compile path: {:?}, do compile job path: {:?}", workpath.clone(), compilerpath, workingdir);
+    //println!("args: {:?}", compilerargs);
 
-    // let result = std::process::Command::new(compilerpath)
-    //                 .current_dir(workingdir)
-    //                 .args(compilerargs.clone())
-    //                 .stdout(Stdio::piped())
-    //                 .stderr(Stdio::piped())
-    //                 .output()
-    //                 .expect("failed to execute compoiler process!");
-    
-    // if result.status.success() {
-    //     let output = String::from_utf8_lossy(&result.stdout);
-    //     for line in output.lines() {
-    //         println!("{:#?}", line);
-    //     }
-    //     println!("build success!");
-    //     return true;
-    // }
-    // else {
-    //     let output = String::from_utf8_lossy(&result.stdout);
-    //     let outputlines = output.lines();
-    //     for line in outputlines {
-    //         println!("{:#?}", line);
-    //     }
-    //     return false;
-    // } 
-
-    let exit_status = std::process::Command::new(compilerpath)
+    let child = std::process::Command::new(compilerpath)
                             .current_dir(workingdir)
                             .args(compilerargs.clone())
-                            .status();
-        match exit_status {
-            Ok(status) => {
-                if status.success() {
-                    return true
-                }
-                else {
-                    return false
-                }
-            },
-            Err(error) => {
-                println!("do compile failed, error info: {:?}", error);
-                return false;
+                            .stdout(Stdio::piped())
+                            .stderr(Stdio::piped())
+                            .spawn();
+    
+    match child {
+        Ok(child) => {
+            let output = child.wait_with_output();
+            match output {
+                Ok(output) => {
+                    if output.status.success() {
+                        let output_context = String::from_utf8_lossy(&output.stdout);
+                        return (true, output_context.into_owned());
+                    }
+                    else {
+                         let output_context = String::from_utf8_lossy(&output.stdout);
+                         println!("build error: {:?}", output_context);
+                         return (false, output_context.into_owned());
+                    }
+                },
+                Err(error) => {
+                    println!("spawn compile child process error: {:?}", error);
+                    let mut error_description = String::from("compile child wait output error: ");
+                    error_description.push_str(error.to_string().as_str());
+                    return (false,  error_description);
+                },
             }
+        },
+        Err(error) => {
+            println!("spawn compile child process error: {:?}", error);
+            let mut error_description = String::from("spawn compile child process error: ");
+            error_description.push_str(error.to_string().as_str());
+            return (false,  error_description);
         }
+    }
 }
 
 fn getVSInstallPath() -> Option<String> {
