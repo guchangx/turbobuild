@@ -5,6 +5,7 @@ use winapi::um::winreg::RegOpenKeyExW;
 
 extern crate axum;
 extern crate winapi;
+extern crate chrono;
 
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
@@ -118,6 +119,8 @@ fn startlocalcompiler(key: std::ffi::OsString, workingdir: std::ffi::OsString, c
     let workpath = std::env::current_dir().unwrap();
     //println!("current exe path:{:?}, compile path: {:?}, do compile job path: {:?}", workpath.clone(), compilerpath, workingdir);
     //println!("args: {:?}", compilerargs);
+    let now_start = chrono::Local::now();
+    println!("start time: {:?}", now_start.format("%Y-%M-%d %H:%M:%S%.3f").to_string());
 
     let child = std::process::Command::new(compilerpath)
                             .current_dir(workingdir)
@@ -133,6 +136,9 @@ fn startlocalcompiler(key: std::ffi::OsString, workingdir: std::ffi::OsString, c
                 Ok(output) => {
                     if output.status.success() {
                         let output_context = String::from_utf8_lossy(&output.stdout);
+                        let now_end = chrono::Local::now();
+                        println!("time: {:?}", now_end.format("%Y-%M-%d %H:%M:%S%.3f").to_string());
+                        println!("file: {:#?}", output_context);
                         return (true, output_context.into_owned());
                     }
                     else {
