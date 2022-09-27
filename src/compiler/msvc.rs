@@ -1,0 +1,586 @@
+extern crate regex;
+pub struct MSVC;
+
+use std::{ops::Index};
+
+
+use crate::{platform::windows, cache::cache::Storage};
+
+lazy_static! {
+    static ref WINDOWS_COMPILER_ENV: windows::WindowsCompilerEnv = windows::WindowsCompilerEnv::default();
+}
+
+#[async_trait]
+impl crate::compiler::compiler::Compiler for MSVC {
+    async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, compile_input: super::compiler::CompileInput)
+                                    -> super::compiler::CompileOutput {
+        let output = request_msvc_compile(working_parameters, compile_input).await;
+        return output;
+
+            
+    }
+}
+
+async fn test() {
+
+}
+
+async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingParameters, msvc_compile_input: super::compiler::CompileInput) 
+                                        -> super::compiler::CompileOutput {
+    let mut redis = crate::cache::redis::RedisCache::new("redis://10.224.201.61/").await;
+
+
+    let (compiler_commands, compiler_path) = parse_compiler_input_command(msvc_compile_input.clone());
+    
+    let working_path = std::path::PathBuf::from(msvc_compile_input.compiler_working_dir.to_string_lossy().to_string());
+    let source_file = fetch_compiler_source_file(msvc_compile_input.build_and_compiler_type.clone(), 
+        compiler_commands.clone(), working_path.clone()).unwrap();
+
+    let object = fetch_compiler_object_file(msvc_compile_input.build_and_compiler_type.clone(), 
+        compiler_commands.clone(), working_path.clone());
+
+    let mut need_compile_file_key: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for (file, path) in source_file {
+        
+        let key = crate::utils::hasher::Digest::file(path).await;
+        match key {
+            Ok(key) => {
+
+                let exist = redis.exits(&key).await;
+                if exist {
+                    exempt_compile_single_source_by_cache(file, &mut compiler_commands.clone());
+                }
+                else {
+                    need_compile_file_key.insert(file, key);
+                }
+            },
+            Err(error) => {
+                println!("file can't get key.");
+            },
+        }
+    }
+
+    let exists_source_file_in_command = determine_whether_need_compile(compiler_commands.clone());
+    
+    if exists_source_file_in_command {
+
+        let value = crate::utils::grade::calculate_machine_residual_performance();
+        if value > 85 {
+            let object = fetch_compiler_object_file(msvc_compile_input.build_and_compiler_type, 
+                compiler_commands.clone(), working_path);
+
+            let output = request_local_compile(msvc_compile_input.compiler_path, 
+                msvc_compile_input.compiler_working_dir, compiler_commands.clone());
+            
+            if output.compile_status {
+                let key = need_compile_file_key.get(&output.compile_filename.clone());
+                match key {
+                    Some(key) => {
+                        match object {
+                            GeneratedObject::PathWithObjName(object_filepath_with_filename) => {
+                                set_generated_file_to_storage(&key, object_filepath_with_filename, redis);
+                            },
+                            GeneratedObject::PathWithoutObjName(object_filepath_without_filename) => {
+                                let file_path = object_filepath_without_filename.join(output.compile_filename.clone());
+                                set_generated_file_to_storage(&key, file_path, redis);
+                            },
+                            _ => {
+                            },
+                        }
+                    },
+                    None => {
+                    },
+                }
+            }
+            return output;
+        }
+        else {
+            let output = request_dist_compile(msvc_compile_input);
+            return output;
+        }
+    }
+    else {
+        let output = super::compiler::CompileOutput {
+            compile_filename: "".to_string(),
+            compile_status: false,
+            compile_output: "don't need compile anything.".to_string(),
+        };
+        return output;
+    }
+}
+
+fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir: std::ffi::OsString, 
+                                compiler_commands: Vec<std::ffi::OsString>) -> super::compiler::CompileOutput {
+
+    let (compile_status, compile_output) = start_local_compiler(compiler_path, compiler_working_dir, compiler_commands);
+
+    let compile_filename = if compile_status {
+        compile_output.clone()
+    }
+    else {
+        "".to_string()
+    };
+
+    let result = super::compiler::CompileOutput {
+        compile_filename,
+        compile_status: compile_status,
+        compile_output: compile_output,
+    };
+
+    return result;
+}
+
+fn request_dist_compile(_: super::compiler::CompileInput) -> super::compiler::CompileOutput {
+
+    let result = super::compiler::CompileOutput {
+        compile_filename: "".to_string(),
+        compile_status: true,
+        compile_output: "".to_string(),
+    };
+
+    return result;
+}
+
+fn start_local_compiler(compiler_path: std::ffi::OsString, working_dir: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>) -> (bool, String) {
+    use std::process::Stdio;
+
+    let now_start = chrono::Local::now();
+    println!("start time: {:?}, start content: {:?}", now_start.format("%Y-%m-%d %H:%M:%S%.3f").to_string(), compiler_commands);
+
+    let child = std::process::Command::new(compiler_path)
+                            .current_dir(working_dir)
+                            .args(compiler_commands.clone())
+                            .stdout(Stdio::piped())
+                            .stderr(Stdio::piped())
+                            .spawn();
+    
+    match child {
+        Ok(child) => {
+            let child_id = child.id();
+            let output = child.wait_with_output();
+            match output {
+                Ok(output) => {
+                    if output.status.success() {
+                        let output_context = String::from_utf8_lossy(&output.stdout);
+                        let now_end = chrono::Local::now();
+                        println!("file: {:#?}", output_context);
+                        println!("end time: {:?}, Id: {:?}", now_end.format("%Y-%m-%d %H:%M:%S%.3f").to_string(), child_id);
+                        return (true, output_context.into_owned());
+                    }
+                    else {
+                         let output_context = String::from_utf8_lossy(&output.stdout);
+                         println!("build error: {:?}", output_context);
+                         return (false, output_context.into_owned());
+                    }
+                },
+                Err(error) => {
+                    println!("spawn compile child process error: {:?}", error);
+                    let mut error_description = String::from("compile child wait output error: ");
+                    error_description.push_str(error.to_string().as_str());
+                    return (false,  error_description);
+                },
+            }
+        },
+        Err(error) => {
+            println!("spawn compile child process error: {:?}", error);
+            let mut error_description = String::from("spawn compile child process error: ");
+            error_description.push_str(error.to_string().as_str());
+            return (false,  error_description);
+        }
+    }
+}
+
+fn extract_additional_input_commands(compiler_commands: &mut String) -> Option<std::ffi::OsString> {
+
+    let compiler_path_begin_position = compiler_commands.find(" AssistClCompilerPath:");
+    match compiler_path_begin_position {
+        Some(index) => {
+            let mut half_args:String = compiler_commands.drain(..index).collect();
+            let compiler_path_end_position = compiler_commands.find("cl.exe");
+            match compiler_path_end_position {
+                Some(index) => {
+                    let mut cl_path:String = compiler_commands.drain(..index + "cl.exe".len()).collect();
+                    let _ = cl_path.drain(.." AssistClCompilerPath:".len());
+
+                    half_args += &compiler_commands;
+
+                    compiler_commands.clear();
+                    *compiler_commands = half_args;
+                    return Some(std::ffi::OsString::from(cl_path));
+                },
+                _ => {
+                    return None;
+                },
+            };
+        },
+        _ => {
+            return None;
+        },
+    };
+}
+
+// /D "CMAKE_INTDIR=\"Release\"" 
+fn extract_macro_contain_space_arg(compiler_commands: &mut String) -> Vec<std::ffi::OsString> {
+
+    let mut args: Vec<std::ffi::OsString> = Vec::new();
+    let replace_regex = regex::Regex::new(r#"(?P<a>/[Dd])(?P<b>[\s])(?P<c>"[\w=\\]+"[\w\\]+"")"#).unwrap();
+    for capture in replace_regex.captures_iter(&compiler_commands.clone())
+    {   
+        let macro_definition = capture.index(0);
+        let macro_definition_without_space = macro_definition.replace(" ", "");
+        args.push(std::ffi::OsString::from(macro_definition_without_space));
+
+        let mut macro_definitin_with_space = macro_definition.to_owned();
+        macro_definitin_with_space.push_str(" ");
+
+        let commands = compiler_commands.replace(macro_definitin_with_space.as_str(), "");
+        *compiler_commands = String::from(commands);
+
+    }
+    return args;
+}
+
+fn extract_path_ecnclosed_quotation_arg(compiler_commands: &mut String) -> Vec<std::ffi::OsString> {
+
+    let pathwithspace_regex = regex::Regex::new(r#"[-/\w:]*".*?""#).unwrap();
+    let mut include_args: Vec<std::ffi::OsString> = Vec::new();
+
+    for capture in pathwithspace_regex.captures_iter(&compiler_commands.clone())
+    {
+        if capture.len() == 1 {
+            let path_contain_space = capture.index(0);
+
+            let pathwithspace_position = compiler_commands.find(path_contain_space);
+            match pathwithspace_position {
+                Some(index) => {
+                    let (head_content, _) = compiler_commands.split_at(index);
+                    if head_content.len() > "external:I ".len() {
+                        let prefix_index = head_content.len() - "external:I ".len();
+                        let prefix_arg = head_content.to_owned().split_off(prefix_index);
+                        if prefix_arg.eq("external:I ") {
+                            let path_without_quotation = path_contain_space.replace('"', "");
+                            let include_arg = "/I".to_string() + &path_without_quotation;
+                            include_args.push(std::ffi::OsString::from(include_arg));
+
+                        }
+                    }
+                },
+                _ => {},
+            }
+
+            if path_contain_space.contains(" ") || path_contain_space.contains(".cpp") || path_contain_space.contains(".c") {
+                let path_without_quotation = path_contain_space.replace('"', "");
+                include_args.push(std::ffi::OsString::from(path_without_quotation));
+
+                let arg = String::from(" ") + path_contain_space;
+                *compiler_commands = String::from(compiler_commands.replace(arg.as_str(), ""));
+            }
+        }
+        else 
+        {
+            println!("regex capture len is not 1.");
+        }
+    }
+    return include_args;
+}
+
+fn split_commonds_by_space(compiler_commands: &mut String) -> Vec<std::ffi::OsString> {
+    let args_vec = compiler_commands.split(" ").map(|arg| String::from(arg)).collect::<Vec<_>>();
+    let mut args: Vec<std::ffi::OsString> = Vec::new();
+
+    for arg in args_vec {
+        if arg.starts_with("/Fo") || arg.starts_with("/Fd") {
+            let arg_without_enclosed_quotation = arg.replace('"', "");
+            args.push(std::ffi::OsString::from(arg_without_enclosed_quotation));
+        }
+        else {
+            args.push(std::ffi::OsString::from(arg));
+        }
+    }
+    return args;
+}
+
+fn parse_compiler_input_command(compile_input: super::compiler::CompileInput) -> (Vec<std::ffi::OsString>, std::ffi::OsString) {
+
+    let compile_commands:Vec<std::ffi::OsString> = compile_input.compiler_commands;
+    let mut args = Vec::new();
+    let mut compiler_path = std::ffi::OsString::new();
+    let commands_iter = compile_commands.iter().map(|arg| arg.to_str().unwrap().to_owned());
+    if compile_input.build_and_compiler_type.to_string_lossy().contains("MSVC") {
+        let mut commands = commands_iter.last().unwrap();
+
+        let complier_path_from_input = extract_additional_input_commands(&mut commands);
+        match complier_path_from_input {
+            Some(compiler_path_specified) => {
+                compiler_path = compiler_path_specified;
+            },
+            None => {
+                //use default x64 cl.exe
+                // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.32.31326\bin\Hostx64\x64\cl.exe
+                let path = &WINDOWS_COMPILER_ENV.compiler_path;
+                let compiler_path_by_specified = path.join("Hostx64").join("x64").join("cl.exe");
+                compiler_path = std::ffi::OsString::from(compiler_path_by_specified.to_str().unwrap());
+            },
+        }
+
+        args = extract_macro_contain_space_arg(&mut commands);
+        let mut args_with_path = extract_path_ecnclosed_quotation_arg(&mut commands);
+        args.append(&mut args_with_path);
+        let mut args_others = split_commonds_by_space(&mut commands);
+        args.append(&mut args_others);
+
+        if args.is_empty() {
+            println!("compiler don't effective extract commands.")
+        }
+        let winkits_includes = &WINDOWS_COMPILER_ENV.winsdk_includes_path;
+        for include in winkits_includes {
+            let mut instruct = "/I".to_string();
+            instruct += &include;
+            args.push(std::ffi::OsString::from(instruct));
+        }
+    
+        let msvc_includes = WINDOWS_COMPILER_ENV.msvc_includes_path.display().to_string();
+    
+        let mut instruct = String::from("/I");
+        instruct += &msvc_includes;
+        args.push(std::ffi::OsString::from(instruct));
+        
+        return (args, compiler_path);
+    }
+    else if  compile_input.build_and_compiler_type.to_string_lossy().contains("Cmake") {
+        compiler_path = compile_input.compiler_path;
+        return (args, compiler_path);
+    }
+    else {
+        return (args, compiler_path);
+    }
+}
+
+enum  TreatComilerCommand {
+    Cache,
+    Compile,
+}
+
+fn fetch_compiler_source_file(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) 
+                                    -> Option<std::collections::HashMap<String, std::path::PathBuf>> {
+
+    if build_and_compiler_type.to_string_lossy().contains("MSBuild") || 
+            build_and_compiler_type.to_string_lossy().contains("CMake") {
+        let mut sourcefile: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
+        
+        for command in compiler_commands {
+            let command = command.to_string_lossy().to_lowercase();
+            
+            if command.contains(".cpp") || command.contains(".c") {
+                let mut source = command.replace(r#"""#, "");
+                let mut index = source.rfind(r"\");
+                if index.is_none() {
+                    index = source.rfind(r"/");
+                }
+                match index {
+                    Some(i) => {
+                        let source_file_name = source.split_off(i + 1);
+
+                        let source_path = std::path::PathBuf::from(source.clone());
+                        if source_path.is_absolute() {
+                            sourcefile.insert(source_file_name, source_path);
+                        }
+                        else {
+                            let source_path = working_dir.join(source.clone());
+                            sourcefile.insert(source_file_name, source_path);
+                        }
+                    },
+                    None => {
+                        let absolute_source_path = working_dir.join(source.clone());
+                        sourcefile.insert(source.clone(), absolute_source_path);
+                    }
+                }
+            }
+        }
+        /* 
+        if compiler_commands.len() == 1 {
+            match compiler_commands.last() {
+                Some(command) => {
+                    let command = command.to_string_lossy().to_string();
+                    let regex = regex::Regex::new(r#"".*?(.cpp|.c)"|\S*(.cpp|.c)"#).unwrap();
+                    for capture in regex.captures_iter(&command) {
+                        let source_path = capture.index(0).replace(r#"""#, "").to_lowercase();
+                        if source_path.contains(".cpp") || source_path.contains(".c") {
+                            let mut index = source_path.rfind(r"\");
+                            if index.is_none() {
+                                index = source_path.rfind(r"/");
+                            }
+                            match index {
+                                Some(i) => {
+                                    let source = source_path.clone().split_off(i + 1);
+
+                                    let source_path = std::path::PathBuf::from(source_path);
+                                    if source_path.is_absolute() {
+
+                                    }
+                                    else {
+                                        let source_path = working_dir.join(source_path);
+                                    }
+
+                                    sourcefile.insert(source, source_path);
+                                },
+                                None => {
+                                    let absolute_source_file = std::path::PathBuf::from(working_dir).join(source_path);
+                                    sourcefile.insert(source_path, absolute_source_file);
+                                }
+                            }
+                        }
+                    }
+                },
+                None => {
+                    println!("can't get command from compiler commands.");
+                    return None;
+                },
+            }
+        }
+        */
+        return Some(sourcefile);
+    }
+    else {
+
+    }
+
+    return None;
+}
+
+enum GeneratedObject {
+    NoneObjPath,
+    PathWithObjName(std::path::PathBuf),
+    PathWithoutObjName(std::path::PathBuf),
+}
+
+fn fetch_compiler_object_file(build_and_compiler_type: std::ffi::OsString, 
+                                    compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) -> GeneratedObject {
+    
+    if build_and_compiler_type.to_string_lossy().contains("MSBuild") || 
+            build_and_compiler_type.to_string_lossy().contains("MSBuild") {
+        
+        let object_param = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().starts_with("/Fo"));
+        
+        let (size, _) = object_param.size_hint();
+        if size == 1 {
+            match object_param.last() {
+                Some(object) => {
+                    let object_path = object.to_string_lossy().to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
+                    if object_path.ends_with(".obj") {
+                        let path = std::path::PathBuf::from(object_path);
+                        return GeneratedObject::PathWithObjName(path);
+                    }
+                    else {
+                        let path = std::path::PathBuf::from(object_path);
+                        return GeneratedObject::PathWithoutObjName(path);
+                    }
+                },
+                None => {
+                    return GeneratedObject::NoneObjPath;
+                },
+            }
+        }
+        /* 
+        if compiler_commands.len() == 1 {
+            match compiler_commands.last() {
+                Some(compiler_commands) => {
+                    let commands = compiler_commands.to_string_lossy().to_string();
+                    let regex = regex::Regex::new(r#"/Fo".*?"|/Fo\S*"#).unwrap();
+
+                    let object_param = "";
+                    for capture in regex.captures_iter(&commands) {
+                        object_param = capture.index(0);
+                    }
+                    let (_, object_path) = object_param.split_at(3);
+                    let object_path = object_path.replace(r#"""#, "").replace(r"\\", r"\");
+                    if object_path.ends_with(".obj") {
+                        let path = working_dir.join(object_path);
+                        return GeneratedObject::PathWithObjName(path);
+                    }
+                    else {
+                        let path = working_dir.join(object_path);
+                        return GeneratedObject::PathWithoutObjName(path);
+                    }
+                },
+                None => {
+                    return GeneratedObject::NoneObjPath;
+                },
+            }
+        }
+        */
+        
+    }
+    else {
+
+    }
+    return GeneratedObject::NoneObjPath;
+}
+
+fn exempt_compile_single_source_by_cache(single_source_file: String, compiler_commands: &mut Vec<std::ffi::OsString>) {
+
+    let command = compiler_commands.clone().into_iter().filter(|arg| 
+        !arg.to_string_lossy().to_lowercase().contains(&single_source_file));
+    
+    let temp_commands = command.collect::<Vec<std::ffi::OsString>>();
+    *compiler_commands = temp_commands;
+}
+
+async fn get_generated_file_from_storage(key: &str, object_path: std::path::PathBuf, storage: std::sync::Arc<std::sync::Mutex<dyn crate::cache::cache::Storage>>) {
+    
+    let result = storage.lock().unwrap().get(key).await;
+    match result {
+        Ok(cache) => {
+            match cache {
+                crate::cache::cache::Cache::Hit(value) => {
+                    let _ = std::fs::write(object_path, value);
+                },
+                crate::cache::cache::Cache::Miss => {
+                    println!("can't write value to file.");
+                },
+                _ => {
+
+                },
+            }           
+        },
+        Err(error) => {
+
+        },
+    }
+}
+
+async fn set_generated_file_to_storage(key: &str, object_path: std::path::PathBuf, mut storage: impl crate::cache::cache::Storage) {
+    
+    let content = std::fs::read(object_path);
+    match content {
+        Ok(content) => {
+            let result = storage.set(key, content).await;
+        },
+        Err(err) => {
+            println!("read local obj file failed:{:?}", err);
+        },
+    };
+}
+
+async fn exist_source_file_generated_test<'a>(key: &str, storage: std::sync::Arc<std::sync::Mutex<dyn crate::cache::cache::Storage>>) -> bool {
+    let result = storage.lock().unwrap().exits(key).await;
+    return result;
+}
+
+async fn exist_source_file_generated(key: &str, storage: std::sync::Arc<std::sync::Mutex<dyn crate::cache::cache::Storage>>) -> bool {
+    let result = storage.lock().unwrap().exits(key).await;
+    return result;
+}
+
+fn determine_whether_need_compile(compiler_commands: Vec<std::ffi::OsString>) -> bool {
+    let source = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().contains(".cpp") || 
+                        arg.to_string_lossy().contains(".c"));
+
+    let (size, _) = source.size_hint();
+    if size > 0 {
+        return true;
+    }
+    else {
+        return false;
+    }
+}
