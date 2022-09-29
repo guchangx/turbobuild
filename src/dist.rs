@@ -1,11 +1,11 @@
 
 #[derive(Clone)]
 pub struct Dist{
-    into: String,
+    _into: String,
 }
 
 impl Dist {
     pub fn init()-> Dist {
-        Dist { into: "test".to_string() }
+        Dist { _into: "test".to_string() }
     }
 }

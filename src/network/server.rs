@@ -8,7 +8,7 @@ lazy_static! {
 
 pub struct NetworkRequestHandler {
     commonder_addr: String,
-    workers_addr: Vec<String>,
+    _workers_addr: Vec<String>,
 
 }
 
@@ -16,7 +16,7 @@ impl Default for NetworkRequestHandler {
     fn default() -> Self {
         Self {
             commonder_addr: "127.0.0.1:9302".to_string(),
-            workers_addr: vec!["127.0.0.1:9302".to_string()],
+            _workers_addr: vec!["127.0.0.1:9302".to_string()],
         }
     }
 }
@@ -33,9 +33,11 @@ async fn get_teamworker_info() -> axum::extract::Json<serde_json::Value>
 
 async fn request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>) -> axum::extract::Json<serde_json::Value> {
 
+    println!("into compile.");
     let parameters = WORKING_PARAMETERS.lock().unwrap().to_owned();
     let output = crate::compiler::compiler::request_compile(compile_input, parameters).await;
 
+    println!("out compile.");
     return axum::extract::Json(serde_json::json!(output))
 }
 
@@ -53,13 +55,13 @@ async fn init_network_request_router() {
         .serve(router.into_make_service());
     
     if let Err(err) = server.await {
-        println!("server error: {}", err);
+        println!("start service error: {}", err);
     }  
 }
 
 impl NetworkRequestHandler {
     pub async fn start(working_params: crate::buildturbo::WorkingParameters) {
-        init_network_request_router();
+        init_network_request_router().await;
         WORKING_PARAMETERS.lock().unwrap().set(working_params);
     }
 }

@@ -12,17 +12,17 @@ impl Disk {
 #[async_trait]
 impl super::cache::Storage for Disk {
 
-    async fn exits(&mut self, key: &str) -> bool
+    async fn exits(&self, key: &str) -> bool
     {
         return true;
     }
 
-    async fn get(&mut self, key: &str) -> anyhow::Result<super::cache::Cache>
+    async fn get(&self, key: &str) -> anyhow::Result<super::cache::Cache>
     {
         return anyhow::Ok(super::cache::Cache::Miss);
     }
 
-    async fn set(&mut self, key: &str, value: Vec<u8>) -> anyhow::Result<std::time::Duration>
+    async fn set(&self, key: &str, value: Vec<u8>) -> anyhow::Result<std::time::Duration>
     {
         let start = std::time::Instant::now();
         return anyhow::Ok(start.elapsed())
