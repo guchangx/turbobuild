@@ -22,13 +22,13 @@ impl Default for CompileOutput {
 
 #[async_trait]
 pub trait Compiler: core::marker::Send + core::marker::Sync + 'static {
-    async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput) -> CompileOutput;
+    async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput, pool: &tokio::runtime::Handle) -> CompileOutput;
 }
 
-pub async fn request_compile(compile_input: CompileInput, working_parameters: crate::buildturbo::WorkingParameters) -> CompileOutput {
+pub async fn request_compile(compile_input: CompileInput, working_parameters: crate::buildturbo::WorkingParameters, pool: &tokio::runtime::Handle) -> CompileOutput {
     if compile_input.build_and_compiler_type.to_string_lossy().contains("MSVC") {
         let msvc = super::msvc::MSVC {};
-        let output = msvc.request_compile(working_parameters, compile_input).await;
+        let output = msvc.request_compile(working_parameters, compile_input, pool).await;
         return output;
     }
     else if compile_input.build_and_compiler_type == "Clang" {

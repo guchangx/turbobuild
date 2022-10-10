@@ -16,10 +16,9 @@ mod cache;
 mod buildturbo;
 mod dist;
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() {
+fn main() {
     println!("welcome to build turbo tool.");
-    let working_parameters = buildturbo::WorkingParameters::init().await;
-    network::server::NetworkRequestHandler::start(working_parameters).await;
+    let working_parameters = buildturbo::WorkingParameters::init();
+    network::server::NetworkRequestHandler::start(working_parameters);
     println!("end build turbo tool.");
 }

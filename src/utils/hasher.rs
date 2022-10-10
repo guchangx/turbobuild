@@ -19,9 +19,9 @@ impl Digest {
         }
     }
     
-    pub async fn file(path: std::path::PathBuf) -> anyhow::Result<String>
+    pub async fn file(path: std::path::PathBuf, pool: &tokio::runtime::Handle) -> anyhow::Result<String>
     {
-        Self::reader(path).await
+        Self::reader(path, pool).await
     }
 
     pub fn reader_sync<R: std::io::Read>(mut reader: R) -> anyhow::Result<String> {
@@ -38,13 +38,7 @@ impl Digest {
         Ok(digest.finish())
     }
 
-    pub async fn reader(path: std::path::PathBuf) -> anyhow::Result<String> {
-        let pool = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .worker_threads(4)
-        .build()
-        .unwrap();
-
+    pub async fn reader(path: std::path::PathBuf, pool: &tokio::runtime::Handle) -> anyhow::Result<String> {
         pool.spawn_blocking(move || {
             let reader = std::fs::File::open(&path).with_context(|| format!("Failed to open file for hashing: {:?}", path))?;
 
