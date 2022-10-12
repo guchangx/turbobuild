@@ -1,4 +1,5 @@
 
+#[derive(Debug, Clone)]
 pub struct WindowsCompilerEnv {
     pub winsdk_includes_path: Vec<String>,
     pub compiler_path: std::path::PathBuf,

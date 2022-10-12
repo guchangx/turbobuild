@@ -9,14 +9,15 @@ pub struct CompileInput {
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
 pub struct CompileOutput {
-    pub compile_filename : String,
+    pub compiled_filename: Vec<std::ffi::OsString>,
     pub compile_status: bool,
-    pub compile_output: String,
+    pub compile_output: std::ffi::OsString,
 }
 
 impl Default for CompileOutput {
     fn default() -> Self {
-        Self { compile_filename: "".to_string(), compile_status: true, compile_output: "".to_string() }
+        let filename: Vec<std::ffi::OsString> = Vec::new();
+        Self { compiled_filename: filename, compile_status: true, compile_output: std::ffi::OsString::from("") }
     }
 }
 

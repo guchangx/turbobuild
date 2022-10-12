@@ -1,13 +1,9 @@
 extern crate regex;
+
 pub struct MSVC;
 
 use std::{ops::Index};
 
-
-
-lazy_static! {
-    static ref WINDOWS_COMPILER_ENV: crate::platform::windows::WindowsCompilerEnv = crate::platform::windows::WindowsCompilerEnv::default();
-}
 
 #[async_trait]
 impl crate::compiler::compiler::Compiler for MSVC {
@@ -22,10 +18,8 @@ impl crate::compiler::compiler::Compiler for MSVC {
 async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingParameters, msvc_compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle) 
                                         -> super::compiler::CompileOutput {
     let storage = working_parameters.storage;
-    //let pool = working_parameters.runtime.clone();
-    //let pool = pool;
-
-    let (mut compiler_commands, compiler_path) = parse_compiler_input_command(msvc_compile_input.clone());
+    let env = working_parameters.compiler_env;                                        
+    let (mut compiler_commands, compiler_path) = parse_compiler_input_command(msvc_compile_input.clone(), &env);
     
     let working_path = std::path::PathBuf::from(msvc_compile_input.compiler_working_dir.to_string_lossy().to_string());
     let source_file = fetch_compiler_source_file(msvc_compile_input.build_and_compiler_type.clone(), 
@@ -34,33 +28,39 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
     let object = fetch_compiler_object_file(msvc_compile_input.build_and_compiler_type.clone(), 
                                 compiler_commands.clone(), working_path.clone());
 
-
     let mut need_compile_file_key: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     for (file, path) in source_file {
-
-        let key = crate::utils::hasher::Digest::file(path, pool).await;
+        
+        let key = crate::utils::hasher::Digest::file(path.clone(), pool).await;
         
         match key {
             Ok(key) => {
                 let exist = exist_source_file_generated(&key, &storage).await;
                 if exist {
+                    println!("cache from storage source file name: {:?}, path: {:?}, key: {:?}", file, path.clone(), key);
                     exempt_compile_current_source_by_cache(file.clone(), &mut compiler_commands);
 
                     match &object {
                         GeneratedObject::PathWithObjName(object_filepath_with_filename) => {
-                            get_generated_file_from_storage(&key, object_filepath_with_filename, &storage).await;
+                            get_generated_cache_from_storage(&key, object_filepath_with_filename, &storage).await;
                         },
                         GeneratedObject::PathWithoutObjName(object_filepath_without_filename) => {
-                            let path = object_filepath_without_filename.join(file.clone());
-                            get_generated_file_from_storage(&key, &path, &storage).await;
+                            let suffix_index = file.rfind('.').unwrap();
+                            let mut filename = file.clone();
+                            let _ = filename.split_off(suffix_index);
+                            filename.push_str(".obj");
+
+                            let object_path = object_filepath_without_filename.join(filename);
+                            get_generated_cache_from_storage(&key, &object_path, &storage).await;
                         },
                         _ => {
-                            println!("get cache can't fetch object file path.");
+                            println!("get cache operate can't fetch object file path.");
                         },
                     }
                     
                 }
                 else {
+                    println!("compile source file name: {:?}, path: {:?}, key: {:?}", file, path.clone(), key);
                     need_compile_file_key.insert(file, key);
                 }
             },
@@ -77,29 +77,37 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
         let value = crate::utils::grade::calculate_machine_residual_performance();
         if value > 85 {
 
-            let output = request_local_compile(compiler_path, 
-                msvc_compile_input.compiler_working_dir, compiler_commands.clone());
+            let output = request_local_compile(compiler_path, msvc_compile_input.compiler_working_dir, compiler_commands.clone());
             
             if output.compile_status {
-                let key = need_compile_file_key.get(&output.compile_filename.clone());
-                match key {
-                    Some(key) => {
+                println!("compiled filename {:?} need_compile_file_key: {:?}", output.compiled_filename.clone(), need_compile_file_key.clone());
+                for compiled_file in output.compiled_filename.clone() {
+                    let compiled_file = compiled_file.to_str().unwrap();
+                    let key = need_compile_file_key.get(compiled_file);
+                    match key {
+                        Some(key) => {
 
-                        match &object {
-                            GeneratedObject::PathWithObjName(object_filepath_with_filename) => {
-                                set_generated_file_to_storage(&key, object_filepath_with_filename, &storage).await;
-                            },
-                            GeneratedObject::PathWithoutObjName(object_filepath_without_filename) => {
-                                let file_path = object_filepath_without_filename.join(output.compile_filename.clone());
-                                set_generated_file_to_storage(&key, &file_path, &storage).await;
-                            },
-                            _ => {
-                                println!("set cache can't fetch object file path.");
-                            },
-                        }
-                    },
-                    None => {
-                    },
+                            match &object {
+                                GeneratedObject::PathWithObjName(object_filepath_with_filename) => {
+                                    set_generated_cache_to_storage(&key, object_filepath_with_filename, &storage).await;
+                                },
+                                GeneratedObject::PathWithoutObjName(object_filepath_without_filename) => {
+                                    let suffix_index = compiled_file.rfind('.').unwrap();
+                                    let mut filename = compiled_file.to_owned();
+                                    let _ = filename.split_off(suffix_index);
+                                    filename.push_str(".obj");
+                                    let object_path = object_filepath_without_filename.join(filename);
+                                    set_generated_cache_to_storage(&key, &object_path, &storage).await;
+                                },
+                                _ => {
+                                    println!("set cache can't fetch object file path.");
+                                },
+                            }
+                        },
+                        None => {
+                            println!("don't get key in HashMap<filename, key> by source filename. {:?}", compiled_file);
+                        },
+                    }
                 }
             }
             return output;
@@ -110,10 +118,11 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
         }
     }
     else {
+        let compiled_filename: Vec<std::ffi::OsString> = Vec::new();
         let output = super::compiler::CompileOutput {
-            compile_filename: "".to_string(),
+            compiled_filename,
             compile_status: false,
-            compile_output: "don't need compile anything.".to_string(),
+            compile_output: std::ffi::OsString::from("don't need compile anything."),
         };
         return output;
     }
@@ -124,28 +133,34 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
 
     let (compile_status, compile_output) = start_local_compiler(compiler_path, compiler_working_dir, compiler_commands);
 
-    let compile_filename = if compile_status {
-        compile_output.clone()
-    }
-    else {
-        "".to_string()
+    println!("compile_status: {:?} compile_output: {:?}", compile_status, compile_output);
+    let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
+    if compile_status {
+        let output = compile_output.lines();
+        
+        for line in output {
+            let line = line.replace(r#"""#, "");
+            if line.ends_with(".cpp") || line.ends_with(".c") {
+                compiled_filename.push(std::ffi::OsString::from(line));
+            }
+        }
     };
 
     let result = super::compiler::CompileOutput {
-        compile_filename,
+        compiled_filename,
         compile_status: compile_status,
-        compile_output: compile_output,
+        compile_output: std::ffi::OsString::from(compile_output),
     };
 
     return result;
 }
 
 fn request_dist_compile(_: super::compiler::CompileInput) -> super::compiler::CompileOutput {
-
+    let compiled_filename: Vec<std::ffi::OsString> = Vec::new();
     let result = super::compiler::CompileOutput {
-        compile_filename: "".to_string(),
+        compiled_filename,
         compile_status: true,
-        compile_output: "".to_string(),
+        compile_output: std::ffi::OsString::from(""),
     };
 
     return result;
@@ -155,7 +170,7 @@ fn start_local_compiler(compiler_path: std::ffi::OsString, working_dir: std::ffi
     use std::process::Stdio;
 
     let now_start = chrono::Local::now();
-    println!("start time: {:?}, copiler path: {:?}, start content: {:?}", now_start.format("%Y-%m-%d %H:%M:%S%.3f").to_string(), compiler_path, compiler_commands);
+    //println!("start time: {:?}, copiler path: {:?}, start content: {:?}", now_start.format("%Y-%m-%d %H:%M:%S%.3f").to_string(), compiler_path, compiler_commands);
 
     let child = std::process::Command::new(compiler_path)
                             .current_dir(working_dir)
@@ -173,7 +188,7 @@ fn start_local_compiler(compiler_path: std::ffi::OsString, working_dir: std::ffi
                     if output.status.success() {
                         let output_context = String::from_utf8_lossy(&output.stdout);
                         let now_end = chrono::Local::now();
-                        println!("file: {:#?}", output_context);
+                        //println!("file: {:#?}", output_context);
                         println!("end time: {:?}, Id: {:?}", now_end.format("%Y-%m-%d %H:%M:%S%.3f").to_string(), child_id);
                         return (true, output_context.into_owned());
                     }
@@ -310,7 +325,7 @@ fn split_commonds_by_space(compiler_commands: &mut String) -> Vec<std::ffi::OsSt
     return args;
 }
 
-fn parse_compiler_input_command(compile_input: super::compiler::CompileInput) -> (Vec<std::ffi::OsString>, std::ffi::OsString) {
+fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, working_compiler_env: &crate::platform::windows::WindowsCompilerEnv) -> (Vec<std::ffi::OsString>, std::ffi::OsString) {
 
     let compile_commands:Vec<std::ffi::OsString> = compile_input.compiler_commands;
     let mut args = Vec::new();
@@ -329,7 +344,7 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput) ->
                 //use default x64 cl.exe
                 // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.32.31326\bin\Hostx64\x64\cl.exe
                 println!("compiler use default value.");
-                let path = &WINDOWS_COMPILER_ENV.compiler_path;
+                let path = &working_compiler_env.compiler_path;
                 let compiler_path_by_specified = path.join("Hostx64").join("x64").join("cl.exe");
                 compiler_path = std::ffi::OsString::from(compiler_path_by_specified.to_str().unwrap());
             },
@@ -346,14 +361,14 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput) ->
         if args.is_empty() {
             println!("compiler don't effective extract commands.")
         }
-        let winkits_includes = &WINDOWS_COMPILER_ENV.winsdk_includes_path;
+        let winkits_includes = &working_compiler_env.winsdk_includes_path;
         for include in winkits_includes {
             let mut instruct = "/I".to_string();
             instruct += &include;
             args.push(std::ffi::OsString::from(instruct));
         }
     
-        let msvc_includes = WINDOWS_COMPILER_ENV.msvc_includes_path.display().to_string();
+        let msvc_includes = working_compiler_env.msvc_includes_path.display().to_string();
     
         let mut instruct = String::from("/I");
         instruct += &msvc_includes;
@@ -378,9 +393,9 @@ fn fetch_compiler_source_file(build_and_compiler_type: std::ffi::OsString, compi
         let mut sourcefile: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
         
         for command in compiler_commands {
-            let command = command.to_string_lossy().to_lowercase();
+            let command = command.to_string_lossy();
             
-            if command.contains(".cpp") || command.contains(".c") {
+            if command.to_lowercase().contains(".cpp") || command.to_lowercase().contains(".c") {
                 let source = command.replace(r#"""#, "");
                 let mut index = source.rfind(r"\");
                 if index.is_none() {
@@ -421,36 +436,32 @@ enum GeneratedObject {
     PathWithoutObjName(std::path::PathBuf),
 }
 
-fn fetch_compiler_object_file(build_and_compiler_type: std::ffi::OsString, 
-                                    compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) -> GeneratedObject {
-    
-    if build_and_compiler_type.to_string_lossy().contains("MSBuild") || 
-            build_and_compiler_type.to_string_lossy().contains("CMake") {
-        
-        let object_param = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().starts_with("/Fo"));
-        
-        let (size, _) = object_param.size_hint();
-        if size == 1 {
-            match object_param.last() {
-                Some(object) => {
-                    let object_path = object.to_string_lossy().to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
-                    if object_path.ends_with(".obj") {
-                        let path = std::path::PathBuf::from(object_path);
-                        return GeneratedObject::PathWithObjName(path);
-                    }
-                    else {
-                        let path = std::path::PathBuf::from(object_path);
-                        return GeneratedObject::PathWithoutObjName(path);
-                    }
-                },
-                None => {
-                    return GeneratedObject::NoneObjPath;
-                },
-            }
-        }
-    }
-    else {
+fn fetch_compiler_object_file(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) -> GeneratedObject {
 
+    if build_and_compiler_type.to_string_lossy().contains("MSBuild") || build_and_compiler_type.to_string_lossy().contains("CMake") {
+
+        let object_param = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().starts_with("/Fo")).collect::<Vec<_>>();
+
+        match object_param.last() {
+            Some(object) => {
+                let object_path = object.to_string_lossy().to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
+                if object_path.ends_with(".obj") {
+                    let path = working_dir.join(object_path);
+                    println!("object file name PathWithObjName: {:?}", path);
+                    return GeneratedObject::PathWithObjName(path);
+                }
+                else {
+                    let path = working_dir.join(object_path);
+                    println!("object file name PathWithoutObjName: {:?}", path);
+                    return GeneratedObject::PathWithoutObjName(path);
+                }
+            },
+            None => {
+                println!("NoneObjPath NoneObjPath NoneObjPath");
+                return GeneratedObject::NoneObjPath;
+            },
+        }
+        
     }
     return GeneratedObject::NoneObjPath;
 }
@@ -458,13 +469,13 @@ fn fetch_compiler_object_file(build_and_compiler_type: std::ffi::OsString,
 fn exempt_compile_current_source_by_cache(single_source_file: String, compiler_commands: &mut Vec<std::ffi::OsString>) {
 
     let command = compiler_commands.clone().into_iter().filter(|arg| 
-        !arg.to_string_lossy().to_lowercase().contains(&single_source_file));
+        !arg.to_string_lossy().contains(&single_source_file));
     
     let temp_commands = command.collect::<Vec<std::ffi::OsString>>();
     *compiler_commands = temp_commands;
 }
 
-async fn get_generated_file_from_storage(key: &str, object_path: &std::path::PathBuf, storage: &std::sync::Arc<dyn crate::cache::cache::Storage>) {
+async fn get_generated_cache_from_storage(key: &str, object_path: &std::path::PathBuf, storage: &std::sync::Arc<dyn crate::cache::cache::Storage>) {
     
     let result = storage.get(key).await;
     match result {
@@ -487,8 +498,9 @@ async fn get_generated_file_from_storage(key: &str, object_path: &std::path::Pat
     }
 }
 
-async fn set_generated_file_to_storage(key: &str, object_path: &std::path::PathBuf, storage: &std::sync::Arc<dyn crate::cache::cache::Storage>) {
-    
+async fn set_generated_cache_to_storage(key: &str, object_path: &std::path::PathBuf, storage: &std::sync::Arc<dyn crate::cache::cache::Storage>) {
+    println!("set object cache file: {:?}", object_path);
+
     let content = std::fs::read(object_path);
     match content {
         Ok(content) => {
@@ -503,7 +515,7 @@ async fn set_generated_file_to_storage(key: &str, object_path: &std::path::PathB
             }
         },
         Err(error) => {
-            println!("read local object file failed, error code: {:?}.", error);
+            println!("read local object file failed, path: {:?}, error code: {:?}.", object_path, error);
         },
     };
 }
