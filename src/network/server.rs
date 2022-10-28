@@ -34,17 +34,40 @@ async fn request_compile(axum::extract::Json(compile_input): axum::extract::Json
 
 }
 
+async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>, 
+        working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle) -> axum::extract::Json<serde_json::Value>
+{
+
+    return axum::extract::Json(serde_json::json!("dist_compile_output"));
+}
+
+async fn pre_sync_file(axum::extract::Json(pre_sync_file): axum::extract::Json<crate::compiler::compiler::PreSyncFile>) -> axum::extract::Json<serde_json::Value> {
+    crate::syncfile::filecache::pre_sync_file(&pre_sync_file).await;
+    return axum::extract::Json(serde_json::json!("dist_compile_output"));
+}
+
+async fn sync_file(mut multipart: axum::extract::multipart::Multipart) {
+    crate::compiler::compiler::sync_file_to_local(&mut multipart).await;
+}
+
 async fn init_network_request_router(working_params: crate::buildturbo::WorkingParameters, thread_pool: &tokio::runtime::Handle) {
     let pool = thread_pool.clone();
+    let dist_pool = thread_pool.clone();
+    let dist_working_params = working_params.clone();
     let router = axum::Router::new()
     .route("/", axum::routing::get(|| async {"Hi!"}))
     .route("/hello", axum::routing::get(get_hello_info))
     .route("/teamworker", axum::routing::get(get_teamworker_info))
-    .route("/requestcompile", axum::routing::post( |args| {
+    .route("/requestcompile", axum::routing::post(|args| {
                 request_compile(args, working_params, pool)
             }
-        )
-    );
+        ))
+    .route("/request/dist/compile", axum::routing::post(|args| {
+                dist_request_compile(args, dist_working_params, dist_pool)
+            }
+        ))
+    .route("/prepostfile", axum::routing::post(pre_sync_file))
+    .route("/postfile", axum::routing::post(sync_file));
 
     let network = NetworkRequestHandler::default();
     let addr = network.commonder_addr.as_str().parse::<std::net::SocketAddr>().unwrap();

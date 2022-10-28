@@ -11,6 +11,7 @@ mod platform;
 mod cache;
 mod buildturbo;
 mod dist;
+mod syncfile;
 
 pub fn main() {
     println!("welcome to build turbo tool.");

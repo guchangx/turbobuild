@@ -13,6 +13,13 @@ impl crate::compiler::compiler::Compiler for MSVC {
         let output = request_msvc_compile(working_parameters, compile_input, pool).await;
         return output;
     }
+    async fn dist_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
+                                    compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle)
+                                    -> super::compiler::CompileOutput {
+                                        
+        let output = request_msvc_compile(working_parameters, compile_input, pool).await;
+        return output;
+    }
 }
 
 async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingParameters, msvc_compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle) 
@@ -37,7 +44,6 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
             Ok(key) => {
                 let exist = exist_source_file_generated(&key, &storage).await;
                 if exist {
-                    println!("cache from storage source file name: {:?}, path: {:?}, key: {:?}", file, path.clone(), key);
                     exempt_compile_current_source_by_cache(file.clone(), &mut compiler_commands);
 
                     match &object {
@@ -133,7 +139,6 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
 
     let (compile_status, compile_output) = start_local_compiler(compiler_path, compiler_working_dir, compiler_commands);
 
-    println!("compile_status: {:?} compile_output: {:?}", compile_status, compile_output);
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
     if compile_status {
         let output = compile_output.lines();
@@ -170,7 +175,7 @@ fn start_local_compiler(compiler_path: std::ffi::OsString, working_dir: std::ffi
     use std::process::Stdio;
 
     let now_start = chrono::Local::now();
-    //println!("start time: {:?}, copiler path: {:?}, start content: {:?}", now_start.format("%Y-%m-%d %H:%M:%S%.3f").to_string(), compiler_path, compiler_commands);
+    println!("start time: {:?}, copiler path: {:?}, start content: {:?}", now_start.format("%Y-%m-%d %H:%M:%S%.3f").to_string(), compiler_path, compiler_commands);
 
     let child = std::process::Command::new(compiler_path)
                             .current_dir(working_dir)
@@ -293,12 +298,19 @@ fn extract_path_ecnclosed_quotation_arg(compiler_commands: &mut String) -> Vec<s
                 _ => {},
             }
 
-            if path_contain_space.contains(" ") || path_contain_space.contains(".cpp") || path_contain_space.contains(".c") {
+            if path_contain_space.contains(" ") || 
+                (path_contain_space.starts_with(r#"/I""#) && path_contain_space.ends_with(r#"""#)) ||
+                path_contain_space.contains(".cpp") || path_contain_space.contains(".c") {
                 let path_without_quotation = path_contain_space.replace('"', "");
                 include_args.push(std::ffi::OsString::from(path_without_quotation));
+                
+                println!("capture {:?}", capture);
 
                 let arg = String::from(" ") + path_contain_space;
                 *compiler_commands = String::from(compiler_commands.replace(arg.as_str(), ""));
+            }
+            else {
+                println!("else capture {:?}", capture);
             }
         }
         else 
@@ -337,13 +349,11 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, wo
         let complier_path_from_input = extract_additional_input_commands(&mut commands);
         match complier_path_from_input {
             Some(compiler_path_specified) => {
-                println!("compiler path come form additional commands.");
                 compiler_path = compiler_path_specified;
             },
             None => {
                 //use default x64 cl.exe
                 // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.32.31326\bin\Hostx64\x64\cl.exe
-                println!("compiler use default value.");
                 let path = &working_compiler_env.compiler_path;
                 let compiler_path_by_specified = path.join("Hostx64").join("x64").join("cl.exe");
                 compiler_path = std::ffi::OsString::from(compiler_path_by_specified.to_str().unwrap());
@@ -353,6 +363,7 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, wo
         args = extract_macro_contain_space_arg(&mut commands);
 
         let mut args_with_path = extract_path_ecnclosed_quotation_arg(&mut commands);
+        println!("ecnclosed quotation: {:?}", args_with_path);
         args.append(&mut args_with_path);
 
         let mut args_others = split_commonds_by_space(&mut commands);
@@ -447,12 +458,10 @@ fn fetch_compiler_object_file(build_and_compiler_type: std::ffi::OsString, compi
                 let object_path = object.to_string_lossy().to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
                 if object_path.ends_with(".obj") {
                     let path = working_dir.join(object_path);
-                    println!("object file name PathWithObjName: {:?}", path);
                     return GeneratedObject::PathWithObjName(path);
                 }
                 else {
                     let path = working_dir.join(object_path);
-                    println!("object file name PathWithoutObjName: {:?}", path);
                     return GeneratedObject::PathWithoutObjName(path);
                 }
             },
@@ -529,8 +538,6 @@ fn determine_whether_need_compile(compiler_commands: Vec<std::ffi::OsString>) ->
 
     let source = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().contains(".cpp") || 
                         arg.to_string_lossy().contains(".c")).collect::<Vec<::std::ffi::OsString>>();
-
-    println!("should be compiled source file number: {:?}", source);
     if source.len() > 0 {
         return true;
     }

@@ -33,7 +33,6 @@ impl RedisCache {
         let result: Result<Vec<u8>, redis::RedisError> = connection.get(key).await;
         match result {
             Result::Ok(value) => {
-                println!("redis get len: {:?}", value.len());
                 if value.is_empty() {
                     return anyhow::Result::Err(anyhow::Error::msg("get from redis value is empty"));
                 }
