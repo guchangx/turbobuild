@@ -3,6 +3,7 @@ pub struct WorkingParameters {
     pub storage: std::sync::Arc<dyn crate::cache::cache::Storage>,
     pub dist: crate::dist::Dist,
     pub compiler_env: crate::platform::windows::WindowsCompilerEnv,
+    pub network_client: crate::network::client::NetworkClient,
 }
 
 impl WorkingParameters {
@@ -12,6 +13,7 @@ impl WorkingParameters {
             storage: std::sync::Arc::new(redis),
             dist: crate::dist::Dist::init(),
             compiler_env: crate::platform::windows::WindowsCompilerEnv::default(),
+            network_client: crate::network::client::NetworkClient::new(),
         };
         return parameters;
     }

@@ -1,5 +1,6 @@
 extern crate reqwest;
 
+#[derive(Clone)]
 pub struct NetworkClient {
     client: reqwest::blocking::Client,
 }
@@ -16,13 +17,14 @@ impl NetworkClient {
         }
     }
 
-    fn post(&self, _route: String) {
-
-        let _response = self.client.post("http://127.0.0.1:9302/requestcompile");
-    }
-
-    pub fn _request_compile(&self) {
-        self.post("requestcompile".to_string())
+    fn post(&self, route: &str, input: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
+        let base = reqwest::Url::parse("http://127.0.0.1:9302/").unwrap();
+        let url = base.join(&route).unwrap();
+        let response = self.client.post(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .json(&input)
+            .send();
+        return response;
     }
 
     fn post_file(&self, route: &str, path: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
@@ -32,19 +34,36 @@ impl NetworkClient {
         let base = reqwest::Url::parse("http://127.0.0.1:9302/").unwrap();
         let url = base.join(route).unwrap();
         let response = self.client.post(url)
-        .multipart(form)
-        .header(reqwest::header::CONTENT_TYPE, "multipart/form-data")
-        .send()
-        .unwrap();
+            .multipart(form)
+            .header(reqwest::header::CONTENT_TYPE, "multipart/form-data")
+            .send()
+            .unwrap();
         return Result::Ok(response);
     }
 
-    pub fn dist_file_sync(&self, path: &str) {
-        let _ = self.post_file("syncfile", path);
+    pub fn dist_file_sync(&self, route: &str, path: &str) {
+        let _ = self.post_file(route, path);
     }
-}
 
 
-pub fn _request_dist_compile() {
-    
+    pub fn dist_file_pre_sync(&self, route: &str, params: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
+        return self.post(route, params);
+    }
+
+    pub fn dist_tool_chain_per_sync(&self, compiler_path: &str) -> crate::compiler::compiler::PreSyncFile {
+
+        let sync_info = crate::compiler::compiler::PreSyncFile {
+            file_kind: std::ffi::OsString::from("toochain"),
+            file_path: std::ffi::OsString::from(compiler_path),
+            file_name: std::ffi::OsString::from("cl.exe"),
+            digest: std::ffi::OsString::new(),
+            is_exists: false,
+        };
+        let sync_info = serde_json::json!(sync_info).to_string();
+        let response = self.dist_file_pre_sync("presyncfile", &sync_info).unwrap();
+        let value: crate::compiler::compiler::PreSyncFile = response.json().unwrap();
+
+        return value;
+    }
+
 }

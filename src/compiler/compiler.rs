@@ -1,5 +1,3 @@
-use std::f32::consts::E;
-
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
 pub struct PreSyncFile {
@@ -8,6 +6,18 @@ pub struct PreSyncFile {
     pub file_name: std::ffi::OsString,
     pub digest: std::ffi::OsString,
     pub is_exists: bool,
+}
+
+impl Default for PreSyncFile {
+    fn default() -> Self {
+        Self {
+            file_kind: std::ffi::OsString::new(),
+            file_path: std::ffi::OsString::new(),
+            file_name: std::ffi::OsString::new(),
+            digest: std::ffi::OsString::new(),
+            is_exists: false,
+        }
+    }
 }
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
@@ -28,7 +38,7 @@ pub struct CompileOutput {
 impl Default for CompileOutput {
     fn default() -> Self {
         let filename: Vec<std::ffi::OsString> = Vec::new();
-        Self { compiled_filename: filename, compile_status: true, compile_output: std::ffi::OsString::from("") }
+        Self { compiled_filename: filename, compile_status: true, compile_output: std::ffi::OsString::new() }
     }
 }
 
@@ -52,23 +62,5 @@ pub async fn request_compile(compile_input: CompileInput, working_parameters: cr
     }
     else {
         return CompileOutput::default();
-    }
-}
-
-pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multipart) {
-
-    while let Some(field) = multipart.next_field().await.unwrap() {
-        let _name = field.name().expect("fetch name from multipart/form-data failed.").to_string();
-        let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
-
-        let data = field.bytes().await.unwrap();
-        let file_path = std::path::Path::new(&file_name);
-        let dir = file_path.parent().unwrap();
-
-        if !dir.exists() {
-            std::fs::create_dir(dir).unwrap();
-        }
-
-        let _ = std::fs::write(file_path, data);
     }
 }

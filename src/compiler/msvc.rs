@@ -13,6 +13,7 @@ impl crate::compiler::compiler::Compiler for MSVC {
         let output = request_msvc_compile(working_parameters, compile_input, pool).await;
         return output;
     }
+
     async fn dist_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
                                     compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle)
                                     -> super::compiler::CompileOutput {
@@ -24,6 +25,7 @@ impl crate::compiler::compiler::Compiler for MSVC {
 
 async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingParameters, msvc_compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle) 
                                         -> super::compiler::CompileOutput {
+    let w = working_parameters.clone();
     let storage = working_parameters.storage;
     let env = working_parameters.compiler_env;                                        
     let (mut compiler_commands, compiler_path) = parse_compiler_input_command(msvc_compile_input.clone(), &env);
@@ -119,7 +121,7 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
             return output;
         }
         else {
-            let output = request_dist_compile(msvc_compile_input);
+            let output = request_dist_compile(w, msvc_compile_input);
             return output;
         }
     }
@@ -160,7 +162,18 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
     return result;
 }
 
-fn request_dist_compile(_: super::compiler::CompileInput) -> super::compiler::CompileOutput {
+fn request_dist_compile(working_parameters: crate::buildturbo::WorkingParameters, msvc_compile_input: super::compiler::CompileInput) -> super::compiler::CompileOutput {
+
+    let local_compiler = msvc_compile_input.compiler_path.to_str().unwrap();
+    
+    let sender = crate::syncfile::sender::Sender::new(&working_parameters.network_client);
+    if working_parameters.network_client.dist_tool_chain_per_sync(local_compiler).is_exists {
+
+    }
+    else {
+        sender.sync_tool_chain(local_compiler);
+    }
+
     let compiled_filename: Vec<std::ffi::OsString> = Vec::new();
     let result = super::compiler::CompileOutput {
         compiled_filename,

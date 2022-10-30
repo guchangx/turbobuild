@@ -42,12 +42,12 @@ async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract:
 }
 
 async fn pre_sync_file(axum::extract::Json(pre_sync_file): axum::extract::Json<crate::compiler::compiler::PreSyncFile>) -> axum::extract::Json<serde_json::Value> {
-    crate::syncfile::filecache::pre_sync_file(&pre_sync_file).await;
-    return axum::extract::Json(serde_json::json!("dist_compile_output"));
+    let  exists_info = crate::syncfile::receiver::pre_sync_file(&pre_sync_file).await;
+    return axum::extract::Json(serde_json::json!(exists_info));
 }
 
 async fn sync_file(mut multipart: axum::extract::multipart::Multipart) {
-    crate::compiler::compiler::sync_file_to_local(&mut multipart).await;
+    crate::syncfile::receiver::sync_file_to_local(&mut multipart).await;
 }
 
 async fn init_network_request_router(working_params: crate::buildturbo::WorkingParameters, thread_pool: &tokio::runtime::Handle) {
