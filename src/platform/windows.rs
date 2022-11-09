@@ -1,5 +1,5 @@
 
-#[derive(Debug, Clone)]
+#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
 pub struct WindowsCompilerEnv {
     pub winsdk_includes_path: Vec<String>,
     pub compiler_path: std::path::PathBuf,

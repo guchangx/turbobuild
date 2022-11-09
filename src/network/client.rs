@@ -27,8 +27,20 @@ impl NetworkClient {
         return response;
     }
 
+    fn dist_post(&self, route: &str, env: &str, input: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
+        let base = reqwest::Url::parse("http://127.0.0.1:9302/").unwrap();
+        let url = base.join(&route).unwrap();
+        let response = self.client.post(url)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .json(&env)
+            .json(&input)
+            .send();
+        return response;
+    }
+
     fn post_file(&self, route: &str, path: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
         let file = std::fs::read(path).unwrap();
+
         let part = reqwest::blocking::multipart::Part::bytes(std::borrow::Cow::from(file)).file_name(path.to_owned());
         let form = reqwest::blocking::multipart::Form::new().part("file", part);
         let base = reqwest::Url::parse("http://127.0.0.1:9302/").unwrap();
@@ -50,20 +62,28 @@ impl NetworkClient {
         return self.post(route, params);
     }
 
-    pub fn dist_tool_chain_per_sync(&self, compiler_path: &str) -> crate::compiler::compiler::PreSyncFile {
-
+    pub fn dist_kits_and_tool_pre_sync(&self, kits_path: &str, compiler_path: &str) -> crate::compiler::compiler::PreSyncFile {
         let sync_info = crate::compiler::compiler::PreSyncFile {
-            file_kind: std::ffi::OsString::from("toochain"),
-            file_path: std::ffi::OsString::from(compiler_path),
-            file_name: std::ffi::OsString::from("cl.exe"),
+            sync_kind: std::ffi::OsString::new(),
+            toolchain_path: std::ffi::OsString::from(compiler_path),
+            windows_kits_path: std::ffi::OsString::from(kits_path),
+            file_path: std::ffi::OsString::new(),
+            file_name: std::ffi::OsString::new(),
             digest: std::ffi::OsString::new(),
             is_exists: false,
         };
+
         let sync_info = serde_json::json!(sync_info).to_string();
         let response = self.dist_file_pre_sync("presyncfile", &sync_info).unwrap();
         let value: crate::compiler::compiler::PreSyncFile = response.json().unwrap();
 
         return value;
+    }
+
+    pub fn dist_request_compile(&self, env: &crate::platform::windows::WindowsCompilerEnv, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> Result<reqwest::blocking::Response, reqwest::Error>{
+        let env = serde_json::json!(env).to_string();
+        let inputs = serde_json::json!(msvc_compile_input).to_string();
+        self.dist_post("dist/requestcompile", &env, &inputs)
     }
 
 }

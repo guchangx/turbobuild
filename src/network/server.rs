@@ -4,7 +4,6 @@ extern crate axum;
 pub struct NetworkRequestHandler {
     commonder_addr: String,
     _workers_addr: Vec<String>,
-
 }
 
 impl Default for NetworkRequestHandler {
@@ -29,16 +28,16 @@ async fn get_teamworker_info() -> axum::extract::Json<serde_json::Value>
 async fn request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>, 
         working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle) -> axum::extract::Json<serde_json::Value> {
 
-    let output = crate::compiler::compiler::request_compile(compile_input, working_parameters, &thread_pool).await;
+    let output = crate::compiler::compiler::request_compile(working_parameters, compile_input, &thread_pool).await;
     return axum::extract::Json(serde_json::json!(output));
-
 }
 
-async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>, 
+async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>,
+                            axum::extract::Json(compiler_env): axum::extract::Json<crate::platform::windows::WindowsCompilerEnv>,
         working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle) -> axum::extract::Json<serde_json::Value>
 {
-
-    return axum::extract::Json(serde_json::json!("dist_compile_output"));
+    let output = crate::compiler::compiler::dist_request_compile(working_parameters, compiler_env, compile_input, &thread_pool).await;
+    return axum::extract::Json(serde_json::json!(output));
 }
 
 async fn pre_sync_file(axum::extract::Json(pre_sync_file): axum::extract::Json<crate::compiler::compiler::PreSyncFile>) -> axum::extract::Json<serde_json::Value> {
@@ -62,8 +61,8 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
                 request_compile(args, working_params, pool)
             }
         ))
-    .route("/request/dist/compile", axum::routing::post(|args| {
-                dist_request_compile(args, dist_working_params, dist_pool)
+    .route("/dist/requestcompile", axum::routing::post(|args, env| {
+                dist_request_compile(args, env, dist_working_params, dist_pool)
             }
         ))
     .route("/prepostfile", axum::routing::post(pre_sync_file))

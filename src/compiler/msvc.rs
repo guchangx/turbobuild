@@ -15,10 +15,15 @@ impl crate::compiler::compiler::Compiler for MSVC {
     }
 
     async fn dist_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
-                                    compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle)
+        compiler_env: crate::platform::windows::WindowsCompilerEnv, compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle)
                                     -> super::compiler::CompileOutput {
-                                        
-        let output = request_msvc_compile(working_parameters, compile_input, pool).await;
+        let params = crate::buildturbo::WorkingParameters {
+                storage: working_parameters.storage,
+                dist: working_parameters.dist,
+                compiler_env: compiler_env,
+                network_client: working_parameters.network_client,
+        };
+        let output = request_msvc_compile(params, compile_input, pool).await;
         return output;
     }
 }
@@ -121,7 +126,13 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
             return output;
         }
         else {
-            let output = request_dist_compile(w, msvc_compile_input);
+            let parameters =  crate::buildturbo::WorkingParameters {
+                    storage: storage,
+                    dist: working_parameters.dist,
+                    compiler_env: env,
+                    network_client: working_parameters.network_client,
+            };
+            let output = request_dist_compile(&parameters, &msvc_compile_input);
             return output;
         }
     }
@@ -162,17 +173,33 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
     return result;
 }
 
-fn request_dist_compile(working_parameters: crate::buildturbo::WorkingParameters, msvc_compile_input: super::compiler::CompileInput) -> super::compiler::CompileOutput {
+fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameters, msvc_compile_input: &super::compiler::CompileInput) -> super::compiler::CompileOutput {
 
     let local_compiler = msvc_compile_input.compiler_path.to_str().unwrap();
+    let winsdk_path = working_parameters.compiler_env.winsdk_includes_path.first().unwrap();
     
     let sender = crate::syncfile::sender::Sender::new(&working_parameters.network_client);
-    if working_parameters.network_client.dist_tool_chain_per_sync(local_compiler).is_exists {
-
-    }
-    else {
+    let pre_sync_reponse = working_parameters.network_client.dist_kits_and_tool_pre_sync(winsdk_path, local_compiler);
+    
+    if pre_sync_reponse.toolchain_path.is_empty() {
         sender.sync_tool_chain(local_compiler);
     }
+    else if pre_sync_reponse.windows_kits_path.is_empty() {
+        sender.sync_tool_chain(winsdk_path);
+    }
+    else {
+        
+    }
+
+    let env = crate::platform::windows::WindowsCompilerEnv {
+            winsdk_includes_path: vec![pre_sync_reponse.windows_kits_path.to_string_lossy().to_string()],
+            compiler_path: std::path::PathBuf::from(pre_sync_reponse.toolchain_path.clone()),
+            msvc_includes_path: std::path::PathBuf::from(pre_sync_reponse.toolchain_path),
+            msvc_version: String::from(""),
+            env_args: String::from(""),
+    };
+
+    sender.dist_compile(&env, msvc_compile_input);
 
     let compiled_filename: Vec<std::ffi::OsString> = Vec::new();
     let result = super::compiler::CompileOutput {
