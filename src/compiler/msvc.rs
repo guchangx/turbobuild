@@ -10,7 +10,8 @@ impl crate::compiler::compiler::Compiler for MSVC {
     async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
                                 compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle)
                                 -> super::compiler::CompileOutput {
-        let output = request_msvc_compile(working_parameters, compile_input, pool).await;
+        let output = request_dist_compile(&working_parameters, &compile_input);
+        //let output = request_msvc_compile(working_parameters, compile_input, pool).await;
         return output;
     }
 
@@ -30,11 +31,11 @@ impl crate::compiler::compiler::Compiler for MSVC {
 
 async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingParameters, msvc_compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle) 
                                         -> super::compiler::CompileOutput {
-    let w = working_parameters.clone();
     let storage = working_parameters.storage;
-    let env = working_parameters.compiler_env;                                        
+    let env = working_parameters.compiler_env;
+
     let (mut compiler_commands, compiler_path) = parse_compiler_input_command(msvc_compile_input.clone(), &env);
-    
+
     let working_path = std::path::PathBuf::from(msvc_compile_input.compiler_working_dir.to_string_lossy().to_string());
     let source_file = fetch_compiler_source_file(msvc_compile_input.build_and_compiler_type.clone(), 
         compiler_commands.clone(), working_path.clone()).unwrap();
@@ -43,43 +44,45 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
                                 compiler_commands.clone(), working_path.clone());
 
     let mut need_compile_file_key: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    for (file, path) in source_file {
+    if false {
+        for (file, path) in source_file {
         
-        let key = crate::utils::hasher::Digest::file(path.clone(), pool).await;
-        
-        match key {
-            Ok(key) => {
-                let exist = exist_source_file_generated(&key, &storage).await;
-                if exist {
-                    exempt_compile_current_source_by_cache(file.clone(), &mut compiler_commands);
+            let key = crate::utils::hasher::Digest::file(path.clone(), pool).await;
+            
+            match key {
+                Ok(key) => {
+                    let exist = exist_source_file_generated(&key, &storage).await;
+                    if exist {
+                        exempt_compile_current_source_by_cache(file.clone(), &mut compiler_commands);
 
-                    match &object {
-                        GeneratedObject::PathWithObjName(object_filepath_with_filename) => {
-                            get_generated_cache_from_storage(&key, object_filepath_with_filename, &storage).await;
-                        },
-                        GeneratedObject::PathWithoutObjName(object_filepath_without_filename) => {
-                            let suffix_index = file.rfind('.').unwrap();
-                            let mut filename = file.clone();
-                            let _ = filename.split_off(suffix_index);
-                            filename.push_str(".obj");
+                        match &object {
+                            GeneratedObject::PathWithObjName(object_filepath_with_filename) => {
+                                get_generated_cache_from_storage(&key, object_filepath_with_filename, &storage).await;
+                            },
+                            GeneratedObject::PathWithoutObjName(object_filepath_without_filename) => {
+                                let suffix_index = file.rfind('.').unwrap();
+                                let mut filename = file.clone();
+                                let _ = filename.split_off(suffix_index);
+                                filename.push_str(".obj");
 
-                            let object_path = object_filepath_without_filename.join(filename);
-                            get_generated_cache_from_storage(&key, &object_path, &storage).await;
-                        },
-                        _ => {
-                            println!("get cache operate can't fetch object file path.");
-                        },
+                                let object_path = object_filepath_without_filename.join(filename);
+                                get_generated_cache_from_storage(&key, &object_path, &storage).await;
+                            },
+                            _ => {
+                                println!("get cache operate can't fetch object file path.");
+                            },
+                        }
+                        
                     }
-                    
-                }
-                else {
-                    println!("compile source file name: {:?}, path: {:?}, key: {:?}", file, path.clone(), key);
-                    need_compile_file_key.insert(file, key);
-                }
-            },
-            Err(error) => {
-                println!("file can't get hasher key. error info: {:?}", error);
-            },
+                    else {
+                        println!("compile source file name: {:?}, path: {:?}, key: {:?}", file, path.clone(), key);
+                        need_compile_file_key.insert(file, key);
+                    }
+                },
+                Err(error) => {
+                    println!("file can't get hasher key. error info: {:?}", error);
+                },
+            }
         }
     }
 

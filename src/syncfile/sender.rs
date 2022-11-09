@@ -1,4 +1,3 @@
-use std::f32::consts::E;
 use std::io::Read;
 use std::io::Write;
 
