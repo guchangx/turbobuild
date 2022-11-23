@@ -27,7 +27,6 @@ async fn get_teamworker_info() -> axum::extract::Json<serde_json::Value>
 
 async fn request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>, 
         working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle) -> axum::extract::Json<serde_json::Value> {
-
     let output = crate::compiler::compiler::request_compile(working_parameters, compile_input, &thread_pool).await;
     return axum::extract::Json(serde_json::json!(output));
 }
@@ -40,7 +39,7 @@ async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract:
     return axum::extract::Json(serde_json::json!(output));
 }
 
-async fn pre_sync_file(axum::extract::Json(pre_sync_file): axum::extract::Json<crate::compiler::compiler::PreSyncFile>) -> axum::extract::Json<serde_json::Value> {
+async fn pre_sync_file(axum::extract::Json(pre_sync_file): axum::extract::Json<crate::compiler::compiler::SyncData>) -> axum::extract::Json<serde_json::Value> {
     let  exists_info = crate::syncfile::receiver::pre_sync_file(&pre_sync_file).await;
     return axum::extract::Json(serde_json::json!(exists_info));
 }
@@ -66,7 +65,7 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
             }
         ))
     .route("/prepostfile", axum::routing::post(pre_sync_file))
-    .route("/postfile", axum::routing::post(sync_file));
+    .route("/dsit/syncfile", axum::routing::post(sync_file));
 
     let network = NetworkRequestHandler::default();
     let addr = network.commonder_addr.as_str().parse::<std::net::SocketAddr>().unwrap();
@@ -84,7 +83,6 @@ impl NetworkRequestHandler {
 
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let handle = runtime.handle();
-
         runtime.block_on(async move {
             init_network_request_router(working_params, handle).await
          });

@@ -1,6 +1,6 @@
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
-pub struct PreSyncFile {
+pub struct SyncData {
     pub sync_kind: std::ffi::OsString,
     pub toolchain_path: std::ffi::OsString,
     pub windows_kits_path: std::ffi::OsString,
@@ -10,7 +10,7 @@ pub struct PreSyncFile {
     pub is_exists: bool,
 }
 
-impl Default for PreSyncFile {
+impl Default for SyncData {
     fn default() -> Self {
         Self {
             sync_kind: std::ffi::OsString::new(),
@@ -30,8 +30,16 @@ pub struct CompileInput {
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
     pub build_and_compiler_type: std::ffi::OsString,
+    pub env_input: Option<EnvInput>,
 }
-
+#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
+pub struct EnvInput {
+    pub winkits_includes_path: Vec<std::ffi::OsString>,
+    pub compiler_path: std::ffi::OsString,
+    pub msvc_includes_path: std::ffi::OsString,
+    pub msvc_version: std::ffi::OsString,
+    pub env_args: std::ffi::OsString,
+}
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
 pub struct CompileOutput {
     pub compiled_filename: Vec<std::ffi::OsString>,
