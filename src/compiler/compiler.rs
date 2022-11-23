@@ -72,7 +72,8 @@ pub async fn request_compile(working_parameters: crate::buildturbo::WorkingParam
 }
 
 pub async fn dist_request_compile(working_parameters: crate::buildturbo::WorkingParameters, compiler_env: crate::platform::windows::WindowsCompilerEnv, compile_input: CompileInput,   pool: &tokio::runtime::Handle) -> CompileOutput {
-        if compile_input.build_and_compiler_type.to_string_lossy().contains("MSVC") {
+    println!("build and compiler type: {:?}", compile_input.build_and_compiler_type);
+    if compile_input.build_and_compiler_type.to_string_lossy().contains("MSVC") {
         let msvc = super::msvc::MSVC {};
         let output = msvc.dist_request_compile(working_parameters, compiler_env, compile_input, pool).await;
         return output;

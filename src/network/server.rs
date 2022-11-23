@@ -9,7 +9,7 @@ pub struct NetworkRequestHandler {
 impl Default for NetworkRequestHandler {
     fn default() -> Self {
         Self {
-            commonder_addr: "127.0.0.1:9302".to_string(),
+            commonder_addr: "10.140.216.142:9302".to_string(),
             _workers_addr: vec!["127.0.0.1:9302".to_string()],
         }
     }
@@ -36,6 +36,7 @@ async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract:
                             axum::extract::Json(compiler_env): axum::extract::Json<crate::platform::windows::WindowsCompilerEnv>,
         working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle) -> axum::extract::Json<serde_json::Value>
 {
+    println!("dist request compile");
     let output = crate::compiler::compiler::dist_request_compile(working_parameters, compiler_env, compile_input, &thread_pool).await;
     return axum::extract::Json(serde_json::json!(output));
 }
@@ -45,8 +46,9 @@ async fn pre_sync_file(axum::extract::Json(pre_sync_file): axum::extract::Json<c
     return axum::extract::Json(serde_json::json!(exists_info));
 }
 
-async fn sync_file(mut multipart: axum::extract::multipart::Multipart) {
-    crate::syncfile::receiver::sync_file_to_local(&mut multipart).await;
+async fn sync_file(mut multipart: axum::extract::multipart::Multipart) -> axum::extract::Json<serde_json::Value> {
+    let local_path = crate::syncfile::receiver::sync_file_to_local(&mut multipart).await;
+    return axum::extract::Json(serde_json::json!(local_path));
 }
 
 async fn init_network_request_router(working_params: crate::buildturbo::WorkingParameters, thread_pool: &tokio::runtime::Handle) {
@@ -61,12 +63,14 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
                 request_compile(args, working_params, pool)
             }
         ))
-    .route("/dist/requestcompile", axum::routing::post(|args, env| {
+    .route("/dist/requestcompile", axum::routing::post(|env, args| {
+                println!("into dist request compile");
+                //request_compile(args, dist_working_params, dist_pool)
                 dist_request_compile(args, env, dist_working_params, dist_pool)
             }
         ))
-    .route("/prepostfile", axum::routing::post(pre_sync_file))
-    .route("/postfile", axum::routing::post(sync_file));
+    .route("/presyncfile", axum::routing::post(pre_sync_file))
+    .route("/dist/syncfile", axum::routing::post(sync_file));
 
     let network = NetworkRequestHandler::default();
     let addr = network.commonder_addr.as_str().parse::<std::net::SocketAddr>().unwrap();

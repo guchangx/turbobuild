@@ -580,7 +580,7 @@ async fn exist_source_file_generated(key: &str, storage: &std::sync::Arc<dyn cra
 fn determine_whether_need_compile(compiler_commands: Vec<std::ffi::OsString>) -> bool {
 
     let source = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().contains(".cpp") || 
-                        arg.to_string_lossy().contains(".c")).collect::<Vec<::std::ffi::OsString>>();
+                        arg.to_string_lossy().contains(".c")).collect::<Vec<std::ffi::OsString>>();
     if source.len() > 0 {
         return true;
     }

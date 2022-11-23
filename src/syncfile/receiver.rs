@@ -1,4 +1,7 @@
-use winapi::um::winnt::EVENTLOG_SEQUENTIAL_READ;
+use std::string;
+
+use winapi::shared::winerror::ERROR_SXS_XML_E_MISSINGWHITESPACE;
+
 
 
 pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::PreSyncFile) -> crate::compiler::compiler::PreSyncFile {
@@ -6,7 +9,8 @@ pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::PreSyncFil
     let kind = pre_sync_file.sync_kind.to_str().unwrap();
     let mut toolchain_path = pre_sync_file.toolchain_path.clone().into_string().unwrap();
     let mut win_kits_path = pre_sync_file.windows_kits_path.clone().into_string().unwrap();
-    if (!pre_sync_file.toolchain_path.is_empty() || !pre_sync_file.windows_kits_path.is_empty()) 
+    println!("pre sync file {:?} {:?} {:?}",  kind, toolchain_path, win_kits_path);
+    if (!toolchain_path.is_empty() || !win_kits_path.is_empty()) 
         && (kind.contains("kits") || kind.contains("msvc")) {
         match fetch_local_msvc_compiler(&toolchain_path) {
             Some(path) => {
@@ -48,58 +52,93 @@ pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::PreSyncFil
 
 fn fetch_local_msvc_compiler(compiler_path: &str) -> Option<String> {
     //todo 初始化的时候就把路径读到内存中
-    //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\cl.exe
-    let remote_compiler_path = std::path::Path::new(compiler_path);
-    if remote_compiler_path.file_name() == Some(std::ffi::OsStr::new("cl.exe")) {
-        let mut version = remote_compiler_path.into_iter()
-            .filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap() != "cl.exe");
-        let compiler_version = version.nth(0).unwrap();
+    //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\
+    let remote_compiler_dir = std::path::Path::new(compiler_path);
 
-        let current_dir = std::env::current_dir().unwrap();
-        let compiler_mapping_path = current_dir.join("FileCache").join("MSVC").join(compiler_version);
+    let version = remote_compiler_dir.into_iter()
+        .filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap() != "cl.exe")
+        .nth(0)
+        .unwrap();
+
+    let current_dir = std::env::current_dir().unwrap();
+    let compiler_mapping_path = current_dir.join("FileCache").join("MSVC").join(version);
+    if compiler_mapping_path.exists() {
+        let mut arch = remote_compiler_dir.components().nth_back(0).unwrap().as_os_str().to_string_lossy();
+        if arch.contains("64") || arch.contains("86") {
+
+        }
+        else {
+            arch = remote_compiler_dir.components().nth_back(1).unwrap().as_os_str().to_string_lossy();
+        }
+
+        let compiler_mapping_path = compiler_mapping_path.join(r"bin\Hostx64").join(arch.to_mut()).join("cl.exe");
         if compiler_mapping_path.exists() {
-            let arch = remote_compiler_path.components().nth_back(1).unwrap();
-            let compiler_mapping_path = compiler_mapping_path.join(r"bin\Hostx64").join(arch).join("cl.exe");
             return Some(compiler_mapping_path.display().to_string());
         }
+        else {
+            println!("fetch loacl msvc compiler. {:?}", compiler_mapping_path);
+        }
     }
+    else {
+        println!("fetch loacl msvc compiler. {:?}", compiler_mapping_path);
+    }
+    
     return None
 }
 
 fn fetch_local_windows_kits(path: &str) -> Option<String> {
     //C:\Program Files (x86)\Windows Kits\10\Include\10.0.22000.0\shared
     let path = std::path::PathBuf::from(path);
-    let mut sdk_version = path.into_iter().filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap().ends_with(".0"));
-    let sdk_version = sdk_version.nth(0).unwrap();
+    let kits_version = path.into_iter().filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap().ends_with(".0"))
+        .nth(0).unwrap();
     
-    let current_dir = std::env::current_dir().unwrap();
-    let sdk_path = current_dir.join("FileCache").join("Windows Kits").join(sdk_version);
-    if sdk_path.exists() {
-        return Some(sdk_path.display().to_string())
+    let kit_path = std::env::current_dir().unwrap()
+        .join("FileCache").join("Win Kits").join("10").join("Include").join(kits_version);
+    if kit_path.exists() {
+        return Some(kit_path.display().to_string())
     }
     return None;
 }
 
-pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multipart) {
+pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multipart) -> std::ffi::OsString {
 
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().expect("fetch name from multipart/form-data failed.").to_string();
         let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
 
-        if name.contains("msvc bin") {
+        println!("mame {:?}", name);
+        println!("file name {:?}", file_name);
+
+        if name.contains("msvc") {
             let data = field.bytes().await.unwrap();
             if file_name.ends_with(".zip") {
+                let cursor = std::io::Cursor::new(data);
+                let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
+                let msvc_mapping_dir = msvc_mapping_dir(file_name);
+                zip_archive.extract(msvc_mapping_dir.clone()).unwrap();
+                return msvc_mapping_dir.into_os_string();
             }
             else {
-                let msvc_mapping_path = msvc_bin_mapping_path(file_name);
                 
+                let msvc_mapping_dir = msvc_mapping_dir(file_name).join("cl.exe");
 
-                let _ = std::fs::write(msvc_mapping_path, data);
+                let result = std::fs::write(msvc_mapping_dir, data);
+                match result {
+                    Ok(_) => {},
+                    Err(error) => {
+                        println!("dist sync file write failed. {:?}", error);
+                    }
+                }
             }
         }
-        else if name.contains("msvc include") {
+        else if name.contains("kits") {
+            let data = field.bytes().await.unwrap();
             if file_name.ends_with(".zip") {
-                let s = msvc_include_mapping_path(file_name, true);
+                let cursor = std::io::Cursor::new(data);
+                let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
+                let kits_include_path = windows_kits_mapping_path(file_name);
+                zip_archive.extract(kits_include_path.clone()).unwrap();
+                return kits_include_path.into_os_string()
             }
             else {
 
@@ -120,51 +159,37 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
 
         }
     }
+    return std::ffi::OsString::new();
 }
 
-fn msvc_bin_mapping_path(file_path: String) -> std::path::PathBuf {
+fn msvc_mapping_dir(file_path: String) -> std::path::PathBuf {
+     //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\include
     let path = std::path::Path::new(&file_path);
+
     let compiler_version = path.into_iter()
-        .filter(|arg| arg.to_str().unwrap().contains(".") || arg.to_str().unwrap() != "cl.exe")
-        .nth(0).unwrap();
+        .filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap() != "cl.exe")
+        .collect::<Vec<&std::ffi::OsStr>>()
+        .first()
+        .unwrap()
+        .to_owned();
 
+    
     let current_dir = std::env::current_dir().unwrap();
-    let arch = path.components().nth_back(1).unwrap();
-    let compiler_mapping_path = current_dir.join("FileCache").join("MSVC").join(compiler_version).join(r"bin\Hostx64")
-    .join(arch).join("cl.exe");
-
-    return compiler_mapping_path;
-}
-
-fn msvc_include_mapping_path(file_path: String, zip: bool) -> std::path::PathBuf {
-    //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\include
-    let path = std::path::PathBuf::from(&file_path);
-    let mut compiler_version: std::ffi::OsString;
-
-    if zip {
-        let version = path.into_iter()
-            .filter(|arg| arg.to_str().unwrap().contains(".") || arg.to_str().unwrap() != ".zip")
-            .nth(0)
-            .unwrap()
-            .to_owned();
-
-        compiler_version = version;
+    let name = path.file_stem().unwrap();
+    if name.to_str().unwrap().contains("86") || name.to_str().unwrap().contains("64") {
+        let compiler_mapping_path = current_dir.join("FileCache").join("MSVC").join(compiler_version).join(r"bin\Hostx64")
+        .join(name);
+        let _ = std::fs::create_dir_all(&compiler_mapping_path).expect("crate msvc compiler cl.exe dir failed.");
+        return compiler_mapping_path;
+    }
+    else if name.to_string_lossy().contains("include") {
+        let compiler_include_mapping_path = current_dir.join("FileCache").join("MSVC").join(compiler_version).join("include");
+        let _ = std::fs::create_dir_all(&compiler_include_mapping_path).expect("crate msvc compiler cl.exe dir failed.");
+        return compiler_include_mapping_path;
     }
     else {
-        let version = path.into_iter()
-            .filter(|arg| arg.to_str().unwrap().contains(".") || arg.to_str().unwrap() != "cl.exe")
-            .nth(0)
-            .unwrap()
-            .to_owned();
-
-        compiler_version = version;
+        return current_dir.join("FileCache").join("unnamed");
     }
-
-    let include_mapping_path = std::env::current_dir().unwrap()
-            .join("FileCache").join("MSVC").join(compiler_version).join("include");
-
-    return include_mapping_path;
-
 }
 
 fn windows_kits_mapping_path(file_path: String) -> std::path::PathBuf {
@@ -175,9 +200,19 @@ fn windows_kits_mapping_path(file_path: String) -> std::path::PathBuf {
         .filter(|arg| arg.to_str().unwrap().contains(".") || arg.to_str().unwrap().ends_with(".0"))
         .nth(0)
         .unwrap();
-    let include_mapping_path = std::env::current_dir().unwrap()
-        .join("FileCache").join("Win Kits").join("10").join("Include").join(win_kits_version);
-    return include_mapping_path;
+    let mut kits_include_mapping_path = std::path::PathBuf::new();
+    if  win_kits_version.to_string_lossy().contains(".zip") {
+        let version = win_kits_version.to_string_lossy().strip_suffix(".zip").unwrap().to_owned();
+        kits_include_mapping_path = std::env::current_dir().unwrap()
+            .join("FileCache").join("Win Kits").join("10").join("Include").join(version);
+    }
+    else {
+        kits_include_mapping_path = std::env::current_dir().unwrap()
+            .join("FileCache").join("Win Kits").join("10").join("Include").join(win_kits_version);
+    }
+
+    let _ = std::fs::create_dir_all(&kits_include_mapping_path).expect("crate windows kits include dir failed.");
+    return kits_include_mapping_path;
 }
 
 fn unzip(path: &str, target: &str) {
