@@ -23,15 +23,6 @@ impl Default for SyncData {
         }
     }
 }
-
-#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
-pub struct CompileInput {
-    pub compiler_path: std::ffi::OsString,
-    pub compiler_working_dir: std::ffi::OsString,
-    pub compiler_commands: Vec<std::ffi::OsString>,
-    pub build_and_compiler_type: std::ffi::OsString,
-    pub env_input: Option<EnvInput>,
-}
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
 pub struct EnvInput {
     pub winkits_includes_path: Vec<std::ffi::OsString>,
@@ -39,6 +30,14 @@ pub struct EnvInput {
     pub msvc_includes_path: std::ffi::OsString,
     pub msvc_version: std::ffi::OsString,
     pub env_args: std::ffi::OsString,
+}
+#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
+pub struct CompileInput {
+    pub compiler_path: std::ffi::OsString,
+    pub compiler_working_dir: std::ffi::OsString,
+    pub compiler_commands: Vec<std::ffi::OsString>,
+    pub build_and_compiler_type: std::ffi::OsString,
+    pub env_input: Option<EnvInput>,
 }
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
 pub struct CompileOutput {
@@ -59,7 +58,7 @@ pub trait Compiler: core::marker::Send + core::marker::Sync + 'static {
     async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
                 compile_input: CompileInput, pool: &tokio::runtime::Handle) -> CompileOutput;
     async fn dist_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
-                compiler_env: crate::platform::windows::WindowsCompilerEnv, compile_input: CompileInput, pool: &tokio::runtime::Handle) -> CompileOutput;
+                compile_input: CompileInput, pool: &tokio::runtime::Handle) -> CompileOutput;
 }
 
 pub async fn request_compile(working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput, pool: &tokio::runtime::Handle) -> CompileOutput {
@@ -79,11 +78,11 @@ pub async fn request_compile(working_parameters: crate::buildturbo::WorkingParam
     }
 }
 
-pub async fn dist_request_compile(working_parameters: crate::buildturbo::WorkingParameters, compiler_env: crate::platform::windows::WindowsCompilerEnv, compile_input: CompileInput,   pool: &tokio::runtime::Handle) -> CompileOutput {
+pub async fn dist_request_compile(working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput,   pool: &tokio::runtime::Handle) -> CompileOutput {
     println!("build and compiler type: {:?}", compile_input.build_and_compiler_type);
     if compile_input.build_and_compiler_type.to_string_lossy().contains("MSVC") {
         let msvc = super::msvc::MSVC {};
-        let output = msvc.dist_request_compile(working_parameters, compiler_env, compile_input, pool).await;
+        let output = msvc.dist_request_compile(working_parameters, compile_input, pool).await;
         return output;
     }
     else if compile_input.build_and_compiler_type == "Clang" {

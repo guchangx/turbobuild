@@ -16,8 +16,13 @@ impl crate::compiler::compiler::Compiler for MSVC {
     }
 
     async fn dist_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
-        compiler_env: crate::platform::windows::WindowsCompilerEnv, compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle)
+            compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle)
                                     -> super::compiler::CompileOutput {
+        
+        let env = compile_input.env_input.clone();
+        println!("dist request compile {:?}", env);
+        let compiler_env = crate::platform::windows::WindowsCompilerEnv::default();
+
         let params = crate::buildturbo::WorkingParameters {
                 storage: working_parameters.storage,
                 dist: working_parameters.dist,

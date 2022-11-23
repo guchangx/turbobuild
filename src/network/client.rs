@@ -123,7 +123,7 @@ impl NetworkClient {
         let myself = self.to_owned();
         let sync_info = sync_info.to_owned();
         let response = std::thread::spawn(move || {
-            match myself.dist_file_pre_sync("/presyncfile", &sync_info) {
+            match myself.dist_file_pre_sync("dist/presyncfile", &sync_info) {
                 Ok(response) => {
                     let value = response.json::<crate::compiler::compiler::SyncData>().unwrap();
                     return value;
