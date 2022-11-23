@@ -12,20 +12,33 @@ impl<'a> Sender<'a> {
         }
     }
 
-    fn zip_dir(&self, dir: &str, client: &crate::network::client::NetworkClient) {
-        let path = std::path::Path::new(dir);
-        let name = path.into_iter().last().unwrap();
-        let target_path = std::env::current_dir().unwrap().join(name);
-        let target = std::fs::File::open(target_path.clone()).unwrap();
-        let mut zip = zip::ZipWriter::new(target);
+    fn zip_dir(&self, dir: &str, name: &str, client: &crate::network::client::NetworkClient) -> crate::compiler::compiler::SyncData {
+        let mut path = std::path::PathBuf::from(dir);
+
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        let mut zip = zip::ZipWriter::new(&mut cursor);
         let options = zip::write::FileOptions::default()
                 .compression_method(zip::CompressionMethod::Zstd);
         let start = std::time::Instant::now();
-        self.zip_visit_dir(path, path, &mut zip, &options);
-        zip.finish().unwrap();
+        self.zip_visit_dir(path.as_path(), path.as_path(), &mut zip, &options);
+        let content = zip.finish().unwrap();
         let elapsed = start.elapsed();
-        self.sync_file(target_path.to_str().unwrap());
+
+        let content = std::borrow::Cow::from(content.get_ref());
+        
+        match path.extension() {
+            Some(extension) => {
+                let mut ex = extension.to_str().unwrap().to_string();
+                ex.push_str(".zip");
+                path.set_extension(ex);
+            },
+            None => {
+                path.set_extension("zip");
+            }
+        }
+        let response = self.sync_zip(name, path.to_str().unwrap(), &content);
         println!("zip dir elapsed time: {:?}", elapsed);
+        return response;
     }
 
     fn zip_file(&self, path: &str) {
@@ -48,7 +61,7 @@ impl<'a> Sender<'a> {
         self.sync_file(target_path.to_str().unwrap());
     }
 
-    fn zip_visit_dir(&self, entry_dir: &std::path::Path, dir: &std::path::Path, zip: &mut zip::ZipWriter<std::fs::File>, options: &zip::write::FileOptions) {
+    fn zip_visit_dir(&self, entry_dir: &std::path::Path, dir: &std::path::Path, zip: &mut zip::ZipWriter<&mut std::io::Cursor<Vec<u8>>>, options: &zip::write::FileOptions) {
         let mut buffer = Vec::new();
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries {
@@ -79,9 +92,10 @@ impl<'a> Sender<'a> {
 
     }
 
-    pub fn sync_dir(&self, dir: &str, client: &crate::network::client::NetworkClient, compress: bool) {
+    pub fn sync_dir(&self, dir: &str, name: &str, client: &crate::network::client::NetworkClient, compress: bool) -> crate::compiler::compiler::SyncData {
         if compress {
-            self.zip_dir(dir, client);
+            let response = self.zip_dir(dir, name, client);
+            return response;
         }
         else {
             if let Ok(entries) = std::fs::read_dir(dir) {
@@ -89,7 +103,7 @@ impl<'a> Sender<'a> {
                     if let Ok(entry) = entry {
                         if let Ok(file_type) = entry.file_type() {
                             if file_type.is_dir() {
-                                self.sync_dir(entry.path().to_str().unwrap(), client, compress);
+                                self.sync_dir(entry.path().to_str().unwrap(), name, client, compress);
                             }
                             else if file_type.is_file() {
                                 self.sync_file(entry.path().to_str().unwrap());
@@ -101,29 +115,72 @@ impl<'a> Sender<'a> {
                     }
                 }
             }
+            return crate::compiler::compiler::SyncData::default();
         }
     }
+
+    pub fn sync_zip(&self, name: &str, filename: &str, filecontent: &std::borrow::Cow<[u8]>) -> crate::compiler::compiler::SyncData {
+        let response = self.client.dist_zip_sync("dist/syncfile", name, filename, &filecontent);
+        return response;
+    }
+
     pub fn sync_file(&self, file: &str) {
-        self.client.dist_file_sync("syncmsvc",file)
+        println!("sync file: {:?}", file);
+        match self.client.dist_file_sync("dist/syncfile",file) {
+            Ok(response) => {
+                println!("sync file respone");
+            },
+            Err(error) => {
+                println!("sync file post failed. {:?}", error);
+            },
+        }
     }
     
-    pub fn sync_tool_chain(&self, path: &str) {
+    pub fn sync_toolchain(&self, path: &std::path::PathBuf) -> (std::ffi::OsString, std::ffi::OsString) {
+        println!("path: {:?}", path);
         let mut path = std::path::PathBuf::from(path);
+        //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\
+        //msvc bin dir
+        let mut response = self.sync_dir(path.to_str().unwrap(), "msvc", self.client, true);
+        let toolchain_bin_path = response.toolchain_path.clone();
 
-        //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\cl.exe
-        //msvc bin
-        self.sync_file(path.to_str().unwrap());
-
-        //msvc include 
-        for _ in 0..4 {
+        //msvc include
+        for _ in 0..3 {
             path.pop();
         }
-        
-        self.sync_dir(path.to_str().unwrap(), self.client, false);
+        let include = path.join("include");
+
+        if include.is_dir() {
+            println!("sync dir: {:?}", path);
+            response = self.sync_dir(include.to_str().unwrap(), "msvc", self.client, true);
+        }
+        let toolchain_include_path = response.toolchain_path.clone();
+        return (toolchain_bin_path, toolchain_include_path);
     }
 
-    pub fn dist_compile(&self, env: &crate::platform::windows::WindowsCompilerEnv, msvc_compile_input: &crate::compiler::compiler::CompileInput) {
-        self.client.dist_request_compile(env, msvc_compile_input).unwrap();
+    pub fn sync_windows_kits(&self, path: &std::path::PathBuf) -> std::ffi::OsString {
+        if path.is_dir() {
+            let response = self.sync_dir(path.to_str().unwrap(), "kits", self.client, true);
+            return response.windows_kits_path;
+        }
+        return std::ffi::OsString::new();
+    }
+
+    pub fn dist_compile(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) {
+        self.client.dist_request_compile(msvc_compile_input).unwrap();
+    }
+
+    pub fn dist_kits_and_tool_pre_sync(&self, kits_path: &str, compiler_path: &str) -> crate::compiler::compiler::SyncData {
+        let sync_info = crate::compiler::compiler::SyncData {
+            sync_kind: std::ffi::OsString::from("kits, msvc"),
+            toolchain_path: std::ffi::OsString::from(compiler_path),
+            windows_kits_path: std::ffi::OsString::from(kits_path),
+            file_path: std::ffi::OsString::new(),
+            file_name: std::ffi::OsString::new(),
+            digest: std::ffi::OsString::new(),
+            is_exists: false,
+        };
+        return self.client.dist_kits_and_tool_pre_sync(&sync_info);
     }
 
 }

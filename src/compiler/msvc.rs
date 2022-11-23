@@ -178,31 +178,54 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
 
 fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameters, msvc_compile_input: &super::compiler::CompileInput) -> super::compiler::CompileOutput {
 
-    let local_compiler = msvc_compile_input.compiler_path.to_str().unwrap();
-    let winsdk_path = working_parameters.compiler_env.winsdk_includes_path.first().unwrap();
+    //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\cl.exe
+    let local_compiler_arch = msvc_compile_input.compiler_path.to_str().unwrap();
+    let compiler_dir = std::path::Path::new(&working_parameters.compiler_env.compiler_path).join("Hostx64").join(local_compiler_arch);
+
+    println!("compiler path: {:?}", compiler_dir);
+
+    let winsdk_path = working_parameters.compiler_env.winkits_includes_path.first().unwrap();
     
     let sender = crate::syncfile::sender::Sender::new(&working_parameters.network_client);
-    let pre_sync_reponse = working_parameters.network_client.dist_kits_and_tool_pre_sync(winsdk_path, local_compiler);
-    
+    let pre_sync_reponse = sender.dist_kits_and_tool_pre_sync(winsdk_path, compiler_dir.to_str().unwrap());
+
+    let mut dist_msvc_compiler_path = std::ffi::OsString::new();
+    let mut dist_msvc_include_path = std::ffi::OsString::new();
+
     if pre_sync_reponse.toolchain_path.is_empty() {
-        sender.sync_tool_chain(local_compiler);
-    }
-    else if pre_sync_reponse.windows_kits_path.is_empty() {
-        sender.sync_tool_chain(winsdk_path);
+        println!("tool chain sync");
+        let path = std::path::PathBuf::from(compiler_dir.to_str().unwrap());
+        if path.is_dir() {
+            (dist_msvc_compiler_path, dist_msvc_include_path) = sender.sync_toolchain(&path);
+        }
     }
     else {
-        
+        println!("tool chain sync have done");
+    }
+    let mut win_kits_include_dir = std::ffi::OsString::new();
+    if pre_sync_reponse.windows_kits_path.is_empty() {
+        println!("windows kits sync");
+        let mut path = std::path::PathBuf::from(winsdk_path);
+        if path.is_dir() && path.pop() {
+            win_kits_include_dir = sender.sync_windows_kits(&path);
+        }
+    }
+    else {
+        println!("windows kits sync have done");
     }
 
-    let env = crate::platform::windows::WindowsCompilerEnv {
-            winsdk_includes_path: vec![pre_sync_reponse.windows_kits_path.to_string_lossy().to_string()],
-            compiler_path: std::path::PathBuf::from(pre_sync_reponse.toolchain_path.clone()),
-            msvc_includes_path: std::path::PathBuf::from(pre_sync_reponse.toolchain_path),
-            msvc_version: String::from(""),
-            env_args: String::from(""),
+    let env_input = crate::compiler::compiler::EnvInput {
+         winkits_includes_path: vec![win_kits_include_dir],
+         compiler_path: dist_msvc_compiler_path,
+         msvc_includes_path: dist_msvc_include_path,
+         msvc_version: std::ffi::OsString::new(),
+         env_args: std::ffi::OsString::new(),
     };
 
-    sender.dist_compile(&env, msvc_compile_input);
+    let mut input = msvc_compile_input.to_owned();
+    input.env_input = Some(env_input);
+
+    sender.dist_compile(&input);
 
     let compiled_filename: Vec<std::ffi::OsString> = Vec::new();
     let result = super::compiler::CompileOutput {
@@ -415,7 +438,7 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, wo
         if args.is_empty() {
             println!("compiler don't effective extract commands.")
         }
-        let winkits_includes = &working_compiler_env.winsdk_includes_path;
+        let winkits_includes = &working_compiler_env.winkits_includes_path;
         for include in winkits_includes {
             let mut instruct = "/I".to_string();
             instruct += &include;

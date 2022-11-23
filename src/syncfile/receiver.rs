@@ -4,7 +4,7 @@ use winapi::shared::winerror::ERROR_SXS_XML_E_MISSINGWHITESPACE;
 
 
 
-pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::PreSyncFile) -> crate::compiler::compiler::PreSyncFile {
+pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::SyncData) -> crate::compiler::compiler::SyncData {
     
     let kind = pre_sync_file.sync_kind.to_str().unwrap();
     let mut toolchain_path = pre_sync_file.toolchain_path.clone().into_string().unwrap();
@@ -29,7 +29,7 @@ pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::PreSyncFil
             }
         }
 
-        let pre_sync_file = crate::compiler::compiler::PreSyncFile {
+        let pre_sync_file = crate::compiler::compiler::SyncData {
                 sync_kind: std::ffi::OsString::new(),
                 toolchain_path: std::ffi::OsString::from(toolchain_path),
                 windows_kits_path: std::ffi::OsString::from(win_kits_path),
@@ -47,7 +47,7 @@ pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::PreSyncFil
     else {
 
     }
-    return crate::compiler::compiler::PreSyncFile::default();
+    return crate::compiler::compiler::SyncData::default();
 }
 
 fn fetch_local_msvc_compiler(compiler_path: &str) -> Option<String> {

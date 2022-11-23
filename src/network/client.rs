@@ -17,8 +17,8 @@ impl NetworkClient {
         }
     }
 
-    fn post(&self, route: &str, input: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
-        let base = reqwest::Url::parse("http://127.0.0.1:9302/").unwrap();
+    fn post<T: serde::ser::Serialize + ?core::marker::Sized>(&self, route: &str, input: &T) -> Result<reqwest::blocking::Response, reqwest::Error> {
+        let base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
         let url = base.join(&route).unwrap();
         let response = self.client.post(url)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
@@ -27,63 +27,125 @@ impl NetworkClient {
         return response;
     }
 
-    fn dist_post(&self, route: &str, env: &str, input: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
-        let base = reqwest::Url::parse("http://127.0.0.1:9302/").unwrap();
+    fn dist_post(&self, route: &str, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> Result<reqwest::blocking::Response, reqwest::Error> {
+        let base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
         let url = base.join(&route).unwrap();
         let response = self.client.post(url)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .json(&env)
-            .json(&input)
+            .json(&msvc_compile_input)
             .send();
         return response;
     }
 
-    fn post_file(&self, route: &str, path: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
+    fn file_post(&self, route: &str, path: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
         let file = std::fs::read(path).unwrap();
 
         let part = reqwest::blocking::multipart::Part::bytes(std::borrow::Cow::from(file)).file_name(path.to_owned());
         let form = reqwest::blocking::multipart::Form::new().part("file", part);
-        let base = reqwest::Url::parse("http://127.0.0.1:9302/").unwrap();
+        let base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
         let url = base.join(route).unwrap();
         let response = self.client.post(url)
             .multipart(form)
             .header(reqwest::header::CONTENT_TYPE, "multipart/form-data")
-            .send()
-            .unwrap();
-        return Result::Ok(response);
+            .send();
+        match response {
+            Ok(res) => {
+                return Result::Ok(res);
+            },
+            Err(error) => {
+                println!("post file failed: {:?}", error);
+                return Result::Err(error);
+            }
+        }
     }
 
-    pub fn dist_file_sync(&self, route: &str, path: &str) {
-        let _ = self.post_file(route, path);
+    fn file_post_by_zip(&self, route: &str, name: &str, filename: &str, filecontent: &std::borrow::Cow<[u8]>) -> Result<reqwest::blocking::Response, reqwest::Error> {
+        println!("post file by zip {:?} {:?}", name, filename);
+        let part = reqwest::blocking::multipart::Part::bytes(filecontent.to_vec()).file_name(filename.to_owned());
+        let form = reqwest::blocking::multipart::Form::new().part(name.to_owned(), part);
+        let base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
+        let url = base.join(route).unwrap();
+        let response = self.client.post(url)
+            .multipart(form)
+            .header(reqwest::header::CONTENT_TYPE, "multipart/form-data")
+            .send();
+        match response {
+            Ok(res) => {
+                return Result::Ok(res);
+            },
+            Err(error) => {
+                println!("post file failed: {:?}", error);
+                return Result::Err(error);
+            }
+        }
+    }
+
+    pub fn dist_file_sync(&self, route: &str, path: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
+        let route = route.to_owned();
+        let path = path.to_owned();
+        let myself = self.to_owned();
+        let response = std::thread::spawn(move || {
+            return myself.file_post(&route, &path);
+        }).join().unwrap();
+
+        return response;
+    }
+
+    pub fn dist_zip_sync(&self, route: &str, name: &str, filename: &str, filecontent: &std::borrow::Cow<[u8]>) -> crate::compiler::compiler::SyncData {
+        
+        let myself = self.to_owned();
+        let route = route.to_owned();
+        let name = name.to_owned();
+        let filename = filename.to_owned();
+        let filecontent = filecontent.to_owned().into_owned();
+        let response = std::thread::spawn(move || {
+            match myself.file_post_by_zip(&route, &name, &filename, &std::borrow::Cow::from(filecontent)) {
+                Ok(response) => {
+                    let value = response.json::<crate::compiler::compiler::SyncData>().unwrap();
+                    return value;
+                },
+                Err(error) => {
+                    println!("pre sync file post failed: {:?}", error);
+                    return crate::compiler::compiler::SyncData::default()
+                },
+            }
+        }).join().unwrap();
+        return response;
     }
 
 
-    pub fn dist_file_pre_sync(&self, route: &str, params: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
+    pub fn dist_file_pre_sync<T: serde::ser::Serialize + ?core::marker::Sized>(&self, route: &str, params: &T) -> Result<reqwest::blocking::Response, reqwest::Error> {
         return self.post(route, params);
     }
 
-    pub fn dist_kits_and_tool_pre_sync(&self, kits_path: &str, compiler_path: &str) -> crate::compiler::compiler::PreSyncFile {
-        let sync_info = crate::compiler::compiler::PreSyncFile {
-            sync_kind: std::ffi::OsString::new(),
-            toolchain_path: std::ffi::OsString::from(compiler_path),
-            windows_kits_path: std::ffi::OsString::from(kits_path),
-            file_path: std::ffi::OsString::new(),
-            file_name: std::ffi::OsString::new(),
-            digest: std::ffi::OsString::new(),
-            is_exists: false,
-        };
+    pub fn dist_kits_and_tool_pre_sync(&self, sync_info: &crate::compiler::compiler::SyncData) -> crate::compiler::compiler::SyncData {
 
-        let sync_info = serde_json::json!(sync_info).to_string();
-        let response = self.dist_file_pre_sync("presyncfile", &sync_info).unwrap();
-        let value: crate::compiler::compiler::PreSyncFile = response.json().unwrap();
-
-        return value;
+        let myself = self.to_owned();
+        let sync_info = sync_info.to_owned();
+        let response = std::thread::spawn(move || {
+            match myself.dist_file_pre_sync("/presyncfile", &sync_info) {
+                Ok(response) => {
+                    let value = response.json::<crate::compiler::compiler::SyncData>().unwrap();
+                    return value;
+                },
+                Err(error) => {
+                    println!("pre sync file post failed: {:?}", error);
+                    return crate::compiler::compiler::SyncData::default()
+                },
+            }
+        }).join().unwrap();
+        println!("response: {:?}", response);
+        return response;
     }
 
-    pub fn dist_request_compile(&self, env: &crate::platform::windows::WindowsCompilerEnv, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> Result<reqwest::blocking::Response, reqwest::Error>{
-        let env = serde_json::json!(env).to_string();
-        let inputs = serde_json::json!(msvc_compile_input).to_string();
-        self.dist_post("dist/requestcompile", &env, &inputs)
+    pub fn dist_request_compile(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> Result<reqwest::blocking::Response, reqwest::Error> {
+        println!("dist compile post");
+        let myself = self.to_owned();
+        let input = msvc_compile_input.to_owned();
+        let response = std::thread::spawn(move || {
+            return myself.dist_post("dist/requestcompile", &input)
+        }).join().unwrap();
+        return response;
     }
 
 }

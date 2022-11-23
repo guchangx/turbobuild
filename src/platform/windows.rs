@@ -1,7 +1,7 @@
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
 pub struct WindowsCompilerEnv {
-    pub winsdk_includes_path: Vec<String>,
+    pub winkits_includes_path: Vec<String>,
     pub compiler_path: std::path::PathBuf,
     pub msvc_includes_path: std::path::PathBuf,
     pub msvc_version: String,
@@ -15,7 +15,7 @@ impl Default for WindowsCompilerEnv {
         let local_msvc_install = get_local_msvc_bin_path().unwrap();
         let msvc_version = get_msvc_version().unwrap();
         Self { 
-            winsdk_includes_path: winsdk_includes, 
+            winkits_includes_path: winsdk_includes, 
             compiler_path: local_msvc_install, 
             msvc_includes_path: local_msvc_includes,
             msvc_version, 
