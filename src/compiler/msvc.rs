@@ -19,9 +19,23 @@ impl crate::compiler::compiler::Compiler for MSVC {
             compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle)
                                     -> super::compiler::CompileOutput {
         
-        let env = compile_input.env_input.clone();
-        println!("dist request compile {:?}", env);
-        let compiler_env = crate::platform::windows::WindowsCompilerEnv::default();
+        let mut compiler_env = crate::platform::windows::WindowsCompilerEnv::default();
+
+        match compile_input.env_input.clone() {
+            Some(env) => {
+                let mut winkits_includes_path: Vec<std::string::String> = Vec::new();
+                for path in env.winkits_includes_path {
+                    let path = path.to_str().unwrap().to_owned();
+                    winkits_includes_path.push(path);
+                }
+                compiler_env.winkits_includes_path = winkits_includes_path;
+                compiler_env.compiler_path = std::path::PathBuf::from(env.compiler_path);
+                compiler_env.msvc_includes_path = std::path::PathBuf::from(env.msvc_includes_path);
+            },
+            None => {
+
+            },
+        }
 
         let params = crate::buildturbo::WorkingParameters {
                 storage: working_parameters.storage,
@@ -29,6 +43,7 @@ impl crate::compiler::compiler::Compiler for MSVC {
                 compiler_env: compiler_env,
                 network_client: working_parameters.network_client,
         };
+
         let output = request_msvc_compile(params, compile_input, pool).await;
         return output;
     }
@@ -42,6 +57,13 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
     let (mut compiler_commands, compiler_path) = parse_compiler_input_command(msvc_compile_input.clone(), &env);
 
     let working_path = std::path::PathBuf::from(msvc_compile_input.compiler_working_dir.to_string_lossy().to_string());
+
+    if !working_path.exists() {
+        let _ = std::fs::create_dir_all(working_path.clone());
+    }
+
+    println!("create dir all {:?}", working_path);
+
     let source_file = fetch_compiler_source_file(msvc_compile_input.build_and_compiler_type.clone(), 
         compiler_commands.clone(), working_path.clone()).unwrap();
 
@@ -90,6 +112,8 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
             }
         }
     }
+    
+    println!("determine whether need compile");
 
     let exists_source_file_in_command = determine_whether_need_compile(compiler_commands.clone());
     
@@ -184,7 +208,7 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
 fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameters, msvc_compile_input: &super::compiler::CompileInput) -> super::compiler::CompileOutput {
 
     //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\cl.exe
-    let local_compiler_arch = msvc_compile_input.compiler_path.to_str().unwrap();
+    let local_compiler_arch = msvc_compile_input.compiler_path_or_arch.to_str().unwrap();
     let compiler_dir = std::path::Path::new(&working_parameters.compiler_env.compiler_path).join("Hostx64").join(local_compiler_arch);
 
     println!("compiler path: {:?}", compiler_dir);
@@ -381,7 +405,7 @@ fn extract_path_ecnclosed_quotation_arg(compiler_commands: &mut String) -> Vec<s
                 *compiler_commands = String::from(compiler_commands.replace(arg.as_str(), ""));
             }
             else {
-                println!("else capture {:?}", capture);
+
             }
         }
         else 
@@ -417,19 +441,32 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, wo
     if compile_input.build_and_compiler_type.to_string_lossy().contains("MSVC") {
         let mut commands = commands_iter.last().unwrap();
 
-        let complier_path_from_input = extract_additional_input_commands(&mut commands);
-        match complier_path_from_input {
-            Some(compiler_path_specified) => {
-                compiler_path = compiler_path_specified;
-            },
-            None => {
-                //use default x64 cl.exe
-                // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.32.31326\bin\Hostx64\x64\cl.exe
-                let path = &working_compiler_env.compiler_path;
-                let compiler_path_by_specified = path.join("Hostx64").join("x64").join("cl.exe");
-                compiler_path = std::ffi::OsString::from(compiler_path_by_specified.to_str().unwrap());
-            },
+        if compile_input.env_input.is_none() {
+            let complier_path_from_input = extract_additional_input_commands(&mut commands);
+            match complier_path_from_input {
+                Some(compiler_path_specified) => {
+                    compiler_path = compiler_path_specified;
+                },
+                None => {
+                    //use default x64 cl.exe
+                    // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.32.31326\bin\Hostx64\x64\cl.exe
+                    let path = &working_compiler_env.compiler_path;
+                    let compiler_path_by_specified = path.join("Hostx64").join("x64").join("cl.exe");
+                    compiler_path = std::ffi::OsString::from(compiler_path_by_specified.to_str().unwrap());
+                },
+            }
         }
+        else {
+            match compile_input.env_input {
+                Some(env) => {
+                    compiler_path = env.compiler_path;
+                },
+                None => {
+                    
+                },
+            }
+        }
+        println!("compiler_path compiler_path :{:?}", compiler_path);
 
         args = extract_macro_contain_space_arg(&mut commands);
 
@@ -458,8 +495,8 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, wo
         
         return (args, compiler_path);
     }
-    else if  compile_input.build_and_compiler_type.to_string_lossy().contains("Cmake") {
-        compiler_path = compile_input.compiler_path;
+    else if  compile_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
+        compiler_path = compile_input.compiler_path_or_arch;
         return (args, compiler_path);
     }
     else {
@@ -471,7 +508,8 @@ fn fetch_compiler_source_file(build_and_compiler_type: std::ffi::OsString, compi
                                     -> Option<std::collections::HashMap<String, std::path::PathBuf>> {
 
     if build_and_compiler_type.to_string_lossy().contains("MSBuild") || 
-            build_and_compiler_type.to_string_lossy().contains("CMake") {
+            build_and_compiler_type.to_string_lossy().contains("CMake") || 
+            build_and_compiler_type.to_string_lossy().contains("Dist") {
         let mut sourcefile: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
         
         for command in compiler_commands {

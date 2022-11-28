@@ -9,7 +9,7 @@ pub struct NetworkRequestHandler {
 impl Default for NetworkRequestHandler {
     fn default() -> Self {
         Self {
-            commonder_addr: "127.0.0.1:9302".to_string(),
+            commonder_addr: "10.140.216.142:9302".to_string(),
             _workers_addr: vec!["127.0.0.1:9302".to_string()],
         }
     }

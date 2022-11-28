@@ -33,7 +33,7 @@ pub struct EnvInput {
 }
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
 pub struct CompileInput {
-    pub compiler_path: std::ffi::OsString,
+    pub compiler_path_or_arch: std::ffi::OsString,
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
     pub build_and_compiler_type: std::ffi::OsString,
