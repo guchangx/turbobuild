@@ -138,12 +138,20 @@ impl NetworkClient {
         return response;
     }
 
-    pub fn dist_request_compile(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> Result<reqwest::blocking::Response, reqwest::Error> {
+    pub fn dist_request_compile(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> crate::compiler::compiler::CompileOutput {
         println!("dist compile post");
         let myself = self.to_owned();
         let input = msvc_compile_input.to_owned();
         let response = std::thread::spawn(move || {
-            return myself.dist_post("dist/requestcompile", &input)
+            match myself.dist_post("dist/requestcompile", &input) {
+                Ok(response) => {
+                    let value = response.json::<crate::compiler::compiler::CompileOutput>().unwrap();
+                    return value;
+                },
+                Err(error) => {
+                    return crate::compiler::compiler::CompileOutput::default();
+                }
+            }
         }).join().unwrap();
         return response;
     }
