@@ -1,3 +1,4 @@
+use std::f32::consts::E;
 use std::io::Read;
 use std::io::Write;
 
@@ -166,11 +167,12 @@ impl<'a> Sender<'a> {
         return std::ffi::OsString::new();
     }
 
-    pub fn dist_compile(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) {
-        self.client.dist_request_compile(msvc_compile_input).unwrap();
+    pub fn dist_compile(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> crate::compiler::compiler::CompileOutput {
+        let response = self.client.dist_request_compile(msvc_compile_input);
+        return response;
     }
 
-    pub fn dist_kits_and_tool_pre_sync(&self, kits_path: &str, compiler_path: &str) -> crate::compiler::compiler::SyncData {
+    pub fn dist_kits_and_tool_pre_sync(&self, kits_path: &str, compiler_path: &str) -> (std::ffi::OsString, std::ffi::OsString, std::ffi::OsString) {
         let sync_info = crate::compiler::compiler::SyncData {
             sync_kind: std::ffi::OsString::from("kits, msvc"),
             toolchain_path: std::ffi::OsString::from(compiler_path),
@@ -180,7 +182,27 @@ impl<'a> Sender<'a> {
             digest: std::ffi::OsString::new(),
             is_exists: false,
         };
-        return self.client.dist_kits_and_tool_pre_sync(&sync_info);
+        let response = self.client.dist_kits_and_tool_pre_sync(&sync_info);
+
+        let mut dist_msvc_include_path = std::ffi::OsString::new();
+        let mut dist_msvc_compiler_path = response.toolchain_path;
+
+        if dist_msvc_compiler_path.is_empty() {
+            
+        }
+        else {
+            let mut bin = std::path::PathBuf::from(dist_msvc_compiler_path.clone());
+            bin.set_file_name("cl.exe");
+            dist_msvc_compiler_path = bin.into_os_string();
+            
+            let mut inlcude = std::path::PathBuf::from(dist_msvc_compiler_path.clone());
+            for _ in 0..3 {
+                inlcude.pop();
+            }
+            dist_msvc_include_path = inlcude.join("include").into_os_string();
+        }
+
+        return (dist_msvc_compiler_path, dist_msvc_include_path, response.windows_kits_path)
     }
 
 }

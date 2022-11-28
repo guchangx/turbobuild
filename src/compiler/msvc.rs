@@ -216,12 +216,15 @@ fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameter
     let winsdk_path = working_parameters.compiler_env.winkits_includes_path.first().unwrap();
     
     let sender = crate::syncfile::sender::Sender::new(&working_parameters.network_client);
-    let pre_sync_reponse = sender.dist_kits_and_tool_pre_sync(winsdk_path, compiler_dir.to_str().unwrap());
 
     let mut dist_msvc_compiler_path = std::ffi::OsString::new();
     let mut dist_msvc_include_path = std::ffi::OsString::new();
+    let mut win_kits_include_dir = std::ffi::OsString::new();
 
-    if pre_sync_reponse.toolchain_path.is_empty() {
+    (dist_msvc_compiler_path, dist_msvc_include_path, win_kits_include_dir) 
+        = sender.dist_kits_and_tool_pre_sync(winsdk_path, compiler_dir.to_str().unwrap());
+
+    if dist_msvc_compiler_path.is_empty() {
         println!("tool chain sync");
         let path = std::path::PathBuf::from(compiler_dir.to_str().unwrap());
         if path.is_dir() {
@@ -229,10 +232,11 @@ fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameter
         }
     }
     else {
+
         println!("tool chain sync have done");
     }
-    let mut win_kits_include_dir = std::ffi::OsString::new();
-    if pre_sync_reponse.windows_kits_path.is_empty() {
+
+    if win_kits_include_dir.is_empty() {
         println!("windows kits sync");
         let mut path = std::path::PathBuf::from(winsdk_path);
         if path.is_dir() && path.pop() {
@@ -245,25 +249,22 @@ fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameter
 
     let env_input = crate::compiler::compiler::EnvInput {
          winkits_includes_path: vec![win_kits_include_dir],
-         compiler_path: dist_msvc_compiler_path,
+         compiler_path: dist_msvc_compiler_path.clone(),
          msvc_includes_path: dist_msvc_include_path,
          msvc_version: std::ffi::OsString::new(),
          env_args: std::ffi::OsString::new(),
     };
 
     let mut input = msvc_compile_input.to_owned();
-    input.env_input = Some(env_input);
+    input.env_input = Some(env_input.clone());
 
-    sender.dist_compile(&input);
+    println!("input env: {:?}", env_input.clone());
+    
+    input.build_and_compiler_type = std::ffi::OsString::from("Dist MSVC");
 
-    let compiled_filename: Vec<std::ffi::OsString> = Vec::new();
-    let result = super::compiler::CompileOutput {
-        compiled_filename,
-        compile_status: true,
-        compile_output: std::ffi::OsString::from(""),
-    };
-
-    return result;
+    let response = sender.dist_compile(&input);
+    
+    return response;
 }
 
 fn start_local_compiler(compiler_path: std::ffi::OsString, working_dir: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>) -> (bool, String) {
@@ -495,7 +496,7 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, wo
         
         return (args, compiler_path);
     }
-    else if  compile_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
+    else if  compile_input.build_and_compiler_type.to_string_lossy().contains("Cmake") {
         compiler_path = compile_input.compiler_path_or_arch;
         return (args, compiler_path);
     }
