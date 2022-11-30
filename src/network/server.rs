@@ -73,11 +73,16 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
     let network = NetworkRequestHandler::default();
     let addr = network.commonder_addr.as_str().parse::<std::net::SocketAddr>().unwrap();
 
-    let server = axum::Server::bind(&addr)
-        .serve(router.into_make_service());
-
-    if let Err(err) = server.await {
-        println!("start service error: {}", err);
+    match axum::Server::try_bind(&addr) {
+        Ok(builder) => {
+            let server = builder.serve(router.into_make_service());
+            if let Err(err) = server.await {
+                println!("start service error: {}", err);
+            }
+        },
+        Err(error) => {
+            println!("start service bing to a address {:?} failed. {:?}", addr.ip(), error);
+        }
     }
 }
 
