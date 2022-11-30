@@ -37,6 +37,7 @@ pub struct CompileInput {
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
     pub build_and_compiler_type: std::ffi::OsString,
+    pub preprocessed_source: Option<std::ffi::OsString>,
     pub env_input: Option<EnvInput>,
 }
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
@@ -44,12 +45,26 @@ pub struct CompileOutput {
     pub compiled_filename: Vec<std::ffi::OsString>,
     pub compile_status: bool,
     pub compile_output: std::ffi::OsString,
+    pub compiled_result: Option<Vec<ProcessedResult>>,
+}
+
+#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
+pub struct ProcessedResult {
+    source_file: std::ffi::OsString,
+    obj: Vec<u8>,
+    pdb: Vec<u8>,
+    idb: Vec<u8>,
 }
 
 impl Default for CompileOutput {
     fn default() -> Self {
         let filename: Vec<std::ffi::OsString> = Vec::new();
-        Self { compiled_filename: filename, compile_status: true, compile_output: std::ffi::OsString::new() }
+        Self { 
+            compiled_filename: filename, 
+            compile_status: false, 
+            compile_output: std::ffi::OsString::new(), 
+            compiled_result: None,
+        }
     }
 }
 

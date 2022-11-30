@@ -1,38 +1,34 @@
-use std::string;
-
-use winapi::shared::winerror::ERROR_SXS_XML_E_MISSINGWHITESPACE;
-
 
 
 pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::SyncData) -> crate::compiler::compiler::SyncData {
     
     let kind = pre_sync_file.sync_kind.to_str().unwrap();
-    let mut toolchain_path = pre_sync_file.toolchain_path.clone().into_string().unwrap();
-    let mut win_kits_path = pre_sync_file.windows_kits_path.clone().into_string().unwrap();
+    let mut toolchain_path = pre_sync_file.toolchain_path.clone().to_os_string();
+    let mut win_kits_path = pre_sync_file.windows_kits_path.clone().to_os_string();
     println!("pre sync file {:?} {:?} {:?}",  kind, toolchain_path, win_kits_path);
     if (!toolchain_path.is_empty() || !win_kits_path.is_empty()) 
         && (kind.contains("kits") || kind.contains("msvc")) {
-        match fetch_local_msvc_compiler(&toolchain_path) {
+        match fetch_local_msvc_compiler(&toolchain_path.to_string_lossy()) {
             Some(path) => {
                     toolchain_path = path;
                 },
             None => {
-                toolchain_path = String::new();
+                toolchain_path = std::ffi::OsString::new();
             }
         }
-        match fetch_local_windows_kits(&win_kits_path) {
+        match fetch_local_windows_kits(&win_kits_path.to_string_lossy()) {
             Some(path) => {
                 win_kits_path = path;
             }
             None => {
-                win_kits_path = String::new();
+                win_kits_path = std::ffi::OsString::new();
             }
         }
 
         let pre_sync_file = crate::compiler::compiler::SyncData {
                 sync_kind: std::ffi::OsString::new(),
-                toolchain_path: std::ffi::OsString::from(toolchain_path),
-                windows_kits_path: std::ffi::OsString::from(win_kits_path),
+                toolchain_path: toolchain_path,
+                windows_kits_path: win_kits_path,
                 file_path: std::ffi::OsString::new(),
                 file_name: std::ffi::OsString::new(),
                 digest: std::ffi::OsString::new(),
@@ -50,7 +46,7 @@ pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::SyncData) 
     return crate::compiler::compiler::SyncData::default();
 }
 
-fn fetch_local_msvc_compiler(compiler_path: &str) -> Option<String> {
+fn fetch_local_msvc_compiler(compiler_path: &str) -> Option<std::ffi::OsString> {
     //todo 初始化的时候就把路径读到内存中
     //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\
     let remote_compiler_dir = std::path::Path::new(compiler_path);
@@ -62,7 +58,7 @@ fn fetch_local_msvc_compiler(compiler_path: &str) -> Option<String> {
 
     let current_dir = std::env::current_dir().unwrap();
     let compiler_mapping_path = current_dir.join("FileCache").join("MSVC").join(version);
-    if compiler_mapping_path.exists() {
+    if compiler_mapping_path.exists() && compiler_mapping_path.join("Include").exists() {
         let mut arch = remote_compiler_dir.components().nth_back(0).unwrap().as_os_str().to_string_lossy();
         if arch.contains("64") || arch.contains("86") {
 
@@ -71,9 +67,11 @@ fn fetch_local_msvc_compiler(compiler_path: &str) -> Option<String> {
             arch = remote_compiler_dir.components().nth_back(1).unwrap().as_os_str().to_string_lossy();
         }
 
-        let compiler_mapping_path = compiler_mapping_path.join(r"bin\Hostx64").join(arch.to_mut()).join("cl.exe");
+        let mut compiler_mapping_path = compiler_mapping_path.join(r"bin\Hostx64").join(arch.to_mut()).join("cl.exe");
+
         if compiler_mapping_path.exists() {
-            return Some(compiler_mapping_path.display().to_string());
+            compiler_mapping_path.pop();
+            return Some(compiler_mapping_path.into_os_string());
         }
         else {
             println!("fetch loacl msvc compiler. {:?}", compiler_mapping_path);
@@ -86,7 +84,7 @@ fn fetch_local_msvc_compiler(compiler_path: &str) -> Option<String> {
     return None
 }
 
-fn fetch_local_windows_kits(path: &str) -> Option<String> {
+fn fetch_local_windows_kits(path: &str) -> Option<std::ffi::OsString> {
     //C:\Program Files (x86)\Windows Kits\10\Include\10.0.22000.0\shared
     let path = std::path::PathBuf::from(path);
     let kits_version = path.into_iter().filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap().ends_with(".0"))
@@ -95,7 +93,7 @@ fn fetch_local_windows_kits(path: &str) -> Option<String> {
     let kit_path = std::env::current_dir().unwrap()
         .join("FileCache").join("Win Kits").join("10").join("Include").join(kits_version);
     if kit_path.exists() {
-        return Some(kit_path.display().to_string())
+        return Some(kit_path.into_os_string())
     }
     return None;
 }
