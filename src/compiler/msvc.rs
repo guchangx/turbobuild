@@ -1,16 +1,11 @@
 extern crate regex;
-
 pub struct MSVC;
-
 use std::{ops::Index};
-
-use winapi::shared::winerror::ERROR_SXS_XML_E_MISSINGWHITESPACE;
-
 
 #[async_trait]
 impl crate::compiler::compiler::Compiler for MSVC {
     async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
-                                compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle)
+                                compile_input: super::compiler::CompileInput, _pool: &tokio::runtime::Handle)
                                 -> super::compiler::CompileOutput {
         let output = request_dist_compile(&working_parameters, &compile_input);
         //let output = request_msvc_compile(working_parameters, compile_input, pool).await;
@@ -294,7 +289,7 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                         }
                         compiled_result.push((std::ffi::OsString::from(&line), obj, pdb, idb));
                     },
-                    GeneratedObject::PathWithoutObjName(path) => {
+                    GeneratedObject::PathWithoutObjName(_path) => {
 
                     },
                     _ => {
@@ -316,7 +311,7 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
     return result;
 }
 
-fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::CompileInput, pool: &tokio::runtime::Handle) -> super::compiler::CompileOutput{
+fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::CompileInput, _pool: &tokio::runtime::Handle) -> super::compiler::CompileOutput{
 
     let output = request_local_compile(msvc_compile_input.compiler_path_or_arch.clone(),
                     msvc_compile_input.compiler_working_dir.clone(), msvc_compile_input.compiler_commands.clone());
@@ -336,11 +331,11 @@ fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameter
     
     let sender = crate::syncfile::sender::Sender::new(&working_parameters.network_client);
 
-    let mut dist_msvc_compiler_path = std::ffi::OsString::new();
-    let mut dist_msvc_include_path = std::ffi::OsString::new();
-    let mut win_kits_include_dir = std::ffi::OsString::new();
+    let mut dist_msvc_compiler_path: std::ffi::OsString;
+    let mut dist_msvc_include_path: std::ffi::OsString;
+    let mut win_kits_include_dir: std::ffi::OsString;
 
-    (dist_msvc_compiler_path, dist_msvc_include_path, win_kits_include_dir) 
+    (dist_msvc_compiler_path, dist_msvc_include_path, win_kits_include_dir)
         = sender.dist_kits_and_tool_pre_sync(winsdk_path, compiler_dir.to_str().unwrap());
 
     if dist_msvc_compiler_path.is_empty() {

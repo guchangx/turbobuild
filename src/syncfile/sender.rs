@@ -1,4 +1,3 @@
-use std::f32::consts::E;
 use std::io::Read;
 use std::io::Write;
 
@@ -13,7 +12,7 @@ impl<'a> Sender<'a> {
         }
     }
 
-    fn zip_dir(&self, dir: &str, name: &str, client: &crate::network::client::NetworkClient) -> crate::compiler::compiler::SyncData {
+    fn zip_dir(&self, dir: &str, name: &str, _client: &crate::network::client::NetworkClient) -> crate::compiler::compiler::SyncData {
         let mut path = std::path::PathBuf::from(dir);
 
         let mut cursor = std::io::Cursor::new(Vec::new());
@@ -42,7 +41,7 @@ impl<'a> Sender<'a> {
         return response;
     }
 
-    fn zip_file(&self, path: &str) {
+    fn _zip_file(&self, path: &str) {
         let path = std::path::Path::new(path);
         let name = path.into_iter().last().unwrap();
         let target_path = std::env::current_dir().unwrap().join(name);
@@ -128,7 +127,7 @@ impl<'a> Sender<'a> {
     pub fn sync_file(&self, file: &str) {
         println!("sync file: {:?}", file);
         match self.client.dist_file_sync("dist/syncfile",file) {
-            Ok(response) => {
+            Ok(_response) => {
                 println!("sync file respone");
             },
             Err(error) => {

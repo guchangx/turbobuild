@@ -198,7 +198,7 @@ fn windows_kits_mapping_path(file_path: String) -> std::path::PathBuf {
         .filter(|arg| arg.to_str().unwrap().contains(".") || arg.to_str().unwrap().ends_with(".0"))
         .nth(0)
         .unwrap();
-    let mut kits_include_mapping_path = std::path::PathBuf::new();
+    let kits_include_mapping_path: std::path::PathBuf;
     if  win_kits_version.to_string_lossy().contains(".zip") {
         let version = win_kits_version.to_string_lossy().strip_suffix(".zip").unwrap().to_owned();
         kits_include_mapping_path = std::env::current_dir().unwrap()
@@ -213,7 +213,7 @@ fn windows_kits_mapping_path(file_path: String) -> std::path::PathBuf {
     return kits_include_mapping_path;
 }
 
-fn unzip(path: &str, target: &str) {
+fn _unzip(path: &str, target: &str) {
     let source_zip = std::fs::File::open(path).unwrap();
     let mut zip_archive = zip::ZipArchive::new(source_zip).unwrap();
     zip_archive.extract(target).unwrap();
