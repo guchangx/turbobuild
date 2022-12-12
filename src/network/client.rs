@@ -148,7 +148,7 @@ impl NetworkClient {
                     let value = response.json::<crate::compiler::compiler::CompileOutput>().unwrap();
                     return value;
                 },
-                Err(error) => {
+                Err(_) => {
                     return crate::compiler::compiler::CompileOutput::default();
                 }
             }
