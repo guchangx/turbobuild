@@ -1,6 +1,6 @@
 
 
-extern crate buildtrubo;
+extern crate buildturbo;
 fn main() {
-    buildtrubo::main()
+    buildturbo::main()
 }

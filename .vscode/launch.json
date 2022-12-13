@@ -7,16 +7,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'buildtrubo'",
+            "name": "Debug unit tests in library 'buildturbo'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=buildtrubo"
+                    "--package=buildturbo"
                 ],
                 "filter": {
-                    "name": "buildtrubo",
+                    "name": "buildturbo",
                     "kind": "lib"
                 }
             },
@@ -26,15 +26,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'buildtrubo'",
+            "name": "Debug executable 'buildturbo'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=buildtrubo",
-                    "--package=buildtrubo"
+                    "--bin=buildturbo",
+                    "--package=buildturbo"
                 ],
                 "filter": {
-                    "name": "buildtrubo",
+                    "name": "buildturbo",
                     "kind": "bin"
                 }
             },
@@ -44,16 +44,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'buildtrubo'",
+            "name": "Debug unit tests in executable 'buildturbo'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=buildtrubo",
-                    "--package=buildtrubo"
+                    "--bin=buildturbo",
+                    "--package=buildturbo"
                 ],
                 "filter": {
-                    "name": "buildtrubo",
+                    "name": "buildturbo",
                     "kind": "bin"
                 }
             },

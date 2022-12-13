@@ -88,7 +88,6 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
 
 impl NetworkRequestHandler {
     pub fn start(working_params: crate::buildturbo::WorkingParameters) {
-
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let handle = runtime.handle();
         runtime.block_on(async move {
