@@ -8,7 +8,20 @@ pub struct RedisCache {
 
 impl RedisCache {
     pub fn new(url: &str) -> RedisCache {
-        let client = redis::Client::open(url);
+        let redis_addr: String;
+        if url.starts_with("redis://") {
+            redis_addr = url.to_string();
+        }
+        else {
+            let mut redis_url = reqwest::Url::parse("redis://").unwrap();
+            let result = redis_url.set_host(Some(url));
+            if result.is_err() {
+                log::warn!("redis addr is error.");
+            }
+            redis_addr = redis_url.to_string();
+        }
+        //"redis://10.224.201.61/"
+        let client = redis::Client::open(redis_addr);
         match client {
             Ok(client) => {
                 let redis = 

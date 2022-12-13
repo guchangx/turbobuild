@@ -16,11 +16,11 @@ mod syncfile;
 mod config;
 
 pub fn main() {
+    init_logger();
     println!("welcome to build turbo tool.");
     let config = config::ConfigurationInfo::init();
-    println!("config: {:?}", config);
-    init_logger();
-    let working_parameters = buildturbo::WorkingParameters::init();
+    log::debug!("config: {:?}", config);
+    let working_parameters = buildturbo::WorkingParameters::init(&config);
     network::server::NetworkRequestHandler::start(working_parameters);
     println!("build turbo tool exists.");
 }
@@ -31,7 +31,6 @@ fn init_logger() {
     let logger = builder
     .write_style(env_logger::WriteStyle::Always)
     .format_level(true)
-    .format_indent(Some(2))
     .filter(None, log::LevelFilter::Trace)
     .target(env_logger::Target::Stdout)
     .try_init();

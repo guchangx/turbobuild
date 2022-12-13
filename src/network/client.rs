@@ -3,10 +3,11 @@ extern crate reqwest;
 #[derive(Clone)]
 pub struct NetworkClient {
     client: reqwest::blocking::Client,
+    workers_addr:Vec<String>,
 }
 
 impl NetworkClient {
-    pub fn new() -> Self {
+    pub fn new(workers_addr: &Vec<String>) -> Self {
         let client = reqwest::blocking::Client::builder()
         .timeout(core::time::Duration::from_secs(180))
         .build()
@@ -14,11 +15,21 @@ impl NetworkClient {
 
         Self {
             client,
+            workers_addr: workers_addr.to_owned(),
         }
     }
 
     fn post<T: serde::ser::Serialize + ?core::marker::Sized>(&self, route: &str, input: &T) -> Result<reqwest::blocking::Response, reqwest::Error> {
-        let base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
+        let mut base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
+        match self.workers_addr.get(0){
+            Some(addr) => {
+                let _ =base.set_host(Some(&addr));
+            },
+            None => {
+                log::debug!("Don't have workers");
+            },
+        }
+        
         let url = base.join(&route).unwrap();
         let response = self.client.post(url)
             .header(reqwest::header::CONTENT_TYPE, "application/json")
@@ -28,7 +39,15 @@ impl NetworkClient {
     }
 
     fn dist_post(&self, route: &str, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> Result<reqwest::blocking::Response, reqwest::Error> {
-        let base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
+        let mut base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
+        match self.workers_addr.get(0){
+            Some(addr) => {
+                let _ = base.set_host(Some(&addr));
+            },
+            None => {
+                log::debug!("Don't have workers");
+            },
+        }
         let url = base.join(&route).unwrap();
         let response = self.client.post(url)
             .header(reqwest::header::CONTENT_TYPE, "application/json")

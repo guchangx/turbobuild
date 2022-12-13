@@ -7,13 +7,13 @@ pub struct WorkingParameters {
 }
 
 impl WorkingParameters {
-    pub fn init() -> Self {
-        let redis = crate::cache::redis::RedisCache::new("redis://10.224.201.61/");
+    pub fn init(config: &crate::config::ConfigurationInfo) -> Self {
+        let redis = crate::cache::redis::RedisCache::new(&config.redis_addr);
         let parameters = WorkingParameters {
             storage: std::sync::Arc::new(redis),
-            dist: crate::dist::Dist::init(),
+            dist: crate::dist::Dist::init(), 
             compiler_env: crate::platform::windows::WindowsCompilerEnv::default(),
-            network_client: crate::network::client::NetworkClient::new(),
+            network_client: crate::network::client::NetworkClient::new(&config.workers_addr),
         };
         return parameters;
     }

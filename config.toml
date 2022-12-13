@@ -1,0 +1,4 @@
+#ConfigurationInfo
+commonder_addr = '127.0.0.1'
+workers_addr = ['10.140.216.142']
+redis_addr = '10.224.201.61'
