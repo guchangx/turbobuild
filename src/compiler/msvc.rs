@@ -415,7 +415,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
     use std::process::Stdio;
 
     let now_start = chrono::Local::now();
-    println!("start time: {:?}, copiler path: {:?}, start content: {:?}", now_start.format("%Y-%m-%d %H:%M:%S%.3f").to_string(), compiler_path, compiler_commands);
+    println!("start time: {:?}, compiler path: {:?}, start content: {:?}", now_start.format("%Y-%m-%d %H:%M:%S%.3f").to_string(), compiler_path, compiler_commands);
 
     let child = std::process::Command::new(compiler_path)
                             .current_dir(working_dir)
@@ -611,7 +611,7 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, wo
                 },
             }
         }
-        println!("compiler_path compiler_path :{:?}", compiler_path);
+        println!("compiler_path: {:?}", compiler_path);
 
         args = extract_macro_contain_space_arg(&mut commands);
 
