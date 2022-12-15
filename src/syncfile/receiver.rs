@@ -98,7 +98,10 @@ fn fetch_local_windows_kits(path: &str) -> Option<std::ffi::OsString> {
     return None;
 }
 
-pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multipart) -> std::ffi::OsString {
+pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multipart) -> crate::compiler::compiler::SyncData {
+
+    let mut toolchain_path = std::ffi::OsString::new();
+    let mut windows_kits_path = std::ffi::OsString::new();
 
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().expect("fetch name from multipart/form-data failed.").to_string();
@@ -114,7 +117,7 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
                 let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
                 let msvc_mapping_dir = msvc_mapping_dir(file_name);
                 zip_archive.extract(msvc_mapping_dir.clone()).unwrap();
-                return msvc_mapping_dir.into_os_string();
+                toolchain_path = msvc_mapping_dir.into_os_string();
             }
             else {
                 
@@ -136,7 +139,7 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
                 let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
                 let kits_include_path = windows_kits_mapping_path(file_name);
                 zip_archive.extract(kits_include_path.clone()).unwrap();
-                return kits_include_path.into_os_string()
+                windows_kits_path = kits_include_path.into_os_string()
             }
             else {
 
@@ -157,7 +160,18 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
 
         }
     }
-    return std::ffi::OsString::new();
+
+    let is_exists = !toolchain_path.is_empty() || !windows_kits_path.is_empty();
+    let sync_data = crate::compiler::compiler::SyncData {
+        sync_kind: std::ffi::OsString::new(),
+        toolchain_path: toolchain_path,
+        windows_kits_path: windows_kits_path,
+        file_path: std::ffi::OsString::new(),
+        file_name: std::ffi::OsString::new(),
+        digest: std::ffi::OsString::new(),
+        is_exists,
+    };
+    return sync_data;
 }
 
 fn msvc_mapping_dir(file_path: String) -> std::path::PathBuf {

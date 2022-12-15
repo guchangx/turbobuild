@@ -2,14 +2,14 @@
 extern crate axum;
 
 pub struct NetworkRequestHandler {
-    commonder_addr: String,
+    coordinator_addr: String,
     _workers_addr: Vec<String>,
 }
 
 impl Default for NetworkRequestHandler {
     fn default() -> Self {
         Self {
-            commonder_addr: "10.140.216.142:9302".to_string(),
+            coordinator_addr: "127.0.0.1:9302".to_string(),
             _workers_addr: vec!["127.0.0.1:9302".to_string()],
         }
     }
@@ -27,6 +27,7 @@ async fn get_teamworker_info() -> axum::extract::Json<serde_json::Value>
 
 async fn request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>, 
         working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle) -> axum::extract::Json<serde_json::Value> {
+    log::trace!("local request compile");
     let output = crate::compiler::compiler::request_compile(working_parameters, compile_input, &thread_pool).await;
     return axum::extract::Json(serde_json::json!(output));
 }
@@ -45,8 +46,8 @@ async fn pre_sync_file(axum::extract::Json(pre_sync_file): axum::extract::Json<c
 }
 
 async fn sync_file(mut multipart: axum::extract::multipart::Multipart) -> axum::extract::Json<serde_json::Value> {
-    let local_path = crate::syncfile::receiver::sync_file_to_local(&mut multipart).await;
-    return axum::extract::Json(serde_json::json!(local_path));
+    let exists_info = crate::syncfile::receiver::sync_file_to_local(&mut multipart).await;
+    return axum::extract::Json(serde_json::json!(exists_info));
 }
 
 async fn init_network_request_router(working_params: crate::buildturbo::WorkingParameters, thread_pool: &tokio::runtime::Handle) {
@@ -71,7 +72,7 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
     .route("/dist/syncfile", axum::routing::post(sync_file));
 
     let network = NetworkRequestHandler::default();
-    let addr = network.commonder_addr.as_str().parse::<std::net::SocketAddr>().unwrap();
+    let addr = network.coordinator_addr.as_str().parse::<std::net::SocketAddr>().unwrap();
 
     match axum::Server::try_bind(&addr) {
         Ok(builder) => {
@@ -93,6 +94,5 @@ impl NetworkRequestHandler {
         runtime.block_on(async move {
             init_network_request_router(working_params, handle).await
          });
-
     }
 }

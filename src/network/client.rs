@@ -21,9 +21,9 @@ impl NetworkClient {
 
     fn post<T: serde::ser::Serialize + ?core::marker::Sized>(&self, route: &str, input: &T) -> Result<reqwest::blocking::Response, reqwest::Error> {
         let mut base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
-        match self.workers_addr.get(0){
+        match self.workers_addr.get(0) {
             Some(addr) => {
-                let _ =base.set_host(Some(&addr));
+                let _ = base.set_host(Some(&addr));
             },
             None => {
                 log::debug!("Don't have workers");
@@ -40,7 +40,7 @@ impl NetworkClient {
 
     fn dist_post(&self, route: &str, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> Result<reqwest::blocking::Response, reqwest::Error> {
         let mut base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
-        match self.workers_addr.get(0){
+        match self.workers_addr.get(0) {
             Some(addr) => {
                 let _ = base.set_host(Some(&addr));
             },
@@ -61,7 +61,15 @@ impl NetworkClient {
 
         let part = reqwest::blocking::multipart::Part::bytes(std::borrow::Cow::from(file)).file_name(path.to_owned());
         let form = reqwest::blocking::multipart::Form::new().part("file", part);
-        let base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
+        let mut base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
+        match self.workers_addr.get(0){
+            Some(addr) => {
+                let _ = base.set_host(Some(&addr));
+            },
+            None => {
+                log::debug!("Don't have workers");
+            },
+        }
         let url = base.join(route).unwrap();
         let response = self.client.post(url)
             .multipart(form)
@@ -82,7 +90,15 @@ impl NetworkClient {
         println!("post file by zip {:?} {:?}", name, filename);
         let part = reqwest::blocking::multipart::Part::bytes(filecontent.to_vec()).file_name(filename.to_owned());
         let form = reqwest::blocking::multipart::Form::new().part(name.to_owned(), part);
-        let base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
+        let mut base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
+        match self.workers_addr.get(0){
+            Some(addr) => {
+                let _ = base.set_host(Some(&addr));
+            },
+            None => {
+                log::debug!("Don't have workers");
+            },
+        }
         let url = base.join(route).unwrap();
         let response = self.client.post(url)
             .multipart(form)
@@ -124,7 +140,7 @@ impl NetworkClient {
                     return value;
                 },
                 Err(error) => {
-                    println!("pre sync file post failed: {:?}", error);
+                    println!("pre sync file failed: {:?}", error);
                     return crate::compiler::compiler::SyncData::default()
                 },
             }
@@ -148,7 +164,7 @@ impl NetworkClient {
                     return value;
                 },
                 Err(error) => {
-                    println!("pre sync file post failed: {:?}", error);
+                    println!("pre sync kits and toolchain failed: {:?}", error);
                     return crate::compiler::compiler::SyncData::default()
                 },
             }

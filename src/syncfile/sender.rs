@@ -126,7 +126,7 @@ impl<'a> Sender<'a> {
 
     pub fn sync_file(&self, file: &str) {
         println!("sync file: {:?}", file);
-        match self.client.dist_file_sync("dist/syncfile",file) {
+        match self.client.dist_file_sync("dist/syncfile", file) {
             Ok(_response) => {
                 println!("sync file respone");
             },

@@ -4,6 +4,7 @@ extern crate toml;
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug)]
 pub struct ConfigurationInfo {
     pub coordinator_addr: String,
+    pub local_addr: String,
     pub workers_addr: Vec<String>,
     pub redis_addr: String,
 }
@@ -18,6 +19,7 @@ impl ConfigurationInfo {
                 println!("can't load configuration file, use single tool.");
                 let value = ConfigurationInfo {
                     coordinator_addr: String::from("127.0.0.1"),
+                    local_addr: String::from("127.0.0.1"),
                     workers_addr: vec![String::from("127.0.0.1")],
                     redis_addr: String::from("")
                 };

@@ -325,7 +325,7 @@ fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameter
     let local_compiler_arch = msvc_compile_input.compiler_path_or_arch.to_str().unwrap();
     let compiler_dir = std::path::Path::new(&working_parameters.compiler_env.compiler_path).join("Hostx64").join(local_compiler_arch);
 
-    println!("compiler path: {:?}", compiler_dir);
+    println!("compiler dir: {:?}", compiler_dir);
 
     let winsdk_path = working_parameters.compiler_env.winkits_includes_path.first().unwrap();
     
@@ -339,7 +339,7 @@ fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameter
         = sender.dist_kits_and_tool_pre_sync(winsdk_path, compiler_dir.to_str().unwrap());
 
     if dist_msvc_compiler_path.is_empty() {
-        println!("tool chain sync");
+        println!("msvc toolchain sync");
         let path = std::path::PathBuf::from(compiler_dir.to_str().unwrap());
         if path.is_dir() {
             (dist_msvc_compiler_path, dist_msvc_include_path) = sender.sync_toolchain(&path);
