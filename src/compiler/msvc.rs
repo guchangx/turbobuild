@@ -63,10 +63,16 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
     let working_path = std::path::PathBuf::from(msvc_compile_input.compiler_working_dir.to_string_lossy().to_string());
 
     if !working_path.exists() {
-        let _ = std::fs::create_dir_all(working_path.clone());
+        let result = std::fs::create_dir_all(working_path.clone());
+        match result {
+            Ok(_) => {
+                log::info!("create dir in: {:?}", working_path);
+            },
+            Err(error) => {
+                log::warn!("can not create dir in: {:?}, error code: {:?}", working_path, error)
+            },
+        }
     }
-
-    println!("create dir all {:?}", working_path);
 
     let source_file = fetch_compiler_source_file(msvc_compile_input.build_and_compiler_type.clone(), 
         compiler_commands.clone(), working_path.clone()).unwrap();
@@ -325,7 +331,7 @@ fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameter
     let local_compiler_arch = msvc_compile_input.compiler_path_or_arch.to_str().unwrap();
     let compiler_dir = std::path::Path::new(&working_parameters.compiler_env.compiler_path).join("Hostx64").join(local_compiler_arch);
 
-    println!("compiler dir: {:?}", compiler_dir);
+    println!("vs compiler install dir: {:?}", compiler_dir);
 
     let winsdk_path = working_parameters.compiler_env.winkits_includes_path.first().unwrap();
     
@@ -346,7 +352,6 @@ fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameter
         }
     }
     else {
-
         println!("tool chain sync have done");
     }
 
@@ -359,6 +364,14 @@ fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameter
     }
     else {
         println!("windows kits sync have done");
+    }
+
+    if !dist_msvc_compiler_path.is_empty() {
+        let mut path = std::path::PathBuf::from(dist_msvc_compiler_path);
+        if !path.ends_with("cl.exe") {
+            path.set_file_name("cl.exe")
+        }
+        dist_msvc_compiler_path = std::ffi::OsString::from(path);
     }
 
     let env_input = crate::compiler::compiler::EnvInput {

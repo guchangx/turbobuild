@@ -1,5 +1,4 @@
 
-
 pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::SyncData) -> crate::compiler::compiler::SyncData {
     
     let kind = pre_sync_file.sync_kind.to_str().unwrap();
@@ -34,7 +33,6 @@ pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::SyncData) 
                 digest: std::ffi::OsString::new(),
                 is_exists: true,
         };
-
         return pre_sync_file;
     }
     else if pre_sync_file.sync_kind == "sourcefile" {
@@ -74,11 +72,11 @@ fn fetch_local_msvc_compiler(compiler_path: &str) -> Option<std::ffi::OsString> 
             return Some(compiler_mapping_path.into_os_string());
         }
         else {
-            println!("fetch loacl msvc compiler. {:?}", compiler_mapping_path);
+            println!("compiler is not exists in path: {:?}. so return none.", compiler_mapping_path);
         }
     }
     else {
-        println!("fetch loacl msvc compiler. {:?}", compiler_mapping_path);
+        println!("compiler is not exists in path: {:?}. so return none.", compiler_mapping_path);
     }
     
     return None
@@ -100,15 +98,14 @@ fn fetch_local_windows_kits(path: &str) -> Option<std::ffi::OsString> {
 
 pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multipart) -> crate::compiler::compiler::SyncData {
 
-    let mut toolchain_path = std::ffi::OsString::new();
+    let mut toolchain_bin_or_include_path = std::ffi::OsString::new();
     let mut windows_kits_path = std::ffi::OsString::new();
 
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().expect("fetch name from multipart/form-data failed.").to_string();
         let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
 
-        println!("mame {:?}", name);
-        println!("file name {:?}", file_name);
+        println!("mame {:?}, file name {:?}", name, file_name);
 
         if name.contains("msvc") {
             let data = field.bytes().await.unwrap();
@@ -117,7 +114,14 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
                 let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
                 let msvc_mapping_dir = msvc_mapping_dir(file_name);
                 zip_archive.extract(msvc_mapping_dir.clone()).unwrap();
-                toolchain_path = msvc_mapping_dir.into_os_string();
+                
+                if msvc_mapping_dir.file_name() == Some(std::ffi::OsStr::new("include")) {
+                    toolchain_bin_or_include_path = msvc_mapping_dir.into_os_string();
+                }
+                else {
+                    toolchain_bin_or_include_path = msvc_mapping_dir.into_os_string();
+                }
+
             }
             else {
                 
@@ -161,10 +165,10 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
         }
     }
 
-    let is_exists = !toolchain_path.is_empty() || !windows_kits_path.is_empty();
+    let is_exists = !toolchain_bin_or_include_path.is_empty() || !windows_kits_path.is_empty();
     let sync_data = crate::compiler::compiler::SyncData {
         sync_kind: std::ffi::OsString::new(),
-        toolchain_path: toolchain_path,
+        toolchain_path: toolchain_bin_or_include_path,
         windows_kits_path: windows_kits_path,
         file_path: std::ffi::OsString::new(),
         file_name: std::ffi::OsString::new(),

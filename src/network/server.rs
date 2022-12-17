@@ -70,7 +70,7 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
         ))
     .route("/dist/presyncfile", axum::routing::post(pre_sync_file))
     .route("/dist/syncfile", axum::routing::post(sync_file))
-    .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024 * 30));
+    .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024 * 50));
 
     let network = NetworkRequestHandler::default();
     let addr = network.coordinator_addr.as_str().parse::<std::net::SocketAddr>().unwrap();

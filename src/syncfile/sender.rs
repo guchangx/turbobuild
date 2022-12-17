@@ -37,7 +37,7 @@ impl<'a> Sender<'a> {
             }
         }
         let response = self.sync_zip(name, path.to_str().unwrap(), &content);
-        println!("zip dir elapsed time: {:?}", elapsed);
+        log::info!("zip dir elapsed time: {:?}", elapsed);
         return response;
     }
 
@@ -73,7 +73,7 @@ impl<'a> Sender<'a> {
                         if file_type.is_dir() {
                             zip.add_directory(name, *options).unwrap();
                             self.zip_visit_dir(entry_dir, &path, zip, options);
-                            println!("name: {:?}, path: {:?}", name, entry.path().to_str().unwrap());
+                            log::debug!("name: {:?}, path: {:?}", name, entry.path().to_str().unwrap());
                         }
                         else if file_type.is_file() {
                             zip.start_file(name, options.to_owned()).unwrap();
@@ -200,7 +200,6 @@ impl<'a> Sender<'a> {
             }
             dist_msvc_include_path = inlcude.join("include").into_os_string();
         }
-
         return (dist_msvc_compiler_path, dist_msvc_include_path, response.windows_kits_path)
     }
 
