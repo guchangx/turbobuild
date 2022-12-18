@@ -1,3 +1,4 @@
+
 extern crate reqwest;
 
 #[derive(Clone)]
@@ -169,12 +170,11 @@ impl NetworkClient {
                 },
             }
         }).join().unwrap();
-        println!("response: {:?}", response);
         return response;
     }
 
     pub fn dist_request_compile(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> crate::compiler::compiler::CompileOutput {
-        println!("dist compile post");
+        println!("dist compile post, with preprocess source: {:?}", msvc_compile_input.preprocessed_source.is_some());
         let myself = self.to_owned();
         let input = msvc_compile_input.to_owned();
         let response = std::thread::spawn(move || {

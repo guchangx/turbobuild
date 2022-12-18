@@ -2,13 +2,14 @@ extern crate regex;
 pub struct MSVC;
 use std::{ops::Index};
 
+
 #[async_trait]
 impl crate::compiler::compiler::Compiler for MSVC {
     async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
-                                compile_input: super::compiler::CompileInput, _pool: &tokio::runtime::Handle)
+                                compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle)
                                 -> super::compiler::CompileOutput {
-        let output = request_dist_compile(&working_parameters, &compile_input);
-        //let output = request_msvc_compile(working_parameters, compile_input, pool).await;
+        //let output = request_dist_compile(&working_parameters, &compile_input);
+        let output = request_msvc_compile(working_parameters, compile_input, pool).await;
         return output;
     }
 
@@ -48,8 +49,6 @@ impl crate::compiler::compiler::Compiler for MSVC {
             let output = request_local_preprocessed_compile(&compile_input, pool);
             return output;
         }
-
-
     }
 }
 
@@ -190,7 +189,7 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
             compiled_filename,
             compile_status: false,
             compile_output: std::ffi::OsString::from("don't need compile anything."),
-            compiled_result: None,
+            compiled_results: None,
         };
         return output;
     }
@@ -201,23 +200,63 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
 
     //add precompile args into command
     let mut commands = compiler_commands.to_owned();
-    commands.insert(0, std::ffi::OsString::from(r#"/EP"#));
-    let (compile_status, compile_output) = start_local_compiler(compiler_path, compiler_working_dir, &commands);
-    if compile_status {
-        println!("preprocessed source file {:?}", compile_output);
+    commands.insert(0, std::ffi::OsString::from(r"/E"));
+    let (status, stdout, stderr) = start_local_compiler(compiler_path, compiler_working_dir, &commands);
+    if status {
+        println!("preprocessed source file {:?}", String::from_utf8_lossy(&stderr));
 
         let msvc_compile_input = super::compiler::CompileInput {
             compiler_path_or_arch: compiler_path.to_owned(),
             compiler_working_dir: compiler_working_dir.to_owned(),
             compiler_commands: compiler_commands.to_owned(),
             build_and_compiler_type: std::ffi::OsString::from("MSVC Precompile"),
-            preprocessed_source: Some(std::ffi::OsString::from(compile_output)),
+            preprocessed_source: Some(stdout),
             env_input: None
         };
-        request_dist_compile_with_preprocessed_source(network, &msvc_compile_input);
+        let result = request_dist_compile_with_preprocessed_source(network, &msvc_compile_input);
+        if result.compile_status {
+            if let Some(compiled_results) = result.compiled_results {
+                for result in compiled_results {
+                    if let Some((path, content)) = result.obj {
+                        match std::fs::write(&path, content) {
+                            Ok(_) => {
+                                log::info!("sync obj to local sucess, obj path: {:?}.", path);
+                            },
+                            Err(error) => {
+                                log::warn!("sync obj to local failed. {:?}", error)                            
+                            },
+                        }
+                    }   
+                    if let Some((path, content)) = result.pdb {
+                        match std::fs::write(&path, content) {
+                            Ok(_) => {
+                                log::info!("sync pdb to local sucess, obj path: {:?}.", path);
+                            },
+                            Err(error) => {
+                                log::warn!("sync pdb to local failed. {:?}", error)                           
+                            },
+                        }
+                    }
+                    if let Some((path, content)) = result.idb {
+                        match std::fs::write(&path, content) {
+                            Ok(_) => {
+                                log::info!("sync idb to local sucess, obj path: {:?}.", path);
+                            },
+                            Err(error) => {
+                                log::warn!("sync idb to local failed. {:?}", error)                            
+                            },
+                        }
+                    }
+                }
+            }
+        }
+        else {
+
+
+        }
     }
     else {
-        println!("preprocessed source file failed");
+        println!("preprocessed source file failed. {:?}", String::from_utf8_lossy(&stderr));
     }
 
     return super::compiler::CompileOutput::default();
@@ -226,20 +265,19 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
 fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir: std::ffi::OsString, 
                                 compiler_commands: Vec<std::ffi::OsString>) -> super::compiler::CompileOutput {
 
-    let (compile_status, compile_output) = start_local_compiler(&compiler_path, &compiler_working_dir, &compiler_commands);
-
+    let (status, stdout, _stderr) = start_local_compiler(&compiler_path, &compiler_working_dir, &compiler_commands);
+    let compile_output = String::from_utf8_lossy(&stdout);
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
-    if compile_status {
+    let mut compiled_results: Vec<crate::compiler::compiler::ProcessedResult> = Vec::new();
+    if status {
         let output = compile_output.lines();
-        let mut compiled_result: Vec<(std::ffi::OsString, Vec<u8>, Vec<u8>, Vec<u8>)> = Vec::new();
         for line in output {
             let line = line.replace(r#"""#, "");
             if line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".i") {
                 
-
-                let mut obj: Vec<u8> = Vec::new();
-                let mut pdb: Vec<u8> = Vec::new();
-                let mut idb: Vec<u8> = Vec::new(); 
+                let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
+                let mut pdb: Option<(std::ffi::OsString, Vec<u8>)> = None;
+                let mut idb: Option<(std::ffi::OsString, Vec<u8>)> = None;
 
                 let working_path = std::path::PathBuf::from(compiler_working_dir.to_owned());
                 let object = fetch_compiler_object_file(std::ffi::OsString::from(""), compiler_commands.to_owned(), working_path);
@@ -247,10 +285,9 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                     GeneratedObject::PathWithObjName(dir) => {
                         let mut path = dir.join(&line);
                         path.set_extension("obj");
-
                         match std::fs::read(&path) {
                             Ok(contents) => {
-                                obj = contents;
+                                obj = Some((std::ffi::OsString::from(path.to_str().unwrap()), contents));
                             },
                             Err(error) => {
                                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -261,12 +298,11 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                                 }
                             }
                         }
-                        
-                        path.set_extension("pdb");
 
+                        path.set_extension("pdb");
                         match std::fs::read(&path) {
                             Ok(contents) => {
-                                pdb = contents;
+                                pdb = Some((std::ffi::OsString::from(path.to_str().unwrap()), contents));
                             },
                             Err(error) => {
                                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -279,10 +315,9 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                         }
 
                         path.set_extension("idb");
-
                         match std::fs::read(&path) {
                             Ok(contents) => {
-                                idb = contents;
+                                idb = Some((std::ffi::OsString::from(path.to_str().unwrap()), contents));
                             },
                             Err(error) => {
                                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -293,13 +328,20 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                                 }
                             }
                         }
-                        compiled_result.push((std::ffi::OsString::from(&line), obj, pdb, idb));
+
+                        let processed_result = crate::compiler::compiler::ProcessedResult {
+                            source_file: std::ffi::OsString::from(&line),
+                            obj: obj,
+                            pdb: pdb,
+                            idb: idb,
+                        };
+                        compiled_results.push(processed_result);
                     },
                     GeneratedObject::PathWithoutObjName(_path) => {
-
+                        println!("generate object path without obj name");
                     },
                     _ => {
-
+                        log::warn!("fetch result file path failed.");
                     }
                 }
                 compiled_filename.push(std::ffi::OsString::from(line));
@@ -309,9 +351,9 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
     
     let result = super::compiler::CompileOutput {
         compiled_filename,
-        compile_status: compile_status,
-        compile_output: std::ffi::OsString::from(compile_output),
-        compiled_result: None,
+        compile_status: status,
+        compile_output: std::ffi::OsString::from(compile_output.to_string()),
+        compiled_results: Some(compiled_results),
     };
 
     return result;
@@ -326,7 +368,7 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
 }
 
 fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameters, msvc_compile_input: &super::compiler::CompileInput) -> super::compiler::CompileOutput {
-
+    log::info!("dorequest dist compile");
     //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\cl.exe
     let local_compiler_arch = msvc_compile_input.compiler_path_or_arch.to_str().unwrap();
     let compiler_dir = std::path::Path::new(&working_parameters.compiler_env.compiler_path).join("Hostx64").join(local_compiler_arch);
@@ -405,7 +447,7 @@ fn request_dist_compile_with_preprocessed_source(network: &crate::network::clien
         let mut path = std::path::PathBuf::from(msvc_compile_input.compiler_path_or_arch.to_str().unwrap());
 
         if path.is_file() {
-            path.pop();
+            path.pop();  
         }
 
         if path.is_dir() {
@@ -424,12 +466,11 @@ fn request_dist_compile_with_preprocessed_source(network: &crate::network::clien
     }
 }
 
-fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (bool, String) {
+fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (bool, Vec<u8>, Vec<u8>) {
     use std::process::Stdio;
 
-    let now_start = chrono::Local::now();
-    println!("start time: {:?}, compiler path: {:?}, start content: {:?}", now_start.format("%Y-%m-%d %H:%M:%S%.3f").to_string(), compiler_path, compiler_commands);
-
+    println!("compiler path: {:?}, start content: {:?}", compiler_path, compiler_commands);
+    let start = std::time::Instant::now();
     let child = std::process::Command::new(compiler_path)
                             .current_dir(working_dir)
                             .args(compiler_commands.clone())
@@ -444,23 +485,29 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
             match output {
                 Ok(output) => {
                     if output.status.success() {
-                        let output_context = String::from_utf8_lossy(&output.stdout);
-                        let now_end = chrono::Local::now();
-                        //println!("file: {:#?}", output_context);
-                        println!("end time: {:?}, Id: {:?}", now_end.format("%Y-%m-%d %H:%M:%S%.3f").to_string(), child_id);
-                        return (true, output_context.into_owned());
+                        let elapsed = start.elapsed();
+                        let mut output_context = String::from_utf8_lossy(&output.stderr);
+                        if output.stdout.is_empty() {
+                            output_context = String::from_utf8_lossy(&output.stdout);
+                        }
+                        println!("compile file elapsed time: {:?}, Id: {:?}, {:?}", elapsed, child_id, output_context);
+                        return (true, output.stdout, output.stderr);
                     }
                     else {
-                         let output_context = String::from_utf8_lossy(&output.stdout);
-                         println!("build error: {:?}", output_context);
-                         return (false, output_context.into_owned());
+                        let mut output_context = String::from_utf8_lossy(&output.stdout);
+                        if output.stdout.is_empty() {
+                            output_context = String::from_utf8_lossy(&output.stderr);
+                        }
+                        let elapsed = start.elapsed();
+                        log::info!("compile file elapsed time: {:?}. error message: {:?}, error code: {:?}.", elapsed, output_context, output.status.code());
+                        return (true, output.stdout, output.stderr);
                     }
                 },
                 Err(error) => {
-                    println!("spawn compile child process error: {:?}", error);
+                    log::warn!("compile child wait output error: {:?}", error);
                     let mut error_description = String::from("compile child wait output error: ");
                     error_description.push_str(error.to_string().as_str());
-                    return (false,  error_description);
+                    return (false,  error_description.into_bytes(), vec![]);
                 },
             }
         },
@@ -468,7 +515,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
             println!("spawn compile child process error: {:?}", error);
             let mut error_description = String::from("spawn compile child process error: ");
             error_description.push_str(error.to_string().as_str());
-            return (false,  error_description);
+            return (false,  error_description.into_bytes(), vec![]);
         }
     }
 }
@@ -575,7 +622,9 @@ fn extract_path_ecnclosed_quotation_arg(compiler_commands: &mut String) -> Vec<s
 }
 
 fn split_commonds_by_space(compiler_commands: &mut String) -> Vec<std::ffi::OsString> {
+    println!("compiler_commands: {:?}", compiler_commands);
     let args_vec = compiler_commands.split(" ").map(|arg| String::from(arg)).collect::<Vec<_>>();
+    println!("args_vec: {:?}", args_vec);
     let mut args: Vec<std::ffi::OsString> = Vec::new();
 
     for arg in args_vec {
@@ -583,7 +632,7 @@ fn split_commonds_by_space(compiler_commands: &mut String) -> Vec<std::ffi::OsSt
             let arg_without_enclosed_quotation = arg.replace('"', "");
             args.push(std::ffi::OsString::from(arg_without_enclosed_quotation));
         }
-        else {
+        else if !arg.is_empty() {
             args.push(std::ffi::OsString::from(arg));
         }
     }
@@ -627,12 +676,14 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, wo
         println!("compiler_path: {:?}", compiler_path);
 
         args = extract_macro_contain_space_arg(&mut commands);
-
+        println!("args args {:?}", args);
         let mut args_with_path = extract_path_ecnclosed_quotation_arg(&mut commands);
         println!("ecnclosed quotation: {:?}", args_with_path);
         args.append(&mut args_with_path);
 
         let mut args_others = split_commonds_by_space(&mut commands);
+        println!("args others {:?}", args_others);
+
         args.append(&mut args_others);
 
         if args.is_empty() {
@@ -642,6 +693,7 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, wo
         for include in winkits_includes {
             let mut instruct = "/I".to_string();
             instruct += &include;
+            println!("instruct instruct: {:?}", instruct);
             args.push(std::ffi::OsString::from(instruct));
         }
     
