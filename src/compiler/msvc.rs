@@ -367,6 +367,7 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
     for (i, value) in msvc_compile_input.compiler_commands.iter().enumerate() {
         let value = value.to_string_lossy();
         if value.contains(".cpp") {
+            println!("find source file. {:?}", value);
             precompiled_file_path = value.replace(".cpp", ".i");
             commands[i] = std::ffi::OsString::from(precompiled_file_path.clone());
         }
