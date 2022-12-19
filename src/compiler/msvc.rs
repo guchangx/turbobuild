@@ -1,6 +1,6 @@
 extern crate regex;
 pub struct MSVC;
-use std::{ops::Index};
+use std::ops::Index;
 
 
 #[async_trait]
@@ -361,8 +361,35 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
 
 fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::CompileInput, _pool: &tokio::runtime::Handle) -> super::compiler::CompileOutput{
 
+    //replace .cpp/.c to .i
+    let mut commands = msvc_compile_input.compiler_commands.clone();
+    let mut precompiled_file_path = String::from("");
+    for (i, value) in msvc_compile_input.compiler_commands.iter().enumerate() {
+        let value = value.to_string_lossy();
+        if value.contains(".cpp") {
+            precompiled_file_path = value.replace(".cpp", ".i");
+            commands[i] = std::ffi::OsString::from(precompiled_file_path.clone());
+        }
+        else if value.contains(".c") {
+            precompiled_file_path = value.replace(".c", ".i");
+            commands[i] = std::ffi::OsString::from(precompiled_file_path.clone());
+        }
+        break;
+    }
+
+    if !precompiled_file_path.is_empty() {
+        if let Some(contents) = &msvc_compile_input.preprocessed_source {
+            match std::fs::write(&precompiled_file_path, contents) {
+                Ok(_) => {},
+                Err(error) => {
+                    log::warn!("sync precompiled source .i file failed. {:?}", error);
+                },
+            }
+        }
+    }
+
     let output = request_local_compile(msvc_compile_input.compiler_path_or_arch.clone(),
-                    msvc_compile_input.compiler_working_dir.clone(), msvc_compile_input.compiler_commands.clone());
+                    msvc_compile_input.compiler_working_dir.clone(), commands);
 
     return output;
 }
