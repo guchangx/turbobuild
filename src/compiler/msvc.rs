@@ -450,7 +450,7 @@ fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameter
     if !dist_msvc_compiler_path.is_empty() {
         let mut path = std::path::PathBuf::from(dist_msvc_compiler_path);
         if !path.ends_with("cl.exe") {
-            path.set_file_name("cl.exe")
+            path.push("cl.exe")
         }
         dist_msvc_compiler_path = std::ffi::OsString::from(path);
     }
@@ -495,7 +495,7 @@ fn request_dist_compile_with_preprocessed_source(network: &crate::network::clien
             if !dist_msvc_compiler_path.is_empty() {
                 let mut compiler_path = std::path::PathBuf::from(&dist_msvc_compiler_path);
                 if !compiler_path.ends_with("cl.exe") {
-                    compiler_path.set_file_name("cl.exe");
+                    compiler_path.push("cl.exe");
                     dist_msvc_compiler_path = std::ffi::OsString::from(compiler_path.to_str().unwrap());
                 }
             }
