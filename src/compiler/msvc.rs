@@ -479,10 +479,18 @@ fn request_dist_compile_with_preprocessed_source(network: &crate::network::clien
 
         if path.is_dir() {
             (dist_msvc_compiler_path, _) = sender.sync_toolchain(&path);
+
+            if !dist_msvc_compiler_path.is_empty() {
+                let mut compiler_path = std::path::PathBuf::from(&dist_msvc_compiler_path);
+                if !compiler_path.ends_with("cl.exe") {
+                    compiler_path.set_file_name("cl.exe");
+                    dist_msvc_compiler_path = std::ffi::OsString::from(compiler_path.to_str().unwrap());
+                }
+            }
         }
    
         let mut input = msvc_compile_input.to_owned();
-        input.build_and_compiler_type = std::ffi::OsString::from("Dist Precompile");
+        input.build_and_compiler_type = std::ffi::OsString::from("MSVC Dist Precompile");
         input.compiler_path_or_arch = dist_msvc_compiler_path;
     
         let response = sender.dist_compile(&input);
