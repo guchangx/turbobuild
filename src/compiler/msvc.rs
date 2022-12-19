@@ -388,6 +388,18 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
         }
     }
 
+    if !msvc_compile_input.compiler_working_dir.is_empty() {
+        let path = std::path::PathBuf::from(&msvc_compile_input.compiler_working_dir);
+        if !path.exists() {
+            match std::fs::create_dir_all(&path) {
+                Ok(_) => {},
+                Err(error) => {
+                    log::warn!("dist worker create dir {:?} failed. {:?}.", &path, error);
+                },
+            }
+        }
+    }
+
     let output = request_local_compile(msvc_compile_input.compiler_path_or_arch.clone(),
                     msvc_compile_input.compiler_working_dir.clone(), commands);
 
@@ -504,7 +516,10 @@ fn request_dist_compile_with_preprocessed_source(network: &crate::network::clien
 fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (bool, Vec<u8>, Vec<u8>) {
     use std::process::Stdio;
 
-    println!("compiler path: {:?}, start content: {:?}", compiler_path, compiler_commands);
+    log::debug!("local compile working dir: {:?}", working_dir);
+    log::debug!("compiler path: {:?}", compiler_path);
+    log::debug!("start content: {:?}", compiler_commands);
+
     let start = std::time::Instant::now();
     let child = std::process::Command::new(compiler_path)
                             .current_dir(working_dir)
