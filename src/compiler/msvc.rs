@@ -380,6 +380,16 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
 
     if !precompiled_file_path.is_empty() {
         if let Some(contents) = &msvc_compile_input.preprocessed_source {
+            let path = std::path::PathBuf::from(&precompiled_file_path);
+            let dir = path.parent().unwrap();
+            if !dir.exists() {
+                match std::fs::create_dir_all(dir) {
+                    Ok(_) => {},
+                    Err(error) => {
+                        log::warn!("dist worker create .i file dir {:?} failed. {:?}.", dir, error);
+                    },
+                }
+            }
             match std::fs::write(&precompiled_file_path, contents) {
                 Ok(_) => {},
                 Err(error) => {
