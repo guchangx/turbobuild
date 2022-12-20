@@ -205,14 +205,33 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
     if status {
         println!("preprocessed source file {:?}", String::from_utf8_lossy(&stderr));
 
+        let mut commands = compiler_commands.clone();
+        let mut preprocessed_file_path = String::from("");
+        for (i, value) in compiler_commands.iter().enumerate() {
+            let value = value.to_string_lossy();
+            if value.ends_with(".cpp") {
+                println!(".cpp source file: {:?}", value);
+                preprocessed_file_path = value.replace(".cpp", ".i");
+                commands[i] = std::ffi::OsString::from(&preprocessed_file_path);
+            }
+            else if value.ends_with(".c") {
+                println!(".c source file: {:?}", value);
+                preprocessed_file_path = value.replace(".c", ".i");
+                commands[i] = std::ffi::OsString::from(&preprocessed_file_path);
+            }
+        };
+
         let msvc_compile_input = super::compiler::CompileInput {
             compiler_path_or_arch: compiler_path.to_owned(),
             compiler_working_dir: compiler_working_dir.to_owned(),
-            compiler_commands: compiler_commands.to_owned(),
+            compiler_commands: commands.to_owned(),
             build_and_compiler_type: std::ffi::OsString::from("MSVC Precompile"),
             preprocessed_source: Some(stdout),
             env_input: None
         };
+
+        println!("preprocessed file path: {:?}", preprocessed_file_path);
+
         let result = request_dist_compile_with_preprocessed_source(network, &msvc_compile_input);
         if result.compile_status {
             if let Some(compiled_results) = result.compiled_results {
@@ -364,18 +383,10 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
     //replace .cpp/.c to .i
     let mut commands = msvc_compile_input.compiler_commands.clone();
     let mut precompiled_file_path = String::from("");
-    for (i, value) in msvc_compile_input.compiler_commands.iter().enumerate() {
-        let value = value.to_string_lossy();
-        if value.contains(".cpp") {
-            println!("find source file. {:?}", value);
-            precompiled_file_path = value.replace(".cpp", ".i");
-            commands[i] = std::ffi::OsString::from(precompiled_file_path.clone());
-        }
-        else if value.contains(".c") {
-            precompiled_file_path = value.replace(".c", ".i");
-            commands[i] = std::ffi::OsString::from(precompiled_file_path.clone());
-        }
-        break;
+    let precompiled_file:Vec<std::ffi::OsString> = commands.clone().into_iter().filter(|value| value.to_string_lossy().ends_with(".i")).collect();
+    if !precompiled_file.is_empty() {
+        precompiled_file_path = precompiled_file.first().unwrap().to_string_lossy().to_string();
+        println!("preprocessed source file {:?}", precompiled_file_path);
     }
 
     if !precompiled_file_path.is_empty() {
