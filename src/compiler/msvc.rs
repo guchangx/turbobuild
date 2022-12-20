@@ -228,7 +228,7 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
             compiler_path_or_arch: compiler_path.to_owned(),
             compiler_working_dir: compiler_working_dir.to_owned(),
             compiler_commands: commands.to_owned(),
-            build_and_compiler_type: std::ffi::OsString::from("MSVC Precompile"),
+            build_and_compiler_type: std::ffi::OsString::from("MSBuild Precompile"),
             preprocessed_source: Some(stdout),
             env_input: None
         };
@@ -513,7 +513,7 @@ fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameter
 
     println!("input env: {:?}", env_input.clone());
     
-    input.build_and_compiler_type = std::ffi::OsString::from("Dist MSVC");
+    input.build_and_compiler_type = std::ffi::OsString::from("MSBuild Dist");
 
     let response = sender.dist_compile(&input);
     
@@ -547,7 +547,7 @@ fn request_dist_compile_with_preprocessed_source(network: &crate::network::clien
         }
    
         let mut input = msvc_compile_input.to_owned();
-        input.build_and_compiler_type = std::ffi::OsString::from("MSVC Dist Precompile");
+        input.build_and_compiler_type = std::ffi::OsString::from("MSBuild Dist Precompile");
         input.compiler_path_or_arch = dist_msvc_compiler_path;
     
         let response = sender.dist_compile(&input);
@@ -563,7 +563,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
 
     log::debug!("local compile working dir: {:?}", working_dir);
     log::debug!("compiler path: {:?}", compiler_path);
-    log::debug!("start content: {:?}", compiler_commands);
+    log::debug!("compile content: {:?}", compiler_commands);
 
     let start = std::time::Instant::now();
     let child = std::process::Command::new(compiler_path)
@@ -582,10 +582,10 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                     if output.status.success() {
                         let elapsed = start.elapsed();
                         let mut output_context = String::from_utf8_lossy(&output.stderr);
-                        if output.stdout.is_empty() {
+                        if output.stderr.is_empty() {
                             output_context = String::from_utf8_lossy(&output.stdout);
                         }
-                        println!("compile file elapsed time: {:?}, Id: {:?}, {:?}", elapsed, child_id, output_context);
+                        println!("compile file success, elapsed time: {:?}, Id: {:?}, {:?}", elapsed, child_id, output_context);
                         return (true, output.stdout, output.stderr);
                     }
                     else {
@@ -740,7 +740,7 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, wo
     let mut args = Vec::new();
     let mut compiler_path = std::ffi::OsString::new();
     let commands_iter = compile_commands.iter().map(|arg| arg.to_str().unwrap().to_owned());
-    if compile_input.build_and_compiler_type.to_string_lossy().contains("MSVC") {
+    if compile_input.build_and_compiler_type.to_string_lossy().contains("MSBuild") {
         let mut commands = commands_iter.last().unwrap();
 
         if compile_input.env_input.is_none() {
@@ -800,7 +800,7 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, wo
         
         return (args, compiler_path);
     }
-    else if  compile_input.build_and_compiler_type.to_string_lossy().contains("Cmake") {
+    else if  compile_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
         compiler_path = compile_input.compiler_path_or_arch;
         return (args, compiler_path);
     }
@@ -812,9 +812,9 @@ fn parse_compiler_input_command(compile_input: super::compiler::CompileInput, wo
 fn fetch_compiler_source_file(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) 
                                     -> Option<std::collections::HashMap<String, std::path::PathBuf>> {
 
-    if build_and_compiler_type.to_string_lossy().contains("MSBuild") || 
-            build_and_compiler_type.to_string_lossy().contains("CMake") || 
-            build_and_compiler_type.to_string_lossy().contains("Dist") {
+    if build_and_compiler_type.to_string_lossy().contains("MSBuild")
+        || build_and_compiler_type.to_string_lossy().contains("CMake")
+        || build_and_compiler_type.to_string_lossy().contains("Dist") {
         let mut sourcefile: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
         
         for command in compiler_commands {
@@ -863,7 +863,9 @@ enum GeneratedObject {
 
 fn fetch_compiler_object_file(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) -> GeneratedObject {
 
-    if build_and_compiler_type.to_string_lossy().contains("MSBuild") || build_and_compiler_type.to_string_lossy().contains("CMake") {
+    if build_and_compiler_type.to_string_lossy().contains("MSBuild")
+        || build_and_compiler_type.to_string_lossy().contains("CMake") 
+        || build_and_compiler_type.to_string_lossy().contains("Dist") {
 
         let object_param = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().starts_with("/Fo")).collect::<Vec<_>>();
 

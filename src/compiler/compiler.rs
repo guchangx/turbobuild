@@ -77,7 +77,8 @@ pub trait Compiler: core::marker::Send + core::marker::Sync + 'static {
 }
 
 pub async fn request_compile(working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput, pool: &tokio::runtime::Handle) -> CompileOutput {
-    if compile_input.build_and_compiler_type.to_string_lossy().contains("MSVC") {
+    if compile_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
+        || compile_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
         let msvc = super::msvc::MSVC {};
         let output = msvc.request_compile(working_parameters, compile_input, pool).await;
         return output;
@@ -95,7 +96,8 @@ pub async fn request_compile(working_parameters: crate::buildturbo::WorkingParam
 
 pub async fn dist_request_compile(working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput,   pool: &tokio::runtime::Handle) -> CompileOutput {
     println!("build and compiler type: {:?}", compile_input.build_and_compiler_type);
-    if compile_input.build_and_compiler_type.to_string_lossy().contains("MSVC") {
+    if compile_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
+        || compile_input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
         let msvc = super::msvc::MSVC {};
         let output = msvc.dist_request_compile(working_parameters, compile_input, pool).await;
         return output;
