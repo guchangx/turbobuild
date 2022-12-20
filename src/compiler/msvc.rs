@@ -209,15 +209,18 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
         let mut preprocessed_file_path = String::from("");
         for (i, value) in compiler_commands.iter().enumerate() {
             let value = value.to_string_lossy();
+            println!("value: {:?}", value);
             if value.ends_with(".cpp") {
                 println!(".cpp source file: {:?}", value);
                 preprocessed_file_path = value.replace(".cpp", ".i");
                 commands[i] = std::ffi::OsString::from(&preprocessed_file_path);
+                break;
             }
             else if value.ends_with(".c") {
                 println!(".c source file: {:?}", value);
                 preprocessed_file_path = value.replace(".c", ".i");
                 commands[i] = std::ffi::OsString::from(&preprocessed_file_path);
+                break;
             }
         };
 
@@ -381,12 +384,30 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
 fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::CompileInput, _pool: &tokio::runtime::Handle) -> super::compiler::CompileOutput{
 
     //replace .cpp/.c to .i
-    let mut commands = msvc_compile_input.compiler_commands.clone();
+    let commands = msvc_compile_input.compiler_commands.clone();
     let mut precompiled_file_path = String::from("");
     let precompiled_file:Vec<std::ffi::OsString> = commands.clone().into_iter().filter(|value| value.to_string_lossy().ends_with(".i")).collect();
     if !precompiled_file.is_empty() {
         precompiled_file_path = precompiled_file.first().unwrap().to_string_lossy().to_string();
         println!("preprocessed source file {:?}", precompiled_file_path);
+    }
+
+    let obj_file:Vec<std::ffi::OsString> = commands.clone().into_iter().filter(|value| value.to_string_lossy().starts_with("/Fo")).collect();
+    if !obj_file.is_empty() {
+        let mut obj_file_path = obj_file.first().unwrap().to_string_lossy().to_string();
+        obj_file_path = obj_file_path.replace("/Fo", "");
+        obj_file_path = obj_file_path.replace(r#"\\"#, r"\");
+        let path = std::path::PathBuf::from(&msvc_compile_input.compiler_working_dir).join(&obj_file_path);
+        println!("pdb dir: {:?}", &path);
+        if !path.exists() {
+            match std::fs::create_dir_all(&path) {
+                Ok(_) => {},
+                Err(error) => {
+                    println!("create .pdb dir {:?}, error {:?}", path, error);
+                },
+            }
+        }
+        println!("preprocessed source file {:?}", obj_file);
     }
 
     if !precompiled_file_path.is_empty() {
@@ -427,6 +448,8 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
 
     return output;
 }
+
+
 
 fn request_dist_compile(working_parameters: &crate::buildturbo::WorkingParameters, msvc_compile_input: &super::compiler::CompileInput) -> super::compiler::CompileOutput {
     log::info!("dorequest dist compile");
