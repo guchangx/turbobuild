@@ -130,7 +130,7 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
         let mut output = super::compiler::CompileOutput::default();
         let value = crate::utils::grade::calculate_machine_residual_performance();
         if value < 85 {
-            output = request_local_compile(compiler_path, msvc_compile_input.compiler_working_dir, compiler_commands.clone());
+            output = request_local_compile(compiler_path, msvc_compile_input.compiler_working_dir, compiler_commands.clone(), msvc_compile_input.build_and_compiler_type);
         }
         else {
             if true {
@@ -285,7 +285,7 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
 }
 
 fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir: std::ffi::OsString, 
-                                compiler_commands: Vec<std::ffi::OsString>) -> super::compiler::CompileOutput {
+                                compiler_commands: Vec<std::ffi::OsString>, build_and_compiler_type: std::ffi::OsString) -> super::compiler::CompileOutput {
 
     let (status, stdout, _stderr) = start_local_compiler(&compiler_path, &compiler_working_dir, &compiler_commands);
     let compile_output = String::from_utf8_lossy(&stdout);
@@ -302,7 +302,7 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                 let mut idb: Option<(std::ffi::OsString, Vec<u8>)> = None;
 
                 let working_path = std::path::PathBuf::from(compiler_working_dir.to_owned());
-                let object = fetch_compiler_object_file(std::ffi::OsString::from(""), compiler_commands.to_owned(), working_path);
+                let object = fetch_compiler_object_file(build_and_compiler_type.clone(), compiler_commands.to_owned(), working_path);
                 match object {
                     GeneratedObject::PathWithObjName(dir) => {
                         let mut path = dir.join(&line);
@@ -444,7 +444,8 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
     }
 
     let output = request_local_compile(msvc_compile_input.compiler_path_or_arch.clone(),
-                    msvc_compile_input.compiler_working_dir.clone(), commands);
+                    msvc_compile_input.compiler_working_dir.clone(), commands, 
+                    msvc_compile_input.build_and_compiler_type.clone());
 
     return output;
 }
