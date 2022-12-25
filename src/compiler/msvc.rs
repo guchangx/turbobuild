@@ -203,7 +203,9 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
     commands.insert(0, std::ffi::OsString::from(r"/E"));
     let (status, stdout, stderr) = start_local_compiler(compiler_path, compiler_working_dir, &commands);
     if status {
-        println!("preprocessed source file {:?}", String::from_utf8_lossy(&stderr));
+        let output = String::from_utf8_lossy(&stderr);
+        println!("preprocessed source file {:?}", output);
+        
 
         let mut commands = compiler_commands.clone();
         let mut preprocessed_file_path = String::from("");
@@ -214,13 +216,41 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
                 println!(".cpp source file: {:?}", value);
                 preprocessed_file_path = value.replace(".cpp", ".i");
                 commands[i] = std::ffi::OsString::from(&preprocessed_file_path);
-                break;
+                continue;
             }
             else if value.ends_with(".c") {
                 println!(".c source file: {:?}", value);
                 preprocessed_file_path = value.replace(".c", ".i");
                 commands[i] = std::ffi::OsString::from(&preprocessed_file_path);
-                break;
+                continue;
+            }
+            else if value.starts_with("/Fd") {
+                // Fd"abi_compat_inline_ns.dir\Debug\vc143.pdb"
+
+                if output.contains(".cpp") || output.contains(".c") {
+                    let mut file = output.to_string();
+                    file = file.replace(".cpp", ".pdb");
+                    if !file.contains(".pdb") {
+                        file = file.replace(".c", ".pdb");
+                    }
+
+                    if value.contains(&file) {
+                        continue;
+                    }
+                    else {
+                        if value.ends_with(".pdb") {
+                            let (_, back) = value.split_at(value.len() - 9);
+                            let pdb = value.replace(back, &file);
+                            commands[i] = std::ffi::OsString::from(&pdb);
+                        }
+                        else {
+                            log::warn!("/Fd end with unknow .pdb. {:?}", value);
+                        }
+                    }
+                }
+                else {
+                    continue;
+                }
             }
         };
 
