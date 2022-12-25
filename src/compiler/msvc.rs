@@ -564,7 +564,6 @@ fn request_dist_compile_with_preprocessed_source(network: &crate::network::clien
     let sender = crate::syncfile::sender::Sender::new(network);
     let mut dist_msvc_compiler_path= sender.dist_kits_and_tool_pre_sync("", msvc_compile_input.compiler_path_or_arch.to_str().unwrap()).0;
     if dist_msvc_compiler_path.is_empty() {
-        println!("sync msvc bin for preprocessed source.");
 
         let mut path = std::path::PathBuf::from(msvc_compile_input.compiler_path_or_arch.to_str().unwrap());
 
@@ -583,17 +582,18 @@ fn request_dist_compile_with_preprocessed_source(network: &crate::network::clien
                 }
             }
         }
-   
-        let mut input = msvc_compile_input.to_owned();
-        input.build_and_compiler_type = std::ffi::OsString::from("MSBuild Dist Precompile");
-        input.compiler_path_or_arch = dist_msvc_compiler_path;
-    
-        let response = sender.dist_compile(&input);
-        return response;
     }
     else {
-        return super::compiler::CompileOutput::default(); 
+
     }
+
+    let mut input = msvc_compile_input.to_owned();
+    input.build_and_compiler_type = std::ffi::OsString::from("MSBuild Dist Precompile");
+    input.compiler_path_or_arch = dist_msvc_compiler_path;
+
+    let response = sender.dist_compile(&input);
+    return response;
+
 }
 
 fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (bool, Vec<u8>, Vec<u8>) {
