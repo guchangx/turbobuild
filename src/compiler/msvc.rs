@@ -302,70 +302,74 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                 let mut idb: Option<(std::ffi::OsString, Vec<u8>)> = None;
 
                 let working_path = std::path::PathBuf::from(compiler_working_dir.to_owned());
+                let mut result_path = std::path::PathBuf::from("");
                 let object = fetch_compiler_object_file(build_and_compiler_type.clone(), compiler_commands.to_owned(), working_path);
                 match object {
-                    GeneratedObject::PathWithObjName(dir) => {
-                        let mut path = dir.join(&line);
-                        path.set_extension("obj");
-                        match std::fs::read(&path) {
-                            Ok(contents) => {
-                                obj = Some((std::ffi::OsString::from(path.to_str().unwrap()), contents));
-                            },
-                            Err(error) => {
-                                if error.kind() == std::io::ErrorKind::NotFound {
-                                    println!("obj file path is not found.");
-                                }
-                                else {
-                                    println!("obj file read failed. {:?}", error);
-                                }
-                            }
-                        }
-
-                        path.set_extension("pdb");
-                        match std::fs::read(&path) {
-                            Ok(contents) => {
-                                pdb = Some((std::ffi::OsString::from(path.to_str().unwrap()), contents));
-                            },
-                            Err(error) => {
-                                if error.kind() == std::io::ErrorKind::NotFound {
-                                    println!(".pdb file path is not found.");
-                                }
-                                else {
-                                    println!(".pdb file read failed. {:?}", error);
-                                }
-                            }
-                        }
-
-                        path.set_extension("idb");
-                        match std::fs::read(&path) {
-                            Ok(contents) => {
-                                idb = Some((std::ffi::OsString::from(path.to_str().unwrap()), contents));
-                            },
-                            Err(error) => {
-                                if error.kind() == std::io::ErrorKind::NotFound {
-                                    println!(".idb file path is not found.");
-                                }
-                                else {
-                                    println!(".idb file read failed. {:?}", error);
-                                }
-                            }
-                        }
-
-                        let processed_result = crate::compiler::compiler::ProcessedResult {
-                            source_file: std::ffi::OsString::from(&line),
-                            obj: obj,
-                            pdb: pdb,
-                            idb: idb,
-                        };
-                        compiled_results.push(processed_result);
+                    GeneratedObject::PathWithObjName(path) => {
+                        result_path = path;
                     },
-                    GeneratedObject::PathWithoutObjName(_path) => {
-                        println!("generate object path without obj name");
+                    GeneratedObject::PathWithoutObjName(dir) => {
+                        let path = dir.join(&line);
+                        result_path = path;
+                        result_path.set_extension("obj");
+                        println!("generate object path without obj name, {:?}", result_path);
                     },
                     _ => {
                         log::warn!("fetch result file path failed.");
                     }
+                };
+
+                match std::fs::read(&result_path) {
+                    Ok(contents) => {
+                        obj = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
+                    },
+                    Err(error) => {
+                        if error.kind() == std::io::ErrorKind::NotFound {
+                            println!("obj file path is not found.");
+                        }
+                        else {
+                            println!("obj file read failed. {:?}", error);
+                        }
+                    }
+                };
+
+                result_path.set_extension("pdb");
+                match std::fs::read(&result_path) {
+                    Ok(contents) => {
+                        pdb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
+                    },
+                    Err(error) => {
+                        if error.kind() == std::io::ErrorKind::NotFound {
+                            println!(".pdb file path is not found.");
+                        }
+                        else {
+                            println!(".pdb file read failed. {:?}", error);
+                        }
+                    }
                 }
+
+                result_path.set_extension("idb");
+                match std::fs::read(&result_path) {
+                    Ok(contents) => {
+                        idb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
+                    },
+                    Err(error) => {
+                        if error.kind() == std::io::ErrorKind::NotFound {
+                            println!(".idb file path is not found.");
+                        }
+                        else {
+                            println!(".idb file read failed. {:?}", error);
+                        }
+                    }
+                }
+
+                let processed_result = crate::compiler::compiler::ProcessedResult {
+                    source_file: std::ffi::OsString::from(&line),
+                    obj: obj,
+                    pdb: pdb,
+                    idb: idb,
+                };
+                compiled_results.push(processed_result);
                 compiled_filename.push(std::ffi::OsString::from(line));
             }
         }
