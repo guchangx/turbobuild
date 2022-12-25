@@ -226,14 +226,17 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
             }
             else if value.starts_with("/Fd") {
                 // Fd"abi_compat_inline_ns.dir\Debug\vc143.pdb"
-
-                if output.contains(".cpp") || output.contains(".c") {
-                    let mut file = output.to_string();
+                let mut file = output.to_string();
+                if output.contains(".cpp") {
                     file = file.replace(".cpp", ".pdb");
-                    if !file.contains(".pdb") {
-                        file = file.replace(".c", ".pdb");
-                    }
+                    file = file.replace("\r\n", "");
+                }
+                else if output.contains(".c") {
+                    file = file.replace(".c", ".pdb");
+                    file = file.replace("\r\n", "");
+                }
 
+                if !file.is_empty() {
                     if value.contains(&file) {
                         continue;
                     }

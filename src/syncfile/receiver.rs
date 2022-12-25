@@ -1,4 +1,5 @@
 
+
 pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::SyncData) -> crate::compiler::compiler::SyncData {
     
     let kind = pre_sync_file.sync_kind.to_str().unwrap();
@@ -84,16 +85,23 @@ fn fetch_local_msvc_compiler(compiler_path: &str) -> Option<std::ffi::OsString> 
 
 fn fetch_local_windows_kits(path: &str) -> Option<std::ffi::OsString> {
     //C:\Program Files (x86)\Windows Kits\10\Include\10.0.22000.0\shared
-    let path = std::path::PathBuf::from(path);
-    let kits_version = path.into_iter().filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap().ends_with(".0"))
-        .nth(0).unwrap();
-    
-    let kit_path = std::env::current_dir().unwrap()
-        .join("FileCache").join("Win Kits").join("10").join("Include").join(kits_version);
-    if kit_path.exists() {
-        return Some(kit_path.into_os_string())
+    if !path.is_empty() {
+        let path = std::path::PathBuf::from(path);
+        let kits_version = path.into_iter().filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap().ends_with(".0"))
+            .nth(0).unwrap();
+        
+        let kit_path = std::env::current_dir().unwrap()
+            .join("FileCache").join("Win Kits").join("10").join("Include").join(kits_version);
+        if kit_path.exists() {
+            return Some(kit_path.into_os_string())
+        }
+        else {
+            return None;
+        }
     }
-    return None;
+    else {
+        return None;
+    }
 }
 
 pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multipart) -> crate::compiler::compiler::SyncData {
