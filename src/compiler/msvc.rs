@@ -135,7 +135,7 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
         else {
             if true {
                 // dist with preprocessed source
-                request_local_precompile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
+                output = request_local_precompile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
             }
             else {
                 //dist with source file and include file
@@ -211,7 +211,6 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
         let mut preprocessed_file_path = String::from("");
         for (i, value) in compiler_commands.iter().enumerate() {
             let value = value.to_string_lossy();
-            println!("value: {:?}", value);
             if value.ends_with(".cpp") {
                 println!(".cpp source file: {:?}", value);
                 preprocessed_file_path = value.replace(".cpp", ".i");
@@ -444,7 +443,6 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
                 },
             }
         }
-        println!("preprocessed source file {:?}", obj_file);
     }
 
     if !precompiled_file_path.is_empty() {
@@ -481,7 +479,7 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
     }
 
     let output = request_local_compile(msvc_compile_input.compiler_path_or_arch.clone(),
-                    msvc_compile_input.compiler_working_dir.clone(), commands, 
+                    msvc_compile_input.compiler_working_dir.clone(), commands,
                     msvc_compile_input.build_and_compiler_type.clone());
 
     return output;
