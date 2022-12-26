@@ -191,7 +191,7 @@ impl<'a> Sender<'a> {
         }
         else {
             let mut bin = std::path::PathBuf::from(dist_msvc_compiler_path.clone());
-            bin.set_file_name("cl.exe");
+            bin.push("cl.exe");
             dist_msvc_compiler_path = bin.into_os_string();
             
             let mut inlcude = std::path::PathBuf::from(dist_msvc_compiler_path.clone());

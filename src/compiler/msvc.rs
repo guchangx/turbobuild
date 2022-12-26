@@ -121,21 +121,19 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
             }
         }
     }
-    
-    println!("determine whether need compile");
 
     let exists_source_file_in_command = determine_whether_need_compile(compiler_commands.clone());
     
     if exists_source_file_in_command {
-        let mut output = super::compiler::CompileOutput::default();
+        let mut _output = super::compiler::CompileOutput::default();
         let value = crate::utils::grade::calculate_machine_residual_performance();
         if value < 85 {
-            output = request_local_compile(compiler_path, msvc_compile_input.compiler_working_dir, compiler_commands.clone(), msvc_compile_input.build_and_compiler_type);
+            _output = request_local_compile(compiler_path, msvc_compile_input.compiler_working_dir, compiler_commands.clone(), msvc_compile_input.build_and_compiler_type);
         }
         else {
             if true {
                 // dist with preprocessed source
-                output = request_local_precompile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
+                _output = request_local_precompile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
             }
             else {
                 //dist with source file and include file
@@ -146,13 +144,13 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
                     network_client: working_parameters.network_client,
                 };
 
-                output = request_dist_compile(&parameters, &msvc_compile_input);
+                _output = request_dist_compile(&parameters, &msvc_compile_input);
             }
         }
 
-        if output.compile_status {
-            println!("compiled filename {:?} need_compile_file_key: {:?}", output.compiled_filename.clone(), need_compile_file_key.clone());
-            for compiled_file in output.compiled_filename.clone() {
+        if _output.compile_status {
+            println!("compiled filename {:?} need_compile_file_key: {:?}", _output.compiled_filename.clone(), need_compile_file_key.clone());
+            for compiled_file in _output.compiled_filename.clone() {
                 let compiled_file = compiled_file.to_str().unwrap();
                 let key = need_compile_file_key.get(compiled_file);
                 match key {
@@ -180,46 +178,46 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
                     },
                 }
             }
+            
         }
-        return output;
+        else {
+
+        }
+        return _output;
     }
     else {
         let compiled_filename: Vec<std::ffi::OsString> = Vec::new();
-        let output = super::compiler::CompileOutput {
+        let result = super::compiler::CompileOutput {
             compiled_filename,
             compile_status: false,
             compile_output: std::ffi::OsString::from("don't need compile anything."),
             compiled_results: None,
         };
-        return output;
+        return result;
     }
 }
 
 fn request_local_precompile(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
     compiler_commands: &Vec<std::ffi::OsString>) -> super::compiler::CompileOutput {
 
-    //add precompile args into command
     let mut commands = compiler_commands.to_owned();
     commands.insert(0, std::ffi::OsString::from(r"/E"));
     let (status, stdout, stderr) = start_local_compiler(compiler_path, compiler_working_dir, &commands);
     if status {
         let output = String::from_utf8_lossy(&stderr);
-        println!("preprocessed source file {:?}", output);
-        
+        log::debug!("preprocessed source file {:?}", output);
 
         let mut commands = compiler_commands.clone();
-        let mut preprocessed_file_path = String::from("");
+
         for (i, value) in compiler_commands.iter().enumerate() {
             let value = value.to_string_lossy();
             if value.ends_with(".cpp") {
-                println!(".cpp source file: {:?}", value);
-                preprocessed_file_path = value.replace(".cpp", ".i");
+                let preprocessed_file_path = value.replace(".cpp", ".i");
                 commands[i] = std::ffi::OsString::from(&preprocessed_file_path);
                 continue;
             }
             else if value.ends_with(".c") {
-                println!(".c source file: {:?}", value);
-                preprocessed_file_path = value.replace(".c", ".i");
+                let preprocessed_file_path = value.replace(".c", ".i");
                 commands[i] = std::ffi::OsString::from(&preprocessed_file_path);
                 continue;
             }
@@ -265,11 +263,9 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
             env_input: None
         };
 
-        println!("preprocessed file path: {:?}", preprocessed_file_path);
-
         let result = request_dist_compile_with_preprocessed_source(network, &msvc_compile_input);
         if result.compile_status {
-            if let Some(compiled_results) = result.compiled_results {
+            if let Some(compiled_results) = result.compiled_results.clone() {
                 for result in compiled_results {
                     if let Some((path, content)) = result.obj {
                         match std::fs::write(&path, content) {
@@ -306,8 +302,8 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
         }
         else {
 
-
         }
+        return result;
     }
     else {
         println!("preprocessed source file failed. {:?}", String::from_utf8_lossy(&stderr));
