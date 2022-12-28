@@ -463,7 +463,7 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
 
         let path = std::path::PathBuf::from(&pdb_file_path);
         if path.has_root() {
-            if path.ends_with(".pdb") {
+            if path.extension() == Some(&std::ffi::OsString::from("pdb")) {
                 let path = path.parent().unwrap();
                 if !path.exists() {
                     let _ = std::fs::create_dir_all(&path);
@@ -475,7 +475,7 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
         }
         else {
             let path = std::path::PathBuf::from(&msvc_compile_input.compiler_working_dir).join(&path);
-            if path.ends_with(".pdb") {
+            if path.extension() == Some(&std::ffi::OsString::from("pdb")) {
                 let path = path.parent().unwrap();
                 if !path.exists() {
                     let _ = std::fs::create_dir_all(&path);
