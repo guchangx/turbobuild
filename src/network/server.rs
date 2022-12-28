@@ -94,6 +94,6 @@ impl NetworkRequestHandler {
         let handle = runtime.handle();
         runtime.block_on(async move {
             init_network_request_router(working_params, handle).await
-         });
-    }
+        });
+    } 
 }
