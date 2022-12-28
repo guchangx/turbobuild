@@ -460,25 +460,28 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
         let mut pdb_file_path = pdb_file.first().unwrap().to_string_lossy().to_string();
         pdb_file_path = pdb_file_path.replace("/Fd", "");
         pdb_file_path = pdb_file_path.replace(r#"\\"#, r"\");
+
         let path = std::path::PathBuf::from(&pdb_file_path);
-        if path.is_dir() {
-            if path.has_root() {
-                let _ = std::fs::create_dir_all(&path);
-            }
-            else {
-                let path = std::path::PathBuf::from(&msvc_compile_input.compiler_working_dir).join(&path);
+        if path.has_root() {
+            if path.ends_with(".pdb") {
+                let path = path.parent().unwrap();
                 if !path.exists() {
                     let _ = std::fs::create_dir_all(&path);
                 }
             }
-        }
-        else if path.is_file() {
-            if path.has_root() {
-                let path = path.parent().unwrap();
+            else {
                 let _ = std::fs::create_dir_all(&path);
             }
+        }
+        else {
+            let path = std::path::PathBuf::from(&msvc_compile_input.compiler_working_dir).join(&path);
+            if path.ends_with(".pdb") {
+                let path = path.parent().unwrap();
+                if !path.exists() {
+                    let _ = std::fs::create_dir_all(&path);
+                }
+            }
             else {
-                let path = std::path::PathBuf::from(&msvc_compile_input.compiler_working_dir).join(&path).parent().unwrap().to_owned();
                 if !path.exists() {
                     let _ = std::fs::create_dir_all(&path);
                 }
@@ -775,9 +778,6 @@ fn extract_path_ecnclosed_quotation_arg(compiler_commands: &mut String) -> Vec<s
                 path_contain_space.contains(".cpp") || path_contain_space.contains(".c") {
                 let path_without_quotation = path_contain_space.replace('"', "");
                 include_args.push(std::ffi::OsString::from(path_without_quotation));
-                
-                println!("capture {:?}", capture);
-
                 let arg = String::from(" ") + path_contain_space;
                 *compiler_commands = String::from(compiler_commands.replace(arg.as_str(), ""));
             }
