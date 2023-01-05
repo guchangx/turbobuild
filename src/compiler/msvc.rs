@@ -205,6 +205,7 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
     commands.insert(0, std::ffi::OsString::from(r"/E"));
     let (status, stdout, stderr) = start_local_compiler(compiler_path, compiler_working_dir, &commands);
     if status {
+        result.compile_status = true;
         let files = String::from_utf8_lossy(&stderr);
         
         log::debug!("preprocessed source file {:?}", files);
@@ -212,6 +213,7 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
         let mut commands:Vec<std::ffi::OsString> = Vec::new();
         let mut source_files: Vec<String> = Vec::new();
         let mut pdb = String::from("");
+        let mut project = String::from("");
 
         for (_, value) in compiler_commands.iter().enumerate() {
             let value = value.to_string_lossy();
@@ -226,6 +228,12 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
             else if value.starts_with("/Fd") {
                 // Fd"abi_compat_inline_ns.dir\Debug\vc143.pdb"
                 pdb = value.to_string();
+                continue;
+            }
+            else if value.contains(".dir") {
+                if project.is_empty() {
+                    project = value.to_string();
+                }
                 continue;
             }
             else {
@@ -246,7 +254,7 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
         for file in &source_files {
             
             let mut split = commands.clone();
-            let mut path = std::path::PathBuf::from(file);
+            let path = std::path::PathBuf::from(file);
             let source_name = match path.file_stem() {
                 Some(value) => {
                     value.to_string_lossy().add(".pdb")
@@ -262,17 +270,17 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
                 split.push(std::ffi::OsString::from(pdb));
             }
 
-            path.set_extension("i");
-            split.push(std::ffi::OsString::from(path));
-
+            let i_path = push_project_name_to_precompiled_file_path(&path, project.clone());
+            split.push(std::ffi::OsString::from(i_path));
             
             if let Some(next_file) = source_files.get(index + 1) {
                 //#line 1 "D:\\TrainSpace\\json\\tests\\abi\\main.cpp"
-                let line = format!(r#"#line 1 "{}""#, next_file);
-                if let Some(index) = content.find(&line) {
-                    if index.gt(&0) {
+                log::debug!("split precompile source file. current file: {:?}, next file: {:?}", file, next_file);
+                let line = format!(r#"#line 1 "{}""#, next_file).replace(r"\", r"\\");
+                if let Some(position) = content.find(&line) {
+                    if position.gt(&0) {
     
-                        let (first, last) = content.split_at(index);
+                        let (first, last) = content.split_at(position);
             
                         let msvc_compile_input = super::compiler::CompileInput {
                             compiler_path_or_arch: compiler_path.to_owned(),
@@ -286,11 +294,13 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
                         content = last.to_string().into();
     
                         let output = dist_separate_source(network, &msvc_compile_input);
+
                         let mut file = output.compiled_filename;
                         result.compiled_filename.append(&mut file);
                         let mut compile_output = result.compile_output.to_string_lossy().to_string();
                         compile_output.push_str(output.compile_output.to_str().unwrap());
                         result.compile_output = std::ffi::OsString::from(compile_output);
+                        result.compile_status = output.compile_status;
                     }
                 }
             }
@@ -305,11 +315,13 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
                 };
 
                 let output = dist_separate_source(network, &msvc_compile_input);
+
                 let mut file = output.compiled_filename;
                 result.compiled_filename.append(&mut file);
                 let mut compile_output = result.compile_output.to_string_lossy().to_string();
                 compile_output.push_str(output.compile_output.to_str().unwrap());
                 result.compile_output = std::ffi::OsString::from(compile_output);
+                result.compile_status = output.compile_status;
             }
 
             index = index.add(1);
@@ -318,10 +330,40 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
         return result;
     }
     else {
+        result.compile_status = false;
         println!("preprocessed source file failed. {:?}", String::from_utf8_lossy(&stderr));
     }
 
     return result;
+}
+
+fn push_project_name_to_precompiled_file_path(path: &std::path::PathBuf, project: String) -> std::path::PathBuf
+{
+    if !project.is_empty() && project.contains(".dir") {
+        let index = project.find(".dir").unwrap();
+        let (first, _)= project.split_at(index);
+        let (_, project_name) = first.split_at(3);
+        
+        let mut path = path.to_owned();
+        path.set_extension("i");
+        if let Some(precompile_file_name) = path.file_name() {
+            if let Some(parent) = path.parent() {
+                let mut path = parent.to_path_buf();
+                path.push(project_name);
+                path.push(precompile_file_name);
+                return path;
+            }
+            else {
+                return path;
+            }
+        }
+        else {
+            return path;
+        }
+    }
+    else {
+        return path.to_path_buf();
+    }
 }
 
 fn dist_separate_source(network: &crate::network::client::NetworkClient, msvc_compile_input: &super::compiler::CompileInput)
@@ -583,7 +625,6 @@ fn request_local_preprocessed_compile(msvc_compile_input: &super::compiler::Comp
     let output = request_local_compile(msvc_compile_input.compiler_path_or_arch.clone(),
                     msvc_compile_input.compiler_working_dir.clone(), commands,
                     msvc_compile_input.build_and_compiler_type.clone());
-
     return output;
 }
 
