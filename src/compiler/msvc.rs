@@ -6,15 +6,19 @@ use std::ops::{Index, Add};
 #[async_trait]
 impl crate::compiler::compiler::Compiler for MSVC {
     async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
-                                compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle)
+                                compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle,
+                                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>)
                                 -> super::compiler::CompileOutput {
         //let output = request_dist_compile(&working_parameters, &compile_input);
-        let output = request_msvc_compile(working_parameters, compile_input, pool).await;
+        //println!("grade usage {:?}", grade.lock().unwrap().cpu_usage);
+        let grade = grade.lock().unwrap().fetch_grade();
+        let output = request_msvc_compile(working_parameters, compile_input, pool, grade).await;
         return output;
     }
 
     async fn dist_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
-            compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle)
+            compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle,
+            grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>)
                                     -> super::compiler::CompileOutput {
         
         let mut compiler_env = crate::platform::windows::WindowsCompilerEnv::default();
@@ -41,8 +45,8 @@ impl crate::compiler::compiler::Compiler for MSVC {
                 compiler_env: compiler_env,
                 network_client: working_parameters.network_client,
             };
-
-            let output = request_msvc_compile(params, compile_input, pool).await;
+            let grade = grade.lock().unwrap().fetch_grade();
+            let output = request_msvc_compile(params, compile_input, pool, grade).await;
             return output;
         }
         else {
@@ -52,7 +56,10 @@ impl crate::compiler::compiler::Compiler for MSVC {
     }
 }
 
-async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingParameters, msvc_compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle) 
+async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingParameters,
+                                msvc_compile_input: super::compiler::CompileInput, 
+                                pool: &tokio::runtime::Handle,
+                                grade: crate::utils::grade::LocalGrade) 
                                         -> super::compiler::CompileOutput {
     let storage = working_parameters.storage;
     let env = working_parameters.compiler_env;
@@ -127,8 +134,8 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
     
     if exists_source_file_in_command {
         let mut _output = super::compiler::CompileOutput::default();
-        let value = crate::utils::grade::calculate_machine_residual_performance();
-        if value < 85 {
+        
+        if grade.cpu_usage < 80.0 {
             _output = request_local_compile(compiler_path, msvc_compile_input.compiler_working_dir, compiler_commands.clone(), msvc_compile_input.build_and_compiler_type);
         }
         else {
@@ -234,12 +241,12 @@ fn request_local_precompile(network: &crate::network::client::NetworkClient, com
                 if project.is_empty() {
                     project = value.to_string();
                 }
+                commands.push(std::ffi::OsString::from(value.to_string()));
                 continue;
             }
             else {
                 commands.push(std::ffi::OsString::from(value.to_string()));
             }
-            
         };
         let mut content = String::from_utf8_lossy(&stdout);
         let count = files.lines().count();

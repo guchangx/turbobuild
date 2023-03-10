@@ -1,3 +1,5 @@
+use crate::utils;
+
 
 extern crate axum;
 
@@ -26,17 +28,19 @@ async fn get_teamworker_info() -> axum::extract::Json<serde_json::Value>
 }
 
 async fn request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>, 
-        working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle) -> axum::extract::Json<serde_json::Value> {
+        working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle, 
+        grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) -> axum::extract::Json<serde_json::Value> {
     log::trace!("local request compile");
-    let output = crate::compiler::compiler::request_compile(working_parameters, compile_input, &thread_pool).await;
+    let output = crate::compiler::compiler::request_compile(working_parameters, compile_input, &thread_pool, grade).await;
     return axum::extract::Json(serde_json::json!(output));
 }
 
 async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>,
-        working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle) -> axum::extract::Json<serde_json::Value>
+        working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle,
+        grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) -> axum::extract::Json<serde_json::Value>
 {
     println!("dist request compile");
-    let output = crate::compiler::compiler::dist_request_compile(working_parameters, compile_input, &thread_pool).await;
+    let output = crate::compiler::compiler::dist_request_compile(working_parameters, compile_input, &thread_pool, grade).await;
     return axum::extract::Json(serde_json::json!(output));
 }
 
@@ -54,18 +58,24 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
     let pool = thread_pool.clone();
     let dist_pool = thread_pool.clone();
     let dist_working_params = working_params.clone();
+    
+    let grade = crate::utils::grade::LocalGrade::init_grade();
+    let grade = std::sync::Arc::new(std::sync::Mutex::new(grade));
+    crate::utils::grade::calculate_machine_residual_performance(grade.clone());
+    let grade_clone = grade.clone();
+
     let router = axum::Router::new()
     .route("/", axum::routing::get(|| async {"Hi!"}))
     .route("/hello", axum::routing::get(get_hello_info))
     .route("/teamworker", axum::routing::get(get_teamworker_info))
-    .route("/requestcompile", axum::routing::post(|args| {
-                request_compile(args, working_params, pool)
+    .route("/requestcompile", axum::routing::post(move |args| {
+                request_compile(args, working_params, pool, grade)
             }
         ))
-    .route("/dist/requestcompile", axum::routing::post(|args| {
+    .route("/dist/requestcompile", axum::routing::post(move |args| {
                 println!("into dist request compile");
                 //request_compile(args, dist_working_params, dist_pool)
-                dist_request_compile(args, dist_working_params, dist_pool)
+                dist_request_compile(args, dist_working_params, dist_pool, grade_clone)
             }
         ))
     .route("/dist/presyncfile", axum::routing::post(pre_sync_file))

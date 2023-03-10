@@ -71,16 +71,20 @@ impl Default for CompileOutput {
 #[async_trait]
 pub trait Compiler: core::marker::Send + core::marker::Sync + 'static {
     async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
-                compile_input: CompileInput, pool: &tokio::runtime::Handle) -> CompileOutput;
+                compile_input: CompileInput, pool: &tokio::runtime::Handle,
+                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput;
     async fn dist_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
-                compile_input: CompileInput, pool: &tokio::runtime::Handle) -> CompileOutput;
+                compile_input: CompileInput, pool: &tokio::runtime::Handle, 
+                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput;
 }
 
-pub async fn request_compile(working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput, pool: &tokio::runtime::Handle) -> CompileOutput {
+pub async fn request_compile(working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput, 
+                pool: &tokio::runtime::Handle, 
+                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput {
     if compile_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || compile_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
         let msvc = super::msvc::MSVC {};
-        let output = msvc.request_compile(working_parameters, compile_input, pool).await;
+        let output = msvc.request_compile(working_parameters, compile_input, pool, grade).await;
         return output;
     }
     else if compile_input.build_and_compiler_type == "Clang" {
@@ -94,12 +98,14 @@ pub async fn request_compile(working_parameters: crate::buildturbo::WorkingParam
     }
 }
 
-pub async fn dist_request_compile(working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput,   pool: &tokio::runtime::Handle) -> CompileOutput {
+pub async fn dist_request_compile(working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput, 
+    pool: &tokio::runtime::Handle,
+    grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput {
     println!("build and compiler type: {:?}", compile_input.build_and_compiler_type);
     if compile_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || compile_input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
         let msvc = super::msvc::MSVC {};
-        let output = msvc.dist_request_compile(working_parameters, compile_input, pool).await;
+        let output = msvc.dist_request_compile(working_parameters, compile_input, pool, grade.clone()).await;
         return output;
     }
     else if compile_input.build_and_compiler_type == "Clang" {

@@ -1,3 +1,4 @@
+
 #[derive(Clone)]
 pub struct WorkingParameters {
     pub storage: std::sync::Arc<dyn crate::cache::cache::Storage>,

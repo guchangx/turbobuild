@@ -4,6 +4,8 @@ extern crate async_trait;
 
 extern crate redis;
 extern crate env_logger;
+extern crate serde;
+extern crate serde_derive;
 
 mod network;
 mod compiler;
@@ -17,12 +19,12 @@ mod config;
 
 pub fn main() {
     init_logger();
-    println!("welcome to build turbo tool.");
+    println!("welcome to build turbo.");
     let config = config::ConfigurationInfo::init();
     log::debug!("config: {:?}", config);
     let working_parameters = buildturbo::WorkingParameters::init(&config);
     network::server::NetworkRequestHandler::start(working_parameters);
-    println!("build turbo tool exists.");
+    println!("build turbo exists.");
 }
 
 fn init_logger() {
