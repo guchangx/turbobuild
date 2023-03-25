@@ -1,6 +1,4 @@
 use crate::utils;
-
-
 extern crate axum;
 
 pub struct NetworkRequestHandler {
@@ -32,16 +30,26 @@ async fn request_compile(axum::extract::Json(compile_input): axum::extract::Json
         grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) -> axum::extract::Json<serde_json::Value> {
     log::trace!("local request compile");
     let output = crate::compiler::compiler::request_compile(working_parameters, compile_input, &thread_pool, grade).await;
-    return axum::extract::Json(serde_json::json!(output));
+    let output = axum::extract::Json(serde_json::json!(output));
+
+    return output;
 }
 
 async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>,
         working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle,
         grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) -> axum::extract::Json<serde_json::Value>
 {
-    println!("dist request compile");
+    log::trace!("dist request compile");
     let output = crate::compiler::compiler::dist_request_compile(working_parameters, compile_input, &thread_pool, grade).await;
     return axum::extract::Json(serde_json::json!(output));
+}
+
+async fn remote_request_compile(mut multipart: axum::extract::multipart::Multipart, working_parameters: crate::buildturbo::WorkingParameters, 
+    thread_pool: tokio::runtime::Handle,
+    grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) -> axum::extract::Json<serde_json::Value> {
+    
+    let exists_info = crate::compiler::compiler::remote_request_compile(&mut multipart, working_parameters, &thread_pool, grade).await;
+    return axum::extract::Json(serde_json::json!(exists_info));
 }
 
 async fn pre_sync_file(axum::extract::Json(pre_sync_file): axum::extract::Json<crate::compiler::compiler::SyncData>) -> axum::extract::Json<serde_json::Value> {
@@ -57,27 +65,31 @@ async fn sync_file(mut multipart: axum::extract::multipart::Multipart) -> axum::
 async fn init_network_request_router(working_params: crate::buildturbo::WorkingParameters, thread_pool: &tokio::runtime::Handle) {
     let pool = thread_pool.clone();
     let dist_pool = thread_pool.clone();
+    let remote_compile_pool = thread_pool.clone();
     let dist_working_params = working_params.clone();
+    let remote_compile_working_params = working_params.clone();
     
     let grade = crate::utils::grade::LocalGrade::init_grade();
     let grade = std::sync::Arc::new(std::sync::Mutex::new(grade));
     crate::utils::grade::calculate_machine_residual_performance(grade.clone());
     let grade_clone = grade.clone();
+    let remote_compile_grade_clone = grade.clone();
 
     let router = axum::Router::new()
     .route("/", axum::routing::get(|| async {"Hi!"}))
     .route("/hello", axum::routing::get(get_hello_info))
     .route("/teamworker", axum::routing::get(get_teamworker_info))
     .route("/requestcompile", axum::routing::post(move |args| {
-                request_compile(args, working_params, pool, grade)
+                request_compile(args, working_params, pool, grade.clone())
             }
         ))
-    .route("/dist/requestcompile", axum::routing::post(move |args| {
-                println!("into dist request compile");
-                //request_compile(args, dist_working_params, dist_pool)
-                dist_request_compile(args, dist_working_params, dist_pool, grade_clone)
+    .route("/dist/requestcompile/sourcefile", axum::routing::post(move |args| {
+                dist_request_compile(args, dist_working_params, dist_pool, grade_clone.clone())
             }
         ))
+    .route("/dist/requestcompile/precompiled", axum::routing::post(move |args| {
+            remote_request_compile(args, remote_compile_working_params, remote_compile_pool, remote_compile_grade_clone.clone())
+        }))
     .route("/dist/presyncfile", axum::routing::post(pre_sync_file))
     .route("/dist/syncfile", axum::routing::post(sync_file))
     .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024 * 50));
@@ -89,7 +101,7 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
         Ok(builder) => {
             let server = builder.serve(router.into_make_service());
             if let Err(err) = server.await {
-                println!("start service error: {}", err);
+                println!("start service error: {:?}", err);
             }
         },
         Err(error) => {

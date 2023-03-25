@@ -28,15 +28,19 @@ pub fn calculate_machine_residual_performance(grade: std::sync::Arc<std::sync::M
         let mut sys = sysinfo::System::new_with_specifics(
             sysinfo::RefreshKind::new().with_cpu(sysinfo::CpuRefreshKind::everything())
         );
-        let mut grade = grade.lock().unwrap();
-        grade.device_name = sys.host_name().unwrap();
-
+        {
+            let mut grade = grade.lock().unwrap();
+            grade.device_name = sys.host_name().unwrap();
+        }
         loop {
             sys.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
             sys.refresh_memory();
-            grade.cpu_usage = sys.global_cpu_info().cpu_usage();
-            let memory_usage = ((sys.used_memory() as f32 * 100 as f32 / sys.total_memory() as f32) * 1000.0).round() / 1000.0;
-            grade.memory_usage = memory_usage;
+            {
+                let mut grade = grade.lock().unwrap();
+                grade.cpu_usage = sys.global_cpu_info().cpu_usage();
+                let memory_usage = ((sys.used_memory() as f32 * 100 as f32 / sys.total_memory() as f32) * 1000.0).round() / 1000.0;
+                grade.memory_usage = memory_usage;
+            }
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
     });

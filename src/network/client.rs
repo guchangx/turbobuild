@@ -1,4 +1,3 @@
-
 extern crate reqwest;
 
 #[derive(Clone)]
@@ -57,6 +56,46 @@ impl NetworkClient {
         return response;
     }
 
+    fn dist_mutlipart_post(&self, route: &str, msvc_compile_input: &crate::compiler::compiler::CompileInput, precompiled_source: &crate::compiler::compiler::PrecompiledSource) -> Result<reqwest::blocking::Response, reqwest::Error> {
+        let mut base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
+        match self.workers_addr.get(0) {
+            Some(addr) => {
+                let _ = base.set_host(Some(&addr));
+            },
+            None => {
+                log::debug!("Don't have workers");
+            },
+        }
+        let precompiled_source = precompiled_source.to_owned();
+        let mut form = reqwest::blocking::multipart::Form::new();
+        if let Some(contents) = precompiled_source.preprocessed_source_contents {
+            let mut part = reqwest::blocking::multipart::Part::bytes(std::borrow::Cow::from(contents));
+            if let Ok(path) = precompiled_source.preprocessed_source_path.into_string() {
+                part = part.file_name(path);
+            }
+            form = form.part("precompiled_source", part);
+        }
+        else
+        {
+            log::debug!("precompiled source file is mepty.")
+        }
+
+        if let Ok(input) = serde_json::to_string(msvc_compile_input) {
+            let part = reqwest::blocking::multipart::Part::bytes(input.as_bytes().to_owned());
+            form = form.part("remot_compile_input", part);
+        }
+        else {
+            log::debug!("Serialize compile input struct into string failed.")
+        }
+
+        let url = base.join(&route).unwrap();
+        let response = self.client.post(url)
+            .multipart(form)
+            .header(reqwest::header::CONTENT_TYPE, "multipart/form-data")
+            .send();
+        return response;
+    }
+
     fn file_post(&self, route: &str, path: &str) -> Result<reqwest::blocking::Response, reqwest::Error> {
         let file = std::fs::read(path).unwrap();
 
@@ -88,7 +127,7 @@ impl NetworkClient {
     }
 
     fn file_post_by_zip(&self, route: &str, name: &str, filename: &str, filecontent: &std::borrow::Cow<[u8]>) -> Result<reqwest::blocking::Response, reqwest::Error> {
-        println!("post file by zip {:?} {:?}", name, filename);
+        log::debug!("post file by zip {:?} {:?}", name, filename);
         let part = reqwest::blocking::multipart::Part::bytes(filecontent.to_vec()).file_name(filename.to_owned());
         let form = reqwest::blocking::multipart::Form::new().part(name.to_owned(), part);
         let mut base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
@@ -173,12 +212,11 @@ impl NetworkClient {
         return response;
     }
 
-    pub fn dist_request_compile(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> crate::compiler::compiler::CompileOutput {
-        log::debug!("dist compile post, with preprocess source: {:?}", msvc_compile_input.preprocessed_source.is_some());
+    pub fn dist_request_compile_with_source_and_include(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> crate::compiler::compiler::CompileOutput {
         let myself = self.to_owned();
         let input = msvc_compile_input.to_owned();
         let response = std::thread::spawn(move || {
-            match myself.dist_post("dist/requestcompile", &input) {
+            match myself.dist_post("dist/requestcompile/sourcefile", &input) {
                 Ok(response) => {
                     let value = response.json::<crate::compiler::compiler::CompileOutput>().unwrap();
                     return value;
@@ -190,5 +228,24 @@ impl NetworkClient {
         }).join().unwrap();
         return response;
     }
+
+    pub fn dist_request_compile_with_precompiled_source(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput, precompiled_source: &crate::compiler::compiler::PrecompiledSource) -> crate::compiler::compiler::CompileOutput {
+        let myself = self.to_owned();
+        let input = msvc_compile_input.to_owned();
+        let precompiled = precompiled_source.to_owned();
+        let response = std::thread::spawn(move || {
+            match myself.dist_mutlipart_post("dist/requestcompile/precompiled", &input, &precompiled) {
+                Ok(response) => {
+                    let value = response.json::<crate::compiler::compiler::CompileOutput>().unwrap();
+                    return value;
+                }, 
+                Err(_) => {
+                    return crate::compiler::compiler::CompileOutput::default();
+                }
+            }
+        }).join().unwrap();
+        return response;
+    }
+
 
 }

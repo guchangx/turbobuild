@@ -166,8 +166,13 @@ impl<'a> Sender<'a> {
         return std::ffi::OsString::new();
     }
 
-    pub fn dist_compile(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> crate::compiler::compiler::CompileOutput {
-        let response = self.client.dist_request_compile(msvc_compile_input);
+    pub fn dist_compile_with_source_and_include(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> crate::compiler::compiler::CompileOutput {
+        let response = self.client.dist_request_compile_with_source_and_include(msvc_compile_input);
+        return response;
+    }
+
+    pub fn dist_compile_with_precompiled_source(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput, precompiled_source: &crate::compiler::compiler::PrecompiledSource) -> crate::compiler::compiler::CompileOutput  {
+        let response = self.client.dist_request_compile_with_precompiled_source(&msvc_compile_input, &precompiled_source);
         return response;
     }
 

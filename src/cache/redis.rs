@@ -35,6 +35,32 @@ impl RedisCache {
             },
         }
     }
+    
+    pub fn test(&self) -> bool {
+        match self.client.get_connection_with_timeout(std::time::Duration::from_secs(2)) {
+            Ok(mut con) => {
+                let result: Result<String, redis::RedisError> = redis::cmd("PING").query(&mut con);
+                match result {
+                    Ok(value) => {
+                        if value == "PONG" {
+                            return true;
+                        }
+                        else {
+                            return false;
+                        }
+                    },
+                    Err(error)=> {
+                        log::warn!("redis ping query error: {:?}", error);
+                        return false;
+                    },
+                }
+            },
+            Err(error) => {
+                log::warn!("redis get connection error: {:?}", error);
+                return false;
+            }
+        }
+    }
 
     async fn connect(&self) -> anyhow::Result<redis::aio::Connection> {
         let connection = self.client.get_async_connection().await?;

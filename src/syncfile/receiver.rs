@@ -111,11 +111,11 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
 
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().expect("fetch name from multipart/form-data failed.").to_string();
-        let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
-
-        println!("mame {:?}, file name {:?}", name, file_name);
+        log::trace!("multipart mame: {:?}", name);
 
         if name.contains("msvc") {
+            let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
+            log::trace!("sync file name: {:?}", file_name);
             let data = field.bytes().await.unwrap();
             if file_name.ends_with(".zip") {
                 let cursor = std::io::Cursor::new(data);
@@ -129,7 +129,6 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
                 else {
                     toolchain_bin_or_include_path = msvc_mapping_dir.into_os_string();
                 }
-
             }
             else {
                 
@@ -145,6 +144,8 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
             }
         }
         else if name.contains("kits") {
+            let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
+            log::trace!("sync .zip file name: {:?}", file_name);
             let data = field.bytes().await.unwrap();
             if file_name.ends_with(".zip") {
                 let cursor = std::io::Cursor::new(data);

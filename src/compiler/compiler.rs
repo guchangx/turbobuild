@@ -37,8 +37,13 @@ pub struct CompileInput {
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
     pub build_and_compiler_type: std::ffi::OsString,
-    pub preprocessed_source: Option<Vec<u8>>,
+
     pub env_input: Option<EnvInput>,
+}
+#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
+pub struct PrecompiledSource {
+    pub preprocessed_source_contents: Option<Vec<u8>>,
+    pub preprocessed_source_path: std::ffi::OsString, 
 }
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
 pub struct CompileOutput {
@@ -68,12 +73,24 @@ impl Default for CompileOutput {
     }
 }
 
+impl CompileOutput {
+    pub fn set(&mut self, value: Self) {
+        self.compiled_filename = value.compiled_filename;
+        self.compile_status = value.compile_status;
+        self.compile_output = value.compile_output;
+        self.compiled_results = value.compiled_results;
+    }
+}
+
 #[async_trait]
 pub trait Compiler: core::marker::Send + core::marker::Sync + 'static {
     async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
                 compile_input: CompileInput, pool: &tokio::runtime::Handle,
                 grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput;
     async fn dist_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
+                compile_input: CompileInput, pool: &tokio::runtime::Handle, 
+                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput;
+    async fn remote_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
                 compile_input: CompileInput, pool: &tokio::runtime::Handle, 
                 grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput;
 }
@@ -117,4 +134,62 @@ pub async fn dist_request_compile(working_parameters: crate::buildturbo::Working
     else {
         return CompileOutput::default();
     }
+}
+
+pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Multipart, 
+        working_parameters: crate::buildturbo::WorkingParameters, pool: &tokio::runtime::Handle, 
+        grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput
+{
+    while let Ok(Some(field)) = multipart.next_field().await {
+        if let Some(name) = field.name() {
+            if name.cmp("precompile_source") == std::cmp::Ordering::Equal {
+                let file_path = field.file_name().expect("fetch file_name from multipart/form-data failed.");
+                log::trace!("remote request copmile sync file name: {:?}", file_path);
+                if !file_path.is_empty() {
+                    let path = std::path::PathBuf::from(file_path);
+                    let dir = path.parent().unwrap();
+                    if !dir.exists() {
+                        match std::fs::create_dir_all(dir) {
+                            Ok(_) => {},
+                            Err(error) => {
+                                log::warn!("dist worker create .i file dir {:?} failed. {:?}.", dir, error);
+                            },
+                        }
+                    }
+                    
+                    if let Ok(contents) = field.bytes().await {
+                        match std::fs::write(path, contents) {
+                            Ok(_) => {},
+                            Err(error) => {
+                                log::warn!("sync precompiled source .i file failed. {:?}", error);
+                            },
+                        }
+                    }
+                }
+            }
+            else if name.cmp("remot_compile_input") == std::cmp::Ordering::Equal {
+                if let Ok(contents) = field.bytes().await {
+                    let contents = contents.to_vec();
+                    let contents = std::str::from_utf8(&contents).unwrap();
+                    let input:CompileInput = serde_json::from_str(&contents).expect("deserialize compileiput failed.");
+                    if input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
+                        || input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
+                        let msvc = super::msvc::MSVC {};
+                        let output = msvc.remote_request_compile(working_parameters, input, pool, grade.clone()).await;
+                        return output;
+                    }
+                    else if input.build_and_compiler_type == "Clang" {
+                        return CompileOutput::default();
+                    }
+                    else if input.build_and_compiler_type == "GCC" {
+                        return CompileOutput::default();
+                    }
+                    else {
+                        return CompileOutput::default();
+                    }
+                }
+            }
+        }
+    }
+    return CompileOutput::default();
 }

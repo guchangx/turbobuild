@@ -16,7 +16,7 @@ impl ConfigurationInfo {
                 return value;
             },
             None => {
-                println!("can't load configuration file, use single tool.");
+                log::warn!("can't load configuration file, use single tool.");
                 let value = ConfigurationInfo {
                     coordinator_addr: String::from("127.0.0.1"),
                     local_addr: String::from("127.0.0.1"),
