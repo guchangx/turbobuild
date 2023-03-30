@@ -236,8 +236,41 @@ impl NetworkClient {
         let response = std::thread::spawn(move || {
             match myself.dist_mutlipart_post("dist/requestcompile/precompiled", &input, &precompiled) {
                 Ok(response) => {
-                    let value = response.json::<crate::compiler::compiler::CompileOutput>().unwrap();
-                    return value;
+                    if response.status() == axum::http::StatusCode::OK {
+                        let headers = response.headers();
+                        if let Some(output) = headers.get("compile-output") {
+                            let output: crate::compiler::compiler::CompileOutput = serde_json::from_slice(output.as_bytes())
+                                        .expect("Deserialize from JSON into CompileOutput failed.");
+                            if let Some(results) = headers.get("compile-result-catalog") {
+                                let results: Vec<Vec<(std::ffi::OsString, usize)>> = serde_json::from_slice(results.as_bytes())
+                                        .expect("Deserialize from JSON into ProcessedResult failed.");
+
+                                if let Ok(contents) = response.bytes() {
+                                    if !contents.is_empty() && !results.is_empty() {
+                                        let mut contents = contents.to_vec();
+                                        for result in results {
+                                            for (path, size) in result {
+                                                if !contents.is_empty() {
+                                                    let (current_content, other_content) = contents.split_at(size);
+                                                    match std::fs::write(path.clone(), current_content) {
+                                                        Ok(_) => {
+                                                            log::debug!("sync results, {:?}.", path);
+                                                        },
+                                                        Err(error) => {
+                                                            log::debug!("sync results, wriet {:?} failed {:?} .", path, error);
+                                                        },
+                                                    }
+                                                    contents = other_content.to_vec();
+                                                }
+                                            }
+                                        }                                
+                                    }
+                                }
+                            }
+                            return output;
+                        }
+                    }
+                    return crate::compiler::compiler::CompileOutput::default();
                 }, 
                 Err(_) => {
                     return crate::compiler::compiler::CompileOutput::default();
@@ -246,6 +279,4 @@ impl NetworkClient {
         }).join().unwrap();
         return response;
     }
-
-
 }

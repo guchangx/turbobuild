@@ -10,7 +10,7 @@ impl crate::compiler::compiler::Compiler for MSVC {
     async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
                                 compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle,
                                 grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>)
-                                -> super::compiler::CompileOutput {
+                                -> (super::compiler::CompileOutput, Option<super::compiler::ProcessedResults>) {
         let grade = grade.lock().unwrap().fetch_grade();
         let output = request_msvc_compile(working_parameters, compile_input, pool, grade).await;
         return output;
@@ -19,7 +19,7 @@ impl crate::compiler::compiler::Compiler for MSVC {
     async fn dist_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
             compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle,
             grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>)
-                                    -> super::compiler::CompileOutput {
+                                    -> (super::compiler::CompileOutput, Option<super::compiler::ProcessedResults>) {
         
         let mut compiler_env = crate::platform::windows::WindowsCompilerEnv::default();
 
@@ -58,15 +58,15 @@ impl crate::compiler::compiler::Compiler for MSVC {
     async fn remote_request_compile(&self, _working_parameters: crate::buildturbo::WorkingParameters,
                                     compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle, 
                                     _grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>)
-                                    -> super::compiler::CompileOutput {
-        let output = request_local_compile_by_preprocessed_source(&compile_input, pool);
-        return output;
+                                    -> (super::compiler::CompileOutput, Option<super::compiler::ProcessedResults>) {
+        let (output, results) = request_local_compile_by_preprocessed_source(&compile_input, pool);
+        return (output, results);
     }
 }
 
 async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingParameters,
                                 msvc_compile_input: super::compiler::CompileInput, pool: &tokio::runtime::Handle,
-                                grade: crate::utils::grade::LocalGrade) -> super::compiler::CompileOutput {
+                                grade: crate::utils::grade::LocalGrade) -> (super::compiler::CompileOutput, Option<super::compiler::ProcessedResults>) {
     let now = std::time::SystemTime::now();
     let datetime:chrono::DateTime<chrono::Local> = chrono::DateTime::from(now);
     println!("into compile done: {:?}:{:?}:{:?}", datetime.hour(), datetime.minute(), datetime.second());
@@ -145,10 +145,14 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
     
     if exists_source_file_in_command {
         let mut default_output = super::compiler::CompileOutput::default();
-        
+        let mut default_results = Vec::<super::compiler::ProcessedResult>::new();
+
         if grade.cpu_usage < 0.0 {
-            let output = request_local_compile(compiler_path, msvc_compile_input.compiler_working_dir, compiler_commands.clone(), msvc_compile_input.build_and_compiler_type, false);
+            let (output, results) = request_local_compile(compiler_path, msvc_compile_input.compiler_working_dir, compiler_commands.clone(), msvc_compile_input.build_and_compiler_type, false);
             default_output.set(output);
+            if let Some(results) =  results {
+                default_results = results;
+            }
         }
         else {
             if true {
@@ -209,7 +213,12 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
         else {
             
         }
-        return default_output;
+        if default_results.is_empty() {
+            return (default_output, None);
+        }
+        else {
+            return (default_output, Some(default_results))
+        }        
     }
     else {
         let compiled_filename: Vec<std::ffi::OsString> = Vec::new();
@@ -217,9 +226,8 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
             compiled_filename,
             compile_status: false,
             compile_output: std::ffi::OsString::from("don't need compile anything."),
-            compiled_results: None,
         };
-        return result;
+        return (result, None);
     }
 }
 
@@ -418,43 +426,10 @@ fn request_dist_compile_and_sync_result(network: &crate::network::client::Networ
     println!("dist compile separate source done: {:?}:{:?}:{:?}", datetime.hour(), datetime.minute(), datetime.second());
 
     if result.compile_status {
-        if let Some(compiled_results) = result.compiled_results.clone() {
-            for result in compiled_results {
-                if let Some((path, content)) = result.obj {
-                    match std::fs::write(&path, content) {
-                        Ok(_) => {
-                            log::info!("sync obj to local sucess, obj path: {:?}.", path);
-                        },
-                        Err(error) => {
-                            log::warn!("sync obj to local failed. {:?}", error)                            
-                        },
-                    }
-                }   
-                if let Some((path, content)) = result.pdb {
-                    match std::fs::write(&path, content) {
-                        Ok(_) => {
-                            log::info!("sync pdb to local sucess, obj path: {:?}.", path);
-                        },
-                        Err(error) => {
-                            log::warn!("sync pdb to local failed. {:?}", error)                           
-                        },
-                    }
-                }
-                if let Some((path, content)) = result.idb {
-                    match std::fs::write(&path, content) {
-                        Ok(_) => {
-                            log::info!("sync idb to local sucess, obj path: {:?}.", path);
-                        },
-                        Err(error) => {
-                            log::warn!("sync idb to local failed. {:?}", error)                            
-                        },
-                    }
-                }
-            }
-        }
+        log::trace!("request remote compile and sync back success");
     }
     else {
-
+        log::trace!("request remote compile and sync back failed");
     }
 
     let now = std::time::SystemTime::now();
@@ -466,7 +441,7 @@ fn request_dist_compile_and_sync_result(network: &crate::network::client::Networ
 
 fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir: std::ffi::OsString, 
                                 compiler_commands: Vec<std::ffi::OsString>, build_and_compiler_type: std::ffi::OsString,
-                            sync_compile_result: bool) -> super::compiler::CompileOutput {
+                            sync_compile_result: bool) -> (super::compiler::CompileOutput, Option<Vec<super::compiler::ProcessedResult>>) {
 
     let (status, stdout, _stderr) = start_local_compiler(&compiler_path, &compiler_working_dir, &compiler_commands);
     let compile_output = String::from_utf8_lossy(&stdout);
@@ -578,12 +553,12 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
         compiled_filename,
         compile_status: status,
         compile_output: std::ffi::OsString::from(compile_output.to_string()),
-        compiled_results: Some(compiled_results),
     };
-    return result;
+
+    return (result, Some(compiled_results));
 }
 
-fn request_local_compile_by_preprocessed_source(msvc_compile_input: &super::compiler::CompileInput, _pool: &tokio::runtime::Handle) -> super::compiler::CompileOutput{
+fn request_local_compile_by_preprocessed_source(msvc_compile_input: &super::compiler::CompileInput, _pool: &tokio::runtime::Handle) -> (super::compiler::CompileOutput, Option<super::compiler::ProcessedResults>) {
 
     //replace .cpp/.c to .i
     let commands = msvc_compile_input.compiler_commands.clone();
@@ -653,7 +628,7 @@ fn request_local_compile_by_preprocessed_source(msvc_compile_input: &super::comp
     let datetime:chrono::DateTime<chrono::Local> = chrono::DateTime::from(now);
     println!("precompile {:?}:{:?}:{:?}", datetime.hour(), datetime.minute(), datetime.second());
 
-    let output = request_local_compile(msvc_compile_input.compiler_path_or_arch.clone(),
+    let (output, results) = request_local_compile(msvc_compile_input.compiler_path_or_arch.clone(),
                     msvc_compile_input.compiler_working_dir.clone(), commands,
                     msvc_compile_input.build_and_compiler_type.clone(), true);
 
@@ -661,7 +636,7 @@ fn request_local_compile_by_preprocessed_source(msvc_compile_input: &super::comp
     let datetime:chrono::DateTime<chrono::Local> = chrono::DateTime::from(now);
     println!("dist return {:?}:{:?}:{:?}", datetime.hour(), datetime.minute(), datetime.second());
 
-    return output;
+    return (output, results);
 }
 
 fn request_dist_compile_with_source_and_include(working_parameters: &crate::buildturbo::WorkingParameters, msvc_compile_input: &super::compiler::CompileInput) -> super::compiler::CompileOutput {

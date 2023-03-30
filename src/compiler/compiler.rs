@@ -50,7 +50,6 @@ pub struct CompileOutput {
     pub compiled_filename: Vec<std::ffi::OsString>,
     pub compile_status: bool,
     pub compile_output: std::ffi::OsString,
-    pub compiled_results: Option<Vec<ProcessedResult>>,
 }
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
@@ -61,6 +60,8 @@ pub struct ProcessedResult {
     pub idb: Option<(std::ffi::OsString, Vec<u8>)>,
 }
 
+pub type ProcessedResults = Vec<ProcessedResult>;
+
 impl Default for CompileOutput {
     fn default() -> Self {
         let filename: Vec<std::ffi::OsString> = Vec::new();
@@ -68,7 +69,6 @@ impl Default for CompileOutput {
             compiled_filename: filename, 
             compile_status: false, 
             compile_output: std::ffi::OsString::new(), 
-            compiled_results: None,
         }
     }
 }
@@ -78,7 +78,6 @@ impl CompileOutput {
         self.compiled_filename = value.compiled_filename;
         self.compile_status = value.compile_status;
         self.compile_output = value.compile_output;
-        self.compiled_results = value.compiled_results;
     }
 }
 
@@ -86,18 +85,18 @@ impl CompileOutput {
 pub trait Compiler: core::marker::Send + core::marker::Sync + 'static {
     async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
                 compile_input: CompileInput, pool: &tokio::runtime::Handle,
-                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput;
+                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<ProcessedResults>);
     async fn dist_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
                 compile_input: CompileInput, pool: &tokio::runtime::Handle, 
-                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput;
+                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<ProcessedResults>);
     async fn remote_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
                 compile_input: CompileInput, pool: &tokio::runtime::Handle, 
-                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput;
+                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<ProcessedResults>);
 }
 
 pub async fn request_compile(working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput, 
                 pool: &tokio::runtime::Handle, 
-                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput {
+                grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<super::compiler::ProcessedResults>) {
     if compile_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || compile_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
         let msvc = super::msvc::MSVC {};
@@ -105,19 +104,19 @@ pub async fn request_compile(working_parameters: crate::buildturbo::WorkingParam
         return output;
     }
     else if compile_input.build_and_compiler_type == "Clang" {
-        return CompileOutput::default();
+        return (CompileOutput::default(), None);
     }
     else if compile_input.build_and_compiler_type == "GCC" {
-        return CompileOutput::default();
+        return (CompileOutput::default(), None);
     }
     else {
-        return CompileOutput::default();
+        return (CompileOutput::default(), None);
     }
 }
 
 pub async fn dist_request_compile(working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput, 
     pool: &tokio::runtime::Handle,
-    grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput {
+    grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<super::compiler::ProcessedResults>) {
     println!("build and compiler type: {:?}", compile_input.build_and_compiler_type);
     if compile_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || compile_input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
@@ -126,19 +125,19 @@ pub async fn dist_request_compile(working_parameters: crate::buildturbo::Working
         return output;
     }
     else if compile_input.build_and_compiler_type == "Clang" {
-        return CompileOutput::default();
+        return (CompileOutput::default(), None);
     }
     else if compile_input.build_and_compiler_type == "GCC" {
-        return CompileOutput::default();
+        return (CompileOutput::default(), None);
     }
     else {
-        return CompileOutput::default();
+        return (CompileOutput::default(), None);
     }
 }
 
 pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Multipart, 
         working_parameters: crate::buildturbo::WorkingParameters, pool: &tokio::runtime::Handle, 
-        grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> CompileOutput
+        grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<ProcessedResults>)
 {
     while let Ok(Some(field)) = multipart.next_field().await {
         if let Some(name) = field.name() {
@@ -175,21 +174,21 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
                     if input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
                         || input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
                         let msvc = super::msvc::MSVC {};
-                        let output = msvc.remote_request_compile(working_parameters, input, pool, grade.clone()).await;
-                        return output;
+                        let (output, results) = msvc.remote_request_compile(working_parameters, input, pool, grade.clone()).await;
+                        return (output, results);
                     }
                     else if input.build_and_compiler_type == "Clang" {
-                        return CompileOutput::default();
+                        return (CompileOutput::default(), None);
                     }
                     else if input.build_and_compiler_type == "GCC" {
-                        return CompileOutput::default();
+                        return (CompileOutput::default(), None);
                     }
                     else {
-                        return CompileOutput::default();
+                        return (CompileOutput::default(), None);
                     }
                 }
             }
         }
     }
-    return CompileOutput::default();
+    return (CompileOutput::default(), None);
 }
