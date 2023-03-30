@@ -1,5 +1,5 @@
 
-use crate::{utils};
+use crate::utils;
 extern crate axum;
 
 pub struct NetworkRequestHandler {
@@ -46,33 +46,28 @@ async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract:
 }
 
 async fn remote_request_compile(mut multipart: axum::extract::multipart::Multipart, working_parameters: crate::buildturbo::WorkingParameters, 
-    thread_pool: tokio::runtime::Handle,
-    grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) -> axum::response::Response<axum::body::Full<axum::body::Bytes>> {
+                                thread_pool: tokio::runtime::Handle,
+                                grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) 
+                            -> axum::response::Response<axum::body::Full<axum::body::Bytes>> {
     
     let (output, results) = crate::compiler::compiler::remote_request_compile(&mut multipart, working_parameters, &thread_pool, grade).await;
     
     let mut files: Vec<Vec<(std::ffi::OsString, usize)>> = Vec::new();
 
     let mut contents = Vec::<u8>::new();
-    if let Some(results) = results {
+    if let Some(results) = &results {
         for result in results {
-           if let Some(mut obj) = result.obj {
-                let name = obj.0;
-                let content:&mut Vec<u8> = obj.1.as_mut();
-                contents.append(content);
-                files.push(vec![(name, content.len())]);
+           if let Some((path, content)) = &result.obj {
+                files.push(vec![(path.to_owned(), content.len())]);
+                contents.append(content.to_owned().as_mut());
            }
-           if let Some(mut pdb) = result.pdb {
-                let name = pdb.0;
-                let content:&mut Vec<u8> = pdb.1.as_mut();
-                contents.append(content);
-                files.push(vec![(name, content.len())]);
+           if let Some((path, content)) = &result.pdb {
+                files.push(vec![(path.to_owned(), content.len())]);
+                contents.append(content.to_owned().as_mut());
            }
-           if let Some(mut idb) = result.idb {
-                let name = idb.0;
-                let content:&mut Vec<u8> = idb.1.as_mut();
-                contents.append(content);
-                files.push(vec![(name, content.len())]);
+           if let Some((path, content)) = &result.idb {
+                files.push(vec![(path.to_owned(), content.len())]);
+                contents.append(content.to_owned().as_mut());
            }
         }
     }
@@ -84,6 +79,8 @@ async fn remote_request_compile(mut multipart: axum::extract::multipart::Multipa
         .header("compile-result-catalog", serde_json::to_string(&files).expect("serialize CompileResultCount struct into json failed."))
         .body(axum::body::Full::from(bytes))  
         .unwrap();
+
+    log::debug!("remote request compile response");
 
     return response
     
