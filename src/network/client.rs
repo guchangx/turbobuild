@@ -82,7 +82,7 @@ impl NetworkClient {
 
         if let Ok(input) = serde_json::to_string(msvc_compile_input) {
             let part = reqwest::blocking::multipart::Part::bytes(input.as_bytes().to_owned());
-            form = form.part("remot_compile_input", part);
+            form = form.part("compile_input", part);
         }
         else {
             log::debug!("Serialize compile input struct into string failed.")

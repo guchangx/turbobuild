@@ -49,7 +49,8 @@ async fn remote_request_compile(mut multipart: axum::extract::multipart::Multipa
                                 thread_pool: tokio::runtime::Handle,
                                 grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) 
                             -> axum::response::Response<axum::body::Full<axum::body::Bytes>> {
-    
+    log::debug!("remote request compile begin.");
+
     let (output, results) = crate::compiler::compiler::remote_request_compile(&mut multipart, working_parameters, &thread_pool, grade).await;
     
     let mut files: Vec<Vec<(std::ffi::OsString, usize)>> = Vec::new();
