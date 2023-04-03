@@ -33,7 +33,7 @@ fn init_logger() {
     let logger = builder
     .write_style(env_logger::WriteStyle::Always)
     .format_level(true)
-    .filter(Some("buildturbo"), log::LevelFilter::Debug)
+    .filter(Some("buildturbo"), log::LevelFilter::Trace)
     .target(env_logger::Target::Stdout)
     .try_init();
 

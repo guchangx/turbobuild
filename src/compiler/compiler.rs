@@ -166,7 +166,7 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
                     }
                 }
             }
-            else if name.cmp("remot_compile_input") == std::cmp::Ordering::Equal {
+            else if name.cmp("compile_input") == std::cmp::Ordering::Equal {
                 if let Ok(contents) = field.bytes().await {
                     let contents = contents.to_vec();
                     let contents = std::str::from_utf8(&contents).unwrap();
@@ -187,6 +187,9 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
                         return (CompileOutput::default(), None);
                     }
                 }
+            }
+            else {
+                log::warn!("multipart field name: {:?} do not match.", name);
             }
         }
     }

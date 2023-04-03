@@ -142,7 +142,7 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
         let mut default_output = super::compiler::CompileOutput::default();
         let mut default_results = Vec::<super::compiler::ProcessedResult>::new();
 
-        if grade.cpu_usage < 0.0 {
+        if grade.cpu_usage < 00.0 {
             let (output, results) = request_local_compile(compiler_path, msvc_compile_input.compiler_working_dir, compiler_commands.clone(), msvc_compile_input.build_and_compiler_type, false);
             default_output.set(output);
             if let Some(results) =  results {
@@ -297,7 +297,7 @@ fn request_dist_compile(network: &crate::network::client::NetworkClient, compile
             }
 
             let i_path = push_project_name_to_precompiled_file_path(&path, project.clone());
-            split.push(std::ffi::OsString::from(i_path));
+            split.push(std::ffi::OsString::from(&i_path));
             
             if let Some(next_file) = source_files.get(index + 1) {
                 //#line 1 "D:\\TrainSpace\\json\\tests\\abi\\main.cpp"
@@ -318,8 +318,8 @@ fn request_dist_compile(network: &crate::network::client::NetworkClient, compile
                         let mut path = std::path::PathBuf::from(file);
                         path.set_extension("i");
                         let precompiled_suorce = super::compiler::PrecompiledSource {
-                            preprocessed_source_contents: Some(content.as_bytes().to_vec()),
-                            preprocessed_source_path: std::ffi::OsString::from(&path)
+                            preprocessed_source_contents: Some(first.as_bytes().to_vec()),
+                            preprocessed_source_path: std::ffi::OsString::from(&i_path)
                         };
                         log::debug!("precompile {:?} source file. precompiled result size: {:.2?}M.", path.file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
 
@@ -348,7 +348,7 @@ fn request_dist_compile(network: &crate::network::client::NetworkClient, compile
                 path.set_extension("i");
                 let precompiled_suorce = super::compiler::PrecompiledSource {
                     preprocessed_source_contents: Some(content.as_bytes().to_vec()),
-                    preprocessed_source_path: std::ffi::OsString::from(&path)
+                    preprocessed_source_path: std::ffi::OsString::from(&i_path)
                 };
                 println!("preprocessed_source_path: {:?}", precompiled_suorce.preprocessed_source_path);
                 log::debug!("precompile {:?} source file. precompiled result size: {:.2?}M.", path.file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0);
