@@ -141,7 +141,7 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
 {
     while let Ok(Some(field)) = multipart.next_field().await {
         if let Some(name) = field.name() {
-            if name.cmp("precompile_source") == std::cmp::Ordering::Equal {
+            if name.cmp("precompiled_source") == std::cmp::Ordering::Equal {
                 let file_path = field.file_name().expect("fetch file_name from multipart/form-data failed.");
                 log::trace!("remote request copmile sync file name: {:?}", file_path);
                 if !file_path.is_empty() {

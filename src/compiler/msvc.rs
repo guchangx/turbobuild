@@ -344,13 +344,11 @@ fn request_dist_compile(network: &crate::network::client::NetworkClient, compile
                     build_and_compiler_type: std::ffi::OsString::from("MSBuild Precompile"),
                     env_input: None
                 };
-                let mut path = std::path::PathBuf::from(file);
-                path.set_extension("i");
                 let precompiled_suorce = super::compiler::PrecompiledSource {
                     preprocessed_source_contents: Some(content.as_bytes().to_vec()),
                     preprocessed_source_path: std::ffi::OsString::from(&i_path)
                 };
-                println!("preprocessed_source_path: {:?}", precompiled_suorce.preprocessed_source_path);
+
                 log::debug!("precompile {:?} source file. precompiled result size: {:.2?}M.", path.file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0);
                 let now = std::time::Instant::now();
                 let output = request_dist_compile_and_sync_result(network, &msvc_compile_input, &precompiled_suorce);
