@@ -258,7 +258,7 @@ impl NetworkClient {
                                                             log::trace!("sync results, {:?}.", path);
                                                         },
                                                         Err(error) => {
-                                                            log::warn!("sync results, wriet {:?} failed {:?} .", path, error);
+                                                            log::warn!("sync results, write {:?} failed {:?} .", path, error);
                                                         },
                                                     }
                                                     contents = other_content.to_vec();

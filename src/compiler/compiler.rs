@@ -168,23 +168,28 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
             }
             else if name.cmp("compile_input") == std::cmp::Ordering::Equal {
                 if let Ok(contents) = field.bytes().await {
-                    let contents = contents.to_vec();
-                    let contents = std::str::from_utf8(&contents).unwrap();
-                    let input:CompileInput = serde_json::from_str(&contents).expect("deserialize compileiput failed.");
-                    if input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
-                        || input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
-                        let msvc = super::msvc::MSVC {};
-                        let (output, results) = msvc.remote_request_compile(working_parameters, input, pool, grade.clone()).await;
-                        return (output, results);
-                    }
-                    else if input.build_and_compiler_type == "Clang" {
-                        return (CompileOutput::default(), None);
-                    }
-                    else if input.build_and_compiler_type == "GCC" {
+                    if contents.is_empty() {
                         return (CompileOutput::default(), None);
                     }
                     else {
-                        return (CompileOutput::default(), None);
+                        let contents = contents.to_vec();
+                        let contents = std::str::from_utf8(&contents).unwrap();
+                        let input:CompileInput = serde_json::from_str(&contents).expect("deserialize compileiput failed.");
+                        if input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
+                            || input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
+                            let msvc = super::msvc::MSVC {};
+                            let (output, results) = msvc.remote_request_compile(working_parameters, input, pool, grade.clone()).await;
+                            return (output, results);
+                        }
+                        else if input.build_and_compiler_type == "Clang" {
+                            return (CompileOutput::default(), None);
+                        }
+                        else if input.build_and_compiler_type == "GCC" {
+                            return (CompileOutput::default(), None);
+                        }
+                        else {
+                            return (CompileOutput::default(), None);
+                        }
                     }
                 }
             }
