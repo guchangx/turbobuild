@@ -80,13 +80,21 @@ impl NetworkClient {
             log::debug!("precompiled source file is mepty.")
         }
 
-        if let Ok(input) = serde_json::to_string(msvc_compile_input) {
-            let part = reqwest::blocking::multipart::Part::bytes(input.as_bytes().to_owned());
-            form = form.part("compile_input", part);
+        if msvc_compile_input.compiler_commands.is_empty() && msvc_compile_input.compiler_path_or_arch.is_empty()
+            && msvc_compile_input.compiler_working_dir.is_empty()
+        {
+            let part = reqwest::blocking::multipart::Part::bytes("Sync precompiled sourcefile".as_bytes());
+            form = form.part("sync", part);
         }
         else {
-            log::debug!("Serialize compile input struct into string failed.")
-        }
+            if let Ok(input) = serde_json::to_string(msvc_compile_input) {
+                let part = reqwest::blocking::multipart::Part::bytes(input.as_bytes().to_owned());
+                form = form.part("compile_input", part);
+            }
+            else {
+                log::debug!("Serialize compile input struct into string failed.")
+            }
+        } 
 
         let url = base.join(&route).unwrap();
         let response = self.client.post(url)
@@ -253,14 +261,19 @@ impl NetworkClient {
                                             for (path, size) in result {
                                                 if !contents.is_empty() {
                                                     let (current_content, other_content) = contents.split_at(size);
-                                                    match std::fs::write(path.clone(), current_content) {
-                                                        Ok(_) => {
-                                                            log::trace!("sync results, {:?}.", path);
-                                                        },
-                                                        Err(error) => {
-                                                            log::warn!("sync results, write {:?} failed {:?} .", path, error);
-                                                        },
-                                                    }
+                                                    let current_content = current_content.to_owned();
+                                                    
+                                                    std::thread::spawn( move || {
+                                                        match std::fs::write(path.clone(), &current_content) {
+                                                            Ok(_) => {
+                                                                log::trace!("sync back results, {:?}.", path);
+                                                            },
+                                                            Err(error) => {
+                                                                log::warn!("sync results, write {:?} failed {:?} .", path, error);
+                                                            },
+                                                        }
+                                                    });
+
                                                     contents = other_content.to_vec();
                                                 }
                                             }

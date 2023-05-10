@@ -193,6 +193,16 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
                     }
                 }
             }
+            else if name.cmp("sync") == std::cmp::Ordering::Equal {
+
+                let result = CompileOutput {
+                    compiled_filename: Vec::<std::ffi::OsString>::new(),
+                    compile_status: true,
+                    compile_output: std::ffi::OsString::from("sync prcompiled source file response."),
+                };
+                return (result, None);
+                
+            }
             else {
                 log::warn!("multipart field name: {:?} do not match.", name);
             }

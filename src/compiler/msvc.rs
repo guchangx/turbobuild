@@ -301,7 +301,6 @@ fn request_dist_compile(network: &crate::network::client::NetworkClient, compile
             
             if let Some(next_file) = source_files.get(index + 1) {
                 //#line 1 "D:\\TrainSpace\\json\\tests\\abi\\main.cpp"
-                log::debug!("split precompile source file. current file: {:?}, next file: {:?}", file, next_file);
                 let line = format!(r#"#line 1 "{}""#, next_file).replace(r"\", r"\\");
                 if let Some(position) = content.find(&line) {
                     if position.gt(&0) {
@@ -442,7 +441,6 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
             
             if let Some(next_file) = source_files.get(index + 1) {
                 //#line 1 "D:\\TrainSpace\\json\\tests\\abi\\main.cpp"
-                log::trace!("split precompile source file. current file: {:?}, next file: {:?}", file, next_file);
                 let line = format!(r#"#line 1 "{}""#, next_file).replace(r"\", r"\\");
                 if let Some(position) = content.find(&line) {
                     if position.gt(&0) {
@@ -453,7 +451,7 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                             compiler_path_or_arch: std::ffi::OsString::from(""),
                             compiler_working_dir: std::ffi::OsString::from(""),
                             compiler_commands: Vec::<std::ffi::OsString>::new(),
-                            build_and_compiler_type: std::ffi::OsString::from("MSBuild Precompile"),
+                            build_and_compiler_type: std::ffi::OsString::from("Sync Precompiled Source File"),
                             env_input: None
                         };
 
@@ -463,14 +461,15 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                         };
 
                         log::debug!("sync precompiled source file {:?}.size: {:.2?}M.", extension_i_path.file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
-                        
                         content = last.to_string().into();
-
+                        let now = std::time::Instant::now();
                         let net = network.clone();
                         let handle = std::thread::spawn(move || {
                             let _ = request_dist_compile_and_sync_result(&net, 
                                 &msvc_compile_empty_input, &precompiled_suorce);
                         });
+                        log::debug!("sync precompiled source file response elapsed time: {:?}.", now.elapsed());
+
                         handles.push(handle);
                     }
                 }
@@ -576,9 +575,9 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
     let mut compiled_results: Vec<crate::compiler::compiler::ProcessedResult> = Vec::new();
 
     if status {
-        log::debug!("local compile file count: {:?}, elapsed: {:?}.", compile_output.len(), now.elapsed());
         let output = compile_output.lines();
         let last = output.clone().last();
+        log::debug!("local compile file count: {:?}, elapsed: {:?}.", output.clone().count(), now.elapsed());
         let working_path = std::path::PathBuf::from(compiler_working_dir.to_owned());
         let (pdb_path, _one_pdb )= fetch_compiler_pdb_file(build_and_compiler_type.clone(), compiler_commands.to_owned(), working_path.clone());
         let pdb_path = std::rc::Rc::new(pdb_path);
