@@ -80,8 +80,7 @@ impl NetworkClient {
             log::debug!("precompiled source file is mepty.")
         }
 
-        if msvc_compile_input.compiler_commands.is_empty() && msvc_compile_input.compiler_path_or_arch.is_empty()
-            && msvc_compile_input.compiler_working_dir.is_empty()
+        if msvc_compile_input.compiler_commands.is_empty() && msvc_compile_input.compiler_working_dir.is_empty()
         {
             let part = reqwest::blocking::multipart::Part::bytes("Sync precompiled sourcefile".as_bytes());
             form = form.part("sync", part);

@@ -448,7 +448,7 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                         let (first, last) = content.split_at(position);
             
                         let msvc_compile_empty_input = super::compiler::CompileInput {
-                            compiler_path_or_arch: std::ffi::OsString::from(""),
+                            compiler_path_or_arch: compiler_path.to_owned(),
                             compiler_working_dir: std::ffi::OsString::from(""),
                             compiler_commands: Vec::<std::ffi::OsString>::new(),
                             build_and_compiler_type: std::ffi::OsString::from("Sync Precompiled Source File"),
@@ -835,6 +835,7 @@ fn request_dist_compile_with_source_and_include(working_parameters: &crate::buil
 fn request_dist_compile_with_precompiled_source(network: &crate::network::client::NetworkClient, msvc_compile_input: &super::compiler::CompileInput, precompiled_source: &super::compiler::PrecompiledSource) 
                                         -> super::compiler::CompileOutput {
     
+    let now = std::time::Instant::now();
     let sender = crate::syncfile::sender::Sender::new(network);
     let mut dist_msvc_compiler_path= sender.dist_kits_and_tool_pre_sync("", msvc_compile_input.compiler_path_or_arch.to_str().unwrap()).0;
     if dist_msvc_compiler_path.is_empty() {
@@ -860,6 +861,7 @@ fn request_dist_compile_with_precompiled_source(network: &crate::network::client
     else {
 
     }
+    log::debug!("fetch compiler toolchain and win kits response elapsed: {:?}", now.elapsed());
 
     let mut input = msvc_compile_input.to_owned();
     input.build_and_compiler_type = std::ffi::OsString::from("MSBuild Dist Precompile");
