@@ -31,6 +31,7 @@ fn init_logger() {
 
     let mut builder = env_logger::Builder::new();
     let logger = builder
+    .format_timestamp_millis()
     .write_style(env_logger::WriteStyle::Always)
     .format_level(true)
     .filter(Some("buildturbo"), log::LevelFilter::Trace)

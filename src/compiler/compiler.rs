@@ -142,10 +142,11 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
     while let Ok(Some(field)) = multipart.next_field().await {
         if let Some(name) = field.name() {
             if name.cmp("precompiled_source") == std::cmp::Ordering::Equal {
-                let file_path = field.file_name().expect("fetch file_name from multipart/form-data failed.");
-                log::trace!("remote request copmile sync file name: {:?}", file_path);
+                
+                let file_path = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_owned();
                 if !file_path.is_empty() {
-                    let path = std::path::PathBuf::from(file_path);
+                    let now = std::time::Instant::now();
+                    let path = std::path::PathBuf::from(&file_path);
                     let dir = path.parent().unwrap();
                     if !dir.exists() {
                         match std::fs::create_dir_all(dir) {
@@ -155,15 +156,18 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
                             },
                         }
                     }
-                    
+                   
                     if let Ok(contents) = field.bytes().await {
-                        match std::fs::write(path, contents) {
-                            Ok(_) => {},
-                            Err(error) => {
-                                log::warn!("sync precompiled source .i file failed. {:?}", error);
-                            },
-                        }
+                        std::thread::spawn(|| {
+                            match std::fs::write(path, contents) {
+                                Ok(_) => {},
+                                Err(error) => {
+                                    log::warn!("sync precompiled source .i file failed. {:?}", error);
+                                },
+                            }
+                        });
                     }
+                    log::trace!("remote request copmile sync file name: {:?}, elapsed time: {:?}.", file_path, now.elapsed());
                 }
             }
             else if name.cmp("compile_input") == std::cmp::Ordering::Equal {

@@ -68,9 +68,9 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
 
     let storage = working_parameters.storage;
     let env = working_parameters.compiler_env;
-
+    let now = std::time::Instant::now();
     let (mut compiler_commands, compiler_path) = parse_compiler_input_command(msvc_compile_input.clone(), &env);
-
+    println!("parse compiler input commmands elaspsed time:{:?}", now.elapsed());
     let working_path = std::path::PathBuf::from(msvc_compile_input.compiler_working_dir.to_string_lossy().to_string());
 
     if !working_path.exists() {
@@ -152,7 +152,9 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
         else {
             if true {
                 // dist with preprocessed source
+                let now = std::time::Instant::now();
                 let output = request_dist_multi_sync_once_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
+                println!("request_dist_multi_sync_once_compile elaspsed time:{:?}", now.elapsed());
                 //let output = request_dist_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
                 default_output.set(output);
             }
@@ -460,15 +462,14 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                             preprocessed_source_path: std::ffi::OsString::from(&extension_i_path)
                         };
 
-                        log::debug!("sync precompiled source file {:?}.size: {:.2?}M.", extension_i_path.file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
+                        log::debug!("sync precompiled source file {:?}. size: {:.2?}M.", extension_i_path.file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
                         content = last.to_string().into();
-                        let now = std::time::Instant::now();
                         let net = network.clone();
                         let handle = std::thread::spawn(move || {
                             let _ = request_dist_compile_and_sync_result(&net, 
                                 &msvc_compile_empty_input, &precompiled_suorce);
                         });
-                        log::debug!("sync precompiled source file response elapsed time: {:?}.", now.elapsed());
+                        
 
                         handles.push(handle);
                     }
@@ -494,7 +495,7 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
 
                 let now = std::time::Instant::now();
                 let output = request_dist_compile_and_sync_result(network, &msvc_compile_input, &precompiled_suorce);
-                log::debug!("request {:?} dist compile with precompiled source size: {:?}, response elapsed: {:?}.", extension_i_path.file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0, now.elapsed());
+                log::debug!("request {:?} dist compile with precompiled source size: {:?}M, response elapsed: {:?}.", extension_i_path.file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0, now.elapsed());
         
                 let mut file = output.compiled_filename;
                 result.compiled_filename.append(&mut file);
@@ -576,10 +577,17 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
 
     if status {
         let output = compile_output.lines();
-        let last = output.clone().last();
-        log::debug!("local compile file count: {:?}, elapsed: {:?}.", output.clone().count(), now.elapsed());
+
+        let mut last = output.clone().last();
+        let lines:Vec<&str> = output.clone().collect();
+        if let Some(index) = lines.iter().rposition(|&arg| arg.ends_with(".i\r\n")) {
+            let &arg = lines.index(index);
+            last = Some(arg);
+        }
+        
+        log::debug!("local compile file count: {:?}, elapsed: {:?}.", lines.len(), now.elapsed());
         let working_path = std::path::PathBuf::from(compiler_working_dir.to_owned());
-        let (pdb_path, _one_pdb )= fetch_compiler_pdb_file(build_and_compiler_type.clone(), compiler_commands.to_owned(), working_path.clone());
+        let (pdb_path, _one_pdb )= fetch_compile_pdb_path(build_and_compiler_type.clone(), compiler_commands.to_owned(), working_path.clone());
         let pdb_path = std::rc::Rc::new(pdb_path);
         for line in output {
             let line = line.replace(r#"""#, "");
@@ -680,7 +688,11 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
 
                 compiled_filename.push(std::ffi::OsString::from(line));
             }
+            else {
+                log::trace!("exclude source file,maybe warning and error. {:?}", line);
+            }
         }
+
     };
     
     let result = super::compiler::CompileOutput {
@@ -782,8 +794,7 @@ fn request_dist_compile_with_source_and_include(working_parameters: &crate::buil
     let mut dist_msvc_include_path: std::ffi::OsString;
     let mut win_kits_include_dir: std::ffi::OsString;
 
-    (dist_msvc_compiler_path, dist_msvc_include_path, win_kits_include_dir)
-        = sender.dist_kits_and_tool_pre_sync(winsdk_path, compiler_dir.to_str().unwrap());
+    (dist_msvc_compiler_path, dist_msvc_include_path, win_kits_include_dir) = sender.dist_kits_and_tool_pre_sync(winsdk_path, compiler_dir.to_str().unwrap());
 
     if dist_msvc_compiler_path.is_empty() {
         log::debug!("msvc toolchain sync");
@@ -1215,7 +1226,7 @@ enum ProgramDataBase {
     PathWithoutPDBName(std::path::PathBuf),
 }
 
-fn fetch_compiler_pdb_file(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) -> (ProgramDataBase, bool) {
+fn fetch_compile_pdb_path(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) -> (ProgramDataBase, bool) {
     if build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || build_and_compiler_type.to_string_lossy().contains("CMake") 
         || build_and_compiler_type.to_string_lossy().contains("Dist") {
