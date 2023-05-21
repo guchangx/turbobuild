@@ -168,7 +168,7 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
                                     log::trace!("zip source file name {:?}", file.name());
                                 },
                                 Err(error) => {
-                                    log::warn!("precompile source file sync failed. {:?}", error);
+                                    log::warn!("precompile source file sync failed. {:?}, path: {:?}.", error, path);
                                 }
                             }
  

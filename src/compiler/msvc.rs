@@ -493,8 +493,18 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                     build_and_compiler_type: std::ffi::OsString::from("MSBuild Precompile"),
                     env_input: None
                 };
+
+                let mut cursor = std::io::Cursor::new(Vec::new());
+                let mut zip = zip::ZipWriter::new(&mut cursor);
+                let options = zip::write::FileOptions::default()
+                                        .compression_method(zip::CompressionMethod::Zstd);
+                let name = extension_i_path.file_name().unwrap();
+                zip.start_file(name.to_string_lossy(), options).unwrap();
+                zip.write_all(content.as_bytes()).unwrap();
+                let zip_content = zip.finish().unwrap();
+
                 let precompiled_suorce = super::compiler::PrecompiledSource {
-                    preprocessed_source_contents: Some(content.as_bytes().to_vec()),
+                    preprocessed_source_contents: Some(zip_content.get_ref().to_vec()),
                     preprocessed_source_path: std::ffi::OsString::from(&extension_i_path)
                 };
 
