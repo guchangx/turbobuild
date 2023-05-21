@@ -1,6 +1,6 @@
 extern crate regex;
 pub struct MSVC;
-use std::{ops::{Index, Add}};
+use std::{ops::{Index, Add}, io::Write};
 
 #[async_trait]
 impl crate::compiler::compiler::Compiler for MSVC {
@@ -457,8 +457,17 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                             env_input: None
                         };
 
+                        let mut cursor = std::io::Cursor::new(Vec::new());
+                        let mut zip = zip::ZipWriter::new(&mut cursor);
+                        let options = zip::write::FileOptions::default()
+                                                .compression_method(zip::CompressionMethod::Zstd);
+
+                        zip.start_file("compressed_precompile_sourcefile", options).unwrap();
+                        zip.write_all(first.as_bytes()).unwrap();
+                        let result = zip.finish().unwrap();
+
                         let precompiled_suorce = super::compiler::PrecompiledSource {
-                            preprocessed_source_contents: Some(first.as_bytes().to_vec()),
+                            preprocessed_source_contents: Some(result.get_ref().to_vec()),
                             preprocessed_source_path: std::ffi::OsString::from(&extension_i_path)
                         };
 
@@ -558,10 +567,9 @@ fn request_dist_compile_and_sync_result(network: &crate::network::client::Networ
     -> super::compiler::CompileOutput {
     let result = request_dist_compile_with_precompiled_source(&network, &msvc_compile_input, &precompiled_source);
     if result.compile_status {
-        log::trace!("request remote compile and sync back success");
     }
     else {
-        log::trace!("request remote compile and sync back failed");
+        log::trace!("request remote compile and sync back failed: {:?}", result);
     }
     return result;
 }
@@ -607,7 +615,6 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                             let path = dir.join(&line);
                             result_path = path;
                             result_path.set_extension("obj");
-                            log::trace!("generate object path without obj name, {:?}", result_path);
                         },
                         _ => {
                             log::warn!("fetch result file path failed.");

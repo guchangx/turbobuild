@@ -159,12 +159,11 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
                    
                     if let Ok(contents) = field.bytes().await {
                         std::thread::spawn(|| {
-                            match std::fs::write(path, contents) {
-                                Ok(_) => {},
-                                Err(error) => {
-                                    log::warn!("sync precompiled source .i file failed. {:?}", error);
-                                },
-                            }
+                            let mut cursor = std::io::Cursor::new(contents);
+                            let mut zip = zip::ZipArchive::new(&mut cursor).unwrap();
+                            let mut file = zip.by_index(0).unwrap();
+                            let mut local_file = std::fs::File::create(path).unwrap();
+                            let _ = std::io::copy(&mut file, &mut local_file);
                         });
                     }
                     log::trace!("remote request copmile sync file name: {:?}, elapsed time: {:?}.", file_path, now.elapsed());
