@@ -461,8 +461,8 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                         let mut zip = zip::ZipWriter::new(&mut cursor);
                         let options = zip::write::FileOptions::default()
                                                 .compression_method(zip::CompressionMethod::Zstd);
-
-                        zip.start_file("compressed_precompile_sourcefile", options).unwrap();
+                        let name = extension_i_path.file_name().unwrap();
+                        zip.start_file(name.to_string_lossy(), options).unwrap();
                         zip.write_all(first.as_bytes()).unwrap();
                         let result = zip.finish().unwrap();
 
