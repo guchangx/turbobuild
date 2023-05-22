@@ -628,10 +628,12 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                             log::warn!("fetch result file path failed.");
                         }
                     };
-    
-                    match std::fs::read(&result_path) {
-                        Ok(contents) => {
-                            obj = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
+                    
+                    match std::fs::File::open(&result_path) {
+                        Ok(file) => {
+                            let mut encode = Vec::new();
+                            zstd::stream::copy_encode(file, &mut encode, 6).unwrap();
+                            obj = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), encode));
                         },
                         Err(error) => {
                             if error.kind() == std::io::ErrorKind::NotFound {
@@ -662,9 +664,11 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                             }
                         };
                         
-                        match std::fs::read(&result_path) {
-                            Ok(contents) => {
-                                pdb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
+                        match std::fs::File::open(&result_path) {
+                            Ok(file) => {
+                                let mut encode = Vec::new();
+                                zstd::stream::copy_encode(file, &mut encode, 6).unwrap();
+                                pdb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), encode));
                             },
                             Err(error) => {
                                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -677,9 +681,11 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                         }
 
                         result_path.set_extension("idb");
-                        match std::fs::read(&result_path) {
-                            Ok(contents) => {
-                                idb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
+                        match std::fs::File::open(&result_path) {
+                            Ok(file) => {
+                                let mut encode = Vec::new();
+                                zstd::stream::copy_encode(file, &mut encode, 6).unwrap();
+                                idb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), encode));
                             },
                             Err(error) => {
                                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -688,7 +694,7 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                                 else {
                                     log::warn!(".idb file read failed. {:?}", error);
                                 }
-                            }
+                            },
                         }
                     }
 

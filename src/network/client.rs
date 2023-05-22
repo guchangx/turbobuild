@@ -262,7 +262,9 @@ impl NetworkClient {
                                                     let current_content = current_content.to_owned();
                                                     
                                                     std::thread::spawn( move || {
-                                                        match std::fs::write(path.clone(), &current_content) {
+                                                        let cursor = std::io::Cursor::new(&current_content);
+                                                        let file = std::fs::File::create(path.clone()).unwrap();
+                                                        match zstd::stream::copy_decode(cursor, file) {
                                                             Ok(_) => {
                                                                 log::trace!("sync back results, {:?}.", path);
                                                             },
