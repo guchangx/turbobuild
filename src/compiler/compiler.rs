@@ -139,6 +139,7 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
         working_parameters: crate::buildturbo::WorkingParameters, pool: &tokio::runtime::Handle, 
         grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<ProcessedResults>)
 {
+    let mut handle = pool.spawn_blocking(||{});
     while let Ok(Some(field)) = multipart.next_field().await {
         if let Some(name) = field.name() {
             if name.cmp("precompiled_source") == std::cmp::Ordering::Equal {
@@ -158,7 +159,7 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
                     }
                     
                     if let Ok(contents) = field.bytes().await {
-                        pool.spawn_blocking(move || {
+                        handle = pool.spawn_blocking(move || {
                             let mut cursor = std::io::Cursor::new(contents);
                             match zip::ZipArchive::new(&mut cursor) {
                                 Ok(mut zip) => {
@@ -185,6 +186,10 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
                         let contents = contents.to_vec();
                         let contents = std::str::from_utf8(&contents).unwrap();
                         let input:CompileInput = serde_json::from_str(&contents).expect("deserialize compileiput failed.");
+                        if !handle.is_finished() {
+                            handle.await.unwrap();
+                        }
+
                         if input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
                             || input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
                             let msvc = super::msvc::MSVC {};
