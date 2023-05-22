@@ -457,8 +457,7 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                             env_input: None
                         };
 
-                        let mut cursor = std::io::Cursor::new(Vec::new());
-                        let mut zip = zip::ZipWriter::new(&mut cursor);
+                        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(vec![]));
                         let options = zip::write::FileOptions::default()
                                                 .compression_method(zip::CompressionMethod::Zstd);
                         let name = extension_i_path.file_name().unwrap();
@@ -479,7 +478,6 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                                 &msvc_compile_empty_input, &precompiled_suorce);
                         });
                         
-
                         handles.push(handle);
                     }
                 }

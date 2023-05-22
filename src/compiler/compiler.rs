@@ -156,22 +156,21 @@ pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Mu
                             },
                         }
                     }
-                   
+                    
                     if let Ok(contents) = field.bytes().await {
-                        std::thread::spawn(|| {
+                        pool.spawn_blocking(move || {
                             let mut cursor = std::io::Cursor::new(contents);
                             match zip::ZipArchive::new(&mut cursor) {
                                 Ok(mut zip) => {
                                     let mut file = zip.by_index(0).unwrap();
-                                    let mut local_file = std::fs::File::create(path).unwrap();
-                                    let _ = std::io::copy(&mut file, &mut local_file);
+                                    let mut path = std::fs::File::create(path).unwrap();
+                                    let _ = std::io::copy(&mut file, &mut path);
                                     log::trace!("zip source file name {:?}", file.name());
                                 },
                                 Err(error) => {
                                     log::warn!("precompile source file sync failed. {:?}, path: {:?}.", error, path);
                                 }
                             }
- 
                         });
                     }
                     log::trace!("remote request copmile sync file name: {:?}, elapsed time: {:?}.", file_path, now.elapsed());
