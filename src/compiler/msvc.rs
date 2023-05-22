@@ -596,11 +596,11 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
 
         let mut last = output.clone().last();
         let lines:Vec<&str> = output.clone().collect();
-        if let Some(index) = lines.iter().rposition(|&arg| arg.ends_with(".i\r\n")) {
+        if let Some(index) = lines.iter().rposition(|&arg| arg.ends_with(".i")) {
             let &arg = lines.index(index);
             last = Some(arg);
         }
-        
+        log::trace!("last compiled source file: {:?}", last);
         log::debug!("local compile file count: {:?}, elapsed: {:?}.", lines.len(), now.elapsed());
         let working_path = std::path::PathBuf::from(compiler_working_dir.to_owned());
         let (pdb_path, _one_pdb )= fetch_compile_pdb_path(build_and_compiler_type.clone(), compiler_commands.to_owned(), working_path.clone());
