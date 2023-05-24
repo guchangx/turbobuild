@@ -231,7 +231,7 @@ fn request_dist_compile(network: &crate::network::client::NetworkClient, compile
 
     let result = std::sync::Arc::new(std::sync::Mutex::new(super::compiler::CompileOutput::default()));
     let now = std::time::Instant::now();
-    let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, compiler_commands);
+    let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, compiler_commands, false);
     if status {
         let files = String::from_utf8_lossy(&stderr);
 
@@ -392,10 +392,11 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
 
     let mut result = super::compiler::CompileOutput::default();
     let now = std::time::Instant::now();
-    let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, compiler_commands);
+    let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, compiler_commands, false);
+
     if status {
         let files = String::from_utf8_lossy(&stderr);
-        
+        println!("compile stdout: {:?}, stderr: {:?}", String::from_utf8_lossy(&stdout), String::from_utf8_lossy(&stderr));
         let mut commands:Vec<std::ffi::OsString> = Vec::new();
         let mut source_files: Vec<String> = Vec::new();
         let mut project = String::from("");
@@ -421,6 +422,29 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                 commands.push(std::ffi::OsString::from(value.to_string()));
             }
         };
+
+        if stdout.is_empty() {
+            load_precompiled_result_file_from_disk(network, compiler_path, &source_files, project.clone());
+            let now = std::time::Instant::now();
+
+            let msvc_compile_input = super::compiler::CompileInput {
+                compiler_path_or_arch: compiler_path.to_owned(),
+                compiler_working_dir: compiler_working_dir.to_owned(),
+                compiler_commands: commands.to_owned(),
+                build_and_compiler_type: std::ffi::OsString::from("MSBuild Precompile"),
+                env_input: None
+            };
+
+            let precompiled_suorce = super::compiler::PrecompiledSource {
+                preprocessed_source_contents: None,
+                preprocessed_source_path: std::ffi::OsString::new()
+            };
+
+            let output = request_dist_compile_and_sync_result(network, &msvc_compile_input, &precompiled_suorce);
+            log::debug!("request dist compile with precompiled source elapsed time {:?}", now.elapsed());
+            return output;
+        }
+
         let mut content = String::from_utf8_lossy(&stdout);
         let count = files.lines().count();
         if count.eq(&source_files.len()) {
@@ -530,13 +554,59 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
     }
 }
 
-fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
-    compiler_commands: &Vec<std::ffi::OsString>) -> (bool, std::rc::Rc<Vec<u8>>, std::rc::Rc<Vec<u8>>) {
+fn load_precompiled_result_file_from_disk(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, files: &Vec<String>, project: String) {
 
+    let network = std::sync::Arc::from(network.to_owned());
+    for file in files.to_owned() {
+        let network = network.clone();
+        let compiler_path = compiler_path.to_owned();
+        let project = project.clone();
+
+        let handle = std::thread::spawn(move || {
+            let path = std::path::PathBuf::from(file);
+            let path = push_project_name_to_precompiled_file_path(&path, project);
+            match std::fs::File::open(&path) {
+                Ok(file) => {
+                    let mut content = Vec::new();
+                    zstd::stream::copy_encode(file, &mut content, 6).unwrap();
+
+                    let precompiled_suorce = super::compiler::PrecompiledSource {
+                        preprocessed_source_contents: Some(content),
+                        preprocessed_source_path: std::ffi::OsString::from(&path)
+                    };
+
+                    let msvc_compile_empty_input = super::compiler::CompileInput {
+                        compiler_path_or_arch: compiler_path.to_owned(),
+                        compiler_working_dir: std::ffi::OsString::from(""),
+                        compiler_commands: Vec::<std::ffi::OsString>::new(),
+                        build_and_compiler_type: std::ffi::OsString::from("Sync Precompiled Source File"),
+                        env_input: None
+                    };
+
+                    request_dist_compile_and_sync_result(&network, 
+                            &msvc_compile_empty_input, &precompiled_suorce);
+
+                },
+                Err(error) => {
+                    log::warn!("sync precompiled source file failed. {:?}, error: {:?}.", path, error);
+                },
+            };
+        });
+    }
+}
+
+fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
+    compiler_commands: &Vec<std::ffi::OsString>, by_stdout: bool) -> (bool, std::rc::Rc<Vec<u8>>, std::rc::Rc<Vec<u8>>) {
+    
     let mut commands = compiler_commands.to_owned();
-    commands.insert(0, std::ffi::OsString::from(r"/E"));
-    //remove '/MP'. /E incompatible with multiprocessing
-    commands.retain(|item| !item.to_string_lossy().starts_with("/MP"));
+    if by_stdout {
+        commands.insert(0, std::ffi::OsString::from(r"/E"));
+        //remove '/MP'. /E incompatible with multiprocessing
+        commands.retain(|item| !item.to_string_lossy().starts_with("/MP"));
+    }
+    else {
+        commands.insert(0, std::ffi::OsString::from(r"/P"));
+    }
 
     let (status, stdout, stderr) = start_local_compiler(compiler_path, compiler_working_dir, &commands);
     return (status, stdout, stderr);
