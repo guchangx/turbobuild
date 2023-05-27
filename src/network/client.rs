@@ -1,3 +1,5 @@
+use std::io::Write;
+
 extern crate reqwest;
 
 #[derive(Clone)]
@@ -262,16 +264,9 @@ impl NetworkClient {
                                                     let current_content = current_content.to_owned();
                                                     
                                                     std::thread::spawn( move || {
-                                                        let cursor = std::io::Cursor::new(&current_content);
                                                         let file = std::fs::File::create(path.clone()).unwrap();
-                                                        match zstd::stream::copy_decode(cursor, file) {
-                                                            Ok(_) => {
-                                                                log::trace!("sync back results, {:?}.", path);
-                                                            },
-                                                            Err(error) => {
-                                                                log::warn!("sync results, write {:?} failed {:?} .", path, error);
-                                                            },
-                                                        }
+                                                        let mut file = std::io::BufWriter::with_capacity(16, file);
+                                                        let _ = file.write_all(&current_content);
                                                     });
 
                                                     contents = other_content.to_vec();

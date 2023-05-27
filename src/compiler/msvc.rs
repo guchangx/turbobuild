@@ -1,6 +1,6 @@
 extern crate regex;
 pub struct MSVC;
-use std::{ops::{Index, Add}, io::Write};
+use std::{ops::{Index, Add}, io::{Write, Read}};
 
 #[async_trait]
 impl crate::compiler::compiler::Compiler for MSVC {
@@ -270,7 +270,7 @@ fn request_dist_compile(network: &crate::network::client::NetworkClient, compile
         let mut content = String::from_utf8_lossy(&stdout);
         let count = files.lines().count();
         if count.eq(&source_files.len()) {
-            log::trace!("preprocessed multiple sources, count: {:?}. elapsed time: {:?}.", count, now.elapsed());
+            log::trace!("local preprocessed multiple sources, count: {:?}. elapsed time: {:?}.", count, now.elapsed());
         }
         else {
             log::warn!("preprocessed multiple sources are not same with commands");
@@ -423,9 +423,24 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
             }
         };
 
+        let count = files.lines().count();
+        if count.eq(&source_files.len()) {
+            log::trace!("local preprocessed multiple sources, count: {:?}. elapsed time: {:?}.", count, now.elapsed());
+        }
+        else {
+            log::warn!("preprocessed multiple sources are not same with commands. elapsed time: {:?}.", now.elapsed());
+        }
+
         if stdout.is_empty() {
-            load_precompiled_result_file_from_disk(network, compiler_path, &source_files, project.clone());
             let now = std::time::Instant::now();
+            let precompiled_files = load_precompiled_result_file_from_disk(network, compiler_path, &source_files, &compiler_working_dir);
+            log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
+            
+            let now = std::time::Instant::now();
+            
+            for file in precompiled_files {
+                commands.push(file);
+            }
 
             let msvc_compile_input = super::compiler::CompileInput {
                 compiler_path_or_arch: compiler_path.to_owned(),
@@ -441,21 +456,11 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
             };
 
             let output = request_dist_compile_and_sync_result(network, &msvc_compile_input, &precompiled_suorce);
-            log::debug!("request dist compile with precompiled source elapsed time {:?}", now.elapsed());
+            log::debug!("request dist compile without precompiled source files elapsed time {:?}", now.elapsed());
             return output;
         }
 
         let mut content = String::from_utf8_lossy(&stdout);
-        let count = files.lines().count();
-        if count.eq(&source_files.len()) {
-            log::trace!("preprocessed multiple sources, count: {:?}. elapsed time: {:?}.", count, now.elapsed());
-        }
-        else {
-            log::warn!("preprocessed multiple sources are not same with commands. elapsed time: {:?}.", now.elapsed());
-        }
-
-        log::trace!("preprocessed source file {:?}", files);
-       
         let mut index = 0;
         let mut handles = Vec::<std::thread::JoinHandle<()>>::new();
 
@@ -481,16 +486,8 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                             env_input: None
                         };
 
-                        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(vec![]));
-                        let options = zip::write::FileOptions::default()
-                                                .compression_method(zip::CompressionMethod::Zstd);
-                        let name = extension_i_path.file_name().unwrap();
-                        zip.start_file(name.to_string_lossy(), options).unwrap();
-                        zip.write_all(first.as_bytes()).unwrap();
-                        let result = zip.finish().unwrap();
-
                         let precompiled_suorce = super::compiler::PrecompiledSource {
-                            preprocessed_source_contents: Some(result.get_ref().to_vec()),
+                            preprocessed_source_contents: Some(first.as_bytes().to_vec()),
                             preprocessed_source_path: std::ffi::OsString::from(&extension_i_path)
                         };
 
@@ -516,17 +513,8 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                     env_input: None
                 };
 
-                let mut cursor = std::io::Cursor::new(Vec::new());
-                let mut zip = zip::ZipWriter::new(&mut cursor);
-                let options = zip::write::FileOptions::default()
-                                        .compression_method(zip::CompressionMethod::Zstd);
-                let name = extension_i_path.file_name().unwrap();
-                zip.start_file(name.to_string_lossy(), options).unwrap();
-                zip.write_all(content.as_bytes()).unwrap();
-                let zip_content = zip.finish().unwrap();
-
                 let precompiled_suorce = super::compiler::PrecompiledSource {
-                    preprocessed_source_contents: Some(zip_content.get_ref().to_vec()),
+                    preprocessed_source_contents: Some(content.as_bytes().to_vec()),
                     preprocessed_source_path: std::ffi::OsString::from(&extension_i_path)
                 };
 
@@ -554,22 +542,33 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
     }
 }
 
-fn load_precompiled_result_file_from_disk(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, files: &Vec<String>, project: String) {
+fn load_precompiled_result_file_from_disk(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, 
+                source_files: &Vec<String>, working_dir: &std::ffi::OsString) -> Vec<std::ffi::OsString> {
 
+    let mut precompiled_files = Vec::new();
     let network = std::sync::Arc::from(network.to_owned());
-    for file in files.to_owned() {
+    let mut handles = Vec::<std::thread::JoinHandle<()>>::new();
+    for file in source_files.to_owned() {
         let network = network.clone();
         let compiler_path = compiler_path.to_owned();
-        let project = project.clone();
 
+        let mut path = std::path::PathBuf::from(working_dir);
+        let file = std::path::PathBuf::from(file);
+        let file_name = file.file_stem().unwrap();
+        path = path.join(file_name);
+        path.set_extension("i");
+
+        precompiled_files.push(path.clone().into_os_string());
+        
         let handle = std::thread::spawn(move || {
-            let path = std::path::PathBuf::from(file);
-            let path = push_project_name_to_precompiled_file_path(&path, project);
+            let now = std::time::Instant::now();
+
             match std::fs::File::open(&path) {
                 Ok(file) => {
                     let mut content = Vec::new();
-                    zstd::stream::copy_encode(file, &mut content, 6).unwrap();
-
+                    let mut file = std::io::BufReader::new(file);
+                    file.read_to_end(&mut content).unwrap();
+  
                     let precompiled_suorce = super::compiler::PrecompiledSource {
                         preprocessed_source_contents: Some(content),
                         preprocessed_source_path: std::ffi::OsString::from(&path)
@@ -583,16 +582,31 @@ fn load_precompiled_result_file_from_disk(network: &crate::network::client::Netw
                         env_input: None
                     };
 
-                    request_dist_compile_and_sync_result(&network, 
+                    let result = request_dist_compile_and_sync_result(&network, 
                             &msvc_compile_empty_input, &precompiled_suorce);
-
+                        
+                    if result.compile_status {
+                        log::trace!("sync precompiled source file from disk response sucess.")
+                    }
+                    else {
+                        log::trace!("sync precompiled source file from disk response failed. output: {:?}.", result.compile_output)
+                    }
+                    log::trace!("sync precompile source file path: {:?}, elapsed time: {:?}.", path, now.elapsed());
                 },
                 Err(error) => {
-                    log::warn!("sync precompiled source file failed. {:?}, error: {:?}.", path, error);
+                    log::warn!("sync precompiled source file from disk failed. {:?}, error: {:?}.", path, error);
                 },
             };
         });
+        handles.push(handle);
     }
+
+    for handle in handles {
+        handle.join().expect("join sync precompiled results thread failed.");
+    }
+
+    return precompiled_files;
+
 }
 
 fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
@@ -701,9 +715,10 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                     
                     match std::fs::File::open(&result_path) {
                         Ok(file) => {
-                            let mut encode = Vec::new();
-                            zstd::stream::copy_encode(file, &mut encode, 6).unwrap();
-                            obj = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), encode));
+                            let mut contents = Vec::new();
+                            let mut file = std::io::BufReader::new(file);
+                            let _ = file.read_to_end(&mut contents).unwrap();
+                            obj = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
                         },
                         Err(error) => {
                             if error.kind() == std::io::ErrorKind::NotFound {
@@ -736,9 +751,10 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                         
                         match std::fs::File::open(&result_path) {
                             Ok(file) => {
-                                let mut encode = Vec::new();
-                                zstd::stream::copy_encode(file, &mut encode, 6).unwrap();
-                                pdb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), encode));
+                                let mut contents = Vec::new();
+                                let mut file = std::io::BufReader::new(file);
+                                let _ = file.read_to_end(&mut contents).unwrap();
+                                pdb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
                             },
                             Err(error) => {
                                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -753,9 +769,10 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                         result_path.set_extension("idb");
                         match std::fs::File::open(&result_path) {
                             Ok(file) => {
-                                let mut encode = Vec::new();
-                                zstd::stream::copy_encode(file, &mut encode, 6).unwrap();
-                                idb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), encode));
+                                let mut contents = Vec::new();
+                                let mut file = std::io::BufReader::new(file);
+                                let _ = file.read_to_end(&mut contents).unwrap();
+                                idb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
                             },
                             Err(error) => {
                                 if error.kind() == std::io::ErrorKind::NotFound {

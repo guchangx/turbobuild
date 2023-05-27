@@ -50,6 +50,8 @@ async fn remote_request_compile(mut multipart: axum::extract::multipart::Multipa
                                 grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) 
                             -> axum::response::Response<axum::body::Full<axum::body::Bytes>> {
 
+    let now = std::time::Instant::now();
+
     let (output, results) = crate::compiler::compiler::remote_request_compile(&mut multipart, working_parameters, &thread_pool, grade).await;
     
     let mut files: Vec<Vec<(std::ffi::OsString, usize)>> = Vec::new();
@@ -80,15 +82,18 @@ async fn remote_request_compile(mut multipart: axum::extract::multipart::Multipa
         .body(axum::body::Full::from(bytes))  
         .unwrap();
 
-    log::debug!("remote request compile response");
+    log::debug!("remote request compile complete, elapsed time: {:?}", now.elapsed());
 
     return response
     
 }
 
 async fn pre_sync_file(axum::extract::Json(pre_sync_file): axum::extract::Json<crate::compiler::compiler::SyncData>) -> axum::extract::Json<serde_json::Value> {
+    let now = std::time::Instant::now();
     let  exists_info = crate::syncfile::receiver::pre_sync_file(&pre_sync_file).await;
-    return axum::extract::Json(serde_json::json!(exists_info));
+    let response = axum::extract::Json(serde_json::json!(exists_info));
+    log::trace!("pre sync file elapsed: {:?}", now.elapsed());
+    return response;
 }
 
 async fn sync_file(mut multipart: axum::extract::multipart::Multipart) -> axum::extract::Json<serde_json::Value> {
