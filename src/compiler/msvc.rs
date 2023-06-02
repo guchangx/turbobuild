@@ -433,7 +433,10 @@ async fn request_dist_multi_sync_once_compile(network: &crate::network::client::
 
         if stdout.is_empty() {
             let now = std::time::Instant::now();
-            let precompiled_files = load_precompiled_result_file_from_disk(network, compiler_path, &source_files, &compiler_working_dir, pool).await;
+            let mut precompiled_files = Vec::<std::ffi::OsString>::new();
+
+            precompiled_files = load_precompiled_result_file_from_disk(network, compiler_path, &source_files, &compiler_working_dir, pool).await;
+
             log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
             
             let now = std::time::Instant::now();
@@ -563,7 +566,6 @@ async fn load_precompiled_result_file_from_disk(network: &crate::network::client
         let handle = pool.spawn_blocking(move || {
             let thread = std::thread::current();
             log::trace!("sync file start. thread id: {:?}.", thread.id());
-            let now = std::time::Instant::now();
 
             match std::fs::File::open(&path) {
                 Ok(file) => {
@@ -593,8 +595,6 @@ async fn load_precompiled_result_file_from_disk(network: &crate::network::client
                     else {
                         log::trace!("sync precompiled source file from disk response failed. output: {:?}.", result.compile_output)
                     }
-                    
-                    log::trace!("sync precompile source file path: {:?}, elapsed time: {:?}, thrad id: {:?}.", path, now.elapsed(), thread.id());
                 },
                 Err(error) => {
                     log::warn!("sync precompiled source file from disk failed. {:?}, error: {:?}.", path, error);
@@ -806,7 +806,6 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                 log::trace!("exclude source file,maybe warning and error. {:?}", line);
             }
         }
-
     };
     
     let result = super::compiler::CompileOutput {
