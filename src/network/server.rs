@@ -51,11 +51,14 @@ async fn remote_request_compile(multipart: axum::extract::multipart::Multipart, 
                             -> axum::response::Response<axum::body::Full<axum::body::Bytes>> {
 
     let now = std::time::Instant::now();
-
-    let (output, results) = crate::compiler::compiler::remote_request_compile(multipart, working_parameters, &thread_pool, grade).await;
+    let pool = thread_pool.to_owned();
+    let handle = pool.clone().spawn(async move {
+        let (output, results) = crate::compiler::compiler::remote_request_compile(multipart, working_parameters, &pool, grade).await;
+        return (output, results);
+    });
     
     let mut files: Vec<Vec<(std::ffi::OsString, usize)>> = Vec::new();
-
+    let (output, results) = handle.await.unwrap();
     let mut contents = Vec::<u8>::new();
     if let Some(results) = &results {
         for result in results {
