@@ -45,14 +45,14 @@ async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract:
     return axum::extract::Json(serde_json::json!(output));
 }
 
-async fn remote_request_compile(mut multipart: axum::extract::multipart::Multipart, working_parameters: crate::buildturbo::WorkingParameters, 
+async fn remote_request_compile(multipart: axum::extract::multipart::Multipart, working_parameters: crate::buildturbo::WorkingParameters, 
                                 thread_pool: tokio::runtime::Handle,
                                 grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) 
                             -> axum::response::Response<axum::body::Full<axum::body::Bytes>> {
 
     let now = std::time::Instant::now();
 
-    let (output, results) = crate::compiler::compiler::remote_request_compile(&mut multipart, working_parameters, &thread_pool, grade).await;
+    let (output, results) = crate::compiler::compiler::remote_request_compile(multipart, working_parameters, &thread_pool, grade).await;
     
     let mut files: Vec<Vec<(std::ffi::OsString, usize)>> = Vec::new();
 

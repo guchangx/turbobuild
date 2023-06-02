@@ -1,6 +1,6 @@
 extern crate regex;
 pub struct MSVC;
-use std::{ops::{Index, Add}, io::{Write, Read}};
+use std::{ops::{Index, Add}, io::Read};
 
 #[async_trait]
 impl crate::compiler::compiler::Compiler for MSVC {
@@ -153,7 +153,7 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
             if true {
                 // dist with preprocessed source
                 let now = std::time::Instant::now();
-                let output = request_dist_multi_sync_once_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
+                let output = request_dist_multi_sync_once_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone(), pool).await;
                 println!("request_dist_multi_sync_once_compile elaspsed time:{:?}", now.elapsed());
                 //let output = request_dist_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
                 default_output.set(output);
@@ -387,8 +387,8 @@ fn request_dist_compile(network: &crate::network::client::NetworkClient, compile
     return result.clone();
 }
 
-fn request_dist_multi_sync_once_compile(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
-    compiler_commands: &Vec<std::ffi::OsString>) -> super::compiler::CompileOutput {
+async fn request_dist_multi_sync_once_compile(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
+    compiler_commands: &Vec<std::ffi::OsString>, pool: &tokio::runtime::Handle) -> super::compiler::CompileOutput {
 
     let mut result = super::compiler::CompileOutput::default();
     let now = std::time::Instant::now();
@@ -433,7 +433,7 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
 
         if stdout.is_empty() {
             let now = std::time::Instant::now();
-            let precompiled_files = load_precompiled_result_file_from_disk(network, compiler_path, &source_files, &compiler_working_dir);
+            let precompiled_files = load_precompiled_result_file_from_disk(network, compiler_path, &source_files, &compiler_working_dir, pool).await;
             log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
             
             let now = std::time::Instant::now();
@@ -462,7 +462,7 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
 
         let mut content = String::from_utf8_lossy(&stdout);
         let mut index = 0;
-        let mut handles = Vec::<std::thread::JoinHandle<()>>::new();
+        let mut handles = Vec::new();
 
         for file in &source_files {
             
@@ -494,7 +494,7 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                         log::debug!("sync precompiled source file {:?}. size: {:.2?}M.", extension_i_path.file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
                         content = last.to_string().into();
                         let net = network.clone();
-                        let handle = std::thread::spawn(move || {
+                        let handle = pool.spawn_blocking(move || {
                             let _ = request_dist_compile_and_sync_result(&net, 
                                 &msvc_compile_empty_input, &precompiled_suorce);
                         });
@@ -519,7 +519,7 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
                 };
 
                 for handle in handles {
-                    handle.join().expect("join sync precompiled results thread failed.");
+                    handle.await.expect("join sync precompiled results thread failed.");
                 }
 
                 let now = std::time::Instant::now();
@@ -542,12 +542,12 @@ fn request_dist_multi_sync_once_compile(network: &crate::network::client::Networ
     }
 }
 
-fn load_precompiled_result_file_from_disk(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, 
-                source_files: &Vec<String>, working_dir: &std::ffi::OsString) -> Vec<std::ffi::OsString> {
+async fn load_precompiled_result_file_from_disk(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, 
+                source_files: &Vec<String>, working_dir: &std::ffi::OsString, pool: &tokio::runtime::Handle) -> Vec<std::ffi::OsString> {
 
     let mut precompiled_files = Vec::new();
     let network = std::sync::Arc::from(network.to_owned());
-    let mut handles = Vec::<std::thread::JoinHandle<()>>::new();
+    let mut handles = Vec::new();
     for file in source_files.to_owned() {
         let network = network.clone();
         let compiler_path = compiler_path.to_owned();
@@ -560,7 +560,9 @@ fn load_precompiled_result_file_from_disk(network: &crate::network::client::Netw
 
         precompiled_files.push(path.clone().into_os_string());
         
-        let handle = std::thread::spawn(move || {
+        let handle = pool.spawn_blocking(move || {
+            let thread = std::thread::current();
+            log::trace!("sync file start. thread id: {:?}.", thread.id());
             let now = std::time::Instant::now();
 
             match std::fs::File::open(&path) {
@@ -591,18 +593,22 @@ fn load_precompiled_result_file_from_disk(network: &crate::network::client::Netw
                     else {
                         log::trace!("sync precompiled source file from disk response failed. output: {:?}.", result.compile_output)
                     }
-                    log::trace!("sync precompile source file path: {:?}, elapsed time: {:?}.", path, now.elapsed());
+                    
+                    log::trace!("sync precompile source file path: {:?}, elapsed time: {:?}, thrad id: {:?}.", path, now.elapsed(), thread.id());
                 },
                 Err(error) => {
                     log::warn!("sync precompiled source file from disk failed. {:?}, error: {:?}.", path, error);
                 },
             };
         });
+
         handles.push(handle);
     }
 
     for handle in handles {
-        handle.join().expect("join sync precompiled results thread failed.");
+        if !handle.is_finished() {
+            handle.await.unwrap()
+        }
     }
 
     return precompiled_files;
@@ -610,7 +616,7 @@ fn load_precompiled_result_file_from_disk(network: &crate::network::client::Netw
 }
 
 fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
-    compiler_commands: &Vec<std::ffi::OsString>, by_stdout: bool) -> (bool, std::rc::Rc<Vec<u8>>, std::rc::Rc<Vec<u8>>) {
+    compiler_commands: &Vec<std::ffi::OsString>, by_stdout: bool) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     
     let mut commands = compiler_commands.to_owned();
     if by_stdout {
@@ -991,7 +997,7 @@ fn request_dist_compile_with_precompiled_source(network: &crate::network::client
 
 }
 
-fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (bool, std::rc::Rc<Vec<u8>>, std::rc::Rc<Vec<u8>>) {
+fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     use std::process::Stdio;
 
     log::trace!("local compile working dir: {:?}", working_dir);
@@ -1019,7 +1025,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                             output_context = String::from_utf8_lossy(&output.stdout);
                         }
                         log::trace!("local compile {:?} success, compiled elapsed time: {:?}, child thread Id: {:?}", output_context, elapsed, child_id);
-                        return (true, std::rc::Rc::new(output.stdout), std::rc::Rc::new(output.stderr));
+                        return (true, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
                     }
                     else {
                         let mut output_context = String::from_utf8_lossy(&output.stdout);
@@ -1028,14 +1034,14 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                         }
                         let elapsed = start.elapsed();
                         log::info!("compile file elapsed time: {:?}. error message: {:?}, error code: {:?}.", elapsed, output_context, output.status.code());
-                        return (false, std::rc::Rc::new(output.stdout), std::rc::Rc::new(output.stderr));
+                        return (false, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
                     }
                 },
                 Err(error) => {
                     log::warn!("compile child wait output error: {:?}", error);
                     let mut error_description = String::from("compile child wait output error: ");
                     error_description.push_str(error.to_string().as_str());
-                    return (false, std::rc::Rc::new(error_description.into_bytes()), std::rc::Rc::new(vec![]));
+                    return (false, std::sync::Arc::new(error_description.into_bytes()), std::sync::Arc::new(vec![]));
                 },
             }
         },
@@ -1043,7 +1049,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
             println!("spawn compile child process error: {:?}", error);
             let mut error_description = String::from("spawn compile child process error: ");
             error_description.push_str(error.to_string().as_str());
-            return (false,  std::rc::Rc::new(error_description.into_bytes()), std::rc::Rc::new(vec![]));
+            return (false, std::sync::Arc::new(error_description.into_bytes()), std::sync::Arc::new(vec![]));
         }
     }
 }

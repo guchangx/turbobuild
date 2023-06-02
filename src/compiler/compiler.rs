@@ -136,84 +136,81 @@ pub async fn dist_request_compile(working_parameters: crate::buildturbo::Working
     }
 }
 
-pub async fn remote_request_compile(multipart: &mut axum::extract::multipart::Multipart, 
+pub async fn remote_request_compile(mut multipart: axum::extract::multipart::Multipart, 
         working_parameters: crate::buildturbo::WorkingParameters, pool: &tokio::runtime::Handle, 
         grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<ProcessedResults>)
 {
-    let mut handle = pool.spawn_blocking(||{});
-    while let Ok(Some(field)) = multipart.next_field().await {
-        if let Some(name) = field.name() {
-            if name.cmp("precompiled_source") == std::cmp::Ordering::Equal {
-                
-                let file_path = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_owned();
-                if !file_path.is_empty() {
-                    let now = std::time::Instant::now();
-                    let path = std::path::PathBuf::from(&file_path);
-                    let dir = path.parent().unwrap();
-                    if !dir.exists() {
-                        match std::fs::create_dir_all(dir) {
-                            Ok(_) => {},
-                            Err(error) => {
-                                log::warn!("dist worker create .i file dir {:?} failed. {:?}.", dir, error);
-                            },
-                        }
-                    }
-                    
-                    if let Ok(contents) = field.bytes().await {
-                        handle = pool.spawn_blocking(move || {
-                            let mut file = std::fs::File::create(&path).unwrap();
-                            let _ = file.write_all(&contents.to_vec());
-                            log::trace!(" source file name {:?}", path.file_name().unwrap());
-                        });
-                    }
-                    log::trace!("remote request copmile sync file name: {:?}, elapsed time: {:?}.", file_path, now.elapsed());
-                }
-            }
-            else if name.cmp("compile_input") == std::cmp::Ordering::Equal {
-                if let Ok(contents) = field.bytes().await {
-                    if contents.is_empty() {
-                        return (CompileOutput::default(), None);
-                    }
-                    else {
-                        let contents = contents.to_vec();
-                        let contents = std::str::from_utf8(&contents).unwrap();
-                        let input:CompileInput = serde_json::from_str(&contents).expect("deserialize compileiput failed.");
-                        if !handle.is_finished() {
-                            handle.await.unwrap();
-                        }
+    let pool = pool.to_owned();
+ 
+    let handle: tokio::task::JoinHandle<(CompileOutput, std::option::Option<ProcessedResults>)> = pool.clone().spawn(async move {
+        let mut write_file_handle: tokio::task::JoinHandle<()> = pool.spawn_blocking(||{});
 
-                        if input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
-                            || input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
-                            let msvc = super::msvc::MSVC {};
-                            let (output, results) = msvc.remote_request_compile(working_parameters, input, pool, grade.clone()).await;
-                            return (output, results);
+        while let Ok(Some(field)) = multipart.next_field().await {
+            if let Some(name) = field.name() {
+                if name.cmp("precompiled_source") == std::cmp::Ordering::Equal {
+                    let now = std::time::Instant::now();
+                    let file_path = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_owned();
+                    if !file_path.is_empty() {
+                        let path = std::path::PathBuf::from(&file_path);
+                        let dir = path.parent().unwrap();
+                        if !dir.exists() {
+                            match std::fs::create_dir_all(dir) {
+                                Ok(_) => {},
+                                Err(error) => {
+                                    log::warn!("dist worker create .i file dir {:?} failed. {:?}.", dir, error);
+                                },
+                            }
                         }
-                        else if input.build_and_compiler_type == "Clang" {
-                            return (CompileOutput::default(), None);
+                        if let Ok(contents) = field.bytes().await {
+                            write_file_handle = pool.spawn_blocking(move || {
+                                let file = std::fs::File::create(&path).unwrap();
+                                let mut file = std::io::BufWriter::with_capacity(16, file);
+                                let _ = file.write_all(&contents.to_vec());
+                            });
                         }
-                        else if input.build_and_compiler_type == "GCC" {
+                    }
+                    let thread = std::thread::current();
+                    log::trace!("remote request copmile sync file name: {:?}, elapsed time: {:?}, thread id: {:?}.", file_path, now.elapsed(), thread.id());
+                }
+                else if name.cmp("compile_input") == std::cmp::Ordering::Equal {
+                    if let Ok(contents) = field.bytes().await {
+                        if contents.is_empty() {
                             return (CompileOutput::default(), None);
                         }
                         else {
-                            return (CompileOutput::default(), None);
+                            let contents = contents.to_vec();
+                            let contents = std::str::from_utf8(&contents).unwrap();
+                            let input:CompileInput = serde_json::from_str(&contents).expect("deserialize compileiput failed.");
+  
+                            if input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
+                                || input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
+                                let msvc = super::msvc::MSVC {};
+
+                                if !write_file_handle.is_finished() {
+                                    write_file_handle.await.unwrap();
+                                }
+
+                                let (output, results) = msvc.remote_request_compile(working_parameters, input, &pool, grade.clone()).await;
+                                return (output, results);
+                            }
+                            else if input.build_and_compiler_type == "Clang" {
+                                return (CompileOutput::default(), None);
+                            }
+                            else if input.build_and_compiler_type == "GCC" {
+                                return (CompileOutput::default(), None);
+                            }
+                            else {
+                                return (CompileOutput::default(), None);
+                            }
                         }
                     }
                 }
             }
-            else if name.cmp("sync") == std::cmp::Ordering::Equal {
-
-                let result = CompileOutput {
-                    compiled_filename: Vec::<std::ffi::OsString>::new(),
-                    compile_status: true,
-                    compile_output: std::ffi::OsString::from("sync prcompiled source file response."),
-                };
-                return (result, None);
-                
-            }
-            else {
-                log::warn!("multipart field name: {:?} do not match.", name);
-            }
         }
-    }
-    return (CompileOutput::default(), None);
+        return (CompileOutput::default(), None);
+    });
+
+    let result = handle.await.unwrap();
+
+    return result;
 }
