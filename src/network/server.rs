@@ -108,14 +108,20 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
     let pool = thread_pool.clone();
     let dist_pool = thread_pool.clone();
     let remote_compile_pool = thread_pool.clone();
+    let remote_compile_pool_1 = thread_pool.clone();
+    let remote_compile_pool_2 = thread_pool.clone();
     let dist_working_params = working_params.clone();
     let remote_compile_working_params = working_params.clone();
+    let remote_compile_working_params_1 = working_params.clone();
+    let remote_compile_working_params_2 = working_params.clone();
     
     let grade = crate::utils::grade::LocalGrade::init_grade();
     let grade = std::sync::Arc::new(std::sync::Mutex::new(grade));
     crate::utils::grade::calculate_machine_residual_performance(grade.clone());
     let grade_clone = grade.clone();
     let remote_compile_grade_clone = grade.clone();
+    let remote_compile_grade_clone_1 = grade.clone();
+    let remote_compile_grade_clone_2 = grade.clone();
 
     let router = axum::Router::new()
     .route("/", axum::routing::get(|| async {"Hi!"}))
@@ -131,6 +137,12 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
         ))
     .route("/dist/requestcompile/precompiled", axum::routing::post(move |args| {
             remote_request_compile(args, remote_compile_working_params, remote_compile_pool, remote_compile_grade_clone.clone())
+        }))
+    .route("/dist/requestcompile/precompiled_1", axum::routing::post(move |args| {
+            remote_request_compile(args, remote_compile_working_params_1, remote_compile_pool_1, remote_compile_grade_clone_1.clone())
+        }))
+    .route("/dist/requestcompile/precompiled_2", axum::routing::post(move |args| {
+            remote_request_compile(args, remote_compile_working_params_2, remote_compile_pool_2, remote_compile_grade_clone_2.clone())
         }))
     .route("/dist/presyncfile", axum::routing::post(pre_sync_file))
     .route("/dist/syncfile", axum::routing::post(sync_file))

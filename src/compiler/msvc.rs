@@ -433,9 +433,8 @@ async fn request_dist_multi_sync_once_compile(network: &crate::network::client::
 
         if stdout.is_empty() {
             let now = std::time::Instant::now();
-            let mut precompiled_files = Vec::<std::ffi::OsString>::new();
 
-            precompiled_files = load_precompiled_result_file_from_disk(network, compiler_path, &source_files, &compiler_working_dir, pool).await;
+            let mut precompiled_files = load_precompiled_result_file_from_disk(network, compiler_path, &source_files, &compiler_working_dir, pool).await;
 
             log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
             

@@ -238,11 +238,23 @@ impl NetworkClient {
     }
 
     pub fn dist_request_compile_with_precompiled_source(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput, precompiled_source: &crate::compiler::compiler::PrecompiledSource) -> crate::compiler::compiler::CompileOutput {
+        let time = std::time::Instant::now();
         let myself = self.to_owned();
         let input = msvc_compile_input.to_owned();
         let precompiled = precompiled_source.to_owned();
         let response = std::thread::spawn(move || {
-            match myself.dist_mutlipart_post("dist/requestcompile/precompiled", &input, &precompiled) {
+            let mut route = "dist/requestcompile/precompiled".to_string();
+            
+            let time = time.elapsed();
+            let millis = time.as_millis();
+            if millis % 2 == 0 {
+                route += "_1";
+            }
+            else {
+                route += "_2";
+            }
+            
+            match myself.dist_mutlipart_post(&route, &input, &precompiled) {
                 Ok(response) => {
                     if response.status() == axum::http::StatusCode::OK {
                         let headers = response.headers();
