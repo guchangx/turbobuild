@@ -41,8 +41,25 @@ async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract:
         grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) -> axum::extract::Json<serde_json::Value>
 {
     log::trace!("dist request compile");
-    let output = crate::compiler::compiler::dist_request_compile(working_parameters, compile_input, &thread_pool, grade).await;
+    let output: (crate::compiler::compiler::CompileOutput, Option<Vec<crate::compiler::compiler::ProcessedResult>>) = crate::compiler::compiler::dist_request_compile(working_parameters, compile_input, &thread_pool, grade).await;
     return axum::extract::Json(serde_json::json!(output));
+}
+
+async fn remote_request_compile_multi_thread(multipart: axum::extract::multipart::Multipart, working_parameters: crate::buildturbo::WorkingParameters, 
+                                thread_pool: tokio::runtime::Handle,
+                                grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) 
+                                -> axum::response::Response<axum::body::Full<axum::body::Bytes>> {
+        let handle = tokio::task::spawn_blocking(move || {
+            let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+            let output = rt.block_on(async {
+                let output = remote_request_compile(multipart, working_parameters, thread_pool, grade.clone());
+                return output;
+            });
+            return output;
+        });
+
+    let response: axum::http::Response<axum::body::Full<axum::body::Bytes>> = handle.await.unwrap().await;
+    return response;
 }
 
 async fn remote_request_compile(multipart: axum::extract::multipart::Multipart, working_parameters: crate::buildturbo::WorkingParameters, 
@@ -52,13 +69,10 @@ async fn remote_request_compile(multipart: axum::extract::multipart::Multipart, 
 
     let now = std::time::Instant::now();
     let pool = thread_pool.to_owned();
-    let handle = pool.clone().spawn(async move {
-        let (output, results) = crate::compiler::compiler::remote_request_compile(multipart, working_parameters, &pool, grade).await;
-        return (output, results);
-    });
+
+    let (output, results) = crate::compiler::compiler::remote_request_compile(multipart, working_parameters, &pool, grade).await;
     
     let mut files: Vec<Vec<(std::ffi::OsString, usize)>> = Vec::new();
-    let (output, results) = handle.await.unwrap();
     let mut contents = Vec::<u8>::new();
     if let Some(results) = &results {
         for result in results {
@@ -142,7 +156,8 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
             remote_request_compile(args, remote_compile_working_params_1, remote_compile_pool_1, remote_compile_grade_clone_1.clone())
         }))
     .route("/dist/requestcompile/precompiled_2", axum::routing::post(move |args| {
-            remote_request_compile(args, remote_compile_working_params_2, remote_compile_pool_2, remote_compile_grade_clone_2.clone())
+            let res = remote_request_compile_multi_thread(args, remote_compile_working_params_2, remote_compile_pool_2, remote_compile_grade_clone_2.clone());
+            return res;
         }))
     .route("/dist/presyncfile", axum::routing::post(pre_sync_file))
     .route("/dist/syncfile", axum::routing::post(sync_file))
