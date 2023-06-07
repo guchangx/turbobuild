@@ -226,7 +226,7 @@ async fn request_msvc_compile(working_parameters: crate::buildturbo::WorkingPara
     }
 }
 
-fn request_dist_compile(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
+fn _request_dist_compile(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
     compiler_commands: &Vec<std::ffi::OsString>) -> super::compiler::CompileOutput {
 
     let result = std::sync::Arc::new(std::sync::Mutex::new(super::compiler::CompileOutput::default()));
@@ -433,13 +433,10 @@ async fn request_dist_multi_sync_once_compile(network: &crate::network::client::
 
         if stdout.is_empty() {
             let now = std::time::Instant::now();
-
-            let mut precompiled_files = load_precompiled_result_file_from_disk(network, compiler_path, &source_files, &compiler_working_dir, pool).await;
-
+            let  precompiled_files = load_precompiled_result_file_from_disk(network, compiler_path, &source_files, &compiler_working_dir, pool).await;
             log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
             
             let now = std::time::Instant::now();
-            
             for file in precompiled_files {
                 commands.push(file);
             }

@@ -247,10 +247,11 @@ impl NetworkClient {
             
             let time = time.elapsed();
             let millis = time.as_millis();
-            if millis % 2 == 0 {
+            let remainder= millis % 3;
+            if remainder == 1 {
                 route += "_1";
             }
-            else {
+            else if remainder == 2 {
                 route += "_2";
             }
             
