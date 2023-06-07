@@ -249,10 +249,10 @@ impl NetworkClient {
             let millis = time.as_millis();
             let remainder= millis % 3;
             if remainder == 1 {
-                route += "_1";
+                //route += "_1";
             }
             else if remainder == 2 {
-                route += "_2";
+                //route += "_2";
             }
             
             match myself.dist_mutlipart_post(&route, &input, &precompiled) {
