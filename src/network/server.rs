@@ -121,8 +121,9 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
             }
         ))
     .route("/dist/requestcompile/precompiled", axum::routing::post(move |args| {
-            remote_request_compile(args, remote_compile_working_params, remote_compile_pool, remote_compile_grade_clone.clone())
-        }))
+                remote_request_compile(args, remote_compile_working_params, remote_compile_pool, remote_compile_grade_clone.clone())
+            }
+        ))
     .route("/dist/presyncfile", axum::routing::post(pre_sync_file))
     .route("/dist/syncfile", axum::routing::post(sync_file))
     .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024 * 50));

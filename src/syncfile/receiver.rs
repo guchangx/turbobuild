@@ -162,8 +162,21 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
         {
 
         }
-        else if name.contains("source file") {
+        else if name.contains("precompiledsourcefile") {
+            let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
+            log::trace!("sync .zip file name: {:?}", file_name);
+            let data = field.bytes().await.unwrap();
+            if file_name.ends_with(".zip") {
+                let cursor = std::io::Cursor::new(data);
+                let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
+                let path = file_name.replace(".zip", "");
+                let path = std::path::PathBuf::from(path);
 
+                zip_archive.extract(path).unwrap();
+            }
+            else {
+
+            }
         }
         else if name.contains("include file") {
 

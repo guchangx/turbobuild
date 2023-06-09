@@ -1,6 +1,7 @@
 extern crate regex;
 pub struct MSVC;
 use std::{ops::{Index, Add}, io::Read};
+use std::io::Write;
 
 #[async_trait]
 impl crate::compiler::compiler::Compiler for MSVC {
@@ -433,7 +434,7 @@ async fn request_dist_multi_sync_once_compile(network: &crate::network::client::
 
         if stdout.is_empty() {
             let now = std::time::Instant::now();
-            let  precompiled_files = load_precompiled_result_file_from_disk(network, compiler_path, &source_files, &compiler_working_dir, pool).await;
+            let  precompiled_files = load_precompiled_result_file_from_disk_by_zip(network, compiler_path, &source_files, &compiler_working_dir, pool).await;
             log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
             
             let now = std::time::Instant::now();
@@ -539,6 +540,49 @@ async fn request_dist_multi_sync_once_compile(network: &crate::network::client::
     else {
         return result;
     }
+}
+
+async fn load_precompiled_result_file_from_disk_by_zip(network: &crate::network::client::NetworkClient, 
+        compiler_path: &std::ffi::OsString, 
+        source_files: &Vec<String>, working_dir: &std::ffi::OsString, pool: &tokio::runtime::Handle)
+        -> Vec<std::ffi::OsString> {
+        
+    let mut precompiled_files = Vec::new();
+    let network = std::sync::Arc::from(network.to_owned());
+
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(&mut cursor);
+    let options = zip::write::FileOptions::default()
+            .compression_method(zip::CompressionMethod::Zstd);
+    let start = std::time::Instant::now();
+
+    let mut buffer = Vec::new();
+    let mut zip_file = std::path::PathBuf::new();
+
+    for file in source_files.to_owned() {
+    
+        let mut path = std::path::PathBuf::from(working_dir);
+        zip_file = path.clone();
+        let file = std::path::PathBuf::from(file);
+
+        let file_name = file.file_stem().unwrap();
+        path = path.join(file_name);
+        path.set_extension("i");
+
+        zip.start_file(file_name.to_string_lossy(), options.to_owned()).unwrap();
+        let mut file = std::fs::File::open(&path).unwrap();
+        file.read_to_end(&mut buffer).unwrap();
+        zip.write_all(&buffer[..]).unwrap();
+        buffer.clear();
+
+        precompiled_files.push(path.clone().into_os_string());
+    }
+
+    let content = zip.finish().unwrap();
+    let content = std::borrow::Cow::from(content.get_ref());
+    zip_file.set_extension("zip");
+    network.dist_zip_sync("dist/syncfile", "precompiledsourcefile", zip_file.to_str().unwrap(), &content);
+    return precompiled_files;
 }
 
 async fn load_precompiled_result_file_from_disk(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, 
