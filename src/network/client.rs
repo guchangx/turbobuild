@@ -135,7 +135,7 @@ impl NetworkClient {
     }
 
     fn file_post_by_zip(&self, route: &str, name: &str, filename: &str, filecontent: &std::borrow::Cow<[u8]>) -> Result<reqwest::blocking::Response, reqwest::Error> {
-        log::debug!("post file by zip {:?} {:?}", name, filename);
+        log::debug!("post file by zip. name: {:?}, path: {:?}.", name, filename);
         let part = reqwest::blocking::multipart::Part::bytes(filecontent.to_vec()).file_name(filename.to_owned());
         let form = reqwest::blocking::multipart::Form::new().part(name.to_owned(), part);
         let mut base = reqwest::Url::parse("http://10.140.216.142:9302/").unwrap();
@@ -196,6 +196,29 @@ impl NetworkClient {
         return response;
     }
 
+    pub fn dist_zip_async(&self, route: &str, name: &str, filename: &str, filecontent: &std::borrow::Cow<[u8]>) 
+            -> tokio::task::JoinHandle<crate::compiler::compiler::SyncData> {
+        
+        let myself = self.to_owned();
+        let route = route.to_owned();
+        let name = name.to_owned();
+        let filename = filename.to_owned();
+        let filecontent = filecontent.to_owned().into_owned();
+
+        let response: tokio::task::JoinHandle<crate::compiler::compiler::SyncData> = tokio::task::spawn_blocking(move || {
+            match myself.file_post_by_zip(&route, &name, &filename, &std::borrow::Cow::from(filecontent)) {
+                Ok(response) => {
+                    let value = response.json::<crate::compiler::compiler::SyncData>().unwrap();
+                    return value;
+                },
+                Err(error) => {
+                    println!("pre sync file failed: {:?}", error);
+                    return crate::compiler::compiler::SyncData::default()
+                },
+            }
+        });
+        return response;
+    }
 
     pub fn dist_file_pre_sync<T: serde::ser::Serialize + ?core::marker::Sized>(&self, route: &str, params: &T) -> Result<reqwest::blocking::Response, reqwest::Error> {
         return self.post(route, params);

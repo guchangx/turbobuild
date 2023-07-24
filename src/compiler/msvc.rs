@@ -543,49 +543,82 @@ async fn request_dist_multi_sync_once_compile(network: &crate::network::client::
 }
 
 async fn load_precompiled_result_file_from_disk_by_zip(network: &crate::network::client::NetworkClient, 
-        compiler_path: &std::ffi::OsString, 
+        _compiler_path: &std::ffi::OsString, 
         source_files: &Vec<String>, working_dir: &std::ffi::OsString, pool: &tokio::runtime::Handle)
         -> Vec<std::ffi::OsString> {
         
-    let mut precompiled_files = Vec::new();
+    let precompiled_files = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::ffi::OsString>::new()));
     let network = std::sync::Arc::from(network.to_owned());
 
-    let mut cursor = std::io::Cursor::new(Vec::new());
-    let mut zip = zip::ZipWriter::new(&mut cursor);
     let options = zip::write::FileOptions::default()
             .compression_method(zip::CompressionMethod::Zstd);
-    let start = std::time::Instant::now();
 
-    let mut buffer = Vec::new();
-    let mut zip_file = std::path::PathBuf::new();
+    let mut split_source_files = source_files.to_owned();
+    let mut handles = Vec::new();
 
-    for file in source_files.to_owned() {
-    
-        let mut path = std::path::PathBuf::from(working_dir);
-        zip_file = path.clone();
-        let file = std::path::PathBuf::from(file);
+    loop {
+        let mut left = Vec::<String>::new();
+        if split_source_files.len() >= 32 {
+            left = split_source_files.split_off(32);
+        }
 
-        let file_name = file.file_stem().unwrap();
-        path = path.join(file_name);
-        path.set_extension("i");
+        let precompiled_files = precompiled_files.clone();
+        let working_dir = working_dir.clone();
+        let network = network.clone();
 
-        zip.start_file(file_name.to_string_lossy(), options.to_owned()).unwrap();
-        let mut file = std::fs::File::open(&path).unwrap();
-        file.read_to_end(&mut buffer).unwrap();
-        zip.write_all(&buffer[..]).unwrap();
-        buffer.clear();
+        let handle = pool.spawn_blocking(move || {
+            
+            let mut buffer = Vec::new();
 
-        precompiled_files.push(path.clone().into_os_string());
+            let mut cursor = std::io::Cursor::new(Vec::new());
+            let mut zip = zip::ZipWriter::new(&mut cursor);
+
+            let mut precompiled_files = precompiled_files.lock().unwrap();
+            let mut zip_file = std::path::PathBuf::from(&working_dir);
+
+            for file in split_source_files.to_owned() {
+
+                let mut path = std::path::PathBuf::from(&working_dir);
+                let file = std::path::PathBuf::from(file);
+                let file_name = file.file_stem().unwrap();
+                
+                path = path.join(file_name);
+                path.set_extension("i");
+                zip.start_file(path.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
+                let file = std::fs::File::open(&path).unwrap();
+                let mut file = std::io::BufReader::new(file);
+                file.read_to_end(&mut buffer).unwrap();
+                zip.write_all(&buffer[..]).unwrap();
+                buffer.clear();
+
+                precompiled_files.push(path.clone().into_os_string());
+            }
+
+            let content = zip.finish().unwrap();
+            let content = std::borrow::Cow::from(content.get_ref());
+            zip_file.set_extension("zip");
+            let handle = network.dist_zip_async("dist/syncfile", "precompiledsourcefile", zip_file.to_str().unwrap(), &content);
+            return handle;
+        });
+
+        handles.push(handle);
+
+        if left.is_empty() {
+            break;
+        }
+        split_source_files = left;
     }
 
-    let content = zip.finish().unwrap();
-    let content = std::borrow::Cow::from(content.get_ref());
-    zip_file.set_extension("zip");
-    network.dist_zip_sync("dist/syncfile", "precompiledsourcefile", zip_file.to_str().unwrap(), &content);
-    return precompiled_files;
+    for handle in handles {
+        let network_handle = handle.await.unwrap();
+        network_handle.await.unwrap();
+    }
+
+    let precompiled_files = precompiled_files.lock().unwrap();
+    return precompiled_files.clone();
 }
 
-async fn load_precompiled_result_file_from_disk(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, 
+async fn _load_precompiled_result_file_from_disk(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, 
                 source_files: &Vec<String>, working_dir: &std::ffi::OsString, pool: &tokio::runtime::Handle) -> Vec<std::ffi::OsString> {
 
     let mut precompiled_files = Vec::new();

@@ -115,7 +115,7 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
 
         if name.contains("msvc") {
             let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
-            log::trace!("sync file name: {:?}", file_name);
+            log::trace!("sync msvc .zip file name: {:?}", file_name);
             let data = field.bytes().await.unwrap();
             if file_name.ends_with(".zip") {
                 let cursor = std::io::Cursor::new(data);
@@ -145,7 +145,7 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
         }
         else if name.contains("kits") {
             let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
-            log::trace!("sync .zip file name: {:?}", file_name);
+            log::trace!("sync kits .zip file name: {:?}", file_name);
             let data = field.bytes().await.unwrap();
             if file_name.ends_with(".zip") {
                 let cursor = std::io::Cursor::new(data);
@@ -164,7 +164,7 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
         }
         else if name.contains("precompiledsourcefile") {
             let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
-            log::trace!("sync .zip file name: {:?}", file_name);
+            log::trace!("sync precompile source file .zip file name: {:?}", file_name);
             let data = field.bytes().await.unwrap();
             if file_name.ends_with(".zip") {
                 let cursor = std::io::Cursor::new(data);
