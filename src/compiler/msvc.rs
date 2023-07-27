@@ -397,11 +397,10 @@ async fn request_dist_multi_sync_once_compile(network: &crate::network::client::
 
     if status {
         let files = String::from_utf8_lossy(&stderr);
-        println!("compile stdout: {:?}, stderr: {:?}", String::from_utf8_lossy(&stdout), String::from_utf8_lossy(&stderr));
         let mut commands:Vec<std::ffi::OsString> = Vec::new();
         let mut source_files: Vec<String> = Vec::new();
         let mut project = String::from("");
-
+        
         for (_, value) in compiler_commands.iter().enumerate() {
             let value = value.to_string_lossy();
             if value.ends_with(".cpp") {
@@ -412,7 +411,7 @@ async fn request_dist_multi_sync_once_compile(network: &crate::network::client::
                 source_files.push(value.to_string());
                 continue;
             }
-            else if value.contains(".dir") {
+            else if value.contains(".dir") || value.contains("/Fo") {
                 if project.is_empty() {
                     project = value.to_string();
                 }
@@ -434,7 +433,11 @@ async fn request_dist_multi_sync_once_compile(network: &crate::network::client::
 
         if stdout.is_empty() {
             let now = std::time::Instant::now();
-            let  precompiled_files = load_precompiled_result_file_from_disk_by_zip(network, compiler_path, &source_files, &compiler_working_dir, pool).await;
+ 
+            let output_dir = project.replace("/Fo", "").replace("\\\\", "\\");
+            let i_path = std::path::PathBuf::from(compiler_working_dir).join(output_dir);
+            
+            let  precompiled_files = load_precompiled_result_file_from_disk_by_zip(network, compiler_path, &source_files, &compiler_working_dir, pool, i_path).await;
             log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
             
             let now = std::time::Instant::now();
@@ -544,7 +547,7 @@ async fn request_dist_multi_sync_once_compile(network: &crate::network::client::
 
 async fn load_precompiled_result_file_from_disk_by_zip(network: &crate::network::client::NetworkClient, 
         _compiler_path: &std::ffi::OsString, 
-        source_files: &Vec<String>, working_dir: &std::ffi::OsString, pool: &tokio::runtime::Handle)
+        source_files: &Vec<String>, working_dir: &std::ffi::OsString, pool: &tokio::runtime::Handle, project_dir: std::path::PathBuf)
         -> Vec<std::ffi::OsString> {
         
     let precompiled_files = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::ffi::OsString>::new()));
@@ -565,6 +568,7 @@ async fn load_precompiled_result_file_from_disk_by_zip(network: &crate::network:
         let precompiled_files = precompiled_files.clone();
         let working_dir = working_dir.clone();
         let network = network.clone();
+        let project_dir = project_dir.clone();
 
         let handle = pool.spawn_blocking(move || {
             
@@ -574,11 +578,13 @@ async fn load_precompiled_result_file_from_disk_by_zip(network: &crate::network:
             let mut zip = zip::ZipWriter::new(&mut cursor);
 
             let mut precompiled_files = precompiled_files.lock().unwrap();
-            let mut zip_file = std::path::PathBuf::from(&working_dir);
+            let mut zip_file = project_dir.clone();
+
 
             for file in split_source_files.to_owned() {
 
-                let mut path = std::path::PathBuf::from(&working_dir);
+                let mut path = project_dir.clone();
+
                 let file = std::path::PathBuf::from(file);
                 let file_name = file.file_stem().unwrap();
                 
@@ -699,6 +705,10 @@ fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working
     }
     else {
         commands.insert(0, std::ffi::OsString::from(r"/P"));
+        if let Some(arg) = compiler_commands.iter().find(|arg| arg.to_string_lossy().starts_with("/Fo")) {
+            let path = arg.to_string_lossy().replace("/Fo", "/Fi").replace("\\\\", "\\");
+            commands.insert(1, std::ffi::OsString::from(path));
+        }
     }
 
     let (status, stdout, stderr) = start_local_compiler(compiler_path, compiler_working_dir, &commands);
@@ -1096,7 +1106,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                         if output.stderr.is_empty() {
                             output_context = String::from_utf8_lossy(&output.stdout);
                         }
-                        log::trace!("local compile {:?} success, compiled elapsed time: {:?}, child thread Id: {:?}", output_context, elapsed, child_id);
+                        log::trace!("local compile file count {:?} success, compiled elapsed time: {:?}, child thread Id: {:?}", output_context.len(), elapsed, child_id);
                         return (true, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
                     }
                     else {
