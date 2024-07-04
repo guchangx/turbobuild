@@ -13,6 +13,8 @@ mod buildturbo;
 mod dist;
 mod syncfile;
 mod config;
+mod detours;
+mod redirection;
 
 pub fn main() {
     println!("welcome to build turbo tool.");

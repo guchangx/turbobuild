@@ -411,6 +411,11 @@ fn request_dist_compile_with_preprocessed_source(network: &crate::network::clien
     }
 }
 
+fn start_local_compiler_with_hook(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (bool, String)
+{
+
+    return (false, "".to_string());
+}
 fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (bool, String) {
     use std::process::Stdio;
 
