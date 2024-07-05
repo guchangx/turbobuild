@@ -1,3 +1,4 @@
-/target/
-/FileCache/
+/target
+/FileCache
 /Cargo.lock
+/.vscode/settings.json

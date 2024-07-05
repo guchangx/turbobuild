@@ -1,0 +1,30 @@
+[package]
+name = "buildturbo"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+
+[dependencies]
+axum = {version = "0.6.1", features = ["json", "multipart"]}
+tokio = {version = "1.18.2", features = ["rt-multi-thread", "macros"]}
+serde_json = "1.0.81"
+serde = "1.0.145"
+serde_derive = "1.0.137"
+toml = "0.5.9"
+winapi = {version = "0.3.9", features = ["errhandlingapi"]}
+chrono = "0.4.22"
+reqwest = {version = "0.11.10", features = ["blocking", "json", "multipart"]}
+regex = "1.6.0"
+blake3 = "1.3.1"
+anyhow = "1.0.65"
+async-trait = "0.1.57"
+redis = { version = "0.22.1", features = ["tokio-comp"] }
+zip = {version = "0.6.3", features = ["zstd"]}
+env_logger = "0.9.1"
+log = "0.4.17"
+sysinfo = "0.27.5"
+[build-dependencies]
+bindgen = "0.56.0"
