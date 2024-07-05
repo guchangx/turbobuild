@@ -3,9 +3,10 @@ extern crate toml;
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug)]
 pub struct ConfigurationInfo {
-    commonder_addr: String,
-    workers_addr: Vec<String>,
-    redis_addr: String,
+    pub coordinator_addr: String,
+    pub local_addr: String,
+    pub workers_addr: Vec<String>,
+    pub redis_addr: String,
 }
 
 impl ConfigurationInfo {
@@ -15,9 +16,10 @@ impl ConfigurationInfo {
                 return value;
             },
             None => {
-                println!("can't load configuration file, use single tool.");
+                log::warn!("can't load configuration file, use single tool.");
                 let value = ConfigurationInfo {
-                    commonder_addr: String::from("127.0.0.1"),
+                    coordinator_addr: String::from("127.0.0.1"),
+                    local_addr: String::from("127.0.0.1"),
                     workers_addr: vec![String::from("127.0.0.1")],
                     redis_addr: String::from("")
                 };
@@ -28,9 +30,10 @@ impl ConfigurationInfo {
 }
 
 fn fetch_local_config() -> Option<ConfigurationInfo> {
+
     let path = std::env::current_dir().unwrap();
     let config_file = path.join("config.toml");
-
+    log::debug!("config file path: {:?}", config_file);
     match std::fs::read(config_file) {
        Ok(contents) => {
             let config: ConfigurationInfo = toml::from_slice(&contents).unwrap();

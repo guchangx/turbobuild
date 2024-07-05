@@ -37,7 +37,7 @@ impl<'a> Sender<'a> {
             }
         }
         let response = self.sync_zip(name, path.to_str().unwrap(), &content);
-        println!("zip dir elapsed time: {:?}", elapsed);
+        log::info!("zip dir elapsed time: {:?}", elapsed);
         return response;
     }
 
@@ -73,7 +73,7 @@ impl<'a> Sender<'a> {
                         if file_type.is_dir() {
                             zip.add_directory(name, *options).unwrap();
                             self.zip_visit_dir(entry_dir, &path, zip, options);
-                            println!("name: {:?}, path: {:?}", name, entry.path().to_str().unwrap());
+                            log::debug!("name: {:?}, path: {:?}", name, entry.path().to_str().unwrap());
                         }
                         else if file_type.is_file() {
                             zip.start_file(name, options.to_owned()).unwrap();
@@ -126,7 +126,7 @@ impl<'a> Sender<'a> {
 
     pub fn sync_file(&self, file: &str) {
         println!("sync file: {:?}", file);
-        match self.client.dist_file_sync("dist/syncfile",file) {
+        match self.client.dist_file_sync("dist/syncfile", file) {
             Ok(_response) => {
                 println!("sync file respone");
             },
@@ -166,8 +166,13 @@ impl<'a> Sender<'a> {
         return std::ffi::OsString::new();
     }
 
-    pub fn dist_compile(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> crate::compiler::compiler::CompileOutput {
-        let response = self.client.dist_request_compile(msvc_compile_input);
+    pub fn dist_compile_with_source_and_include(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput) -> crate::compiler::compiler::CompileOutput {
+        let response = self.client.dist_request_compile_with_source_and_include(msvc_compile_input);
+        return response;
+    }
+
+    pub fn dist_compile_with_precompiled_source(&self, msvc_compile_input: &crate::compiler::compiler::CompileInput, precompiled_source: &crate::compiler::compiler::PrecompiledSource) -> crate::compiler::compiler::CompileOutput  {
+        let response = self.client.dist_request_compile_with_precompiled_source(&msvc_compile_input, &precompiled_source);
         return response;
     }
 
@@ -191,7 +196,7 @@ impl<'a> Sender<'a> {
         }
         else {
             let mut bin = std::path::PathBuf::from(dist_msvc_compiler_path.clone());
-            bin.set_file_name("cl.exe");
+            bin.push("cl.exe");
             dist_msvc_compiler_path = bin.into_os_string();
             
             let mut inlcude = std::path::PathBuf::from(dist_msvc_compiler_path.clone());
@@ -200,7 +205,6 @@ impl<'a> Sender<'a> {
             }
             dist_msvc_include_path = inlcude.join("include").into_os_string();
         }
-
         return (dist_msvc_compiler_path, dist_msvc_include_path, response.windows_kits_path)
     }
 

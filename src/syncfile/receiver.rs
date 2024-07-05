@@ -34,7 +34,6 @@ pub async fn pre_sync_file(pre_sync_file: &crate::compiler::compiler::SyncData) 
                 digest: std::ffi::OsString::new(),
                 is_exists: true,
         };
-
         return pre_sync_file;
     }
     else if pre_sync_file.sync_kind == "sourcefile" {
@@ -74,11 +73,11 @@ fn fetch_local_msvc_compiler(compiler_path: &str) -> Option<std::ffi::OsString> 
             return Some(compiler_mapping_path.into_os_string());
         }
         else {
-            println!("fetch loacl msvc compiler. {:?}", compiler_mapping_path);
+            println!("compiler is not exists in path: {:?}. so return none.", compiler_mapping_path);
         }
     }
     else {
-        println!("fetch loacl msvc compiler. {:?}", compiler_mapping_path);
+        println!("compiler is not exists in path: {:?}. so return none.", compiler_mapping_path);
     }
     
     return None
@@ -86,35 +85,50 @@ fn fetch_local_msvc_compiler(compiler_path: &str) -> Option<std::ffi::OsString> 
 
 fn fetch_local_windows_kits(path: &str) -> Option<std::ffi::OsString> {
     //C:\Program Files (x86)\Windows Kits\10\Include\10.0.22000.0\shared
-    let path = std::path::PathBuf::from(path);
-    let kits_version = path.into_iter().filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap().ends_with(".0"))
-        .nth(0).unwrap();
-    
-    let kit_path = std::env::current_dir().unwrap()
-        .join("FileCache").join("Win Kits").join("10").join("Include").join(kits_version);
-    if kit_path.exists() {
-        return Some(kit_path.into_os_string())
+    if !path.is_empty() {
+        let path = std::path::PathBuf::from(path);
+        let kits_version = path.into_iter().filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap().ends_with(".0"))
+            .nth(0).unwrap();
+        
+        let kit_path = std::env::current_dir().unwrap()
+            .join("FileCache").join("Win Kits").join("10").join("Include").join(kits_version);
+        if kit_path.exists() {
+            return Some(kit_path.into_os_string())
+        }
+        else {
+            return None;
+        }
     }
-    return None;
+    else {
+        return None;
+    }
 }
 
-pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multipart) -> std::ffi::OsString {
+pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multipart) -> crate::compiler::compiler::SyncData {
+
+    let mut toolchain_bin_or_include_path = std::ffi::OsString::new();
+    let mut windows_kits_path = std::ffi::OsString::new();
 
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.name().expect("fetch name from multipart/form-data failed.").to_string();
-        let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
-
-        println!("mame {:?}", name);
-        println!("file name {:?}", file_name);
+        log::trace!("multipart mame: {:?}", name);
 
         if name.contains("msvc") {
+            let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
+            log::trace!("sync msvc .zip file name: {:?}", file_name);
             let data = field.bytes().await.unwrap();
             if file_name.ends_with(".zip") {
                 let cursor = std::io::Cursor::new(data);
                 let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
                 let msvc_mapping_dir = msvc_mapping_dir(file_name);
                 zip_archive.extract(msvc_mapping_dir.clone()).unwrap();
-                return msvc_mapping_dir.into_os_string();
+                
+                if msvc_mapping_dir.file_name() == Some(std::ffi::OsStr::new("include")) {
+                    toolchain_bin_or_include_path = msvc_mapping_dir.into_os_string();
+                }
+                else {
+                    toolchain_bin_or_include_path = msvc_mapping_dir.into_os_string();
+                }
             }
             else {
                 
@@ -130,13 +144,15 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
             }
         }
         else if name.contains("kits") {
+            let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
+            log::trace!("sync kits .zip file name: {:?}", file_name);
             let data = field.bytes().await.unwrap();
             if file_name.ends_with(".zip") {
                 let cursor = std::io::Cursor::new(data);
                 let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
                 let kits_include_path = windows_kits_mapping_path(file_name);
                 zip_archive.extract(kits_include_path.clone()).unwrap();
-                return kits_include_path.into_os_string()
+                windows_kits_path = kits_include_path.into_os_string()
             }
             else {
 
@@ -146,8 +162,21 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
         {
 
         }
-        else if name.contains("source file") {
+        else if name.contains("precompiledsourcefile") {
+            let file_name = field.file_name().expect("fetch file_name from multipart/form-data failed.").to_string();
+            log::trace!("sync precompile source file .zip file name: {:?}", file_name);
+            let data = field.bytes().await.unwrap();
+            if file_name.ends_with(".zip") {
+                let cursor = std::io::Cursor::new(data);
+                let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
+                let path = file_name.replace(".zip", "");
+                let path = std::path::PathBuf::from(path);
 
+                zip_archive.extract(path).unwrap();
+            }
+            else {
+
+            }
         }
         else if name.contains("include file") {
 
@@ -157,7 +186,18 @@ pub async fn sync_file_to_local(multipart: &mut axum::extract::multipart::Multip
 
         }
     }
-    return std::ffi::OsString::new();
+
+    let is_exists = !toolchain_bin_or_include_path.is_empty() || !windows_kits_path.is_empty();
+    let sync_data = crate::compiler::compiler::SyncData {
+        sync_kind: std::ffi::OsString::new(),
+        toolchain_path: toolchain_bin_or_include_path,
+        windows_kits_path: windows_kits_path,
+        file_path: std::ffi::OsString::new(),
+        file_name: std::ffi::OsString::new(),
+        digest: std::ffi::OsString::new(),
+        is_exists,
+    };
+    return sync_data;
 }
 
 fn msvc_mapping_dir(file_path: String) -> std::path::PathBuf {
