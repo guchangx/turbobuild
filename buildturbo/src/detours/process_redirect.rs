@@ -2,12 +2,11 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-
-use crate::detours::DetourCreateProcessWithDllExW;
+use crate::detours::detours::DetourCreateProcessWithDllExW;
 use std::os::windows::ffi::OsStrExt;
 
 
-fn cl_redirect(app_name: String, command_line: String, workding_directory: String) {
+fn msvc_detours(app_name: String, command_line: String, workding_directory: String) {
     unsafe {
 
         let lpApplicationName = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe";
@@ -18,9 +17,8 @@ fn cl_redirect(app_name: String, command_line: String, workding_directory: Strin
         let dwCreationFlags = winapi::um::winbase::CREATE_DEFAULT_ERROR_MODE | winapi::um::winbase::CREATE_SUSPENDED;
         let lpEnvironment = std::ptr::null_mut();
 
-        let mut lpStartupInfo: crate::detours::_STARTUPINFOW = std::mem::MaybeUninit::zeroed().assume_init(); 
-        let mut lpProcessInformation: crate::detours::_PROCESS_INFORMATION = std::mem::MaybeUninit::zeroed().assume_init();
-       
+        let mut lpStartupInfo: crate::detours::detours::_STARTUPINFOW = std::mem::MaybeUninit::zeroed().assume_init(); 
+        let mut lpProcessInformation: crate::detours::detours::_PROCESS_INFORMATION = std::mem::MaybeUninit::zeroed().assume_init();
         
         let appName = std::ffi::OsStr::new(lpApplicationName);
         let appNameWideChars: Vec<u16> = appName.encode_wide().chain(std::iter::once(0)).collect();

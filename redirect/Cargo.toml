@@ -9,3 +9,4 @@ crate-type = ["cdylib"]
 name = "redirect"
 
 [dependencies]
+winapi = {version = "0.3.9", features = ["winbase", "handleapi", "minwindef", "consoleapi", "winnt", "memoryapi", "namedpipeapi"]}
