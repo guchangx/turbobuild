@@ -1,6 +1,4 @@
 
 [workspace]
-name = "turbobuild"
-version = "0.0.0"
 members = ["redirect", "buildturbo"]
 resolver = "2"

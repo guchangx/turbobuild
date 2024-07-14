@@ -62,7 +62,7 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
 
     ENTRYPOINT = crate::detours::DetourGetEntryPoint(std::ptr::null_mut());
 
-    crate::detours::DetourAttach(&mut ENTRYPOINT, main as *mut _);
+    crate::detours::DetourAttach(core::ptr::addr_of_mut!(ENTRYPOINT), main as *mut _);
 
     crate::hook::init_hook();
     

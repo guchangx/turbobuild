@@ -6,6 +6,12 @@
     "configurations": [
         {
             "type": "lldb",
+            "request": "attach",
+            "name": "Attach to 'redirect.dll'",
+            "program": "redirect.dll"
+        },
+        {
+            "type": "lldb",
             "request": "launch",
             "name": "Debug unit tests in library 'buildturbo'",
             "cargo": {
@@ -60,5 +66,12 @@
             "args": [],
             "cwd": "${workspaceFolder}"
         }
-    ]
+        
+    ],
+    "compounds": [
+        {
+            "name": "Both Executables",
+            "configurations": ["Debug unit tests in executable 'buildturbo'", "Attach to 'redirect.dll'"]
+        }
+    ],
 }

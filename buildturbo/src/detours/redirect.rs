@@ -28,7 +28,7 @@ pub fn msvc_detours(app_path: String, command_line: String, workding_directory: 
         
         let lpCurrentDirectory = std::ffi::OsStr::new(&workding_directory);
         let currentDirectoryWideChars: Vec<u16> = lpCurrentDirectory.encode_wide().chain(std::iter::once(0)).collect();
-
+ 
         let dllPath = crate::utils::tool::get_working_path("redirect.dll".to_string());
         let dllPath = std::ffi::CString::new(dllPath).unwrap();
         let dllPath = dllPath.as_ptr();
@@ -40,7 +40,7 @@ pub fn msvc_detours(app_path: String, command_line: String, workding_directory: 
             &mut lpStartupInfo as *mut _, &mut lpProcessInformation as *mut _, 
             dllPath, Option::None);
         
-        if ret == 0
+        if ret == winapi::shared::minwindef::TRUE
         {
             println!("DetourCreateProcessWithDllExW success!");
         }
