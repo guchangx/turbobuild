@@ -1,11 +1,13 @@
 
-use winapi::{
-    shared::minwindef::{BOOL, DWORD, LPVOID, HINSTANCE}
-};
 mod detours;
 mod hook;
 mod utils;
 mod replace;
+mod functions;
+
+use winapi::{
+    shared::minwindef::{BOOL, DWORD, LPVOID, HINSTANCE}
+};
 
 static mut ENTRYPOINT: *mut std::ffi::c_void = 0 as _;
 
@@ -62,6 +64,7 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
 
     crate::detours::DetourAttach(&mut ENTRYPOINT, main as *mut _);
 
+    crate::hook::init_hook();
     
     crate::detours::DetourTransactionCommit();
 

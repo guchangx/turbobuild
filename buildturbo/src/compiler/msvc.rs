@@ -1079,12 +1079,28 @@ fn request_dist_compile_with_precompiled_source(network: &crate::network::client
 
 }
 
+fn start_local_compiler_with_inject(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) {
+    
+    let command_line: String = compiler_commands.clone().into_iter()
+    .map(|os_string| format!("{} ", os_string.into_string().unwrap()))
+    .collect();
+
+    crate::detours::redirect::msvc_detours(
+        compiler_path.clone().into_string().unwrap(), 
+        command_line, 
+        working_dir.clone().into_string().unwrap()
+    );
+}
+
 fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     use std::process::Stdio;
 
     log::trace!("local compile working dir: {:?}", working_dir);
     log::trace!("compiler path: {:?}", compiler_path);
     log::trace!("compile content: {:?}", compiler_commands);
+
+    start_local_compiler_with_inject(compiler_path, working_dir, compiler_commands);
+    return (false, std::sync::Arc::new(vec![]), std::sync::Arc::new(vec![]));
 
     let start = std::time::Instant::now();
     let child = std::process::Command::new(compiler_path)
@@ -1532,5 +1548,19 @@ fn determine_whether_need_compile(compiler_commands: Vec<std::ffi::OsString>) ->
     }
     else {
         return false;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_inject() {
+
+        let compiler_path = std::ffi::OsString::from("");
+        let working_dir = std::ffi::OsString::from("");
+        let compiler_commands:Vec<std::ffi::OsString> = Vec::new();
+        start_local_compiler_with_inject(&compiler_path, &working_dir, &compiler_commands);
     }
 }

@@ -1,5 +1,5 @@
 
-pub fn replace(old: std::string::String) -> std::string::String {
+pub fn replace(_old: std::string::String) -> std::string::String {
 
     return "".to_string();
 }

@@ -1,5 +1,3 @@
-use std::os::windows::ffi::OsStrExt;
-
 
 pub fn lpwstr_2_string(lp_param: winapi::um::winnt::LPCWSTR) -> core::option::Option<std::string::String> {
     use std::os::windows::prelude::*;
@@ -41,3 +39,14 @@ pub fn string_2_lpwstr(param: String) -> core::option::Option<winapi::um::winnt:
     }
     return None;
 } 
+
+pub fn lpstr_2_string(lpstr: *const std::ffi::c_char) -> Result<String, std::str::Utf8Error> {
+    unsafe {
+        std::ffi::CStr::from_ptr(lpstr).to_str().map(String::from)
+    }
+}
+
+pub fn string_2_lpstr(string: std::string::String) -> Result<*mut std::ffi::c_char, std::ffi::NulError> {
+    let c_string = std::ffi::CString::new(string).expect("new CString from string failed.");
+    Ok(c_string.into_raw())
+}
