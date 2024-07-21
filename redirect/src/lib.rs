@@ -14,11 +14,17 @@ static mut ENTRYPOINT: *mut std::ffi::c_void = 0 as _;
 #[no_mangle]
 unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_reserved: LPVOID) -> BOOL {
     
-    if crate::detours::DetourIsHelperProcess() == 0 {
+    unsafe {
+        let title = crate::utils::convert::string_2_lpwstr("Debug BreakPoint".to_string());
+        let caption = crate::utils::convert::string_2_lpwstr("Attarch Programe".to_string());
+        winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, title.unwrap(), caption.unwrap(), 0);
+    }
+
+    if crate::detours::DetourIsHelperProcess() == winapi::shared::minwindef::TRUE {
         println!("DllMain is a helper process");
     }
     else {
-        println!("DllMain is a main process");
+        println!("DllMain is a target process");
     }
 
     match fdw_reason {
@@ -50,14 +56,18 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
 
 
     let ret = crate::detours::DetourRestoreAfterWith();
-    if ret == 1 {
-        println!("DetourRestoreAfterWith failed: {}", ret);
+    if ret == winapi::shared::minwindef::FALSE {
+        let error_code = winapi::um::errhandlingapi::GetLastError();
+        println!("DetourRestoreAfterWith failed, error code: {}.", error_code);
     }
+
     crate::detours::DetourTransactionBegin();
     
     let ret = crate::detours::DetourUpdateThread(winapi::um::processthreadsapi::GetCurrentThread() as _);
-    if ret != 0 {
-        println!("DetourUpdateThread failed: {}", ret);
+    if ret == winapi::shared::minwindef::FALSE {
+        let error_code = winapi::um::errhandlingapi::GetLastError();
+        println!("DetourUpdateThread failed, erro code: {}.", error_code);
+
     }
 
     ENTRYPOINT = crate::detours::DetourGetEntryPoint(std::ptr::null_mut());

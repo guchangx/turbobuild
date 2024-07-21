@@ -3,6 +3,7 @@
 #![allow(non_upper_case_globals)]
 #![allow(non_camel_case_types)]
 #![allow(unused)]
+#[allow(deref_nullptr)]
 
 pub type wchar_t = ::std::os::raw::c_ushort;
 pub type ULONG = ::std::os::raw::c_ulong;
