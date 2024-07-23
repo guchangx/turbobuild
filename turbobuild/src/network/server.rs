@@ -27,7 +27,7 @@ async fn get_teamworker_info() -> axum::extract::Json<serde_json::Value>
 }
 
 async fn request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>, 
-        working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle, 
+        working_parameters: crate::turbobuild::WorkingParameters, thread_pool: tokio::runtime::Handle, 
         grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) -> axum::extract::Json<serde_json::Value> {
     log::trace!("local request compile");
     let output = crate::compiler::compiler::request_compile(working_parameters, compile_input, &thread_pool, grade).await;
@@ -37,7 +37,7 @@ async fn request_compile(axum::extract::Json(compile_input): axum::extract::Json
 }
 
 async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>,
-        working_parameters: crate::buildturbo::WorkingParameters, thread_pool: tokio::runtime::Handle,
+        working_parameters: crate::turbobuild::WorkingParameters, thread_pool: tokio::runtime::Handle,
         grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) -> axum::extract::Json<serde_json::Value>
 {
     log::trace!("dist request compile");
@@ -45,7 +45,7 @@ async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract:
     return axum::extract::Json(serde_json::json!(output));
 }
 
-async fn remote_request_compile(multipart: axum::extract::multipart::Multipart, working_parameters: crate::buildturbo::WorkingParameters, 
+async fn remote_request_compile(multipart: axum::extract::multipart::Multipart, working_parameters: crate::turbobuild::WorkingParameters, 
                                 thread_pool: tokio::runtime::Handle,
                                 grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) 
                             -> axum::response::Response<axum::body::Full<axum::body::Bytes>> {
@@ -94,7 +94,7 @@ async fn sync_file(mut multipart: axum::extract::multipart::Multipart) -> axum::
     return axum::extract::Json(serde_json::json!(exists_info));
 }
 
-async fn init_network_request_router(working_params: crate::buildturbo::WorkingParameters, thread_pool: &tokio::runtime::Handle) {
+async fn init_network_request_router(working_params: crate::turbobuild::WorkingParameters, thread_pool: &tokio::runtime::Handle) {
     let pool = thread_pool.clone();
     let dist_pool = thread_pool.clone();
     let remote_compile_pool = thread_pool.clone();
@@ -145,7 +145,7 @@ async fn init_network_request_router(working_params: crate::buildturbo::WorkingP
 }
 
 impl NetworkRequestHandler {
-    pub fn start(working_params: crate::buildturbo::WorkingParameters) {
+    pub fn start(working_params: crate::turbobuild::WorkingParameters) {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let handle = runtime.handle();
         runtime.block_on(async move {

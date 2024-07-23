@@ -1,5 +1,5 @@
 
-use buildturbo;
+use turbobuild;
 
 #[test]
 fn add_adr() {

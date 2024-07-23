@@ -12,7 +12,7 @@ mod compiler;
 mod utils;
 mod platform;
 mod cache;
-mod buildturbo;
+mod turbobuild;
 mod dist;
 mod syncfile;
 mod config;
@@ -23,7 +23,7 @@ pub fn main() {
     println!("welcome to build turbo.");
     let config = config::ConfigurationInfo::init();
     log::debug!("config: {:?}", config);
-    let working_parameters = buildturbo::WorkingParameters::init(&config);
+    let working_parameters = turbobuild::WorkingParameters::init(&config);
     network::server::NetworkRequestHandler::start(working_parameters);
     println!("build turbo exists.");
 }
@@ -35,7 +35,7 @@ fn init_logger() {
     .format_timestamp_millis()
     .write_style(env_logger::WriteStyle::Always)
     .format_level(true)
-    .filter(Some("buildturbo"), log::LevelFilter::Trace)
+    .filter(Some("turbobuild"), log::LevelFilter::Trace)
     .target(env_logger::Target::Stdout)
     .try_init();
 

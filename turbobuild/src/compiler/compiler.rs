@@ -84,18 +84,18 @@ impl CompileOutput {
 
 #[async_trait]
 pub trait Compiler: core::marker::Send + core::marker::Sync + 'static {
-    async fn request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
+    async fn request_compile(&self, working_parameters: crate::turbobuild::WorkingParameters, 
                 compile_input: CompileInput, pool: &tokio::runtime::Handle,
                 grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<ProcessedResults>);
-    async fn dist_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
+    async fn dist_request_compile(&self, working_parameters: crate::turbobuild::WorkingParameters, 
                 compile_input: CompileInput, pool: &tokio::runtime::Handle, 
                 grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<ProcessedResults>);
-    async fn remote_request_compile(&self, working_parameters: crate::buildturbo::WorkingParameters, 
+    async fn remote_request_compile(&self, working_parameters: crate::turbobuild::WorkingParameters, 
                 compile_input: CompileInput, pool: &tokio::runtime::Handle, 
                 grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<ProcessedResults>);
 }
 
-pub async fn request_compile(working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput, 
+pub async fn request_compile(working_parameters: crate::turbobuild::WorkingParameters, compile_input: CompileInput, 
                 pool: &tokio::runtime::Handle, 
                 grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<super::compiler::ProcessedResults>) {
     if compile_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
@@ -115,7 +115,7 @@ pub async fn request_compile(working_parameters: crate::buildturbo::WorkingParam
     }
 }
 
-pub async fn dist_request_compile(working_parameters: crate::buildturbo::WorkingParameters, compile_input: CompileInput, 
+pub async fn dist_request_compile(working_parameters: crate::turbobuild::WorkingParameters, compile_input: CompileInput, 
     pool: &tokio::runtime::Handle,
     grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<super::compiler::ProcessedResults>) {
     println!("build and compiler type: {:?}", compile_input.build_and_compiler_type);
@@ -137,7 +137,7 @@ pub async fn dist_request_compile(working_parameters: crate::buildturbo::Working
 }
 
 pub async fn remote_request_compile(mut multipart: axum::extract::multipart::Multipart, 
-        working_parameters: crate::buildturbo::WorkingParameters, pool: &tokio::runtime::Handle, 
+        working_parameters: crate::turbobuild::WorkingParameters, pool: &tokio::runtime::Handle, 
         grade: std::sync::Arc<std::sync::Mutex<crate::utils::grade::LocalGrade>>) -> (CompileOutput, Option<ProcessedResults>)
 {
     let pool = pool.to_owned();
