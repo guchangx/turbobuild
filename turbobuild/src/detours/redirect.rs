@@ -31,71 +31,75 @@ pub fn msvc_detours(app_path: String, command_line: String, workding_directory: 
         let lpCurrentDirectory = std::ffi::OsStr::new(&workding_directory);
         let currentDirectoryWideChars: Vec<u16> = lpCurrentDirectory.encode_wide().chain(std::iter::once(0)).collect();
  
-        let dllPath = crate::utils::tool::get_working_path("redirect.dll".to_string());
-        let dllPath = std::ffi::CString::new(dllPath).unwrap();
-        let dllPath = dllPath.as_ptr();
-        
-        /* 
-        let ret = CreateProcessW(appNameWideChars.as_ptr(), 
-            commandLineWideChars.as_mut_ptr(), 
-            lpProcessAttributes, 
-            lpThreadAttributes, 
-            bInheritHandles, 
-            dwCreationFlags, 
-            lpEnvironment, 
-            currentDirectoryWideChars.as_ptr(), 
-            &mut lpStartupInfo as *mut _, 
-            &mut lpProcessInformation as *mut _);
+        let dllPath = crate::utils::tool::get_working_path("redirect64.dll".to_string());
+        if let Some(dllPath) = dllPath {
 
-        if ret == winapi::shared::minwindef::TRUE
-        {
-            println!("CreateProcessW success!");
-        }
-        else {
-            let error_code = winapi::um::errhandlingapi::GetLastError();
-            println!("CreateProcessW failed! error_code: {}.", error_code);
-        }
-        */
-        
-        let lpProcessAttributes = std::ptr::null_mut();
-        let lpThreadAttributes = std::ptr::null_mut();
-        let mut lpStartupInfo: crate::detours::detours::_STARTUPINFOW = std::mem::MaybeUninit::zeroed().assume_init(); 
-        let mut lpProcessInformation: crate::detours::detours::_PROCESS_INFORMATION = std::mem::MaybeUninit::zeroed().assume_init();
+            let dllPath = std::ffi::CString::new(dllPath).unwrap();
+            let dllPath = dllPath.as_ptr();
 
-        let ret = DetourCreateProcessWithDllExW(appNameWideChars.as_ptr(), 
-            commandLineWideChars.as_mut_ptr(), 
-            lpProcessAttributes,
-            lpThreadAttributes, 
-            bInheritHandles, dwCreationFlags, 
-            lpEnvironment, 
-            currentDirectoryWideChars.as_ptr(), 
-            &mut lpStartupInfo as *mut _, 
-            &mut lpProcessInformation as *mut _, 
-            dllPath, 
-            Option::None);
-        
-        if ret == winapi::shared::minwindef::TRUE
-        {
-            println!("DetourCreateProcessWithDllExW success!");
-        }
-        else {
-            let error_code = winapi::um::errhandlingapi::GetLastError();
-            println!("DetourCreateProcessWithDllExW failed! error_code: {}.", error_code);
-        }
+                    
+            /* 
+            let ret = CreateProcessW(appNameWideChars.as_ptr(), 
+                commandLineWideChars.as_mut_ptr(), 
+                lpProcessAttributes, 
+                lpThreadAttributes, 
+                bInheritHandles, 
+                dwCreationFlags, 
+                lpEnvironment, 
+                currentDirectoryWideChars.as_ptr(), 
+                &mut lpStartupInfo as *mut _, 
+                &mut lpProcessInformation as *mut _);
 
-        let ret = winapi::um::processthreadsapi::ResumeThread(lpProcessInformation.hThread as _);
-        if ret == winapi::shared::minwindef::TRUE as u32
-        {
-            println!("ResumeThread success!");
-        }
-        else {
-            let error_code = winapi::um::errhandlingapi::GetLastError();
-            println!("ResumeThread failed! error_code: {}.", error_code);
-        }
-
-        winapi::um::handleapi::CloseHandle(lpProcessInformation.hThread as _);
-        winapi::um::handleapi::CloseHandle(lpProcessInformation.hProcess as _);
+            if ret == winapi::shared::minwindef::TRUE
+            {
+                println!("CreateProcessW success!");
+            }
+            else {
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+                println!("CreateProcessW failed! error_code: {}.", error_code);
+            }
+            */
         
-        println!("msvc detours end");
+            let lpProcessAttributes = std::ptr::null_mut();
+            let lpThreadAttributes = std::ptr::null_mut();
+            let mut lpStartupInfo: crate::detours::detours::_STARTUPINFOW = std::mem::MaybeUninit::zeroed().assume_init(); 
+            let mut lpProcessInformation: crate::detours::detours::_PROCESS_INFORMATION = std::mem::MaybeUninit::zeroed().assume_init();
+
+            let ret = DetourCreateProcessWithDllExW(appNameWideChars.as_ptr(), 
+                commandLineWideChars.as_mut_ptr(), 
+                lpProcessAttributes,
+                lpThreadAttributes, 
+                bInheritHandles, dwCreationFlags, 
+                lpEnvironment, 
+                currentDirectoryWideChars.as_ptr(), 
+                &mut lpStartupInfo as *mut _, 
+                &mut lpProcessInformation as *mut _, 
+                dllPath, 
+                Option::None);
+            
+            if ret == winapi::shared::minwindef::TRUE
+            {
+                println!("DetourCreateProcessWithDllExW success!");
+            }
+            else {
+                let error_code: u32 = winapi::um::errhandlingapi::GetLastError();
+                println!("DetourCreateProcessWithDllExW failed! error_code: {}.", error_code);
+            }
+
+            let ret = winapi::um::processthreadsapi::ResumeThread(lpProcessInformation.hThread as _);
+            if ret == winapi::shared::minwindef::TRUE as u32
+            {
+                println!("ResumeThread success!");
+            }
+            else {
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+                println!("ResumeThread failed! error_code: {}.", error_code);
+            }
+
+            winapi::um::handleapi::CloseHandle(lpProcessInformation.hThread as _);
+            winapi::um::handleapi::CloseHandle(lpProcessInformation.hProcess as _);
+            
+            println!("msvc detours end");
+        }
     }
 } 

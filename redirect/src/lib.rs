@@ -32,6 +32,30 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
             println!("DLL_PROCESS_ATTACH");
             println!("hinstDll: {:?}", hinst_dll);
             println!("lpvReserved: {:?}", lpv_reserved);
+
+            let ret = crate::detours::DetourRestoreAfterWith();
+            if ret == winapi::shared::minwindef::FALSE {
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+                println!("DetourRestoreAfterWith failed, error code: {}.", error_code);
+            }
+
+            crate::detours::DetourTransactionBegin();
+    
+            let ret = crate::detours::DetourUpdateThread(winapi::um::processthreadsapi::GetCurrentThread() as _);
+            if ret == winapi::shared::minwindef::FALSE {
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+                println!("DetourUpdateThread failed, erro code: {}.", error_code);
+        
+            }
+        
+            ENTRYPOINT = crate::detours::DetourGetEntryPoint(std::ptr::null_mut());
+        
+            crate::detours::DetourAttach(core::ptr::addr_of_mut!(ENTRYPOINT), main as *mut _);
+        
+            crate::hook::init_hook();
+            
+            crate::detours::DetourTransactionCommit();
+
         },
         winapi::um::winnt::DLL_THREAD_ATTACH => {
             println!("DLL_THREAD_ATTACH");
@@ -54,37 +78,12 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
         },
     }
 
-
-    let ret = crate::detours::DetourRestoreAfterWith();
-    if ret == winapi::shared::minwindef::FALSE {
-        let error_code = winapi::um::errhandlingapi::GetLastError();
-        println!("DetourRestoreAfterWith failed, error code: {}.", error_code);
-    }
-
-    crate::detours::DetourTransactionBegin();
-    
-    let ret = crate::detours::DetourUpdateThread(winapi::um::processthreadsapi::GetCurrentThread() as _);
-    if ret == winapi::shared::minwindef::FALSE {
-        let error_code = winapi::um::errhandlingapi::GetLastError();
-        println!("DetourUpdateThread failed, erro code: {}.", error_code);
-
-    }
-
-    ENTRYPOINT = crate::detours::DetourGetEntryPoint(std::ptr::null_mut());
-
-    crate::detours::DetourAttach(core::ptr::addr_of_mut!(ENTRYPOINT), main as *mut _);
-
-    crate::hook::init_hook();
-    
-    crate::detours::DetourTransactionCommit();
-
     return 1;
 }
 
 unsafe fn main() {
     winapi::um::consoleapi::AllocConsole();
-    println!("Process Hooked!");
-
-    let start_discord: extern "C" fn() = std::mem::transmute(ENTRYPOINT);
-    start_discord();
+    println!("redirect process hooked!");
+    let start_redirect: extern "C" fn() = std::mem::transmute(ENTRYPOINT);
+    start_redirect();
 }

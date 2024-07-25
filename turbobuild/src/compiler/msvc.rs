@@ -1558,9 +1558,10 @@ mod tests {
     #[test]
     fn test_inject() {
         println!("msvc test inject");
-        
-        let compiler_path = std::ffi::OsString::from("C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.39.33519/bin/Hostx64/x64/cl.exe");
-        let working_dir = std::ffi::OsString::from("D:/");
+        //14.33.31629
+        //14.39.33519
+        let compiler_path = std::ffi::OsString::from("C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.33.31629/bin/Hostx64/x64/cl.exe");
+        let working_dir = std::ffi::OsString::from("C:/WorkSpace/Work");
         let mut compiler_commands:Vec<std::ffi::OsString> = Vec::new();
         compiler_commands.push(std::ffi::OsString::from("-c test.cpp"));
         start_local_compiler_with_inject(&compiler_path, &working_dir, &compiler_commands);

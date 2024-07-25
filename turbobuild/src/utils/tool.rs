@@ -1,14 +1,24 @@
 
-pub fn get_working_path(app: std::string::String) -> std::string::String {
-    let mut dir = std::env::current_dir().unwrap();
-    dir.push("target\\debug\\");
-    let path = dir.join(app);
+pub fn get_working_path(app: std::string::String) -> std::option::Option<std::string::String> {
 
-    //"E:\\WorkSpace\\NewTest\\Discord-ModLoader\\target\\debug\\libmodhook.dll"
-    //"E:\\TestFuture\\turbobuild\\target\\debug\\redirect64.dll"
-    let path = std::path::Path::new("E:\\TestFuture\\turbobuild\\target\\debug\\redirect64.dll");
-    if !path.exists() {
-        println!("{} not found", path.display());
+    let mut dir = std::env::current_exe().unwrap();
+    
+    let path = dir.join(app.clone());
+    if path.exists()
+    {
+        return Some(path.display().to_string());
     }
-    return path.display().to_string();
+    else
+    {
+        dir.pop();
+        dir.pop();
+    
+        let path = dir.join(app);
+        if path.exists() {
+            return Some(path.display().to_string());
+        }
+        else {
+            return None;
+        }
+    }
 }
