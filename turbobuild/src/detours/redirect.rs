@@ -64,6 +64,7 @@ pub fn msvc_detours(app_path: String, command_line: String, workding_directory: 
             let lpThreadAttributes = std::ptr::null_mut();
             let mut lpStartupInfo: crate::detours::detours::_STARTUPINFOW = std::mem::MaybeUninit::zeroed().assume_init(); 
             let mut lpProcessInformation: crate::detours::detours::_PROCESS_INFORMATION = std::mem::MaybeUninit::zeroed().assume_init();
+            
 
             let ret = DetourCreateProcessWithDllExW(appNameWideChars.as_ptr(), 
                 commandLineWideChars.as_mut_ptr(), 

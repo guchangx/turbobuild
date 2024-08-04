@@ -2,23 +2,20 @@
 pub fn lpwstr_2_string(lp_param: winapi::um::winnt::LPCWSTR) -> core::option::Option<std::string::String> {
     use std::os::windows::prelude::*;
 
-    if !lp_param.is_null() {
-        let mut result_string = "".to_string();
-        let non_null_wstr_ptr = unsafe { std::ptr::NonNull::new_unchecked(lp_param as *mut _) };
-        let wide_slice = unsafe { std::slice::from_raw_parts(non_null_wstr_ptr.as_ptr(), std::u16::MAX as usize) };
-    
-        if let Some(null_index) = wide_slice.iter().position(|&x| x == 0) {
-          
-            let truncated_slice = &wide_slice[..null_index];
-            
-            let os_string = std::ffi::OsString::from_wide(truncated_slice);
-            
-            result_string = os_string.to_string_lossy().into_owned();
 
-        } else {
-            println!("No null terminator found.");
+    if !lp_param.is_null() {
+        let non_null_wstr_ptr = unsafe { std::ptr::NonNull::new_unchecked(lp_param as *mut _) };
+        
+        let len = unsafe { (0..).take_while(|&i| *lp_param.offset(i) != 0).count() };
+        if len != 0 {
+            let wide_slice = unsafe { std::slice::from_raw_parts(non_null_wstr_ptr.as_ptr(), len) };
+            let os_string = std::ffi::OsString::from_wide(wide_slice);
+            let result_string = os_string.to_string_lossy().into_owned();
+            return Some(result_string);
         }
-        return Some(result_string);   
+        else {
+            return None;
+        }
     }
     else
     {

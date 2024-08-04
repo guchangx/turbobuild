@@ -20,7 +20,7 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
         //return true;
     }
     else {
-        println!("DllMain is a target process");
+        //println!("DllMain is a target process");
     }
 
     match fdw_reason {

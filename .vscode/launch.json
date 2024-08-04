@@ -8,7 +8,8 @@
             "type": "lldb",
             "request": "attach",
             "name": "Attach to 'redirect.dll'",
-            "program": "redirect.dll"
+            "program": "redirect.dll",
+            "pid": "${command:pickProcess}"
         },
         {
             "type": "lldb",
