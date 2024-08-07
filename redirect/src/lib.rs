@@ -26,8 +26,6 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
             println!("DLL_PROCESS_ATTACH");
-            println!("hinstDll: {:?}", hinst_dll);
-            println!("lpvReserved: {:?}", lpv_reserved);
 
             unsafe {
                 println!("message box for process attach");
@@ -71,22 +69,10 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
 
         },
         winapi::um::winnt::DLL_THREAD_ATTACH => {
-            println!("DLL_THREAD_ATTACH");
-            println!("hinstDll: {:?}", hinst_dll);
-            println!("lpvReserved: {:?}", lpv_reserved);
+            //println!("DLL_THREAD_ATTACH");
         },
         winapi::um::winnt::DLL_PROCESS_DETACH => {
             println!("DLL_PROCESS_DETACH");
-            println!("hinstDll: {:?}", hinst_dll);
-            println!("lpvReserved: {:?}", lpv_reserved);
-                
-            unsafe {
-                println!("message box for process attach");
-                let text = crate::utils::convert::string_2_lpwstr("Debug BreakPoint".to_string());
-                let caption = crate::utils::convert::string_2_lpwstr("Detach Programe".to_string());
-                winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.unwrap(), caption.unwrap(), 0);
-            }
-
             crate::detours::DetourTransactionBegin();
             crate::detours::DetourUpdateThread(winapi::um::processthreadsapi::GetCurrentThread() as _);
             //DetourDetach();
@@ -94,10 +80,7 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
 
         }
         winapi::um::winnt::DLL_THREAD_DETACH => {
-
-            println!("DLL_THREAD_DETACH");
-            println!("hinstDll: {:?}", hinst_dll);
-            println!("lpvReserved: {:?}", lpv_reserved);
+            //println!("DLL_THREAD_DETACH");
         },
         _ => {
             println!("DllMain: unknown reason");
