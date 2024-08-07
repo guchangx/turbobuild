@@ -1557,10 +1557,12 @@ mod tests {
     #[test]
     fn test_inject() {
         println!("msvc test inject");
-        //14.33.31629
-        //14.39.33519
+
         //cargo test --package turbobuild --lib -- compiler::msvc::tests::test_inject --exact --show-output
-        let compiler_path = std::ffi::OsString::from("C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.33.31629/bin/Hostx64/x64/cl.exe");
+        let win_compile_env = crate::platform::windows::WindowsCompilerEnv::default();
+        let mut compiler_path = std::path::PathBuf::from(win_compile_env.compiler_path);
+        compiler_path = compiler_path.join("Hostx64/x64/cl.exe");
+
         let mut working_dir = std::ffi::OsString::from("");
         let dir = std::env::current_dir().unwrap();
         let dir = dir.to_string_lossy();
@@ -1577,14 +1579,15 @@ mod tests {
         let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
         compiler_commands.push(std::ffi::OsString::from("/nologo"));
         compiler_commands.push(std::ffi::OsString::from("/EHs /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR"));
-        compiler_commands.push(std::ffi::OsString::from(r#"/I "C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\shared""#));
-        compiler_commands.push(std::ffi::OsString::from(r#"/I "C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt""#));
-        compiler_commands.push(std::ffi::OsString::from(r#"/I "C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\um""#));
-        compiler_commands.push(std::ffi::OsString::from(r#"/I "C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\winrt""#));
-        compiler_commands.push(std::ffi::OsString::from(r#"/I "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\include""#));
+
+        for sdk_include in win_compile_env.winkits_includes_path {
+            compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {:#?}"#, sdk_include)));
+        }
+        
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {:#?}"#, win_compile_env.msvc_includes_path)));
         compiler_commands.push(std::ffi::OsString::from("/Fotest.obj"));
         compiler_commands.push(std::ffi::OsString::from(r#"/c test.cpp"#));
 
-        start_local_compiler_with_inject(&compiler_path, &working_dir, &compiler_commands);
+        start_local_compiler_with_inject(&compiler_path.into_os_string(), &working_dir, &compiler_commands);
     }
 }
