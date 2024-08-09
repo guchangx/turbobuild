@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::io::Write;
 
-pub struct Sender<'a>{
+pub struct Sender<'a> {
     client: &'a crate::network::client::NetworkClient,
 }
 

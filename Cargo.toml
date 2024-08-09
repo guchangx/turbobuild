@@ -1,4 +1,4 @@
 
 [workspace]
-members = ["redirect", "turbobuild"]
+members = ["redirect", "turbobuild", "buildassist"]
 resolver = "2"
