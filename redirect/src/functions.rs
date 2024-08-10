@@ -63,7 +63,7 @@ pub unsafe fn create_file_a(
                 }
                 if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                     let error_code = winapi::um::errhandlingapi::GetLastError();
-                    println!("kernelbase create_file_w failed! error_code: {}.", error_code);
+                    println!("kernelbase create_file_a failed! error_code: {}.", error_code);
                 }
 
                 return handle;
@@ -85,7 +85,7 @@ pub unsafe fn create_file_a(
 
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                println!("kernelbase create_file_w failed! error_code: {}.", error_code);
+                println!("create_file_a failed! error_code: {}.", error_code);
             }
 
             return handle;
@@ -141,7 +141,7 @@ pub unsafe fn create_file_w(
                 if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                     let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                     let error_code = winapi::um::errhandlingapi::GetLastError();
-                    println!("kernelbase create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
+                    println!("create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
                 }
 
                 return handle;
@@ -165,7 +165,7 @@ pub unsafe fn create_file_w(
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                println!("kernelbase create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
+                println!("create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
             }
 
             return handle;    
@@ -251,7 +251,7 @@ pub unsafe fn kernelbase_create_file_a(
 
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                println!("kernelbase create_file_w failed! error_code: {}.", error_code);
+                println!("kernelbase create_file_a failed! error_code: {}.", error_code);
             }
             return handle;    
         }
@@ -307,7 +307,7 @@ pub unsafe fn kernelbase_create_file_w(
                 if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                     let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                     let error_code = winapi::um::errhandlingapi::GetLastError();
-                    println!("kernelbase create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
+                    println!("kernelbase create_file_a failed! error_code: {} {:?}.", error_code, hook_path);
                 }
         
                 return handle; 
