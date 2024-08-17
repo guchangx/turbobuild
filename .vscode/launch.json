@@ -6,6 +6,24 @@
     "configurations": [
         {
             "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'turbobuild'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=turbobuild",
+                    "--package=turbobuild"
+                ],
+                "filter": {
+                    "name": "turbobuild",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
             "request": "attach",
             "name": "Attach to 'redirect.dll'",
             "program": "redirect.dll",
@@ -14,16 +32,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in library 'buildturbo'",
+            "name": "Debug unit tests in library 'turbobuild'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
                     "--lib",
-                    "--package=buildturbo"
+                    "--package=turbobuild"
                 ],
                 "filter": {
-                    "name": "buildturbo",
+                    "name": "turbobuild",
                     "kind": "lib"
                 }
             },
@@ -33,34 +51,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'buildturbo'",
-            "cargo": {
-                "args": [
-                    "build",
-                    "--bin=buildturbo",
-                    "--package=buildturbo"
-                ],
-                "filter": {
-                    "name": "buildturbo",
-                    "kind": "bin"
-                }
-            },
-            "args": [],
-            "cwd": "${workspaceFolder}"
-        },
-        {
-            "type": "lldb",
-            "request": "launch",
-            "name": "Debug unit tests in executable 'buildturbo'",
+            "name": "Debug unit tests in executable 'buildassist'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=buildturbo",
-                    "--package=buildturbo"
+                    "--bin=buildassist",
+                    "--package=buildassist"
                 ],
                 "filter": {
-                    "name": "buildturbo",
+                    "name": "buildassist",
                     "kind": "bin"
                 }
             },
@@ -72,7 +72,7 @@
     "compounds": [
         {
             "name": "Both Executables",
-            "configurations": ["Debug unit tests in executable 'buildturbo'", "Attach to 'redirect.dll'"]
+            "configurations": ["Debug unit tests in executable 'turbobuild'", "Attach to 'redirect.dll'"]
         }
     ],
 }

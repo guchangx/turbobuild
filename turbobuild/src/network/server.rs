@@ -10,7 +10,7 @@ pub struct NetworkRequestHandler {
 impl Default for NetworkRequestHandler {
     fn default() -> Self {
         Self {
-            coordinator_addr: "127.0.0.1:9302".to_string(),
+            coordinator_addr: "0.0.0.0:9302".to_string(),
             _workers_addr: vec!["127.0.0.1:9302".to_string()],
         }
     }

@@ -947,6 +947,7 @@ fn request_local_compile_by_preprocessed_source(msvc_compile_input: &super::comp
                     let _ = std::fs::create_dir_all(&path);
                 }
             }
+            
             else {
                 if !path.exists() {
                     let _ = std::fs::create_dir_all(&path);
@@ -1099,8 +1100,8 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
     log::trace!("compiler path: {:?}", compiler_path);
     log::trace!("compile content: {:?}", compiler_commands);
 
-    start_local_compiler_with_inject(compiler_path, working_dir, compiler_commands);
-    return (false, std::sync::Arc::new(vec![]), std::sync::Arc::new(vec![]));
+    //start_local_compiler_with_inject(compiler_path, working_dir, compiler_commands);
+    //return (false, std::sync::Arc::new(vec![]), std::sync::Arc::new(vec![]));
 
     let start = std::time::Instant::now();
     let child = std::process::Command::new(compiler_path)

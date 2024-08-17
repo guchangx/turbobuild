@@ -21,6 +21,7 @@ impl RedisCache {
             redis_addr = redis_url.to_string();
         }
         //"redis://10.224.201.61/"
+        println!("redus addr: {}", redis_addr);
         let client = redis::Client::open(redis_addr);
         match client {
             Ok(client) => {

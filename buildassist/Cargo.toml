@@ -1,7 +1,11 @@
 [package]
 name = "buildassist"
-version = "0.23.3"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+
 
 
 [dependencies]

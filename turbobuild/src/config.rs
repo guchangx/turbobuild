@@ -21,7 +21,7 @@ impl ConfigurationInfo {
                     coordinator_addr: String::from("127.0.0.1"),
                     local_addr: String::from("127.0.0.1"),
                     workers_addr: vec![String::from("127.0.0.1")],
-                    redis_addr: String::from("")
+                    redis_addr: String::from("127.0.0.1")
                 };
                 return value;
             },

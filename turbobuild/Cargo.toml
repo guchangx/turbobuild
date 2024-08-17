@@ -1,8 +1,10 @@
 [package]
 name = "turbobuild"
-version = "0.1.0"
-edition = "2021"
-build = "build.rs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -26,5 +28,6 @@ zip = {version = "0.6.3", features = ["zstd"]}
 env_logger = "0.9.1"
 log = "0.4.17"
 sysinfo = "0.27.5"
+
 [build-dependencies]
 bindgen = "0.56.0"
