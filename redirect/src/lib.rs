@@ -1,4 +1,6 @@
 
+extern crate winapi;
+
 mod detours;
 mod hook;
 mod utils;
