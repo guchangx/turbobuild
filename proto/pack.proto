@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package pack;
+
+message CommandTrRequest {
+    string command = 1;
+}
+
+message CommandTrResponse {
+    int32 error_code = 1;
+    string error_message = 2;
+}
+
+message FileTrRequest {
+    string path = 1;
+}
+
+message FileTrResponse {
+    int32 error_code = 1;
+    string error_message = 2;
+}
+
+service communicate {
+    rpc transmit_file(FileTrRequest) returns (FileTrResponse) {}
+    rpc transmit_command(CommandTrRequest) returns (CommandTrResponse) {} 
+}

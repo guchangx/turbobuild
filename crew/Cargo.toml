@@ -1,0 +1,26 @@
+[package]
+name = "crew"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+
+
+[dependencies]
+common = { path = "../common" }
+
+tonic = "0.12.1"
+prost = "0.13.1"
+serde_derive = "1.0.196"
+serde = "1.0.196"
+tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread"] }
+tokio-stream = "0.1.9"
+sysinfo = "0.31.4"
+winapi = "0.3.9"
+regex = "1.6.0"
+log = "0.4.17"
+zip = {version = "0.6.3", features = ["zstd"]}
+
+[build-dependencies]
+tonic-build = "0.12.1"

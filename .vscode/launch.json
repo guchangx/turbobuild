@@ -24,6 +24,42 @@
         },
         {
             "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'captain'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=captain",
+                    "--package=captain"
+                ],
+                "filter": {
+                    "name": "captain",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug executable 'crew'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=crew",
+                    "--package=crew"
+                ],
+                "filter": {
+                    "name": "crew",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
             "request": "attach",
             "name": "Attach to 'redirect.dll'",
             "program": "redirect.dll",

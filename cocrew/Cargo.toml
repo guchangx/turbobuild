@@ -1,0 +1,19 @@
+[package]
+name = "cocrew"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+
+
+[dependencies]
+common = { path = "../common" }
+
+tonic = "0.12.1"
+prost = "0.13.1"
+tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread"] }
+log = "0.4.17"
+
+[build-dependencies]
+tonic-build = "0.12.1"

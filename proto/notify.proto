@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package notify;
+
+enum Type {
+    UNKNOWN = 0;
+    REGISTER = 1;
+    UNREGISTER = 2;
+    KEEPALIVE = 3;
+    DATA = 4;
+}
+
+message NotifyRequest {
+  Type type = 1;
+  string name = 2;
+}
+
+message NotifyResponse {
+  Type type = 1;
+  string message = 2;
+  int32 error_code = 3;
+  string error_message = 4;
+}
+
+service communicate { 
+  rpc notify (stream NotifyRequest) returns (stream NotifyResponse) {}
+  rpc unregister (NotifyRequest) returns (NotifyResponse) {}
+}
