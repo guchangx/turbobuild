@@ -525,10 +525,10 @@ async fn load_precompiled_result_file_from_disk_by_zip(
                 content: std::mem::take(content),
             };
             
-            sender.lock().unwrap().send(crate::communicate::package::SenderType::Archive(args));
-        
-            //start form here
-            let handle = network.dist_zip_async("dist/syncfile", "precompiledsourcefile", zip_file.to_str().unwrap(), &content);
+            let handle = tokio::spawn(async move {
+                sender.lock().unwrap().send(crate::communicate::package::SenderType::Archive(args));
+            });
+
             return handle;
         });
 
@@ -547,76 +547,6 @@ async fn load_precompiled_result_file_from_disk_by_zip(
 
     let precompiled_files = precompiled_files.lock().unwrap();
     return precompiled_files.clone();
-}
-
-async fn _load_precompiled_result_file_from_disk(network: &crate::network::client::NetworkClient, compiler_path: &std::ffi::OsString, 
-                source_files: &Vec<String>, working_dir: &std::ffi::OsString, pool: &tokio::runtime::Handle) -> Vec<std::ffi::OsString> {
-
-    let mut precompiled_files = Vec::new();
-    let network = std::sync::Arc::from(network.to_owned());
-    let mut handles = Vec::new();
-    for file in source_files.to_owned() {
-        let network = network.clone();
-        let compiler_path = compiler_path.to_owned();
-
-        let mut path = std::path::PathBuf::from(working_dir);
-        let file = std::path::PathBuf::from(file);
-        let file_name = file.file_stem().unwrap();
-        path = path.join(file_name);
-        path.set_extension("i");
-
-        precompiled_files.push(path.clone().into_os_string());
-        
-        let handle = pool.spawn_blocking(move || {
-            let thread = std::thread::current();
-            log::trace!("sync file start. thread id: {:?}.", thread.id());
-
-            match std::fs::File::open(&path) {
-                Ok(file) => {
-                    let mut content = Vec::new();
-                    let mut file = std::io::BufReader::new(file);
-                    file.read_to_end(&mut content).unwrap();
-  
-                    let precompiled_suorce = PrecompiledSource {
-                        preprocessed_source_contents: Some(content),
-                        preprocessed_source_path: std::ffi::OsString::from(&path)
-                    };
-
-                    let msvc_compile_empty_input = CompileInput {
-                        compiler_path_or_arch: compiler_path.to_owned(),
-                        compiler_working_dir: std::ffi::OsString::from(""),
-                        compiler_commands: Vec::<std::ffi::OsString>::new(),
-                        build_and_compiler_type: std::ffi::OsString::from("Sync Precompiled Source File"),
-                        env_input: None
-                    };
-
-                    let result = request_dist_compile_and_sync_result(&network, 
-                            &msvc_compile_empty_input, &precompiled_suorce);
-                        
-                    if result.compile_status {
-                        log::trace!("sync precompiled source file from disk response sucess.")
-                    }
-                    else {
-                        log::trace!("sync precompiled source file from disk response failed. output: {:?}.", result.compile_output)
-                    }
-                },
-                Err(error) => {
-                    log::warn!("sync precompiled source file from disk failed. {:?}, error: {:?}.", path, error);
-                },
-            };
-        });
-
-        handles.push(handle);
-    }
-
-    for handle in handles {
-        if !handle.is_finished() {
-            handle.await.unwrap()
-        }
-    }
-
-    return precompiled_files;
-
 }
 
 fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
