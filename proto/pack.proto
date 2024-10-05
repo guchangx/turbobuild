@@ -12,7 +12,9 @@ message CommandTrResponse {
 }
 
 message FileTrRequest {
-    string path = 1;
+    string name = 1;
+    string path = 2;
+    bytes content = 3
 }
 
 message FileTrResponse {

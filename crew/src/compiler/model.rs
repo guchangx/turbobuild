@@ -30,8 +30,8 @@ pub struct EnvInput {
     pub msvc_version: std::ffi::OsString,
     pub env_args: std::ffi::OsString,
 }
-#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
-pub struct CompileInput {
+#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone, Default)]
+pub struct CompilerInput {
     pub compiler_path_or_arch: std::ffi::OsString,
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
@@ -44,11 +44,19 @@ pub struct PrecompiledSource {
     pub preprocessed_source_contents: Option<Vec<u8>>,
     pub preprocessed_source_path: std::ffi::OsString, 
 }
-#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
-pub struct CompileOutput {
+#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone, Default)]
+pub struct CompilerOutput {
     pub compiled_filename: Vec<std::ffi::OsString>,
     pub compile_status: bool,
     pub compile_output: std::ffi::OsString,
+}
+
+impl CompilerOutput {
+    pub fn set(&mut self, value: Self) {
+        self.compiled_filename = value.compiled_filename;
+        self.compile_status = value.compile_status;
+        self.compile_output = value.compile_output;
+    }
 }
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
