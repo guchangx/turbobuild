@@ -14,7 +14,7 @@ pub fn build(compile_input: CompilerInput)
     if compile_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || compile_input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
         let msvc = super::msvc::MSVC {version: "".to_string()};
-        let output = msvc.dist_request_compile(working_parameters);
+        let output = msvc.dist_request_compile(compile_input);
         return output;
     }
     else if compile_input.build_and_compiler_type == "Clang" {

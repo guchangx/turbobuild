@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'turbobuild'",
+            "name": "Debug 'turbobuild'",
             "cargo": {
                 "args": [
                     "build",
@@ -25,7 +25,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'captain'",
+            "name": "Debug 'captain'",
             "cargo": {
                 "args": [
                     "build",
@@ -43,7 +43,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'crew'",
+            "name": "Debug 'crew'",
             "cargo": {
                 "args": [
                     "build",

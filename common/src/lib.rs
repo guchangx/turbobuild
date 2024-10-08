@@ -1,3 +1,3 @@
 
 pub mod logger;
-pub mod util;
+pub mod utils;

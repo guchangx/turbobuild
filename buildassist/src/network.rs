@@ -67,7 +67,7 @@ impl NetworkClient {
     }
 
     pub fn request_compile(&self, compiler_input: crate::commands::CompilerInput) {
-        match std::net::TcpStream::connect("localhost:3333") {
+        match std::net::TcpStream::connect("localhost:9301") {
             Ok(mut stream) => {
                 println!("connect to remote server success.");
                 
@@ -77,18 +77,17 @@ impl NetworkClient {
                 "compiler_working_dir":"{}",
                 "compiler_commands":"{:?}",
                 "build_and_compiler_type":"{}"
-                }}"#, 
+                }}"#,
                 compiler_input.compiler_path_or_arch.to_string_lossy(), 
                 compiler_input.compiler_working_dir.to_string_lossy(), 
                 commands, 
                 compiler_input.build_and_compiler_type.to_string_lossy());
 
-                
                 stream.write(buffer.as_bytes()).unwrap();
 
                 let mut data = [0 as u8; 128];
                 match stream.read(&mut data) {
-                    Ok(size) => {
+                    Ok(_size) => {
                         println!("read from remote server success. {:?}", data);
                     },
                     Err(err) => {
@@ -96,7 +95,9 @@ impl NetworkClient {
                     }
                 }
             },
-            Err(err) => {},
+            Err(err) => {
+                println!("connect to remote server failed. {:?}", err)
+            },
         }
     }
 }

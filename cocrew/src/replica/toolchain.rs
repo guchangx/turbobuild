@@ -14,7 +14,7 @@ impl Property {
     }
     
     pub fn fetch_replica_path(&self) -> String {
-        let replica_path = common::util::get_working_path("Replica".to_string());
+        let replica_path = common::utils::get_working_path("Replica".to_string());
         println!("replica path: {:?}", replica_path);
         if let Some(path) = replica_path {
             let path = self.mapping_dir(path); 
