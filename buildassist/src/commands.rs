@@ -1,12 +1,12 @@
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-pub struct CompileInput {
+pub struct CompilerInput {
     pub compiler_path_or_arch: std::ffi::OsString,
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
     pub build_and_compiler_type: std::ffi::OsString,
 }
 
-pub fn fetch_compiler_commands() -> Option<CompileInput> {
+pub fn fetch_compiler_commands() -> Option<CompilerInput> {
     let commandline =  std::env::args_os();
     let mut commands:Vec<std::ffi::OsString> = commandline.collect();
 
@@ -15,7 +15,7 @@ pub fn fetch_compiler_commands() -> Option<CompileInput> {
         let commands = fetch_and_parse_commands_for_msbuild(&mut commands);
         match commands {
             Some(commands) => {
-                let input = CompileInput {
+                let input = CompilerInput {
                         compiler_path_or_arch: std::ffi::OsString::from("x64"),
                         compiler_working_dir: std::ffi::OsString::from(working_dir),
                         compiler_commands: commands,
@@ -30,7 +30,7 @@ pub fn fetch_compiler_commands() -> Option<CompileInput> {
      }
      else {
         let (compiler_path, commands) = fetch_and_parse_commands_for_cmake(&mut commands);
-        let input = CompileInput {
+        let input = CompilerInput {
             compiler_path_or_arch: compiler_path,
             compiler_working_dir: std::ffi::OsString::from(working_dir),
             compiler_commands: commands,
