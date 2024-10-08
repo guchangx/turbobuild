@@ -1,56 +1,34 @@
-use std::io::Write;
 
+use crate::compiler::model::{CompilerInput, CompilerOutput, ProcessedResults};
 
 pub trait Compiler {
-    fn request_compile(&self, compile_input: crate::compiler::model::CompileInput) 
-        -> (crate::compiler::model::CompileOutput, Option<crate::compiler::model::ProcessedResults>);
-        
-    fn dist_request_compile(&self, compile_input: crate::compiler::model::CompileInput) 
-        -> (crate::compiler::model::CompileOutput, Option<crate::compiler::model::ProcessedResults>);
- 
-    fn remote_request_compile(&self, compile_input: crate::compiler::model::CompileInput) 
-        -> (crate::compiler::model::CompileOutput, Option<crate::compiler::model::ProcessedResults>);
+    fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<ProcessedResults>);
 }
 
 // local request compile
-pub async fn request_compile(compile_input: crate::compiler::model::CompileInput, pool: &tokio::runtime::Handle) 
-        -> (crate::compiler::model::CompileOutput, Option<crate::compiler::model::ProcessedResults>) {
+pub async fn request_compile(compiler_input: CompilerInput, runtime: std::sync::Arc<tokio::runtime::Handle>, 
+                            packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::packager::Packager>>) 
+                            -> (CompilerOutput, Option<ProcessedResults>) {
                     
-    if compile_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
-        || compile_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
-        let msvc = crate::compiler::msvc::MSVC {};
-        let output = msvc.request_compile(working_parameters, compile_input, pool, grade).await;
-        return output;
-    }
-    else if compile_input.build_and_compiler_type == "Clang" {
-        return (crate::compiler::model::CompileOutput::default(), None);
-    }
-    else if compile_input.build_and_compiler_type == "GCC" {
-        return (crate::compiler::model::CompileOutput::default(), None);
-    }
-    else {
-        return (crate::compiler::model::CompileOutput::default(), None);
-    }
-}
-
-// distributed request compile
-pub fn dist_request_compile(compile_input: crate::compiler::model::CompileInput, pool: &tokio::runtime::Handle) 
-        -> (crate::compiler::model::CompileOutput, Option<crate::compiler::model::ProcessedResults>) {
+    if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
+        || compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
             
-    println!("build and compiler type: {:?}", compile_input.build_and_compiler_type);
-    if compile_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
-        || compile_input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
-        let msvc = super::msvc::MSVC {};
-        let output = msvc.dist_request_compile(working_parameters, compile_input, pool, grade.clone()).await;
+        let msvc = crate::compiler::msvc::MSVC {
+            working_parameters: crate::platform::windows::WindowsCompilerEnv::default(),
+            pool: runtime,
+            sender: packager,            
+        };
+        
+        let output = msvc.request_compile(compiler_input);
         return output;
     }
-    else if compile_input.build_and_compiler_type == "Clang" {
-        return (crate::compiler::model::CompileOutput::default(), None);
+    else if compiler_input.build_and_compiler_type == "Clang" {
+        return (CompilerOutput::default(), None);
     }
-    else if compile_input.build_and_compiler_type == "GCC" {
-        return (crate::compiler::model::CompileOutput::default(), None);
+    else if compiler_input.build_and_compiler_type == "GCC" {
+        return (CompilerOutput::default(), None); 
     }
     else {
-        return (crate::compiler::model::CompileOutput::default(), None);
+        return (CompilerOutput::default(), None);
     }
 }

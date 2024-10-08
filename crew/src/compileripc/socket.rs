@@ -6,13 +6,15 @@ use std::io::Write;
 pub struct Receiver {
     port: u16,
     common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>,
+    packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::packager::Packager>>,
 }
 
 impl Receiver {
-    pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>) -> Self {
+    pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>, packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::packager::Packager>>) -> Self {
         return Self {
             port: 9301,
             common,
+            packager,
         }
     } 
     
@@ -23,10 +25,13 @@ impl Receiver {
             match stream {
                 Ok(stream) => {
                     println!("new connection socket");
-                    std::thread::spawn(||{
-                        Self::handle_ipc_socket(stream);
-
+                    let runtime = self.common.upgrade().unwrap().lock().unwrap().pool.clone().unwrap();
+                    let packager = self.packager.clone();
+                    let runtime_ = runtime.clone();
+                    let _ = runtime.spawn(async {
+                        Self::handle_ipc_stream(stream, runtime_, packager).await;                        
                     });
+                    //can't block current run.
                 },
                 Err(err) => {
                     println!("Error: {}", err);
@@ -35,14 +40,18 @@ impl Receiver {
         }
     }
     
-    fn handle_ipc_socket(mut stream: std::net::TcpStream) {
-        let mut buffer = [0; 512];
+    async fn handle_ipc_stream(mut stream: std::net::TcpStream, runtime: std::sync::Arc<tokio::runtime::Handle>, packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::packager::Packager>>) {
+        let mut buffer = [0 as u8; 512];
         
         loop {
             match stream.read(&mut buffer) {
                 Ok(size) => {
                     println!("Received {} bytes", size);
                     println!("{}", String::from_utf8_lossy(&buffer[..size]));
+                    
+                    let input = crate::compiler::model::CompilerInput::default();
+                    
+                    crate::compiler::interface::request_compile(input, runtime.clone(), packager.clone()).await;
                     
                     stream.write_all(b"done").unwrap();
                 },

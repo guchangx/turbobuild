@@ -1,1 +1,1 @@
-pub mod packfile;
+pub mod package;

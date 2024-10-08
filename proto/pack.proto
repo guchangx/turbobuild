@@ -11,10 +11,17 @@ message CommandTrResponse {
     string error_message = 2;
 }
 
+enum FileType {
+    UNKNOWN = 0;
+    TOOLCHAIN = 1;
+    KITS= 2;
+}
+
 message FileTrRequest {
-    string name = 1;
-    string path = 2;
-    bytes content = 3
+    FileType file_type = 1;
+    string name = 2;
+    string path = 3;
+    bytes content = 4;
 }
 
 message FileTrResponse {

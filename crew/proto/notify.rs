@@ -33,11 +33,11 @@ impl Type {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Self::Unknown => "UNKNOWN",
-            Self::Register => "REGISTER",
-            Self::Unregister => "UNREGISTER",
-            Self::Keepalive => "KEEPALIVE",
-            Self::Data => "DATA",
+            Type::Unknown => "UNKNOWN",
+            Type::Register => "REGISTER",
+            Type::Unregister => "UNREGISTER",
+            Type::Keepalive => "KEEPALIVE",
+            Type::Data => "DATA",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -54,13 +54,7 @@ impl Type {
 }
 /// Generated client implementations.
 pub mod communicate_client {
-    #![allow(
-        unused_variables,
-        dead_code,
-        missing_docs,
-        clippy::wildcard_imports,
-        clippy::let_unit_value,
-    )]
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
@@ -154,7 +148,8 @@ pub mod communicate_client {
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::unknown(
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
@@ -174,7 +169,8 @@ pub mod communicate_client {
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::unknown(
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;

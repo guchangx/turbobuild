@@ -1,7 +1,7 @@
 
 #[derive(Default, Clone)]
 pub struct Common {
-    pub file_receiver: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::communicate::packfile::FileReceiver>>>,
+    pub file_receiver: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::communicate::package::FileReceiver>>>,
 }
 
 impl Common {
@@ -20,7 +20,7 @@ pub fn init_common() {
     let common = std::sync::Arc::new(std::sync::Mutex::new(common));
     let weak_common = std::sync::Arc::downgrade(&common);
 
-    let receiver = crate::communicate::packfile::FileReceiver::new(weak_common.clone());
+    let receiver = crate::communicate::package::FileReceiver::new(weak_common.clone());
     let receiver_ = receiver.clone();
     
     let handle = std::thread::spawn(move || {

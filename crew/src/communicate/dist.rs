@@ -13,10 +13,10 @@ impl Dist {
     }
 
     pub fn sync() {
-        tokio::spawn(async {
-            let packager = self::packager::Packager::default();
-            packager.toolchain().await;
-        }
+        let packager = self::packager::Packager::default();
+            tokio::spawn(async move {
+                packager.toolchain("toolchain path").await;
+            }
         );
     }
 

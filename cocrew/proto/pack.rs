@@ -13,8 +13,14 @@ pub struct CommandTrResponse {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FileTrRequest {
-    #[prost(string, tag = "1")]
+    #[prost(enumeration = "FileType", tag = "1")]
+    pub file_type: i32,
+    #[prost(string, tag = "2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
     pub path: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", tag = "4")]
+    pub content: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FileTrResponse {
@@ -23,15 +29,38 @@ pub struct FileTrResponse {
     #[prost(string, tag = "2")]
     pub error_message: ::prost::alloc::string::String,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum FileType {
+    Unknown = 0,
+    Toolchain = 1,
+    Kits = 2,
+}
+impl FileType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            FileType::Unknown => "UNKNOWN",
+            FileType::Toolchain => "TOOLCHAIN",
+            FileType::Kits => "KITS",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "UNKNOWN" => Some(Self::Unknown),
+            "TOOLCHAIN" => Some(Self::Toolchain),
+            "KITS" => Some(Self::Kits),
+            _ => None,
+        }
+    }
+}
 /// Generated server implementations.
 pub mod communicate_server {
-    #![allow(
-        unused_variables,
-        dead_code,
-        missing_docs,
-        clippy::wildcard_imports,
-        clippy::let_unit_value,
-    )]
+    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with CommunicateServer.
     #[async_trait]
@@ -216,19 +245,17 @@ pub mod communicate_server {
                 }
                 _ => {
                     Box::pin(async move {
-                        let mut response = http::Response::new(empty_body());
-                        let headers = response.headers_mut();
-                        headers
-                            .insert(
-                                tonic::Status::GRPC_STATUS,
-                                (tonic::Code::Unimplemented as i32).into(),
-                            );
-                        headers
-                            .insert(
-                                http::header::CONTENT_TYPE,
-                                tonic::metadata::GRPC_CONTENT_TYPE,
-                            );
-                        Ok(response)
+                        Ok(
+                            http::Response::builder()
+                                .status(200)
+                                .header("grpc-status", tonic::Code::Unimplemented as i32)
+                                .header(
+                                    http::header::CONTENT_TYPE,
+                                    tonic::metadata::GRPC_CONTENT_TYPE,
+                                )
+                                .body(empty_body())
+                                .unwrap(),
+                        )
                     })
                 }
             }

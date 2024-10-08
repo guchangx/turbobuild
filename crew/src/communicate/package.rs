@@ -16,7 +16,14 @@ pub struct FileArgs {
     
 }
 
+pub enum FileType {
+    Unknown = 0,
+    ToolChain = 1,
+    Kits = 2,
+}
+
 pub struct ArchiveArgs<'a> {
+    pub file_type: FileType,
     pub name: String,
     pub path: String,    
     pub content: std::borrow::Cow<'a, [u8]>,
@@ -40,10 +47,10 @@ impl FileSender {
         return sender;
     }
     
-    pub async fn send(&mut self, sender_type: SenderType) {
+    pub async fn send<'a>(&mut self, sender_type: SenderType<'a>) {
         
         match sender_type {
-            SenderType::Command(args) => {
+            SenderType::Command(_args) => {
                 
             },
             SenderType::Archive(args) => {
@@ -71,12 +78,13 @@ impl FileSender {
             }
         }
     }
-    async fn send_file(&mut self, args: ArchiveArgs) {
+    async fn send_file(&mut self, args: ArchiveArgs<'_>) {
 
         let request = tonic::Request::new(pack::FileTrRequest {
+            file_type: args.file_type as i32,
             name: args.name,
             path:  args.path,
-            content: args.content,
+            content: args.content.to_vec(),
         });
         
         let response = self.to_owned().client.transmit_file(request).await;

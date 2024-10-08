@@ -68,22 +68,3 @@ pub struct ProcessedResult {
 }
 
 pub type ProcessedResults = Vec<ProcessedResult>;
-
-impl Default for CompileOutput {
-    fn default() -> Self {
-        let filename: Vec<std::ffi::OsString> = Vec::new();
-        Self { 
-            compiled_filename: filename, 
-            compile_status: false, 
-            compile_output: std::ffi::OsString::new(), 
-        }
-    }
-}
-
-impl CompileOutput {
-    pub fn set(&mut self, value: Self) {
-        self.compiled_filename = value.compiled_filename;
-        self.compile_status = value.compile_status;
-        self.compile_output = value.compile_output;
-    }
-}

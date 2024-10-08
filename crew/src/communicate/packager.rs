@@ -1,22 +1,24 @@
 use std::io::{Read, Write};
-use crate::communicate::package::ArchiveArgs;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 
 pub struct Packager {
 
 }
 
 impl Packager {
-    pub async fn toolchain(self, path: &str) {
+    pub async fn toolchain(&self, path: &str) {
 
         println!("path: {:?}", path);
-        let mut path = std::path::PathBuf::from(path);
+        
         //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\
         //msvc bin dir
-        let mut content = self.pack_dir(path.to_str().unwrap(), "msvc");
-        self.send_package("msvc", path.to_str().unwrap(), &content).await;
 
+        let content = Self::pack_dir(path, "msvc");
+        
+        Self::send_package("msvc", path, &content).await;
+
+        let mut path = std::path::PathBuf::from(path);
         //msvc include
         for _ in 0..3 {
             path.pop();
@@ -26,12 +28,12 @@ impl Packager {
         if include.is_dir() {
             println!("sync dir: {:?}", path);
 
-            let mut content = self.pack_dir(include.to_str().unwrap(), "msvc");
-            self.send_package("msvc", path.to_str().unwrap(), &content).await;
+            let content = Self::pack_dir(include.to_str().unwrap(), "msvc");
+            Self::send_package("msvc", path.to_str().unwrap(), &content).await;
         }
     }
 
-    fn pack_dir(&self, dir: &str, name: &str) -> &std::borrow::Cow<[u8]> {
+    fn pack_dir<'a>(dir: &str, _name: &str) -> std::borrow::Cow<'a, [u8]> {
         let mut path = std::path::PathBuf::from(dir);
 
         let mut cursor = std::io::Cursor::new(Vec::new());
@@ -42,11 +44,11 @@ impl Packager {
 
         let start = std::time::Instant::now();
 
-        self.zip_visit_dir(path.as_path(), path.as_path(), &mut zip, &options);
+        Self::zip_dir(path.as_path(), path.as_path(), &mut zip, &options);
         let content = zip.finish().unwrap();
+        let file = content.to_owned().into_inner();
+        let content = std::borrow::Cow::from(file);
         let elapsed = start.elapsed();
-
-        let content = std::borrow::Cow::from(content.get_ref());
 
         match path.extension() {
             Some(extension) => {
@@ -60,10 +62,10 @@ impl Packager {
         }
 
         log::info!("zip dir elapsed time: {:?}", elapsed);
-        return &content;
+        return content;
     }
 
-    fn zip_visit_dir(&self, entry_dir: &std::path::Path, dir: &std::path::Path, zip: &mut zip::ZipWriter<&mut std::io::Cursor<Vec<u8>>>, options: &zip::write::FileOptions) {
+    fn zip_dir(entry_dir: &std::path::Path, dir: &std::path::Path, zip: &mut zip::ZipWriter<&mut std::io::Cursor<Vec<u8>>>, options: &zip::write::FileOptions) {
         let mut buffer = Vec::new();
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries {
@@ -74,7 +76,7 @@ impl Packager {
 
                         if file_type.is_dir() {
                             zip.add_directory(name, *options).unwrap();
-                            self.zip_visit_dir(entry_dir, &path, zip, options);
+                            Self::zip_dir(entry_dir, &path, zip, options);
                             log::debug!("name: {:?}, path: {:?}", name, entry.path().to_str().unwrap());
                         }
                         else if file_type.is_file() {
@@ -93,20 +95,21 @@ impl Packager {
         }
     }
 
-    async fn send_package(&self, name: &str, filename: &str, content: &std::borrow::Cow<[u8]>) {
+    async fn send_package<'a>(name: &str, filename: &str, content: &std::borrow::Cow<'a, [u8]>) {
 
         let mut sender = crate::communicate::package::FileSender::new();
         let args = crate::communicate::package::ArchiveArgs {
+            file_type: crate::communicate::package::FileType::ToolChain,
             name: name.to_owned(),
             path: filename.to_owned(),
             content: content.to_owned(),
         };
-
-        sender.send(crate::communicate::package::SenderType::Archive(args)).await;
+        let args = crate::communicate::package::SenderType::Archive(args);
+        sender.send(args).await;
     }
 
     //do not must
-    async fn windows_kits(&mut self, kits: &str) {
+    async fn windows_kits(&mut self, _kits: &str) {
 
     }
 }
