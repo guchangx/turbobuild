@@ -65,7 +65,7 @@ impl Packager {
         return content;
     }
 
-    fn zip_dir(entry_dir: &std::path::Path, dir: &std::path::Path, zip: &mut zip::ZipWriter<&mut std::io::Cursor<Vec<u8>>>, options: &zip::write::FileOptions) {
+    fn zip_dir(entry_dir: &std::path::Path, dir: &std::path::Path, zip: &mut zip::ZipWriter<&mut std::io::Cursor<Vec<u8>>>, options: &zip::write::SimpleFileOptions) {
         let mut buffer = Vec::new();
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries {

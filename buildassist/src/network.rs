@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::{any::Any, error::Error, io::{ErrorKind, Read, Write}};
 
 
 #[derive(serde::Deserialize, serde::Serialize, Debug)]
@@ -69,7 +69,7 @@ impl NetworkClient {
     pub fn request_compile(&self, compiler_input: crate::commands::CompilerInput) {
         match std::net::TcpStream::connect("localhost:9301") {
             Ok(mut stream) => {
-                println!("connect to remote server success.");
+                println!("connect to turbobuild server success.");
                 
                 let commands:Vec<_> = compiler_input.compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
                 let buffer = format!(r#"{{
@@ -78,6 +78,7 @@ impl NetworkClient {
                 "compiler_commands":"{:?}",
                 "build_and_compiler_type":"{}"
                 }}"#,
+                
                 compiler_input.compiler_path_or_arch.to_string_lossy(), 
                 compiler_input.compiler_working_dir.to_string_lossy(), 
                 commands, 
@@ -88,15 +89,18 @@ impl NetworkClient {
                 let mut data = [0 as u8; 128];
                 match stream.read(&mut data) {
                     Ok(_size) => {
-                        println!("read from remote server success. {:?}", data);
+                        println!("read from turbobuild server: {:?}", data);
                     },
                     Err(err) => {
-                        println!("read from remote server failed. {:?}", err);
+                        println!("read from turbobuild server failed. {:?}", err);
                     }
                 }
             },
             Err(err) => {
-                println!("connect to remote server failed. {:?}", err)
+                let kind = err.kind();
+                let message = err.to_string();
+                
+                println!("buildassist failed: {:?}, {}", kind, message);
             },
         }
     }

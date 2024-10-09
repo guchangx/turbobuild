@@ -1,0 +1,1 @@
+ cargo build --bin=crew --package=crew

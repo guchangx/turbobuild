@@ -24,7 +24,7 @@ impl Receiver {
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {
-                    println!("new connection socket");
+                    println!("new buildassist connection socket");
                     let runtime = self.common.upgrade().unwrap().lock().unwrap().pool.clone().unwrap();
                     let packager = self.packager.clone();
                     let runtime_ = runtime.clone();
@@ -41,22 +41,26 @@ impl Receiver {
     }
     
     async fn handle_ipc_stream(mut stream: std::net::TcpStream, runtime: std::sync::Arc<tokio::runtime::Handle>, packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::packager::Packager>>) {
-        let mut buffer = [0 as u8; 512];
-        
+       
+        let mut data = "".to_string();
+        let mut buffer = [0 as u8; 256];
         loop {
             match stream.read(&mut buffer) {
                 Ok(size) => {
-                    println!("Received {} bytes", size);
-                    println!("{}", String::from_utf8_lossy(&buffer[..size]));
-                    
-                    let input = crate::compiler::model::CompilerInput::default();
-                    
-                    crate::compiler::interface::request_compile(input, runtime.clone(), packager.clone()).await;
-                    
-                    stream.write_all(b"done").unwrap();
+                    data = data + String::from_utf8_lossy(&buffer[..size]).to_string().as_str();
+                    if size < buffer.len() {
+                        println!("read buildassist connection data done");
+                        println!("{:?}", data);
+                        let input = crate::compiler::model::CompilerInput::default();
+                        
+                        crate::compiler::interface::request_compile(input, runtime.clone(), packager.clone()).await;
+                        
+                        stream.write_all(b"done").unwrap();
+                        break;
+                    }
                 },
-                Err(e) => {
-                    println!("Error: {}", e);
+                Err(err) => {
+                    println!("read buildassist connect data error: {}", err);
                     break;
                 }
             }

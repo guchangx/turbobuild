@@ -290,7 +290,8 @@ async fn load_precompiled_result_file_from_disk_by_zip(
         
     let precompiled_files = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::ffi::OsString>::new()));
 
-    let options = zip::write::FileOptions::default()
+    
+    let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Zstd);
 
     let mut split_source_files = source_files.to_owned();
