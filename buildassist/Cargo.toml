@@ -7,7 +7,6 @@ description.workspace = true
 documentation.workspace = true
 
 
-
 [dependencies]
-serde = {version = "1.0.137", features = ["derive"]}
-reqwest = {version = "0.12.5", features = ["blocking", "json"]}
+
+[profile.release]

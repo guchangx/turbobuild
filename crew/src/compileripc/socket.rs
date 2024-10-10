@@ -47,7 +47,7 @@ impl Receiver {
         loop {
             match stream.read(&mut buffer) {
                 Ok(size) => {
-                    data = data + String::from_utf8_lossy(&buffer[..size]).to_string().as_str();
+                    data = data + std::str::from_utf8(&buffer[..size]).unwrap();
                     if size < buffer.len() {
                         println!("read buildassist connection data done");
                         println!("{:?}", data);

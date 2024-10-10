@@ -12,7 +12,6 @@ fn fetch_and_dist_compiler_commands() {
         Some(commands) => {
             let client = network::NetworkClient::new();
             client.request_compile(commands);
-            //client.request_local_compile(commands);
         },
         None => {
             println!("fetch compiler commands failed.");
