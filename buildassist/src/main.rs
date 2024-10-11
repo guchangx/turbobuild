@@ -1,5 +1,5 @@
 mod commands;
-mod network;
+mod compileripc;
 
 fn main() {
     fetch_and_dist_compiler_commands();
@@ -10,7 +10,7 @@ fn fetch_and_dist_compiler_commands() {
     let commands = commands::fetch_compiler_commands();
     match commands {
         Some(commands) => {
-            let client = network::NetworkClient::new();
+            let client = compileripc::SocketClient::new();
             client.request_compile(commands);
         },
         None => {

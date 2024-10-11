@@ -6,10 +6,10 @@ struct CompilerOutput {
     compile_output: std::ffi::OsString,
 }
 
-pub struct NetworkClient {
+pub struct SocketClient {
 }
 
-impl NetworkClient {
+impl SocketClient {
 
     pub fn new() -> Self {
         Self {
@@ -22,7 +22,7 @@ impl NetworkClient {
             Ok(mut stream) => {
                 println!("connect to turbobuild server success.");
                 
-                let commands:Vec<_> = compiler_input.compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
+                let commands: Vec<_> = compiler_input.compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
 
                 let buffer = format!(
                     r#"{{"compiler_path_or_arch":"{}", "compiler_working_dir":"{}", "compiler_commands":"{:?}", "build_and_compiler_type":"{}"}}"#,
