@@ -1,5 +1,5 @@
 
-pub struct Crew {
+pub struct CrewConstitution {
     pub username: String,
     pub aliasname: String,
     pub role: u32,
@@ -14,22 +14,22 @@ pub struct Crew {
     pub description: String,
 }
 
-pub struct List {
-    crews: Vec<Crew>,
+pub struct ConstitutionList {
+    crews: Vec<CrewConstitution>,
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
 }
 
-impl List {
+impl ConstitutionList {
     pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>) -> Self {
-        return List {
+        return ConstitutionList {
             crews: Vec::new(),
             common,
         };
     }
-    pub fn add(&mut self, crew: Crew) {
+    pub fn add(&mut self, crew: CrewConstitution) {
         self.crews.push(crew);
     }
-    pub fn remove(&mut self, crew: Crew) -> bool {
+    pub fn remove(&mut self, crew: CrewConstitution) -> bool {
         let index = self.crews.iter().position(|arg| arg.username == crew.username && arg.aliasname == crew.aliasname && arg.addr == crew.addr);
         match index {
             Some(index) => {
@@ -40,7 +40,45 @@ impl List {
         }
     }
     
-    pub fn keepalive(&self, crew: Crew) {
+    pub fn keepalive(&self, crew: CrewConstitution) {
         
     }
+}
+
+pub struct CrewResource {
+    pub username: String, 
+    pub aliasname: String,
+    pub addr: String,
+    pub winkits_includes_path: Vec<std::ffi::OsString>,
+    pub compiler_path: std::ffi::OsString,
+    pub msvc_includes_path: std::ffi::OsString,
+    pub msvc_version: String,
+}
+
+pub struct ResourceList {
+    crews: Vec<CrewResource>,
+    common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
+}
+
+impl ResourceList {
+    pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>) -> Self {
+        return ResourceList {
+            crews: Vec::new(),
+            common,
+        };
+    }
+    pub fn add(&mut self, crew: CrewResource) {
+        self.crews.push(crew);
+    }
+    pub fn remove(&mut self, crew: CrewResource) -> bool {
+        let index = self.crews.iter().position(|arg| arg.username == crew.username && arg.aliasname == crew.aliasname && arg.addr == crew.addr);
+        match index {
+            Some(index) => {
+                self.crews.remove(index);
+                true
+            },
+            None => false
+        }
+    }
+    
 }

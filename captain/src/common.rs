@@ -2,7 +2,8 @@
 #[derive(Default)]
 pub struct Common {
     pub notification: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::communicate::receiver::NotificationReceiver>>>,
-    pub roster: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::List>>>,
+    pub constitutions: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::ConstitutionList>>>,
+    pub resources: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::ResourceList>>>,
 }
 
 impl Common {
@@ -10,7 +11,8 @@ impl Common {
         
         let common = Common {
             notification: None,
-            roster: None,
+            constitutions: None,
+            resources: None,
         };
         
         return common;
@@ -23,10 +25,14 @@ pub fn init_common() {
     let common = std::sync::Arc::new(std::sync::Mutex::new(common));
     let weak_common = std::sync::Arc::downgrade(&common);
 
-    let crews = crate::roster::crews::List::new(weak_common.clone());
-    let arc_crews = std::sync::Arc::new(std::sync::Mutex::new(crews));
-    weak_common.upgrade().unwrap().lock().unwrap().roster = Some(arc_crews.clone());
-
+    let constitutions = crate::roster::crews::ConstitutionList::new(weak_common.clone());
+    let arc_constitutions = std::sync::Arc::new(std::sync::Mutex::new(constitutions));
+    weak_common.upgrade().unwrap().lock().unwrap().constitutions = Some(arc_constitutions);
+    
+    let resources = crate::roster::crews::ResourceList::new(weak_common.clone());
+    let arc_resources = std::sync::Arc::new(std::sync::Mutex::new(resources));
+    weak_common.upgrade().unwrap().lock().unwrap().resources = Some(arc_resources.clone());
+    
     let receiver = crate::communicate::receiver::NotificationReceiver::new(weak_common.clone());
 
     let receiver_ = receiver.clone();

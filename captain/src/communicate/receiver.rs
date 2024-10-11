@@ -79,9 +79,9 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             if let Some(addr) = remote_addr {
                                  
                                 let common = common.lock().expect("common lock failed");
-                                if let Some(roster) = &common.roster {
+                                if let Some(roster) = &common.constitutions {
                                     
-                                    let crew = crate::roster::crews::Crew {
+                                    let crew = crate::roster::crews::CrewConstitution {
                                         username: "".to_string(),
                                         aliasname: "".to_string(),
                                         role: 1,
@@ -113,9 +113,9 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             if let Some(addr) = remote_addr {
                                 
                                 let common = common.lock().expect("common lock failed");
-                                if let Some(roster) = &common.roster {
+                                if let Some(roster) = &common.constitutions {
 
-                                    let crew = crate::roster::crews::Crew {
+                                    let crew = crate::roster::crews::CrewConstitution {
                                         username: "".to_string(),
                                         aliasname: "".to_string(),
                                         role: 1,
@@ -147,9 +147,9 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             
                             if let Some(addr) = remote_addr {
                                 let common = common.lock().expect("common lock failed");
-                                if let Some(roster) = &common.roster {
+                                if let Some(roster) = &common.constitutions {
 
-                                    let crew = crate::roster::crews::Crew {
+                                    let crew = crate::roster::crews::CrewConstitution {
                                         username: "".to_string(),
                                         aliasname: "".to_string(),
                                         role: 1,
@@ -201,9 +201,9 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                         if let Some(addr) = remote_addr {
                                 
                             let common = common.lock().expect("common lock failed");
-                            if let Some(roster) = &common.roster {
+                            if let Some(roster) = &common.constitutions {
 
-                                let crew = crate::roster::crews::Crew {
+                                let crew = crate::roster::crews::CrewConstitution { 
                                     username: "".to_string(),
                                     aliasname: "".to_string(),
                                     role: 1,
@@ -242,4 +242,80 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
 
         Ok(tonic::Response::new(reply))
     }
+
+    async fn report_crews_resource(&self, request: tonic::Request<notify::ReportCrewsResourceRequest>) -> std::result::Result<tonic::Response<notify::ReportCrewsResourceResponse>, tonic::Status> {
+        
+        let report_crews_resource = request.into_inner();
+        let common = self.common.upgrade().expect("upgrade common failed");
+        let common = common.lock().expect("common lock failed");
+
+        if let Some(resource) = &common.resources {
+            
+            let crew = crate::roster::crews::CrewResource {
+                username: report_crews_resource.username,
+                aliasname: report_crews_resource.aliasname,
+                addr: report_crews_resource.addr,
+                winkits_includes_path: report_crews_resource.winkits_includes_path.iter().map(|item| std::ffi::OsString::from(item)).collect(),
+                compiler_path: std::ffi::OsString::from(report_crews_resource.compiler_path),
+                msvc_includes_path: std::ffi::OsString::from(report_crews_resource.msvc_includes_path),
+                msvc_version: report_crews_resource.msvc_version,
+            };
+            
+            resource.lock().expect("roster lock failed").add(crew);
+        }
+        
+        return Ok(tonic::Response::new(notify::ReportCrewsResourceResponse {
+            error_code: 0,
+            error_message: "".to_string(),
+        }));
+    }
+    
+    async fn cancel_crews_resource(&self, request: tonic::Request<notify::ReportCrewsResourceRequest>) -> std::result::Result<tonic::Response<notify::ReportCrewsResourceResponse>, tonic::Status> {
+        let report_crews_resource = request.into_inner();
+        let common = self.common.upgrade().expect("upgrade common failed");
+        let common = common.lock().expect("common lock failed");
+
+        if let Some(resource) = &common.resources {
+            
+            let crew = crate::roster::crews::CrewResource {
+                username: report_crews_resource.username,
+                aliasname: report_crews_resource.aliasname,
+                addr: report_crews_resource.addr,
+                winkits_includes_path: report_crews_resource.winkits_includes_path.iter().map(|item| std::ffi::OsString::from(item)).collect(),
+                compiler_path: std::ffi::OsString::from(report_crews_resource.compiler_path),
+                msvc_includes_path: std::ffi::OsString::from(report_crews_resource.msvc_includes_path),
+                msvc_version: report_crews_resource.msvc_version,
+            };
+            
+            resource.lock().expect("roster lock failed").remove(crew);
+        }
+        
+        return Ok(tonic::Response::new(notify::ReportCrewsResourceResponse {
+            error_code: 0,
+            error_message: "".to_string(),
+        }));
+    } 
+    async fn check_crews_resource(&self, request: tonic::Request<notify::CheckCrewsResourceRequest>) -> std::result::Result<tonic::Response<notify::CheckCrewsResourceResponse>, tonic::Status> {
+        
+        let report_crews_resource = request.into_inner();
+        let common = self.common.upgrade().expect("upgrade common failed");
+        let common = common.lock().expect("common lock failed");
+
+        if let Some(resource) = &common.resources {
+            
+
+            
+            //resource.lock().expect("roster lock failed").remove(crew);
+        }
+        
+        return Ok(tonic::Response::new(notify::CheckCrewsResourceResponse {
+            compiler_path: String::new(),
+            winkits_includes_path: Vec::new(),
+            msvc_includes_path: String::new(),
+            msvc_version: String::new(),
+            error_code: 0,
+            error_message: "".to_string(),
+        }));
+    }
+    
 }

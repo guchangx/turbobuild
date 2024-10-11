@@ -17,6 +17,47 @@ pub struct NotifyResponse {
     #[prost(string, tag = "4")]
     pub error_message: ::prost::alloc::string::String,
 }
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct CheckCrewsResourceRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CheckCrewsResourceResponse {
+    #[prost(string, tag = "1")]
+    pub compiler_path: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "2")]
+    pub winkits_includes_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag = "3")]
+    pub msvc_includes_path: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub msvc_version: ::prost::alloc::string::String,
+    #[prost(int32, tag = "5")]
+    pub error_code: i32,
+    #[prost(string, tag = "6")]
+    pub error_message: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReportCrewsResourceRequest {
+    #[prost(string, tag = "1")]
+    pub username: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub aliasname: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub addr: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub compiler_path: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "5")]
+    pub winkits_includes_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag = "6")]
+    pub msvc_includes_path: ::prost::alloc::string::String,
+    #[prost(string, tag = "7")]
+    pub msvc_version: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReportCrewsResourceResponse {
+    #[prost(int32, tag = "1")]
+    pub error_code: i32,
+    #[prost(string, tag = "2")]
+    pub error_message: ::prost::alloc::string::String,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum Type {
@@ -181,6 +222,81 @@ pub mod communicate_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("notify.communicate", "unregister"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn report_crews_resource(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ReportCrewsResourceRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ReportCrewsResourceResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/notify.communicate/report_crews_resource",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("notify.communicate", "report_crews_resource"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn cancel_crews_resource(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ReportCrewsResourceRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ReportCrewsResourceResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/notify.communicate/cancel_crews_resource",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("notify.communicate", "cancel_crews_resource"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn check_crews_resource(
+            &mut self,
+            request: impl tonic::IntoRequest<super::CheckCrewsResourceRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::CheckCrewsResourceResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Unknown,
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/notify.communicate/check_crews_resource",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("notify.communicate", "check_crews_resource"));
             self.inner.unary(req, path, codec).await
         }
     }

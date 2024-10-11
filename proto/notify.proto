@@ -22,7 +22,39 @@ message NotifyResponse {
   string error_message = 4;
 }
 
-service communicate { 
+message CheckCrewsResourceRequest {
+
+}
+
+message CheckCrewsResourceResponse {
+    string compiler_path = 1;
+    repeated string winkits_includes_path = 2;
+    string msvc_includes_path = 3;
+    string msvc_version = 4;
+    int32 error_code = 5;
+    string error_message = 6;
+}
+
+message ReportCrewsResourceRequest {
+    string username = 1; 
+    string aliasname = 2;
+    string addr = 3;
+    string compiler_path = 4;
+    repeated string winkits_includes_path = 5;
+    string msvc_includes_path = 6;
+    string msvc_version = 7; 
+}
+
+message ReportCrewsResourceResponse {
+    int32 error_code = 1;
+    string error_message = 2;
+}
+
+service communicate {
   rpc notify (stream NotifyRequest) returns (stream NotifyResponse) {}
   rpc unregister (NotifyRequest) returns (NotifyResponse) {}
+  
+  rpc report_crews_resource(ReportCrewsResourceRequest) returns (ReportCrewsResourceResponse) {}
+  rpc cancel_crews_resource(ReportCrewsResourceRequest) returns (ReportCrewsResourceResponse) {}
+  rpc check_crews_resource(CheckCrewsResourceRequest) returns (CheckCrewsResourceResponse) {}
 }
