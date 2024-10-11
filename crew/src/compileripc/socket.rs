@@ -51,8 +51,8 @@ impl Receiver {
                     if size < buffer.len() {
                         println!("read buildassist connection data done");
                         println!("{:?}", data);
-                        let input = crate::compiler::model::CompilerInput::default();
                         
+                        let input = crate::compiler::model::CompilerInput::default();
                         crate::compiler::interface::request_compile(input, runtime.clone(), packager.clone()).await;
                         
                         stream.write_all(b"done").unwrap();

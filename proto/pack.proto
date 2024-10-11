@@ -29,7 +29,21 @@ message FileTrResponse {
     string error_message = 2;
 }
 
+message CheckResource {
+
+}
+
+message CocrewResource {
+    string compiler_path = 1;
+    repeated string winkits_includes_path = 2;
+    string msvc_includes_path = 3;
+    string msvc_version = 4;
+    int32 error_code = 5;
+    string error_message = 6;
+}
+
 service communicate {
     rpc transmit_file(FileTrRequest) returns (FileTrResponse) {}
-    rpc transmit_command(CommandTrRequest) returns (CommandTrResponse) {} 
+    rpc transmit_command(CommandTrRequest) returns (CommandTrResponse) {}
+    rpc check_cocrew_resource(CheckResource) returns (CocrewResource) {}
 }

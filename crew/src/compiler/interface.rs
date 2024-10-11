@@ -16,7 +16,7 @@ pub async fn request_compile(compiler_input: CompilerInput, runtime: std::sync::
         let msvc = crate::compiler::msvc::MSVC {
             working_parameters: crate::platform::windows::WindowsCompilerEnv::default(),
             pool: runtime,
-            sender: packager,            
+            sender: packager,
         };
         
         let output = msvc.request_compile(compiler_input);

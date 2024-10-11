@@ -2,7 +2,7 @@ extern crate winapi;
 
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
 pub struct WindowsCompilerEnv {
-    pub winkits_includes_path: Vec<String>,
+    pub winkits_includes_path: Vec<std::ffi::OsString>,
     pub compiler_path: std::path::PathBuf,
     pub msvc_includes_path: std::path::PathBuf,
     pub msvc_version: String,
@@ -25,7 +25,7 @@ impl Default for WindowsCompilerEnv {
     }
 }
 
-fn get_winsdk_includes_path() -> Option<Vec<String>> {
+fn get_winsdk_includes_path() -> Option<Vec<std::ffi::OsString>> {
     use std::os::windows::ffi::OsStrExt;
     use std::iter::once;
     use std::ptr::null_mut;
@@ -83,26 +83,26 @@ fn get_winsdk_includes_path() -> Option<Vec<String>> {
             {
                 let include_path = std::path::Path::new(winkits_path.as_str()).join("Include").join(winkits_version.as_str());
                
-                let mut includes_path : Vec<String> = Vec::new();
+                let mut includes_path : Vec<std::ffi::OsString> = Vec::new();
                 let cppwinrt_include = include_path.join("cppwinrt");
 
                 if cppwinrt_include.exists() {
-                    includes_path.push(cppwinrt_include.into_os_string().into_string().unwrap());
+                    includes_path.push(cppwinrt_include.into_os_string());
                 }
 
                 let shared_include = include_path.join("shared");
                 if shared_include.exists() {
-                    includes_path.push(shared_include.into_os_string().into_string().unwrap());
+                    includes_path.push(shared_include.into_os_string());
                 }
 
                 let ucrt_include = include_path.join("ucrt");
                 if ucrt_include.exists() {
-                    includes_path.push(ucrt_include.into_os_string().into_string().unwrap());
+                    includes_path.push(ucrt_include.into_os_string());
                 }
 
                 let um_include = include_path.join("um");
                 if um_include.exists() {
-                    includes_path.push(um_include.clone().into_os_string().into_string().unwrap());
+                    includes_path.push(um_include.clone().into_os_string());
                 }
 
                 if um_include.join("winsdkver.h").exists() || um_include.join("windows.h").exists() {
@@ -111,7 +111,7 @@ fn get_winsdk_includes_path() -> Option<Vec<String>> {
 
                 let winrt_include = include_path.join("winrt");
                 if winrt_include.exists() {
-                    includes_path.push(winrt_include.into_os_string().into_string().unwrap());
+                    includes_path.push(winrt_include.into_os_string());
                 }
                 return Some(includes_path)
             }

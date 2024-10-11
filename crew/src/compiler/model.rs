@@ -22,22 +22,16 @@ impl Default for SyncData {
         }
     }
 }
-#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
-pub struct EnvInput {
-    pub winkits_includes_path: Vec<std::ffi::OsString>,
-    pub compiler_path: std::ffi::OsString,
-    pub msvc_includes_path: std::ffi::OsString,
-    pub msvc_version: std::ffi::OsString,
-    pub env_args: std::ffi::OsString,
-}
+
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone, Default)]
 pub struct CompilerInput {
     pub compiler_path_or_arch: std::ffi::OsString,
+    //TODO should remove arch args
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
     pub build_and_compiler_type: std::ffi::OsString,
 
-    pub env_input: Option<EnvInput>,
+    pub env_input: Option<crate::platform::windows::WindowsCompilerEnv>,
 }
 #[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
 pub struct PrecompiledSource {

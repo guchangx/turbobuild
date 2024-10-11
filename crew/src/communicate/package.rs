@@ -1,3 +1,6 @@
+use pack::CheckResource;
+use winapi::shared::{evntrace, winerror::NOERROR};
+
 
 pub mod pack {
     include!("../../proto/pack.rs");
@@ -20,6 +23,7 @@ pub enum FileType {
     Unknown = 0,
     ToolChain = 1,
     Kits = 2,
+    PrecompileedFile = 3,
 }
 
 pub struct ArchiveArgs<'a> {
@@ -32,6 +36,7 @@ pub struct ArchiveArgs<'a> {
 pub enum SenderType<'a> {
     Command(CommandArgs),
     Archive(ArchiveArgs<'a>),
+    CheckResource,
 } 
 
 impl FileSender {
@@ -55,6 +60,8 @@ impl FileSender {
             },
             SenderType::Archive(args) => {
                 self.send_file(args).await;
+            },
+            SenderType::CheckResource => {
             }
         }
     }
@@ -99,5 +106,34 @@ impl FileSender {
                 println!("send file failed {:?}", err);
             }
         }
+    }
+
+    pub async fn check_resource(&mut self) -> Option<crate::platform::windows::WindowsCompilerEnv> {
+        let request = tonic::Request::new(pack::CheckResource {});
+        
+        let response = self.to_owned().client.check_cocrew_resource(request).await;
+        match response {
+            Ok(response) => {
+                let inner = response.into_inner();
+                if inner.error_code == 0 {
+
+                    println!("check cocrew resource success: {:?}", inner);
+                    let env = crate::platform::windows::WindowsCompilerEnv {
+                        winkits_includes_path: inner.winkits_includes_path.iter().map(|item| std::ffi::OsString::from(item)).collect(),
+                        compiler_path: std::path::PathBuf::from(inner.compiler_path),
+                        msvc_includes_path: std::path::PathBuf::from(inner.msvc_includes_path),
+                        msvc_version: inner.msvc_version,
+                        env_args: "".to_string(),
+                    };
+                    
+                    return Some(env);
+                }
+            }
+            Err(err) => {
+                println!("check cocrew resource failed {:?}", err);
+            }
+        }
+
+        return None;
     }
 }

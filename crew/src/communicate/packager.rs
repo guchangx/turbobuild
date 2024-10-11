@@ -112,4 +112,24 @@ impl Packager {
     async fn windows_kits(&mut self, _kits: &str) {
 
     }
+
+    pub async fn file<'a>(&self, path: &str, content: &std::borrow::Cow<'a, [u8]>) {
+        let mut sender = crate::communicate::package::FileSender::new();
+
+        let args = crate::communicate::package::ArchiveArgs {
+            file_type: crate::communicate::package::FileType::PrecompileedFile,
+            name: "precompiledsourcefile".to_string(),
+            path: path.to_owned(),
+            content: content.to_owned(),
+        };
+
+        let args = crate::communicate::package::SenderType::Archive(args);
+        sender.send(args).await;
+    }
+
+    pub async fn check_resource() -> Option<crate::platform::windows::WindowsCompilerEnv> {
+        let mut sender = crate::communicate::package::FileSender::new();
+        let env = sender.check_resource().await;
+        return env;
+    }
 }
