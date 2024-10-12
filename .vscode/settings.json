@@ -2,7 +2,7 @@
     "editor.semanticHighlighting.enabled": true,
     "terminal.integrated.minimumContrastRatio": 1,
     "window.titleBarStyle": "custom",
-    "editor.fontSize": 20,
+    "editor.fontSize": 19,
     "workbench.colorCustomizations": {
         "editorWarning.foreground": "#e6e926f4",
         "editorError.foreground": "#FF0000",

@@ -70,6 +70,7 @@ impl ResourceList {
     pub fn add(&mut self, crew: CrewResource) {
         self.crews.push(crew);
     }
+
     pub fn remove(&mut self, crew: CrewResource) -> bool {
         let index = self.crews.iter().position(|arg| arg.username == crew.username && arg.aliasname == crew.aliasname && arg.addr == crew.addr);
         match index {
@@ -78,6 +79,24 @@ impl ResourceList {
                 true
             },
             None => false
+        }
+    }
+
+    pub fn check(&mut self, addr: &str, aliasname: &str, username: &str) -> Vec<CrewResource> {
+        if addr.is_empty() && aliasname.is_empty() && username.is_empty() {
+            return self.crews;
+        }
+        else {
+            let mut resource = Vec::new();
+            for crew in self.crews {
+                if (!crew.addr.is_empty() && crew.addr == addr) 
+                    && (crew.aliasname == aliasname)
+                    && (!crew.username.is_empty() && crew.username == username) {
+        
+                        resource.push(crew);
+                }            
+            }
+            return resource
         }
     }
     

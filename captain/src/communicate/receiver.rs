@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{error::Error, fs::create_dir_all};
 
 
 #[allow(non_camel_case_types)]
@@ -249,22 +249,26 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
         let common = self.common.upgrade().expect("upgrade common failed");
         let common = common.lock().expect("common lock failed");
 
-        if let Some(resource) = &common.resources {
-            
-            let crew = crate::roster::crews::CrewResource {
-                username: report_crews_resource.username,
-                aliasname: report_crews_resource.aliasname,
-                addr: report_crews_resource.addr,
-                winkits_includes_path: report_crews_resource.winkits_includes_path.iter().map(|item| std::ffi::OsString::from(item)).collect(),
-                compiler_path: std::ffi::OsString::from(report_crews_resource.compiler_path),
-                msvc_includes_path: std::ffi::OsString::from(report_crews_resource.msvc_includes_path),
-                msvc_version: report_crews_resource.msvc_version,
-            };
-            
-            resource.lock().expect("roster lock failed").add(crew);
+        for resource in report_crews_resource.resources {
+
+            if let Some(manage) = &common.resources {
+
+                let crew = crate::roster::crews::CrewResource {
+                    username: resource.username,
+                    aliasname: resource.aliasname,
+                    addr: resource.addr,
+                    winkits_includes_path: resource.winkits_includes_path.iter().map(|item| std::ffi::OsString::from(item)).collect(),
+                    compiler_path: std::ffi::OsString::from(resource.compiler_path),
+                    msvc_includes_path: std::ffi::OsString::from(resource.msvc_includes_path),
+                    msvc_version: resource.msvc_version,
+                };
+
+                manage.lock().expect("roster lock failed").add(crew);
+            }
         }
         
         return Ok(tonic::Response::new(notify::ReportCrewsResourceResponse {
+            resources: Vec::new(),
             error_code: 0,
             error_message: "".to_string(),
         }));
@@ -275,47 +279,63 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
         let common = self.common.upgrade().expect("upgrade common failed");
         let common = common.lock().expect("common lock failed");
 
-        if let Some(resource) = &common.resources {
-            
-            let crew = crate::roster::crews::CrewResource {
-                username: report_crews_resource.username,
-                aliasname: report_crews_resource.aliasname,
-                addr: report_crews_resource.addr,
-                winkits_includes_path: report_crews_resource.winkits_includes_path.iter().map(|item| std::ffi::OsString::from(item)).collect(),
-                compiler_path: std::ffi::OsString::from(report_crews_resource.compiler_path),
-                msvc_includes_path: std::ffi::OsString::from(report_crews_resource.msvc_includes_path),
-                msvc_version: report_crews_resource.msvc_version,
-            };
-            
-            resource.lock().expect("roster lock failed").remove(crew);
+        for resource in report_crews_resource.resources {
+
+            if let Some(manage) = &common.resources {
+
+                let crew = crate::roster::crews::CrewResource {
+                    username: resource.username,
+                    aliasname: resource.aliasname,
+                    addr: resource.addr,
+                    winkits_includes_path: resource.winkits_includes_path.iter().map(|item| std::ffi::OsString::from(item)).collect(),
+                    compiler_path: std::ffi::OsString::from(resource.compiler_path),
+                    msvc_includes_path: std::ffi::OsString::from(resource.msvc_includes_path),
+                    msvc_version: resource.msvc_version,
+                };
+
+                manage.lock().expect("roster lock failed").add(crew);
+            }
         }
-        
+
         return Ok(tonic::Response::new(notify::ReportCrewsResourceResponse {
+            resources: Vec::new(),
             error_code: 0,
             error_message: "".to_string(),
         }));
-    } 
+    }
+
     async fn check_crews_resource(&self, request: tonic::Request<notify::CheckCrewsResourceRequest>) -> std::result::Result<tonic::Response<notify::CheckCrewsResourceResponse>, tonic::Status> {
         
         let report_crews_resource = request.into_inner();
         let common = self.common.upgrade().expect("upgrade common failed");
         let common = common.lock().expect("common lock failed");
 
-        if let Some(resource) = &common.resources {
+        let mut resources = Vec::new();
+        if let Some(manage) = &common.resources {
             
+            let crews = manage.lock().expect("manage lock failed").check(&report_crews_resource.addr, &report_crews_resource.aliasname, &report_crews_resource.username);
 
-            
-            //resource.lock().expect("roster lock failed").remove(crew);
+            for crew in crews {
+
+                let res = notify::CrewsResource {
+                    username: crew.username,
+                    aliasname: crew.aliasname,
+                    addr: crew.addr,
+                    compiler_path: crew.compiler_path.to_string_lossy().into(),
+                    winkits_includes_path: crew.winkits_includes_path.iter().map(|item| item.clone().into_string().unwrap()).collect(),
+                    msvc_includes_path: crew.msvc_includes_path.into_string().unwrap(),
+                    msvc_version: crew.msvc_version,
+                };
+
+                resources.push(res);
+            }
         }
         
         return Ok(tonic::Response::new(notify::CheckCrewsResourceResponse {
-            compiler_path: String::new(),
-            winkits_includes_path: Vec::new(),
-            msvc_includes_path: String::new(),
-            msvc_version: String::new(),
+            resources: resources,
             error_code: 0,
             error_message: "".to_string(),
         }));
-    }
-    
+
+    }   
 }
