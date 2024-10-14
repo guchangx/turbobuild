@@ -45,6 +45,7 @@ impl ConstitutionList {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct CrewResource {
     pub username: String, 
     pub aliasname: String,
@@ -55,6 +56,7 @@ pub struct CrewResource {
     pub msvc_version: String,
 }
 
+#[derive(Debug, Clone)]
 pub struct ResourceList {
     crews: Vec<CrewResource>,
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
@@ -84,17 +86,18 @@ impl ResourceList {
 
     pub fn check(&mut self, addr: &str, aliasname: &str, username: &str) -> Vec<CrewResource> {
         if addr.is_empty() && aliasname.is_empty() && username.is_empty() {
-            return self.crews;
+            let crews = self.crews.clone();
+            return crews;
         }
         else {
             let mut resource = Vec::new();
-            for crew in self.crews {
+            for crew in self.crews.clone() {
                 if (!crew.addr.is_empty() && crew.addr == addr) 
                     && (crew.aliasname == aliasname)
                     && (!crew.username.is_empty() && crew.username == username) {
         
                         resource.push(crew);
-                }            
+                }
             }
             return resource
         }

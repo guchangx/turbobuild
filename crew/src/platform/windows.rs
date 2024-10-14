@@ -1,6 +1,6 @@
 extern crate winapi;
 
-#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct WindowsCompilerEnv {
     pub winkits_includes_path: Vec<std::ffi::OsString>,
     pub compiler_path: std::path::PathBuf,

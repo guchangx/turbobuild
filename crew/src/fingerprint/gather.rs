@@ -2,8 +2,10 @@
 extern crate sysinfo;
 use sysinfo::System;
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct SystemInfo {
     pub username: String,
+    pub devicename: String,
     pub aliasname: String,
     pub role: u32,
     pub status: u32,
@@ -12,13 +14,10 @@ pub struct SystemInfo {
     pub physical_cores: u32,
     pub virtual_cores: u32,
     pub cpu_usage: f32,
-    pub cpu_frequency: f32,
-    
-    pub memory: f32,
+    pub cpu_frequency: Vec<u64>,
+    pub memory_total: f32,
     pub memory_usage: f32,
-    
     pub os_version: String,
-
     pub description: String,
 }
 
@@ -27,16 +26,19 @@ impl SystemInfo {
 
         let username = SystemInfo::fetch_username();
         let devicename = SystemInfo::fetch_devicename();
-        println!("devicename{}", devicename);
         let aliasname = SystemInfo::fetch_aliasname();
         let role = 0;
         let addr = SystemInfo::fetch_addr();
-
-        let (os, physical_cores, virtual_cores, cpu_usage) = SystemInfo::fetch_cpu_info();
+        let os = SystemInfo::fetch_os_version();
+        let (physical_cores, virtual_cores, frequency) = SystemInfo::fetch_cpu_info();
+        
+        let (cpu_used, _memory_used) = SystemInfo::fetch_cpu_and_memory_usage();
+        
         let (memory_total, memory_usage) = SystemInfo::fetch_memory_info();
         
         return SystemInfo {
             username,
+            devicename,
             aliasname,
             role,
             status: 0,
@@ -44,13 +46,11 @@ impl SystemInfo {
             addr,
             physical_cores,
             virtual_cores,
-            cpu_usage,
-            cpu_frequency: 0.0,
-
-            memory: memory_total,
+            cpu_usage: cpu_used,
+            cpu_frequency: frequency,
+            memory_total: memory_total,
             memory_usage,
             os_version: os,
-
             description: "".to_string(),
         }
     }
@@ -76,7 +76,39 @@ impl SystemInfo {
         return "".to_string();
     }
 
-    fn fetch_cpu_info() -> (String, u32, u32, f32) {
+    fn fetch_cpu_info() -> (u32, u32, Vec<u64>) {
+        
+        let mut sys = sysinfo::System::new_with_specifics(
+            sysinfo::RefreshKind::new().with_cpu(sysinfo::CpuRefreshKind::everything())
+        );
+        
+        sys.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
+        
+        let mut physical_cores: u32 = 0;
+        if let Some(cores) = sys.physical_core_count() {
+            physical_cores = cores as u32;
+            println!("physical cores {:?}", physical_cores);
+        };
+        
+        println!("CPU Architecture: {:?}", sysinfo::System::cpu_arch());
+        
+        let virtual_cores = sys.cpus().len() as u32;
+        println!("cpu cores {}", virtual_cores);
+        
+        let mut frequency: Vec<u64> = vec![];
+        
+        for cpu in sys.cpus() {
+            let f = cpu.frequency();
+            if !frequency.contains(&f) {
+                frequency.push(f);                
+            }
+        }
+        println!("cpu frequency: {:?}", frequency);
+        
+        return (physical_cores, virtual_cores, frequency);
+    }
+    
+    pub fn fetch_cpu_and_memory_usage() -> (f32, f32) {
         
         let mut sys = sysinfo::System::new_with_specifics(
             sysinfo::RefreshKind::new().with_cpu(sysinfo::CpuRefreshKind::everything())
@@ -86,16 +118,18 @@ impl SystemInfo {
         
         sys.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
         
-        let usage = sys.global_cpu_usage();
-        println!("cpu usage: {}", usage);
+        let cpu_usage = sys.global_cpu_usage();
+        println!("cpu usage: {}", cpu_usage);
         
-        let mut physical_cores: u32 = 0;
-        if let Some(cores) = sys.physical_core_count() {
-            physical_cores = cores as u32;
-            println!("physical cores {:?}", physical_cores);    
-        };
+        let mut sys = System::new();
+        sys.refresh_memory();
         
+        let memory_used = sys.used_memory() as f32;
         
+        return (cpu_usage, memory_used);
+    }
+    
+    fn fetch_os_version() -> String {
         let system_name = sysinfo::System::name();
         println!("system name {:?}", system_name);
         let mut os_version = "unknown".to_string();
@@ -103,19 +137,7 @@ impl SystemInfo {
             os_version = os;
             println!("Long OS Version: {:?}", os_version);
         }
-        
-        println!("CPU Architecture: {:?}", sysinfo::System::cpu_arch());
-        
-        
-        let virtual_cores = sys.cpus().len() as u32;
-        println!("cpu cores {}", virtual_cores);
-        let mut frequency: Vec<u64> = vec![];
-        for cpu in sys.cpus() {
-            frequency.push(cpu.frequency());
-            println!("{}", cpu.frequency());
-        }
-        
-        return (os_version, physical_cores, virtual_cores, usage);
+        return os_version;
     }
 
     fn fetch_memory_info() -> (f32, f32) {
@@ -125,10 +147,11 @@ impl SystemInfo {
         
         let used = sys.used_memory() as f32;
         let total = sys.total_memory() as f32;
-    
+        
         let memory_usage = ((used * 100 as f32 / total) * 1000.0).round() / 1000.0;
         println!("memory usage: {}", memory_usage);
         return (total, memory_usage);
     }
+
  }
 

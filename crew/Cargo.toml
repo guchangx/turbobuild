@@ -12,8 +12,8 @@ common = { path = "../common" }
 
 tonic = "0.12.1"
 prost = "0.13.1"
-serde_derive = "1.0.196"
-serde = "1.0.196"
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.128"
 tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread"] }
 tokio-stream = "0.1.9"
 sysinfo = "0.32.0"
@@ -21,6 +21,7 @@ winapi = {version = "0.3.9", features = ["winreg", "winerror"]}
 regex = "1.6.0"
 log = "0.4.17"
 zip = {version = "2.2.0", features = ["zstd"]}
+
 
 [build-dependencies]
 tonic-build = "0.12.1"

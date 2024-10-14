@@ -1,2 +1,2 @@
 pub mod gather;
-mod register;
+pub mod register;

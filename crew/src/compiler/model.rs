@@ -1,4 +1,4 @@
-#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct SyncData {
     pub sync_kind: std::ffi::OsString,
     pub toolchain_path: std::ffi::OsString,
@@ -23,7 +23,7 @@ impl Default for SyncData {
     }
 }
 
-#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
 pub struct CompilerInput {
     pub compiler_path_or_arch: std::ffi::OsString,
     //TODO should remove arch args
@@ -33,12 +33,12 @@ pub struct CompilerInput {
 
     pub env_input: Option<crate::platform::windows::WindowsCompilerEnv>,
 }
-#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct PrecompiledSource {
     pub preprocessed_source_contents: Option<Vec<u8>>,
     pub preprocessed_source_path: std::ffi::OsString, 
 }
-#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
 pub struct CompilerOutput {
     pub compiled_filename: Vec<std::ffi::OsString>,
     pub compile_status: bool,
@@ -53,7 +53,7 @@ impl CompilerOutput {
     }
 }
 
-#[derive(serde_derive::Deserialize, serde_derive::Serialize, Debug, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct ProcessedResult {
     pub source_file: std::ffi::OsString,
     pub obj: Option<(std::ffi::OsString, Vec<u8>)>,

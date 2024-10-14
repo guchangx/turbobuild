@@ -114,6 +114,20 @@ impl package::communicate_server::Communicate for FileReceiver {
         
         Ok(tonic::Response::new(reply))
     }
+    
+    async fn check_cocrew_resource(&self, request: tonic::Request<package::CheckResource>) -> std::result::Result<tonic::Response<package::CocrewResource>, tonic::Status> {
+        
+        let reply = package::CocrewResource {
+            compiler_path:String::new(),
+            winkits_includes_path: Vec::new(),
+            msvc_includes_path: String::new(),
+            msvc_version: String::new(),
+            error_code: 0,
+            error_message: "check resourse success.".to_string(),  
+        };
+        
+        Ok(tonic::Response::new(reply))
+    }
 }
 
 
