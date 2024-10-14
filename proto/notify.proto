@@ -56,7 +56,6 @@ message ReportCrewsResourceResponse {
 
 service communicate {
   rpc notify (stream NotifyRequest) returns (stream NotifyResponse) {}
-  rpc unregister (NotifyRequest) returns (NotifyResponse) {}
   
   rpc report_crews_resource(ReportCrewsResourceRequest) returns (ReportCrewsResourceResponse) {}
   rpc cancel_crews_resource(ReportCrewsResourceRequest) returns (ReportCrewsResourceResponse) {}

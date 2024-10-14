@@ -7,8 +7,13 @@ pub mod notify {
 #[derive(Default)] 
 pub struct NotificationSender {}
 
+pub enum NotificationType {
+    Resource(String),
+    Constitution(String),
+}
+
 impl NotificationSender {
-    pub async fn register(&self, name: String) -> Result<String, String> {
+    pub async fn register(&self, mut receiver: tokio::sync::mpsc::Receiver<String>) -> Result<String, String> {
       use tokio_stream::StreamExt;
         
        let mut client = notify::communicate_client::CommunicateClient::connect("http://localhost:50051").await.unwrap();
@@ -37,9 +42,14 @@ impl NotificationSender {
                return Err(status.message().to_string());
            }
        }
+
+       while let Some(message) = receiver.recv().await {
+           
+       }
+
        let request = notify::NotifyRequest {
             r#type: notify::Type::Register as i32,
-            name: name,
+            name: "name".to_string(),
         };
         
         if let Err(err) = tx.send(request).await {
@@ -60,5 +70,25 @@ impl NotificationSender {
         }
         
         return Ok("OK".to_string());
+    }
+
+    pub async fn report_resource(resources: Vec<notify::CrewsResource>) {
+    
+        let mut client = notify::communicate_client::CommunicateClient::connect("http://localhost:50051").await.unwrap();
+       
+       let request = notify::ReportCrewsResourceRequest {
+            resources
+       };
+       
+        match client.report_crews_resource(request).await {
+            Ok(response) => {
+                
+                let response = response.into_inner();
+                println!("response {:?}", response);
+            },
+            Err(err) => {
+                println!("report crew resource. {:?}", err);
+            }
+        }
     }
  }

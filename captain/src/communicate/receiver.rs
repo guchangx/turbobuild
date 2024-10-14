@@ -230,18 +230,6 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
        
         return Ok(tonic::Response::new(Box::pin(response) as ResponseStream));
     }
-    async fn unregister(&self, request: tonic::Request<notify::NotifyRequest>) -> Result<tonic::Response<notify::NotifyResponse>, tonic::Status> {
-        println!("register request: {:?}", request);
-
-        let reply = notify::NotifyResponse {
-            r#type: notify::Type::Register as i32,
-            message: "register success".to_string(),
-            error_code: 0,
-            error_message: "".to_string(),
-        };
-
-        Ok(tonic::Response::new(reply))
-    }
 
     async fn report_crews_resource(&self, request: tonic::Request<notify::ReportCrewsResourceRequest>) -> std::result::Result<tonic::Response<notify::ReportCrewsResourceResponse>, tonic::Status> {
         
