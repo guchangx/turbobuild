@@ -56,19 +56,18 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
 
     type notifyStream = ResponseStream;
     async fn notify(&self, request: tonic::Request<tonic::Streaming<notify::NotifyRequest>>) -> Result<tonic::Response<ResponseStream>, tonic::Status> {
-        println!("notify request: {:?}", request);
-        
+
         use tokio_stream::StreamExt;
-        let remote_addr = request.remote_addr();
-        println!("notify request from: {:?}", remote_addr);
+        let addr = request.remote_addr();
+        println!("notify request from: {:?}", addr);
         
         let common = self.common.upgrade().expect("upgrade common failed");
-
         
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         
         let _ = tokio::spawn(async move {
             let mut stream = request.into_inner();
+            
             while let Some(notification) = stream.next().await {
                 match notification {
                     Ok(notification) => {
@@ -76,27 +75,15 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                         if notify::Type::Register as i32 == notification.r#type {
                             println!("register request: {:?}", notification);
                             
-                            if let Some(addr) = remote_addr {
+                            if let Some(addr) = addr {
                                  
                                 let common = common.lock().expect("common lock failed");
                                 if let Some(roster) = &common.constitutions {
                                     
-                                    let crew = crate::roster::crews::CrewConstitution {
-                                        username: "".to_string(),
-                                        aliasname: "".to_string(),
-                                        role: 1,
-                                        addr: addr.to_string(),
-                                        cores: 4,
-                                        status: 1,
-                                        action: 1,
-                                        memory: 32,
-                                        operating_system: "".to_string(),
-                                        cpu_frequency: 1.0,
-                                        cpu_load: 1.0,
-                                        description: "".to_string(),
-                                    };
+                                    let mut crew = serde_json::from_str::<crate::roster::crews::CrewRegister>(&notification.message).expect("register request message parse failed");
+                                    crew.addr = addr.ip().to_string();
                                     
-                                    roster.lock().expect("roster lock failed").add(crew);
+                                    roster.lock().expect("roster lock failed").check(crew);
                                 }
                             }
 
@@ -110,27 +97,15 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                         } 
                         else if notify::Type::Unregister as i32 == notification.r#type {
                             println!("unregister request: {:?}", notification);
-                            if let Some(addr) = remote_addr {
+                            if let Some(addr) = addr {
                                 
                                 let common = common.lock().expect("common lock failed");
                                 if let Some(roster) = &common.constitutions {
-
-                                    let crew = crate::roster::crews::CrewConstitution {
-                                        username: "".to_string(),
-                                        aliasname: "".to_string(),
-                                        role: 1,
-                                        addr: addr.to_string(),
-                                        cores: 4,
-                                        status: 1,
-                                        action: 1,
-                                        memory: 32,
-                                        operating_system: "".to_string(),
-                                        cpu_frequency: 1.0,
-                                        cpu_load: 1.0,
-                                        description: "".to_string(),
-                                    };
                                     
-                                    roster.lock().expect("roster lock failed").remove(crew);    
+                                    let mut crew = serde_json::from_str::<crate::roster::crews::CrewRegister>(&notification.message).expect("register request message parse failed");
+                                    crew.addr = addr.ip().to_string();
+                                    
+                                    roster.lock().expect("roster lock failed").remove(crew);
                                 }
                             }
                             
@@ -145,26 +120,13 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                         else if notify::Type::Keepalive as i32 == notification.r#type {
                             println!("keepalive request: {:?}", notification);
                             
-                            if let Some(addr) = remote_addr {
+                            if let Some(addr) = addr {
                                 let common = common.lock().expect("common lock failed");
                                 if let Some(roster) = &common.constitutions {
-
-                                    let crew = crate::roster::crews::CrewConstitution {
-                                        username: "".to_string(),
-                                        aliasname: "".to_string(),
-                                        role: 1,
-                                        addr: addr.to_string(),
-                                        cores: 4,
-                                        status: 1,
-                                        action: 1,
-                                        memory: 32,
-                                        operating_system: "".to_string(),
-                                        cpu_frequency: 1.0,
-                                        cpu_load: 1.0,
-                                        description: "".to_string(),
-                                    };
                                     
-                                    roster.lock().expect("roster lock failed").keepalive(crew);    
+                                    let mut constitution = serde_json::from_str::<crate::roster::crews::CrewConstitution>(&notification.message).expect("keepalive request message parse failed");
+                                    constitution.addr = addr.ip().to_string();
+                                    roster.lock().expect("roster lock failed").keepalive(constitution);
                                 }
                             }
                             
@@ -196,34 +158,10 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             }
                         }
                         //TODO: remove hyper error
-           
-                        
-                        if let Some(addr) = remote_addr {
-                                
-                            let common = common.lock().expect("common lock failed");
-                            if let Some(roster) = &common.constitutions {
-
-                                let crew = crate::roster::crews::CrewConstitution { 
-                                    username: "".to_string(),
-                                    aliasname: "".to_string(),
-                                    role: 1,
-                                    addr: addr.to_string(),
-                                    cores: 4,
-                                    status: 1,
-                                    action: 1,
-                                    memory: 32,
-                                    operating_system: "".to_string(),
-                                    cpu_frequency: 1.0,
-                                    cpu_load: 1.0,
-                                    description: "".to_string(),
-                                };
-                                
-                                roster.lock().expect("roster lock failed").remove(crew);    
-                            }
-                        }
                     }
                 }
             }
+            println!("receive notify stream end");
         });
 
         let response = tokio_stream::wrappers::ReceiverStream::new(rx);

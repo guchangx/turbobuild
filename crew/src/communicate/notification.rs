@@ -18,7 +18,7 @@ impl NotificationSender {
 
         let mut client = notify::communicate_client::CommunicateClient::connect("http://localhost:50051").await.unwrap();
 
-        let (tx, rx) = tokio::sync::mpsc::channel(128); 
+        let (tx, rx) = tokio::sync::mpsc::channel(128);
         let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
         match client.notify(request_stream).await {
@@ -42,10 +42,13 @@ impl NotificationSender {
                 return Err(status.message().to_string());
             }
         }
-       
+        
+        let register_info = crate::fingerprint::gather::RegisterInfo::new();
+        let info = serde_json::to_string(&register_info).unwrap();
+        
         let request = notify::NotifyRequest {
             r#type: notify::Type::Register as i32,
-            name: "register".to_string(),
+            message: info,
         };
     
         if let Err(err) = tx.send(request).await {
@@ -61,16 +64,31 @@ impl NotificationSender {
                 
                     let request = notify::NotifyRequest {
                         r#type: notify::Type::Keepalive as i32,
-                        name: message,
+                        message: message,
                     };
                     
                     if let Err(err) = tx.send(request).await {
                         eprintln!("notify constitution error: {:?}", err);
                     };
+                    //tx.closed().await;
+                    break;
                 }
             }
         }
-
+        
+        let register_info = crate::fingerprint::gather::RegisterInfo::new();
+        let info = serde_json::to_string(&register_info).unwrap();
+        
+        let request = notify::NotifyRequest {
+            r#type: notify::Type::Unregister as i32,
+            message: info,
+        };
+    
+        if let Err(err) = tx.send(request).await {
+            eprintln!("notify unregister error: {:?}", err);
+        };
+        
+    
         return Ok("OK".to_string());
     }
 

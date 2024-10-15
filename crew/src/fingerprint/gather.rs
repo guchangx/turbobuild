@@ -130,8 +130,6 @@ impl SystemInfo {
     }
     
     fn fetch_os_version() -> String {
-        let system_name = sysinfo::System::name();
-        println!("system name {:?}", system_name);
         let mut os_version = "unknown".to_string();
         if let Some(os) = sysinfo::System::long_os_version() {
             os_version = os;
@@ -153,5 +151,28 @@ impl SystemInfo {
         return (total, memory_usage);
     }
 
- }
+}
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct RegisterInfo {
+    pub username: String,
+    pub devicename: String,
+    pub aliasname: String,
+    pub password: String,
+    pub license: String,
+}
+
+impl RegisterInfo {
+    pub fn new() -> Self {
+        let username = SystemInfo::fetch_username();
+        let devicename = SystemInfo::fetch_devicename();
+        let aliasname = SystemInfo::fetch_aliasname();
+        return Self {
+            username,
+            devicename,
+            aliasname,
+            password: "".to_string(),
+            license: "".to_string(),
+        };
+    }
+}

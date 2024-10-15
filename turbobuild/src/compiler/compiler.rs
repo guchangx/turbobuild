@@ -180,6 +180,7 @@ pub async fn remote_request_compile(mut multipart: axum::extract::multipart::Mul
                             else {
                                 let contents = contents.to_vec();
                                 let contents = std::str::from_utf8(&contents).unwrap();
+                                
                                 let input:CompileInput = serde_json::from_str(&contents).expect("deserialize compileiput failed.");
         
                                 if input.build_and_compiler_type.to_string_lossy().contains("MSBuild")

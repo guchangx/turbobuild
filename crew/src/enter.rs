@@ -21,7 +21,7 @@ impl Common {
 
 pub fn init() {
     
-    log::debug!("init");
+    log::debug!("init crew");
     
     let common = Common::new();
     let common = std::sync::Arc::new(std::sync::Mutex::new(common));
@@ -48,7 +48,7 @@ pub fn init() {
         .enable_all()
         .build()
         .unwrap();
-    
+
     runtime.spawn(crate::fingerprint::register::register_fingerprint_to_capation(runtime.handle().clone()));
         
     weak_common.upgrade().unwrap().lock().unwrap().pool = Some(std::sync::Arc::new(runtime.handle().to_owned()));

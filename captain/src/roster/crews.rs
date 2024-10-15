@@ -1,17 +1,30 @@
 
+#[derive(serde::Deserialize)]
 pub struct CrewConstitution {
     pub username: String,
+    pub devicename: String,
     pub aliasname: String,
     pub role: u32,
-    pub addr: String,
-    pub cores: u32,
     pub status: u32,
     pub action: u32,
-    pub memory: u64,
-    pub operating_system: String,
-    pub cpu_frequency: f32,
-    pub cpu_load: f32,
+    pub addr: String,
+    pub physical_cores: u32,
+    pub virtual_cores: u32,
+    pub cpu_usage: f32,
+    pub cpu_frequency: Vec<u64>,
+    pub memory_total: f32,
+    pub memory_usage: f32,
+    pub os_version: String,
     pub description: String,
+}
+
+#[derive(serde::Deserialize)]
+pub struct CrewRegister {
+    pub username: String,
+    pub aliasname: String,
+    pub addr: String,
+    pub password: String,
+    pub license: String,
 }
 
 pub struct ConstitutionList {
@@ -26,10 +39,15 @@ impl ConstitutionList {
             common,
         };
     }
+    
+    pub fn check(&mut self, crew: CrewRegister) {
+            
+    }
+    
     pub fn add(&mut self, crew: CrewConstitution) {
         self.crews.push(crew);
     }
-    pub fn remove(&mut self, crew: CrewConstitution) -> bool {
+    pub fn remove(&mut self, crew: CrewRegister) -> bool {
         let index = self.crews.iter().position(|arg| arg.username == crew.username && arg.aliasname == crew.aliasname && arg.addr == crew.addr);
         match index {
             Some(index) => {

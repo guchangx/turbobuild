@@ -3,6 +3,7 @@ extern crate prost;
 extern crate tonic;
 extern crate tokio;
 extern crate hyper;
+extern crate serde;
 
 pub mod communicate;
 pub mod roster;
