@@ -1,9 +1,9 @@
 
 pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle) {
     
-    let notify = crate::communicate::notification::NotificationSender::default();
+    let notify = crate::communicate::notifier::NotificationSender::default();
 
-    let (sender, receiver) = tokio::sync::mpsc::channel::<crate::communicate::notification::NotificationType>(128);
+    let (sender, receiver) = tokio::sync::mpsc::channel::<crate::communicate::notifier::NotificationType>(128);
     
     rt.spawn(async move {
         let _ = notify.register(receiver).await; 
@@ -21,7 +21,7 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle) {
         
         let info = serde_json::to_string(&fingerprint).unwrap();
         
-        let con = crate::communicate::notification::NotificationType::Constitution(info);
+        let con = crate::communicate::notifier::NotificationType::Constitution(info);
         match sender.send(con).await {
             Ok(_) => {
                 println!("send constitution success.");

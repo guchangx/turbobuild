@@ -4,7 +4,7 @@ pub struct NotifyRequest {
     #[prost(enumeration = "Type", tag = "1")]
     pub r#type: i32,
     #[prost(string, tag = "2")]
-    pub name: ::prost::alloc::string::String,
+    pub message: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NotifyResponse {
@@ -17,25 +17,8 @@ pub struct NotifyResponse {
     #[prost(string, tag = "4")]
     pub error_message: ::prost::alloc::string::String,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct CheckCrewsResourceRequest {}
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CheckCrewsResourceResponse {
-    #[prost(string, tag = "1")]
-    pub compiler_path: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag = "2")]
-    pub winkits_includes_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(string, tag = "3")]
-    pub msvc_includes_path: ::prost::alloc::string::String,
-    #[prost(string, tag = "4")]
-    pub msvc_version: ::prost::alloc::string::String,
-    #[prost(int32, tag = "5")]
-    pub error_code: i32,
-    #[prost(string, tag = "6")]
-    pub error_message: ::prost::alloc::string::String,
-}
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ReportCrewsResourceRequest {
+pub struct CrewsResource {
     #[prost(string, tag = "1")]
     pub username: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
@@ -52,10 +35,35 @@ pub struct ReportCrewsResourceRequest {
     pub msvc_version: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct ReportCrewsResourceResponse {
-    #[prost(int32, tag = "1")]
-    pub error_code: i32,
+pub struct CheckCrewsResourceRequest {
+    #[prost(string, tag = "1")]
+    pub username: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
+    pub aliasname: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub addr: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CheckCrewsResourceResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub resources: ::prost::alloc::vec::Vec<CrewsResource>,
+    #[prost(int32, tag = "2")]
+    pub error_code: i32,
+    #[prost(string, tag = "3")]
+    pub error_message: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReportCrewsResourceRequest {
+    #[prost(message, repeated, tag = "1")]
+    pub resources: ::prost::alloc::vec::Vec<CrewsResource>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReportCrewsResourceResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub resources: ::prost::alloc::vec::Vec<CrewsResource>,
+    #[prost(int32, tag = "2")]
+    pub error_code: i32,
+    #[prost(string, tag = "3")]
     pub error_message: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -74,11 +82,11 @@ impl Type {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Type::Unknown => "UNKNOWN",
-            Type::Register => "REGISTER",
-            Type::Unregister => "UNREGISTER",
-            Type::Keepalive => "KEEPALIVE",
-            Type::Data => "DATA",
+            Self::Unknown => "UNKNOWN",
+            Self::Register => "REGISTER",
+            Self::Unregister => "UNREGISTER",
+            Self::Keepalive => "KEEPALIVE",
+            Self::Data => "DATA",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -95,7 +103,13 @@ impl Type {
 }
 /// Generated client implementations.
 pub mod communicate_client {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
@@ -189,8 +203,7 @@ pub mod communicate_client {
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
+                    tonic::Status::unknown(
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
@@ -201,28 +214,6 @@ pub mod communicate_client {
             let mut req = request.into_streaming_request();
             req.extensions_mut().insert(GrpcMethod::new("notify.communicate", "notify"));
             self.inner.streaming(req, path, codec).await
-        }
-        pub async fn unregister(
-            &mut self,
-            request: impl tonic::IntoRequest<super::NotifyRequest>,
-        ) -> std::result::Result<tonic::Response<super::NotifyResponse>, tonic::Status> {
-            self.inner
-                .ready()
-                .await
-                .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
-                        format!("Service was not ready: {}", e.into()),
-                    )
-                })?;
-            let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static(
-                "/notify.communicate/unregister",
-            );
-            let mut req = request.into_request();
-            req.extensions_mut()
-                .insert(GrpcMethod::new("notify.communicate", "unregister"));
-            self.inner.unary(req, path, codec).await
         }
         pub async fn report_crews_resource(
             &mut self,
@@ -235,8 +226,7 @@ pub mod communicate_client {
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
+                    tonic::Status::unknown(
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
@@ -260,8 +250,7 @@ pub mod communicate_client {
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
+                    tonic::Status::unknown(
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
@@ -285,8 +274,7 @@ pub mod communicate_client {
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
+                    tonic::Status::unknown(
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;

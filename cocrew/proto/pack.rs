@@ -29,6 +29,23 @@ pub struct FileTrResponse {
     #[prost(string, tag = "2")]
     pub error_message: ::prost::alloc::string::String,
 }
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct CheckResource {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CocrewResource {
+    #[prost(string, tag = "1")]
+    pub compiler_path: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "2")]
+    pub winkits_includes_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag = "3")]
+    pub msvc_includes_path: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub msvc_version: ::prost::alloc::string::String,
+    #[prost(int32, tag = "5")]
+    pub error_code: i32,
+    #[prost(string, tag = "6")]
+    pub error_message: ::prost::alloc::string::String,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum FileType {
@@ -43,9 +60,9 @@ impl FileType {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            FileType::Unknown => "UNKNOWN",
-            FileType::Toolchain => "TOOLCHAIN",
-            FileType::Kits => "KITS",
+            Self::Unknown => "UNKNOWN",
+            Self::Toolchain => "TOOLCHAIN",
+            Self::Kits => "KITS",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -60,7 +77,13 @@ impl FileType {
 }
 /// Generated server implementations.
 pub mod communicate_server {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with CommunicateServer.
     #[async_trait]
@@ -76,6 +99,10 @@ pub mod communicate_server {
             tonic::Response<super::CommandTrResponse>,
             tonic::Status,
         >;
+        async fn check_cocrew_resource(
+            &self,
+            request: tonic::Request<super::CheckResource>,
+        ) -> std::result::Result<tonic::Response<super::CocrewResource>, tonic::Status>;
     }
     #[derive(Debug)]
     pub struct CommunicateServer<T> {
@@ -243,19 +270,67 @@ pub mod communicate_server {
                     };
                     Box::pin(fut)
                 }
+                "/pack.communicate/check_cocrew_resource" => {
+                    #[allow(non_camel_case_types)]
+                    struct check_cocrew_resourceSvc<T: Communicate>(pub Arc<T>);
+                    impl<
+                        T: Communicate,
+                    > tonic::server::UnaryService<super::CheckResource>
+                    for check_cocrew_resourceSvc<T> {
+                        type Response = super::CocrewResource;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::CheckResource>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Communicate>::check_cocrew_resource(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = check_cocrew_resourceSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
                 _ => {
                     Box::pin(async move {
-                        Ok(
-                            http::Response::builder()
-                                .status(200)
-                                .header("grpc-status", tonic::Code::Unimplemented as i32)
-                                .header(
-                                    http::header::CONTENT_TYPE,
-                                    tonic::metadata::GRPC_CONTENT_TYPE,
-                                )
-                                .body(empty_body())
-                                .unwrap(),
-                        )
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
                     })
                 }
             }

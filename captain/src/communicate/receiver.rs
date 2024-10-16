@@ -143,22 +143,21 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                         }
                     },
                     Err(err) => {
+                        println!("notify client request detail error : {:?}", err);
                         
-                        println!("notify request error: {:?}", err);
-                                     
                         if let Some(source) = err.source() {
-                            if let Some(err) = source.downcast_ref::<hyper::Error>() {
-                                if let Some(err) = err.source() {
-                                    if let Some(err) = err.downcast_ref::<std::io::Error>() {
-                                        if err.kind() == std::io::ErrorKind::ConnectionReset {
-                                            println!("connection reset");
+                            if let Some(hyper_source) = source.source() {
+                                if let Some(inner_source) = hyper_source.source() {
+                                    if let Some(err) = inner_source.downcast_ref::<hyper::Error>() {
+                                        if let Some(source) = err.source() {
+                                            println!("notify client error {:?}, remote {:?}", source.to_string(), addr);             
                                         }
                                     }
                                 }
                             }
                         }
                         //TODO: remove hyper error
-                    }
+                     }
                 }
             }
             println!("receive notify stream end");

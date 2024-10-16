@@ -14,7 +14,7 @@ fn main()  {
         .build_server(false)
         .build_client(true)
         .out_dir("./proto")
-        .compile(
+        .compile_protos(
             &["./../proto/notify.proto", "./../proto/pack.proto"],
             &include,
         );

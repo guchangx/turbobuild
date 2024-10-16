@@ -21,6 +21,7 @@ pub struct CrewConstitution {
 #[derive(serde::Deserialize)]
 pub struct CrewRegister {
     pub username: String,
+    pub devicename: String,
     pub aliasname: String,
     pub addr: String,
     pub password: String,

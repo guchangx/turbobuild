@@ -29,13 +29,27 @@ impl NotificationSender {
                     while let Some(stream) = response_stream.next().await {
                         match stream {
                             Ok(response) => {
-                                println!("notify response: {}", response.message);
+                                if response.r#type == notify::Type::Register as i32 {
+
+                                }
+                                else if response.r#type == notify::Type::Unregister as i32 {
+                                
+                                }
+                                else if response.r#type == notify::Type::Keepalive as i32 {
+
+                                }
+                                else {
+                                    
+                                }
+                                println!("notify response: {:?}", response);
                             }
                             Err(err) => {
-                                eprintln!("notify response: {:?}", err);
+                                eprintln!("notify response failed: {:?}", err);
+                                break;
                             }
                         }
                     }
+                    println!("poll next stream end.");
                 });
             },
             Err(status) => {
@@ -43,12 +57,12 @@ impl NotificationSender {
             }
         }
         
-        let register_info = crate::fingerprint::gather::RegisterInfo::new();
-        let info = serde_json::to_string(&register_info).unwrap();
+        let register = crate::fingerprint::gather::RegisterInfo::new();
+        let register = serde_json::to_string(&register).unwrap();
         
         let request = notify::NotifyRequest {
             r#type: notify::Type::Register as i32,
-            message: info,
+            message: register,
         };
     
         if let Err(err) = tx.send(request).await {
@@ -57,7 +71,7 @@ impl NotificationSender {
 
         while let Some(notification_type) = receiver.recv().await {
             match  notification_type {
-                NotificationType::Resource(message) => {
+                NotificationType::Resource(_message) => {
                 
                 },
                 NotificationType::Constitution(message) => {
@@ -67,14 +81,20 @@ impl NotificationSender {
                         message: message,
                     };
                     
-                    if let Err(err) = tx.send(request).await {
-                        eprintln!("notify constitution error: {:?}", err);
-                    };
-                    //tx.closed().await;
-                    break;
+                    if tx.is_closed() {
+
+                        println!("crew notify tx is closed. so do't send message");
+                    }
+                    else {
+                        if let Err(err) = tx.send(request).await {
+                            eprintln!("crew notify constitution error: {:?}", err);
+                            break;
+                        }; 
+                    }
                 }
             }
         }
+        println!("crew notify keepalive end.");
         
         let register_info = crate::fingerprint::gather::RegisterInfo::new();
         let info = serde_json::to_string(&register_info).unwrap();
@@ -87,8 +107,7 @@ impl NotificationSender {
         if let Err(err) = tx.send(request).await {
             eprintln!("notify unregister error: {:?}", err);
         };
-        
-    
+
         return Ok("OK".to_string());
     }
 

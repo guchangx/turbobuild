@@ -29,6 +29,23 @@ pub struct FileTrResponse {
     #[prost(string, tag = "2")]
     pub error_message: ::prost::alloc::string::String,
 }
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct CheckResource {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CocrewResource {
+    #[prost(string, tag = "1")]
+    pub compiler_path: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "2")]
+    pub winkits_includes_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag = "3")]
+    pub msvc_includes_path: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub msvc_version: ::prost::alloc::string::String,
+    #[prost(int32, tag = "5")]
+    pub error_code: i32,
+    #[prost(string, tag = "6")]
+    pub error_message: ::prost::alloc::string::String,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum FileType {
@@ -43,9 +60,9 @@ impl FileType {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            FileType::Unknown => "UNKNOWN",
-            FileType::Toolchain => "TOOLCHAIN",
-            FileType::Kits => "KITS",
+            Self::Unknown => "UNKNOWN",
+            Self::Toolchain => "TOOLCHAIN",
+            Self::Kits => "KITS",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -60,7 +77,13 @@ impl FileType {
 }
 /// Generated client implementations.
 pub mod communicate_client {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
@@ -151,8 +174,7 @@ pub mod communicate_client {
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
+                    tonic::Status::unknown(
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
@@ -176,8 +198,7 @@ pub mod communicate_client {
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
+                    tonic::Status::unknown(
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
@@ -188,6 +209,27 @@ pub mod communicate_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("pack.communicate", "transmit_command"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn check_cocrew_resource(
+            &mut self,
+            request: impl tonic::IntoRequest<super::CheckResource>,
+        ) -> std::result::Result<tonic::Response<super::CocrewResource>, tonic::Status> {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/pack.communicate/check_cocrew_resource",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("pack.communicate", "check_cocrew_resource"));
             self.inner.unary(req, path, codec).await
         }
     }

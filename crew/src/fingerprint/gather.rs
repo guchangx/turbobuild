@@ -119,8 +119,6 @@ impl SystemInfo {
         sys.refresh_cpu_specifics(sysinfo::CpuRefreshKind::everything());
         
         let cpu_usage = sys.global_cpu_usage();
-        println!("cpu usage: {}", cpu_usage);
-        
         let mut sys = System::new();
         sys.refresh_memory();
         
@@ -158,6 +156,7 @@ pub struct RegisterInfo {
     pub username: String,
     pub devicename: String,
     pub aliasname: String,
+    pub addr: String,
     pub password: String,
     pub license: String,
 }
@@ -171,6 +170,7 @@ impl RegisterInfo {
             username,
             devicename,
             aliasname,
+            addr: "".to_string(),
             password: "".to_string(),
             license: "".to_string(),
         };

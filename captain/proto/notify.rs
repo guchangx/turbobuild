@@ -4,7 +4,7 @@ pub struct NotifyRequest {
     #[prost(enumeration = "Type", tag = "1")]
     pub r#type: i32,
     #[prost(string, tag = "2")]
-    pub name: ::prost::alloc::string::String,
+    pub message: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NotifyResponse {
@@ -15,6 +15,55 @@ pub struct NotifyResponse {
     #[prost(int32, tag = "3")]
     pub error_code: i32,
     #[prost(string, tag = "4")]
+    pub error_message: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CrewsResource {
+    #[prost(string, tag = "1")]
+    pub username: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub aliasname: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub addr: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
+    pub compiler_path: ::prost::alloc::string::String,
+    #[prost(string, repeated, tag = "5")]
+    pub winkits_includes_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, tag = "6")]
+    pub msvc_includes_path: ::prost::alloc::string::String,
+    #[prost(string, tag = "7")]
+    pub msvc_version: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CheckCrewsResourceRequest {
+    #[prost(string, tag = "1")]
+    pub username: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub aliasname: ::prost::alloc::string::String,
+    #[prost(string, tag = "3")]
+    pub addr: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct CheckCrewsResourceResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub resources: ::prost::alloc::vec::Vec<CrewsResource>,
+    #[prost(int32, tag = "2")]
+    pub error_code: i32,
+    #[prost(string, tag = "3")]
+    pub error_message: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReportCrewsResourceRequest {
+    #[prost(message, repeated, tag = "1")]
+    pub resources: ::prost::alloc::vec::Vec<CrewsResource>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ReportCrewsResourceResponse {
+    #[prost(message, repeated, tag = "1")]
+    pub resources: ::prost::alloc::vec::Vec<CrewsResource>,
+    #[prost(int32, tag = "2")]
+    pub error_code: i32,
+    #[prost(string, tag = "3")]
     pub error_message: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
@@ -33,11 +82,11 @@ impl Type {
     /// (if the ProtoBuf definition does not change) and safe for programmatic use.
     pub fn as_str_name(&self) -> &'static str {
         match self {
-            Type::Unknown => "UNKNOWN",
-            Type::Register => "REGISTER",
-            Type::Unregister => "UNREGISTER",
-            Type::Keepalive => "KEEPALIVE",
-            Type::Data => "DATA",
+            Self::Unknown => "UNKNOWN",
+            Self::Register => "REGISTER",
+            Self::Unregister => "UNREGISTER",
+            Self::Keepalive => "KEEPALIVE",
+            Self::Data => "DATA",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -54,7 +103,13 @@ impl Type {
 }
 /// Generated client implementations.
 pub mod communicate_client {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
     use tonic::codegen::*;
     use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
@@ -148,8 +203,7 @@ pub mod communicate_client {
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
+                    tonic::Status::unknown(
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
@@ -161,33 +215,89 @@ pub mod communicate_client {
             req.extensions_mut().insert(GrpcMethod::new("notify.communicate", "notify"));
             self.inner.streaming(req, path, codec).await
         }
-        pub async fn unregister(
+        pub async fn report_crews_resource(
             &mut self,
-            request: impl tonic::IntoRequest<super::NotifyRequest>,
-        ) -> std::result::Result<tonic::Response<super::NotifyResponse>, tonic::Status> {
+            request: impl tonic::IntoRequest<super::ReportCrewsResourceRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ReportCrewsResourceResponse>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
                 .map_err(|e| {
-                    tonic::Status::new(
-                        tonic::Code::Unknown,
+                    tonic::Status::unknown(
                         format!("Service was not ready: {}", e.into()),
                     )
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/notify.communicate/unregister",
+                "/notify.communicate/report_crews_resource",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("notify.communicate", "unregister"));
+                .insert(GrpcMethod::new("notify.communicate", "report_crews_resource"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn cancel_crews_resource(
+            &mut self,
+            request: impl tonic::IntoRequest<super::ReportCrewsResourceRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ReportCrewsResourceResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/notify.communicate/cancel_crews_resource",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("notify.communicate", "cancel_crews_resource"));
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn check_crews_resource(
+            &mut self,
+            request: impl tonic::IntoRequest<super::CheckCrewsResourceRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::CheckCrewsResourceResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/notify.communicate/check_crews_resource",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("notify.communicate", "check_crews_resource"));
             self.inner.unary(req, path, codec).await
         }
     }
 }
 /// Generated server implementations.
 pub mod communicate_server {
-    #![allow(unused_variables, dead_code, missing_docs, clippy::let_unit_value)]
+    #![allow(
+        unused_variables,
+        dead_code,
+        missing_docs,
+        clippy::wildcard_imports,
+        clippy::let_unit_value,
+    )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with CommunicateServer.
     #[async_trait]
@@ -202,10 +312,27 @@ pub mod communicate_server {
             &self,
             request: tonic::Request<tonic::Streaming<super::NotifyRequest>>,
         ) -> std::result::Result<tonic::Response<Self::notifyStream>, tonic::Status>;
-        async fn unregister(
+        async fn report_crews_resource(
             &self,
-            request: tonic::Request<super::NotifyRequest>,
-        ) -> std::result::Result<tonic::Response<super::NotifyResponse>, tonic::Status>;
+            request: tonic::Request<super::ReportCrewsResourceRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ReportCrewsResourceResponse>,
+            tonic::Status,
+        >;
+        async fn cancel_crews_resource(
+            &self,
+            request: tonic::Request<super::ReportCrewsResourceRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::ReportCrewsResourceResponse>,
+            tonic::Status,
+        >;
+        async fn check_crews_resource(
+            &self,
+            request: tonic::Request<super::CheckCrewsResourceRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::CheckCrewsResourceResponse>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct CommunicateServer<T> {
@@ -331,25 +458,26 @@ pub mod communicate_server {
                     };
                     Box::pin(fut)
                 }
-                "/notify.communicate/unregister" => {
+                "/notify.communicate/report_crews_resource" => {
                     #[allow(non_camel_case_types)]
-                    struct unregisterSvc<T: Communicate>(pub Arc<T>);
+                    struct report_crews_resourceSvc<T: Communicate>(pub Arc<T>);
                     impl<
                         T: Communicate,
-                    > tonic::server::UnaryService<super::NotifyRequest>
-                    for unregisterSvc<T> {
-                        type Response = super::NotifyResponse;
+                    > tonic::server::UnaryService<super::ReportCrewsResourceRequest>
+                    for report_crews_resourceSvc<T> {
+                        type Response = super::ReportCrewsResourceResponse;
                         type Future = BoxFuture<
                             tonic::Response<Self::Response>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::NotifyRequest>,
+                            request: tonic::Request<super::ReportCrewsResourceRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as Communicate>::unregister(&inner, request).await
+                                <T as Communicate>::report_crews_resource(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -360,7 +488,99 @@ pub mod communicate_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = unregisterSvc(inner);
+                        let method = report_crews_resourceSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/notify.communicate/cancel_crews_resource" => {
+                    #[allow(non_camel_case_types)]
+                    struct cancel_crews_resourceSvc<T: Communicate>(pub Arc<T>);
+                    impl<
+                        T: Communicate,
+                    > tonic::server::UnaryService<super::ReportCrewsResourceRequest>
+                    for cancel_crews_resourceSvc<T> {
+                        type Response = super::ReportCrewsResourceResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::ReportCrewsResourceRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Communicate>::cancel_crews_resource(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = cancel_crews_resourceSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/notify.communicate/check_crews_resource" => {
+                    #[allow(non_camel_case_types)]
+                    struct check_crews_resourceSvc<T: Communicate>(pub Arc<T>);
+                    impl<
+                        T: Communicate,
+                    > tonic::server::UnaryService<super::CheckCrewsResourceRequest>
+                    for check_crews_resourceSvc<T> {
+                        type Response = super::CheckCrewsResourceResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::CheckCrewsResourceRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Communicate>::check_crews_resource(&inner, request)
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = check_crews_resourceSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(
@@ -378,17 +598,19 @@ pub mod communicate_server {
                 }
                 _ => {
                     Box::pin(async move {
-                        Ok(
-                            http::Response::builder()
-                                .status(200)
-                                .header("grpc-status", tonic::Code::Unimplemented as i32)
-                                .header(
-                                    http::header::CONTENT_TYPE,
-                                    tonic::metadata::GRPC_CONTENT_TYPE,
-                                )
-                                .body(empty_body())
-                                .unwrap(),
-                        )
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
                     })
                 }
             }

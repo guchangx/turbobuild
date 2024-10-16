@@ -11,15 +11,15 @@ enum Type {
 }
 
 message NotifyRequest {
-  Type type = 1;
-  string name = 2;
+    Type type = 1;
+    string message = 2;
 }
 
 message NotifyResponse {
-  Type type = 1;
-  string message = 2;
-  int32 error_code = 3;
-  string error_message = 4;
+    Type type = 1;
+    string message = 2;
+    int32 error_code = 3;
+    string error_message = 4;
 }
 
 message CrewsResource {
