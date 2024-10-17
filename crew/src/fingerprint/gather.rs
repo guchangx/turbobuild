@@ -176,3 +176,55 @@ impl RegisterInfo {
         };
     }
 }
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct Resource {
+    pub username: String, 
+    pub aliasname: String,
+    pub addr: String,
+    pub winkits_includes_path: Vec<std::ffi::OsString>,
+    pub compiler_path: std::ffi::OsString,
+    pub msvc_includes_path: std::ffi::OsString,
+    pub msvc_version: String,
+}
+
+impl Resource {
+    pub fn new() -> Self {
+        
+        let username = SystemInfo::fetch_username();
+        let aliasname = SystemInfo::fetch_aliasname();
+        let addr = "".to_string();
+        let compiler = "".to_string();
+        let msvc = vec![""];
+        let version = vec![""];
+        
+        return Self {
+            username: "".to_string(),
+            aliasname: "".to_string(),
+            addr: "".to_string(),
+            winkits_includes_path: vec![],
+            compiler_path: std::ffi::OsString::new(),
+            msvc_includes_path: std::ffi::OsString::new(),
+            msvc_version: "".to_string(),
+        }
+    }
+
+    fn fetch_compiler_path() -> std::ffi::OsString {
+        
+        let replice = common::utils::get_working_path("Replice".to_string());
+        return std::ffi::OsString::new(); 
+    }
+    
+    fn fetch_msvc_includes_path() -> std::ffi::OsString {
+        return std::ffi::OsString::new();
+    }
+
+    fn fetch_winkits_includes_path() -> Vec<std::ffi::OsString> {
+        return vec![];
+    }
+
+    fn fetch_msvc_version() -> String {
+        return "".to_string();
+    }
+}
+

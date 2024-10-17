@@ -13,7 +13,7 @@ fn main()  {
     .build_server(true)
     .out_dir("./proto")
     //.type_attribute(".", "#[derive(serde_derive::Deserialize, serde_derive::Serialize)]")
-    .compile(
+    .compile_protos(
         &["./../proto/notify.proto"],
         &include,
     );

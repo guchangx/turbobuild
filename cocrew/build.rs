@@ -14,7 +14,7 @@ fn main()  {
     .build_client(false)
     .out_dir("./proto")
     //.type_attribute(".", "#[derive(serde_derive::Deserialize, serde_derive::Serialize)]")
-    .compile(
+    .compile_protos(
         &["./../proto/pack.proto"],
         &include,
     );

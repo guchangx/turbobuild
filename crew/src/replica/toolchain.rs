@@ -1,7 +1,7 @@
 pub struct Property {
     replica_dir: String,
     original_toolchain_path: String,
-    replica_toolchain_path: String,
+    replica_toolchain_path: Vec<String>,
 }
 
 impl Property {
@@ -9,7 +9,7 @@ impl Property {
         Property {
             replica_dir,
             original_toolchain_path,
-            replica_toolchain_path: "".to_string(),
+            replica_toolchain_path: Vec::new(),
         }
     }
     

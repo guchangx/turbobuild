@@ -83,7 +83,7 @@ impl FileReceiver {
         if path.ends_with(".zip") {
             let cursor = std::io::Cursor::new(content);
             let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
-            let replica = crate::replica::toolchain::Property::new("".to_string(), path.to_string());
+            let replica = crew::replica::toolchain::Property::new("".to_string(), path.to_string());
             let replica_path = replica.fetch_replica_path();
             zip_archive.extract(replica_path).unwrap();  
         }

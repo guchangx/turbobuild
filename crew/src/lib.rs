@@ -4,6 +4,7 @@ pub mod compileripc;
 pub mod enter;
 pub mod platform;
 pub mod compiler;
+pub mod replica;
 
 pub fn run() {
     common::logger::init_logger();
