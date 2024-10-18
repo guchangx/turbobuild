@@ -10,18 +10,18 @@ documentation.workspace = true
 [dependencies]
 common = { path = "../common" }
 
-tonic = "0.12.1"
-prost = "0.13.1"
+tonic = "0.12.3"
+prost = "0.13.3"
 serde = { version = "1.0.210", features = ["derive"] }
-serde_json = "1.0.128"
-tokio = { version = "1.37.0", features = ["rt", "rt-multi-thread"] }
-tokio-stream = "0.1.9"
+serde_json = "1.0.129"
+tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread"] }
+tokio-stream = "0.1.16"
 sysinfo = "0.32.0"
 winapi = {version = "0.3.9", features = ["winreg", "winerror"]}
-regex = "1.6.0"
+regex = "1.11.0"
 log = "0.4.17"
 zip = {version = "2.2.0", features = ["zstd"]}
 
 
 [build-dependencies]
-tonic-build = "0.12.1"
+tonic-build = "0.12.3"
