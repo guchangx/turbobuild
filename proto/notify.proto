@@ -22,14 +22,24 @@ message NotifyResponse {
     string error_message = 4;
 }
 
+enum Arch {
+    ARM = 0;
+    ARM64 = 1;
+    X64 = 2;
+    X86 = 3;
+}
+
+message ToolVersion {
+    string version = 1;
+    Arch host = 2;
+    Arch target = 3;    
+}
+
 message CrewsResource {
     string username = 1; 
     string aliasname = 2;
     string addr = 3;
-    string compiler_path = 4;
-    repeated string winkits_includes_path = 5;
-    string msvc_includes_path = 6;
-    string msvc_version = 7;
+    repeated ToolVersion tool_versions = 4;
 }
 
 message CheckCrewsResourceRequest {

@@ -8,16 +8,29 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle) {
     rt.spawn(async move {
         let _ = notify.register(receiver).await;
 
-        let resources =  Vec::new();
+        let mut resources =  Vec::new();
+        
+        let tools = crate::replica::toolchain::Property::load_replica_toolchain();
+
+        let mut versions = Vec::new();
+        for tool in tools {
+            let version = crate::communicate::notifier::notify::ToolVersion {
+                version: tool.version,
+                host: tool.host as i32,
+                target: tool.target  as i32,
+            };
+            versions.push(version);
+        }
+        
         let resource = crate::communicate::notifier::notify::CrewsResource {
             username: crate::fingerprint::gather::SystemInfo::fetch_username(),
             aliasname: crate::fingerprint::gather::SystemInfo::fetch_aliasname(),
             addr: "".to_string(),
-            compiler_path: "".to_string(),
-            winkits_includes_path: vec!["".to_string()],
-            msvc_includes_path: "".to_string(),
-            msvc_version: "".to_string(),
+            tool_versions: versions,
         };
+        
+        resources.push(resource);
+        
         notify.report_resource(resources).await;
     });
     

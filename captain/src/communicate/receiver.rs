@@ -179,14 +179,22 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
 
             if let Some(manage) = &common.resources {
 
+                let mut tools = Vec::new();
+                for ver in resource.tool_versions {
+                    
+                    let tool = crate::roster::crews::Version {
+                        version: ver.version,
+                        host:  ver.host.into(),
+                        target: ver.target.into(),
+                    };
+                    tools.push(tool);
+                }
+                
                 let crew = crate::roster::crews::CrewResource {
                     username: resource.username,
                     aliasname: resource.aliasname,
                     addr: resource.addr,
-                    winkits_includes_path: resource.winkits_includes_path.iter().map(|item| std::ffi::OsString::from(item)).collect(),
-                    compiler_path: std::ffi::OsString::from(resource.compiler_path),
-                    msvc_includes_path: std::ffi::OsString::from(resource.msvc_includes_path),
-                    msvc_version: resource.msvc_version,
+                    toolchains: tools,
                 };
 
                 manage.lock().expect("roster lock failed").add(crew);
@@ -209,14 +217,22 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
 
             if let Some(manage) = &common.resources {
 
+                let mut tools = Vec::new();
+                for ver in resource.tool_versions {
+                    
+                    let tool = crate::roster::crews::Version {
+                        version: ver.version,
+                        host:  ver.host.into(),
+                        target: ver.target.into(),
+                    };
+                    tools.push(tool);
+                }
+                
                 let crew = crate::roster::crews::CrewResource {
                     username: resource.username,
                     aliasname: resource.aliasname,
                     addr: resource.addr,
-                    winkits_includes_path: resource.winkits_includes_path.iter().map(|item| std::ffi::OsString::from(item)).collect(),
-                    compiler_path: std::ffi::OsString::from(resource.compiler_path),
-                    msvc_includes_path: std::ffi::OsString::from(resource.msvc_includes_path),
-                    msvc_version: resource.msvc_version,
+                    toolchains: tools,
                 };
 
                 manage.lock().expect("roster lock failed").add(crew);
@@ -243,14 +259,22 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
 
             for crew in crews {
 
+                let mut tools = Vec::new();
+                for ver in crew.toolchains {
+                    
+                    let tool = crate::communicate::receiver::notify::ToolVersion {
+                        version: ver.version,
+                        host:  ver.host as i32,
+                        target: ver.target as i32,
+                    };
+                    tools.push(tool);
+                }
+                
                 let res = notify::CrewsResource {
                     username: crew.username,
                     aliasname: crew.aliasname,
                     addr: crew.addr,
-                    compiler_path: crew.compiler_path.to_string_lossy().into(),
-                    winkits_includes_path: crew.winkits_includes_path.iter().map(|item| item.clone().into_string().unwrap()).collect(),
-                    msvc_includes_path: crew.msvc_includes_path.into_string().unwrap(),
-                    msvc_version: crew.msvc_version,
+                    tool_versions: tools,
                 };
 
                 resources.push(res);

@@ -65,14 +65,42 @@ impl ConstitutionList {
 }
 
 #[derive(Debug, Clone)]
+#[allow(non_camel_case_types)]
+#[allow(dead_code)]
+pub enum Arch {
+    unknown = 0,
+    arm = 1,
+    arm64 = 2,
+    x86 = 3,
+    x64 = 4,
+}
+
+impl From<i32> for Arch {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => Self::unknown,
+            1 => Self::arm,
+            2 => Self::arm64,
+            3 => Self::x86,
+            4 => Self::x64,
+            _ => panic!("Unknown value"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Version {
+    pub version: String,
+    pub host: Arch,
+    pub target: Arch,
+}
+
+#[derive(Debug, Clone)]
 pub struct CrewResource {
     pub username: String, 
     pub aliasname: String,
     pub addr: String,
-    pub winkits_includes_path: Vec<std::ffi::OsString>,
-    pub compiler_path: std::ffi::OsString,
-    pub msvc_includes_path: std::ffi::OsString,
-    pub msvc_version: String,
+    pub toolchains: Vec<Version>,
 }
 
 #[derive(Debug, Clone)]

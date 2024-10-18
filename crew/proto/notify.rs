@@ -18,6 +18,15 @@ pub struct NotifyResponse {
     pub error_message: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ToolVersion {
+    #[prost(string, tag = "1")]
+    pub version: ::prost::alloc::string::String,
+    #[prost(enumeration = "Arch", tag = "2")]
+    pub host: i32,
+    #[prost(enumeration = "Arch", tag = "3")]
+    pub target: i32,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CrewsResource {
     #[prost(string, tag = "1")]
     pub username: ::prost::alloc::string::String,
@@ -25,14 +34,8 @@ pub struct CrewsResource {
     pub aliasname: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
     pub addr: ::prost::alloc::string::String,
-    #[prost(string, tag = "4")]
-    pub compiler_path: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag = "5")]
-    pub winkits_includes_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(string, tag = "6")]
-    pub msvc_includes_path: ::prost::alloc::string::String,
-    #[prost(string, tag = "7")]
-    pub msvc_version: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "4")]
+    pub tool_versions: ::prost::alloc::vec::Vec<ToolVersion>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CheckCrewsResourceRequest {
@@ -97,6 +100,38 @@ impl Type {
             "UNREGISTER" => Some(Self::Unregister),
             "KEEPALIVE" => Some(Self::Keepalive),
             "DATA" => Some(Self::Data),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum Arch {
+    Arm = 0,
+    Arm64 = 1,
+    X64 = 2,
+    X86 = 3,
+}
+impl Arch {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Arm => "ARM",
+            Self::Arm64 => "ARM64",
+            Self::X64 => "X64",
+            Self::X86 => "X86",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "ARM" => Some(Self::Arm),
+            "ARM64" => Some(Self::Arm64),
+            "X64" => Some(Self::X64),
+            "X86" => Some(Self::X86),
             _ => None,
         }
     }
