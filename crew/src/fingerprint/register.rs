@@ -6,8 +6,19 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle) {
     let (sender, receiver) = tokio::sync::mpsc::channel::<crate::communicate::notifier::NotificationType>(128);
     
     rt.spawn(async move {
-        let _ = notify.register(receiver).await; 
-                
+        let _ = notify.register(receiver).await;
+
+        let resources =  Vec::new();
+        let resource = crate::communicate::notifier::notify::CrewsResource {
+            username: crate::fingerprint::gather::SystemInfo::fetch_username(),
+            aliasname: crate::fingerprint::gather::SystemInfo::fetch_aliasname(),
+            addr: "".to_string(),
+            compiler_path: "".to_string(),
+            winkits_includes_path: vec!["".to_string()],
+            msvc_includes_path: "".to_string(),
+            msvc_version: "".to_string(),
+        };
+        notify.report_resource(resources).await;
     });
     
     let mut fingerprint = crate::fingerprint::gather::SystemInfo::new();

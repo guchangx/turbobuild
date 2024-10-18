@@ -111,7 +111,7 @@ impl NotificationSender {
         return Ok("OK".to_string());
     }
 
-    pub async fn report_resource(resources: Vec<notify::CrewsResource>) {
+    pub async fn report_resource(&self, resources: Vec<notify::CrewsResource>) {
     
         let mut client = notify::communicate_client::CommunicateClient::connect("http://localhost:50051").await.unwrap();
        

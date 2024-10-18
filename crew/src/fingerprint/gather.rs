@@ -54,17 +54,17 @@ impl SystemInfo {
             description: "".to_string(),
         }
     }
-    fn fetch_username() -> String {
+    pub fn fetch_username() -> String {
         let username = std::env::var("USERNAME").unwrap_or_else(|_| std::env::var("USER").unwrap_or_else(|_| "unknown".to_string()));
         return username;
     }
     
-    fn fetch_devicename() -> String {
+    pub fn fetch_devicename() -> String {
         let device_name = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "unknown".to_string());
         return device_name;
     }
     
-    fn fetch_aliasname() -> String {
+    pub fn fetch_aliasname() -> String {
         return "".to_string();
     }
     
