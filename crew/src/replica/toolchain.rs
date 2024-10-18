@@ -1,87 +1,183 @@
+use std::sync::Arc;
+
+
 pub struct Property {
     replica_dir: String,
     original_toolchain_path: String,
-    replica_toolchain_path: Vec<String>,
+    replica_toolchain_versions: Vec<Version>,
+}
+
+#[derive(Debug)]
+pub struct Version {
+    pub version: String,
+    pub host: Arch,
+    pub target: Arch,
+}
+
+#[derive(Debug, PartialEq)]
+#[allow(non_camel_case_types)]
+#[allow(dead_code)]
+pub enum Arch {
+    unknown = 0,
+    arm = 1,
+    arm64 = 2,
+    x86 = 3,
+    x64 = 4,
 }
 
 impl Property {
+    
+    pub fn default() -> Self {
+        return Property {
+            replica_dir: Self::load_or_create_replica_dir(),
+            original_toolchain_path: String::new(),
+            replica_toolchain_versions: Self::load_replica_toolchain(),
+        }
+    }
+
     pub fn new(replica_dir: String, original_toolchain_path: String) -> Self {
         Property {
             replica_dir,
             original_toolchain_path,
-            replica_toolchain_path: Vec::new(),
-        }
-    }
-    
-    pub fn load_replica_path(&mut self) {
-        if let Some(path) = common::utils::get_working_path("Replica".to_string()) {
-            
-            let mut replica = std::path::PathBuf::from(path);
-            replica.push("MSVC");
-            if replica.exists() {
-                for entry in replica.read_dir().expect("read replica path failed.") {
-                    if let Ok(entry) = entry {
-                        println!("{:?}", entry.path());
-                    }
-                }
-            }   
-            else {
-                println!("can not load replica path.");
-            }            
-        }
-    }
-    
-    pub fn fetch_replica_path(&self) -> String {
-        let replica_path = common::utils::get_working_path("Replica".to_string());
-        println!("replica path: {:?}", replica_path);
-        if let Some(path) = replica_path {
-            let path = self.mapping_dir(path); 
-            return path.display().to_string();
-        }
-        else {
-            return "".to_string();
+            replica_toolchain_versions: Vec::new(),
         }
     }
 
-    fn mapping_dir(&self, replica_dir: String) -> std::path::PathBuf {
-        //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\include
-       let path = std::path::Path::new(&self.original_toolchain_path);
-   
-       let compiler_version = path.into_iter()
-           .filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap() != "cl.exe")
-           .collect::<Vec<&std::ffi::OsStr>>()
-           .first()
-           .unwrap()
-           .to_owned();
-       
-       let current_dir = std::path::PathBuf::from(replica_dir);
-       let name = path.file_stem().unwrap();
-       if name.to_str().unwrap().contains("86") || name.to_str().unwrap().contains("64") {
-           let compiler_mapping_path = current_dir.join("MSVC").join(compiler_version).join(r"bin\Hostx64")
-           .join(name);
-           let _ = std::fs::create_dir_all(&compiler_mapping_path).expect("crate msvc compiler cl.exe dir failed.");
-           return compiler_mapping_path;
-       }
-       else if name.to_string_lossy().contains("include") {
-           let compiler_include_mapping_path = current_dir.join("MSVC").join(compiler_version).join("include");
-           let _ = std::fs::create_dir_all(&compiler_include_mapping_path).expect("crate msvc compiler cl.exe dir failed.");
-           return compiler_include_mapping_path;
-       }
-       else {
-           return current_dir.join("unnamed");
-       }
-   }
+    fn load_or_create_replica_dir() -> String {
+        if let Some(path) = common::utils::get_working_path("Replica".to_string()) {
+            return path;
+        }
+        else {
+            let mut dir = std::env::current_exe().unwrap();
+            println!("dir: {:?}", dir);
+            
+            let mut path = "";
+            if dir.components().any(|item| item.as_os_str() == "deps") {
+                dir.pop();
+                dir.pop();
+                dir.push("Replica");
+                std::fs::create_dir(&dir).unwrap();
+                path = dir.to_str().unwrap();
+            }
+            else {
+                dir.pop();
+                dir.push("Replica");
+                std::fs::create_dir(&dir).unwrap();
+                path = dir.to_str().unwrap();
+            }
+
+            return path.to_string();
+        }
+    }
+
+    pub fn fetch_replica_path(&self) -> String {
+        if let Some(path) = common::utils::get_working_path("Replica".to_string()) {
+            return path;
+        }
+        else {
+            let mut dir = std::env::current_exe().unwrap();
+            println!("dir: {:?}", dir);
+            
+            let mut path = "";
+            if dir.components().any(|item| item.as_os_str() == "deps") {
+                dir.pop();
+                dir.pop();
+                dir.push("Replica");
+                std::fs::create_dir(&dir).unwrap();
+                path = dir.to_str().unwrap();
+            }
+            else {
+                dir.pop();
+                dir.push("Replica");
+                std::fs::create_dir(&dir).unwrap();
+                path = dir.to_str().unwrap();
+            }
+
+            return path.to_string();
+        }
+    }
+
+    pub fn load_replica_toolchain() -> Vec<Version> {
+        let mut versions = Vec::new();
+
+        if let Some(path) = common::utils::get_working_path("Replica".to_string()) {
+            let mut replica = std::path::PathBuf::from(path);
+            replica.push("MSVC");
+        
+            if replica.exists() {
+                for version_entry in replica.read_dir().unwrap() {
+                    if let Ok(version_entry) = version_entry {
+                         for host_entry in version_entry.path().read_dir().unwrap() {
+                            if let Ok(host_entry) = host_entry {
+                                for target_entry in host_entry.path().read_dir().unwrap() {
+                                    if let Ok(target_entry) = target_entry {   
+
+                                        let mut host = Arch::unknown;
+                                        if host_entry.file_name() == "Hostx64" {
+                                            host = Arch::x64;
+                                        }
+                                        else if host_entry.file_name() == "Hostx86"{
+                                            host = Arch::x86
+                                        }
+                                        else if host_entry.file_name() == "arm" {
+                                            host = Arch::arm
+                                        }
+                                        else if host_entry.file_name() == "arm64" {
+                                            host = Arch::arm64
+                                        }
+
+                                        let mut target = Arch::unknown;
+                                        if target_entry.file_name() == "x64" {
+                                            target = Arch::x64;
+                                        }
+                                        else if target_entry.file_name() == "x86" {
+                                            target = Arch::x86;
+                                        }
+                                        else if target_entry.file_name() == "arm" {
+                                            target = Arch::arm;
+                                        }
+                                        else if target_entry.file_name() == "arm64" {
+                                            target = Arch::arm64;                
+                                        }
+
+                                        if host != Arch::unknown || target != Arch::unknown {
+                                            let ver = Version {
+                                                version: version_entry.file_name().to_string_lossy().to_string(),
+                                                host: host,
+                                                target: target,
+                                            };
+                                            versions.push(ver);
+                                        }
+                                    }
+                                }
+                            }
+                         }
+                    }
+                }
+                return versions;
+            }
+            else {
+                println!("can't find msvc in replica dir.");
+            }
+        }
+        else {
+            println!("can't find replice in target dir.");
+        }
+        return versions;
+    } 
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    println!("start relplica test.");
-
-    // cargo test --package crew --tests test_load_replica --show-output
     #[test]
-    fn test_load_replica() {
-        let mut property = Property::new("".to_string(), "".to_string());
-        property.load_replica_path();
+    //cargo test --package cocrew --tests load_replica -- --show-output
+    fn load_replica() {
+        println!("test load replica toolchain");
+        let versions = Property::load_replica_toolchain();
+        println!("path version: {:?}", versions);
+
+        let path = Property::load_or_create_replica_dir();
+        println!("path: {:?}", path);
     }
 }
