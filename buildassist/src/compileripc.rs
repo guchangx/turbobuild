@@ -12,7 +12,7 @@ impl SocketClient {
 
     pub fn new() -> Self {
         Self {
-
+        
         }
     }
 
