@@ -1,6 +1,4 @@
 use std::io::{Read, Write};
-use regex::*;
-
 struct CompilerOutput {
     compiled_filename: Vec<std::ffi::OsString>,
     compile_status: bool,

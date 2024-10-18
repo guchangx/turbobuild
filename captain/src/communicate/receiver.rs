@@ -141,6 +141,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                         else {
                             
                         }
+                        println!("notify message end.");
                     },
                     Err(err) => {
                         println!("notify client request detail error : {:?}", err);
