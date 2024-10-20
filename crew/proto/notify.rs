@@ -33,8 +33,10 @@ pub struct CrewsResource {
     #[prost(string, tag = "2")]
     pub aliasname: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
+    pub devicename: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
     pub addr: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag = "4")]
+    #[prost(message, repeated, tag = "5")]
     pub tool_versions: ::prost::alloc::vec::Vec<ToolVersion>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -75,8 +77,9 @@ pub enum Type {
     Unknown = 0,
     Register = 1,
     Unregister = 2,
-    Keepalive = 3,
-    Data = 4,
+    Checkresource = 3,
+    Keepalive = 4,
+    Data = 5,
 }
 impl Type {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -88,6 +91,7 @@ impl Type {
             Self::Unknown => "UNKNOWN",
             Self::Register => "REGISTER",
             Self::Unregister => "UNREGISTER",
+            Self::Checkresource => "CHECKRESOURCE",
             Self::Keepalive => "KEEPALIVE",
             Self::Data => "DATA",
         }
@@ -98,6 +102,7 @@ impl Type {
             "UNKNOWN" => Some(Self::Unknown),
             "REGISTER" => Some(Self::Register),
             "UNREGISTER" => Some(Self::Unregister),
+            "CHECKRESOURCE" => Some(Self::Checkresource),
             "KEEPALIVE" => Some(Self::Keepalive),
             "DATA" => Some(Self::Data),
             _ => None,

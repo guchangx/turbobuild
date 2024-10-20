@@ -6,8 +6,9 @@ enum Type {
     UNKNOWN = 0;
     REGISTER = 1;
     UNREGISTER = 2;
-    KEEPALIVE = 3;
-    DATA = 4;
+    CHECKRESOURCE = 3;
+    KEEPALIVE = 4;
+    DATA = 5;
 }
 
 message NotifyRequest {
@@ -38,8 +39,9 @@ message ToolVersion {
 message CrewsResource {
     string username = 1; 
     string aliasname = 2;
-    string addr = 3;
-    repeated ToolVersion tool_versions = 4;
+    string devicename = 3;
+    string addr = 4;
+    repeated ToolVersion tool_versions = 5;
 }
 
 message CheckCrewsResourceRequest {

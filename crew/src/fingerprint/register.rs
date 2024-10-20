@@ -1,3 +1,5 @@
+use crate::communicate::notifier::notify;
+
 
 pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle) {
     
@@ -5,33 +7,25 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle) {
 
     let (sender, receiver) = tokio::sync::mpsc::channel::<crate::communicate::notifier::NotificationType>(128);
     
+    let sender_ = sender.clone();
     rt.spawn(async move {
         let _ = notify.register(receiver).await;
-
-        let mut resources =  Vec::new();
         
-        let tools = crate::replica::toolchain::Property::load_replica_toolchain();
-
-        let mut versions = Vec::new();
-        for tool in tools {
-            let version = crate::communicate::notifier::notify::ToolVersion {
-                version: tool.version,
-                host: tool.host as i32,
-                target: tool.target  as i32,
-            };
-            versions.push(version);
-        }
+        let compilers = crate::replica::toolchain::Property::load_replica_toolchain();
         
-        let resource = crate::communicate::notifier::notify::CrewsResource {
+        let resources = crate::replica::toolchain::CrewsResource {
             username: crate::fingerprint::gather::SystemInfo::fetch_username(),
             aliasname: crate::fingerprint::gather::SystemInfo::fetch_aliasname(),
+            devicename: crate::fingerprint::gather::SystemInfo::fetch_devicename(),
             addr: "".to_string(),
-            tool_versions: versions,
+            compiler_versions: compilers
         };
         
-        resources.push(resource);
+        let info = serde_json::to_string(&resources).unwrap();
         
-        notify.report_resource(resources).await;
+        let res = crate::communicate::notifier::NotificationType::Resource(info);
+        
+        sender_.send(res).await.expect("send local replica resource failed.");
     });
     
     let mut fingerprint = crate::fingerprint::gather::SystemInfo::new();
@@ -55,6 +49,6 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle) {
             }
         }
         
-        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
     }
 }

@@ -15,7 +15,7 @@ impl Dist {
     pub fn sync() {
         let packager = self::packager::Packager::default();
             tokio::spawn(async move {
-                packager.toolchain("toolchain path").await;
+                packager.toolchain("toolchain path", "").await;
             }
         );
     }

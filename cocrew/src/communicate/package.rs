@@ -57,7 +57,7 @@ impl FileReceiver {
         
         if file_type == package::FileType::Toolchain as i32 {
                 Self::extract(&path, &content).await;
-            }
+        }
             
         else if file_type == package::FileType::Kits as i32 {
                 

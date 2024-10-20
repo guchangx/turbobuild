@@ -3,11 +3,11 @@ use std::io::{Read, Write};
 #[derive(Default, Clone)]
 
 pub struct Packager {
-
+    
 }
 
 impl Packager {
-    pub async fn toolchain(&self, path: &str) {
+    pub async fn toolchain(&self, path: &str, addr: &str) {
 
         println!("path: {:?}", path);
         
@@ -16,21 +16,7 @@ impl Packager {
 
         let content = Self::pack_dir(path, "msvc");
         
-        Self::send_package("msvc", path, &content).await;
-
-        let mut path = std::path::PathBuf::from(path);
-        //msvc include
-        for _ in 0..3 {
-            path.pop();
-        }
-        let include = path.join("include");
-
-        if include.is_dir() {
-            println!("sync dir: {:?}", path);
-
-            let content = Self::pack_dir(include.to_str().unwrap(), "msvc");
-            Self::send_package("msvc", path.to_str().unwrap(), &content).await;
-        }
+        Self::send_package("msvc", path, &content, addr).await;
     }
 
     fn pack_dir<'a>(dir: &str, _name: &str) -> std::borrow::Cow<'a, [u8]> {
@@ -95,16 +81,16 @@ impl Packager {
         }
     }
 
-    async fn send_package<'a>(name: &str, filename: &str, content: &std::borrow::Cow<'a, [u8]>) {
+    async fn send_package<'a>(name: &str, filename: &str, content: &std::borrow::Cow<'a, [u8]>, addr: &str) {
 
-        let mut sender = crate::communicate::package::FileSender::new();
+        let mut sender = crate::communicate::package::FileSender::new(addr);
         let args = crate::communicate::package::ArchiveArgs {
             file_type: crate::communicate::package::FileType::ToolChain,
             name: name.to_owned(),
             path: filename.to_owned(),
             content: content.to_owned(),
         };
-        let args = crate::communicate::package::SenderType::Archive(args);
+        let args: super::package::SenderType<'_> = crate::communicate::package::SenderType::Archive(args);
         sender.send(args).await;
     }
 
@@ -113,8 +99,8 @@ impl Packager {
 
     }
 
-    pub async fn file<'a>(&self, path: &str, content: &std::borrow::Cow<'a, [u8]>) {
-        let mut sender = crate::communicate::package::FileSender::new();
+    pub async fn file<'a>(&self, path: &str, content: &std::borrow::Cow<'a, [u8]>, addr: &str) {
+        let mut sender = crate::communicate::package::FileSender::new(addr);
 
         let args = crate::communicate::package::ArchiveArgs {
             file_type: crate::communicate::package::FileType::PrecompileedFile,
@@ -125,11 +111,5 @@ impl Packager {
 
         let args = crate::communicate::package::SenderType::Archive(args);
         sender.send(args).await;
-    }
-
-    pub async fn check_resource() -> Option<crate::platform::windows::WindowsCompilerEnv> {
-        let mut sender = crate::communicate::package::FileSender::new();
-        let env = sender.check_resource().await;
-        return env;
     }
 }

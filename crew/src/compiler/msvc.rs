@@ -344,7 +344,7 @@ async fn load_precompiled_result_file_from_disk_and_send(source_files: &Vec<Stri
 
             let handle = tokio::spawn(async move {
                 let sender = crate::communicate::packager::Packager::default();
-                sender.file(zip_file.to_str().unwrap(), &content).await;
+                sender.file(zip_file.to_str().unwrap(), &content,  "").await;
             });
             
             handles.lock().unwrap().push(handle);
@@ -730,7 +730,7 @@ fn request_dist_compile_with_precompiled_source(sender: std::sync::Arc<std::sync
                 tokio::runtime::Runtime::new().unwrap().spawn_blocking(move || {
                     let mut sender = sender.lock().unwrap();
                     
-                    sender.toolchain(path.to_str().unwrap());
+                    sender.toolchain(path.to_str().unwrap(), "");
                 });
             }
 

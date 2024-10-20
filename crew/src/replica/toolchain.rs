@@ -1,20 +1,20 @@
-use std::sync::Arc;
+use tonic::Streaming;
 
 
 pub struct Property {
     replica_dir: String,
     original_toolchain_path: String,
-    replica_toolchain_versions: Vec<Version>,
+    replica_toolchain_versions: Vec<CompilerVersion>,
 }
 
-#[derive(Debug)]
-pub struct Version {
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct CompilerVersion {
     pub version: String,
     pub host: Arch,
     pub target: Arch,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
 pub enum Arch {
@@ -23,6 +23,15 @@ pub enum Arch {
     arm64 = 2,
     x86 = 3,
     x64 = 4,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct CrewsResource {
+    pub username: String,
+    pub aliasname: String, 
+    pub devicename: String,
+    pub addr: String,
+    pub compiler_versions: Vec<CompilerVersion>,
 }
 
 impl Property {
@@ -97,7 +106,7 @@ impl Property {
         }
     }
 
-    pub fn load_replica_toolchain() -> Vec<Version> {
+    pub fn load_replica_toolchain() -> Vec<CompilerVersion> {
         let mut versions = Vec::new();
 
         if let Some(path) = common::utils::get_working_path("Replica".to_string()) {
@@ -141,7 +150,7 @@ impl Property {
                                         }
 
                                         if host != Arch::unknown || target != Arch::unknown {
-                                            let ver = Version {
+                                            let ver = CompilerVersion {
                                                 version: version_entry.file_name().to_string_lossy().to_string(),
                                                 host: host,
                                                 target: target,
@@ -165,6 +174,29 @@ impl Property {
         }
         return versions;
     } 
+
+    pub async fn check_resource_and_judge_sync(resources: Vec<crate::replica::toolchain::CrewsResource>) {
+    
+        let compiler_env = crate::platform::windows::WindowsCompilerEnv::default();
+
+        for item in resources {
+            let mut has = false;
+            for compiler in item.compiler_versions {
+                if compiler.version == compiler_env.msvc_version {
+                    has = true;
+                }
+            }
+            if !has {
+                println!("{} has not msvc {}, so sync it.", item.addr, compiler_env.msvc_version);
+                Self::sync_compiler_toolchain(compiler_env.compiler_path.to_str().unwrap(), &item.addr).await;
+            }
+        }
+    }
+    
+    pub async fn sync_compiler_toolchain(path: &str, addr: &str) {
+        let packager = crate::communicate::packager::Packager::default();
+        packager.toolchain(path, addr).await;
+    }
 }
 
 #[cfg(test)]

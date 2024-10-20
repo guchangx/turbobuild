@@ -94,7 +94,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 error_message: "".to_string(),
                             };
                             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
-                        } 
+                        }
                         else if notify::Type::Unregister as i32 == notification.r#type {
                             println!("unregister request: {:?}", notification);
                             if let Some(addr) = addr {
@@ -116,7 +116,38 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 error_message: "".to_string(),
                             };
                             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
-                        } 
+                        }
+                        else if notify::Type::Checkresource as i32 == notification.r#type {
+                            println!("checkresource request: {:?}", notification);
+                            
+                            let mut message = String::new();
+                            
+                            if let Some(addr) = addr {
+                                
+                                let common = common.lock().expect("common lock failed");    
+
+                                if let Some(roster) = &common.resources {
+                                    
+                                    let mut crew = serde_json::from_str::<crate::roster::crews::CrewResource>(&notification.message).expect("register request message parse failed");
+                                    crew.addr = addr.ip().to_string();
+                                    
+                                    let mut resourcelist = roster.lock().expect("roster lock failed");
+                                    resourcelist.add(crew);
+                                    let res = resourcelist.check("", "", "");
+                                    
+                                    message = serde_json::to_string(&res).expect("build crew resource json failed.");
+                                }
+                            }
+
+                            let reply = notify::NotifyResponse {
+                                r#type: notify::Type::Checkresource as i32,
+                                message: message,
+                                error_code: 0,
+                                error_message: "".to_string(),
+                            };
+                            
+                            let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+                        }
                         else if notify::Type::Keepalive as i32 == notification.r#type {
                             println!("keepalive request: {:?}", notification);
                             
@@ -182,7 +213,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                 let mut tools = Vec::new();
                 for ver in resource.tool_versions {
                     
-                    let tool = crate::roster::crews::Version {
+                    let tool = crate::roster::crews::CompilerVersion {
                         version: ver.version,
                         host:  ver.host.into(),
                         target: ver.target.into(),
@@ -193,8 +224,9 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                 let crew = crate::roster::crews::CrewResource {
                     username: resource.username,
                     aliasname: resource.aliasname,
+                    devicename: resource.devicename,
                     addr: resource.addr,
-                    toolchains: tools,
+                    compiler_versions: tools,
                 };
 
                 manage.lock().expect("roster lock failed").add(crew);
@@ -220,7 +252,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                 let mut tools = Vec::new();
                 for ver in resource.tool_versions {
                     
-                    let tool = crate::roster::crews::Version {
+                    let tool = crate::roster::crews::CompilerVersion {
                         version: ver.version,
                         host:  ver.host.into(),
                         target: ver.target.into(),
@@ -231,8 +263,9 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                 let crew = crate::roster::crews::CrewResource {
                     username: resource.username,
                     aliasname: resource.aliasname,
+                    devicename: resource.devicename,
                     addr: resource.addr,
-                    toolchains: tools,
+                    compiler_versions: tools,
                 };
 
                 manage.lock().expect("roster lock failed").add(crew);
@@ -260,7 +293,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
             for crew in crews {
 
                 let mut tools = Vec::new();
-                for ver in crew.toolchains {
+                for ver in crew.compiler_versions {
                     
                     let tool = crate::communicate::receiver::notify::ToolVersion {
                         version: ver.version,
@@ -273,6 +306,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                 let res = notify::CrewsResource {
                     username: crew.username,
                     aliasname: crew.aliasname,
+                    devicename: crew.devicename,
                     addr: crew.addr,
                     tool_versions: tools,
                 };

@@ -64,7 +64,7 @@ impl ConstitutionList {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
 pub enum Arch {
@@ -88,19 +88,20 @@ impl From<i32> for Arch {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Version {
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct CompilerVersion {
     pub version: String,
     pub host: Arch,
     pub target: Arch,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 pub struct CrewResource {
     pub username: String, 
     pub aliasname: String,
+    pub devicename: String,
     pub addr: String,
-    pub toolchains: Vec<Version>,
+    pub compiler_versions: Vec<CompilerVersion>,
 }
 
 #[derive(Debug, Clone)]
@@ -131,8 +132,8 @@ impl ResourceList {
         }
     }
 
-    pub fn check(&mut self, addr: &str, aliasname: &str, username: &str) -> Vec<CrewResource> {
-        if addr.is_empty() && aliasname.is_empty() && username.is_empty() {
+    pub fn check(&mut self, addr: &str, username: &str, devicename: &str) -> Vec<CrewResource> {
+        if addr.is_empty() && username.is_empty() && devicename.is_empty() {
             let crews = self.crews.clone();
             return crews;
         }
@@ -140,9 +141,8 @@ impl ResourceList {
             let mut resource = Vec::new();
             for crew in self.crews.clone() {
                 if (!crew.addr.is_empty() && crew.addr == addr) 
-                    && (crew.aliasname == aliasname)
+                    && (crew.devicename == devicename)
                     && (!crew.username.is_empty() && crew.username == username) {
-        
                         resource.push(crew);
                 }
             }

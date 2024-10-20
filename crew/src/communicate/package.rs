@@ -40,11 +40,16 @@ pub enum SenderType<'a> {
 } 
 
 impl FileSender {
-    pub fn new() -> Self {
-        let channel = tonic::transport::Endpoint::from_shared("http://localhost:19302").unwrap()
+    pub fn new(addr: &str) -> Self {
+        let mut host = "localhost"; 
+        if !addr.is_empty() {
+            host = addr;
+        }
+        
+        let channel = tonic::transport::Endpoint::from_shared(std::format!("http://{}:19302", host)).unwrap()
             .connect_lazy();
 
-        let mut client = pack::communicate_client::CommunicateClient::new(channel);
+        let client = pack::communicate_client::CommunicateClient::new(channel);
         
         let sender = FileSender {
             client

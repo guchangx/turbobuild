@@ -1,6 +1,7 @@
 
 fn main()  {
     println!("crew crate build xxxxx.proto file.");
+    
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=./../proto/notify.proto");
     println!("cargo:rerun-if-changed=./../proto/pack.proto");

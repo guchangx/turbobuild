@@ -1,3 +1,5 @@
+use winapi::um::wingdi::EMR_ELLIPSE;
+
 
 #[allow(non_camel_case_types)]
 pub mod notify {
@@ -38,6 +40,11 @@ impl NotificationSender {
                                 else if response.r#type == notify::Type::Keepalive as i32 {
 
                                 }
+                                else if response.r#type == notify::Type::Checkresource as i32 {
+                                    
+                                    let message = response.message.clone();
+                                    Self::handle_checkresource_response(&message).await;
+                                }
                                 else {
                                     
                                 }
@@ -71,8 +78,20 @@ impl NotificationSender {
 
         while let Some(notification_type) = receiver.recv().await {
             match  notification_type {
-                NotificationType::Resource(_message) => {
-                
+                NotificationType::Resource(message) => {
+                    let request  = notify::NotifyRequest {
+                        r#type: notify::Type::Register as i32,
+                        message: message,
+                    };
+                    
+                    if tx.is_closed() {
+                        println!("crew notify tx is closed. so do't send message");
+                    }
+                    else {
+                        if let Err(err) = tx.send(request).await {
+                            eprintln!("crew notify resource error: {:?}", err);
+                        };
+                    }
                 },
                 NotificationType::Constitution(message) => {
                 
@@ -82,7 +101,6 @@ impl NotificationSender {
                     };
                     
                     if tx.is_closed() {
-
                         println!("crew notify tx is closed. so do't send message");
                     }
                     else {
@@ -128,6 +146,43 @@ impl NotificationSender {
             Err(err) => {
                 println!("report crew resource. {:?}", err);
             }
+        }
+    }
+
+    pub async fn check_crews_resource(&self, resource: notify::CrewsResource) -> Vec<notify::CrewsResource> {
+        let mut client = notify::communicate_client::CommunicateClient::connect("http://localhost:50051").await.unwrap();
+
+        let request = notify::CheckCrewsResourceRequest {
+            username: resource.username,
+            aliasname: resource.aliasname,
+            addr: resource.addr
+        };
+
+        match client.check_crews_resource(request).await {
+            Ok(response) => {
+                
+                let response = response.into_inner();
+                println!("response {:?}", response);
+                if response.error_code == 0 {
+                    return response.resources;
+                }
+                else {
+                    return Vec::new();
+                }
+            }
+            Err(err) => {
+                println!("report crew resource. {:?}", err);
+                return Vec::new();
+            }
+        }
+    }
+
+    pub async fn handle_checkresource_response(message: &str) {
+        
+        if !message.is_empty() {
+            let resources: Vec<crate::replica::toolchain::CrewsResource> = serde_json::from_str(message).expect("serde from json failed.");
+            crate::replica::toolchain::Property::check_resource_and_judge_sync(resources).await;
+            //TODO: time-consuming task, should be done in runtime.       
         }
     }
  }
