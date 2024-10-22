@@ -14,9 +14,54 @@ impl Packager {
         //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\
         //msvc bin dir
 
-        let content = Self::pack_dir(path, "msvc");
+        let content = Self::pack_compiler(path, "msvc");
         
         Self::send_package("msvc", path, &content, addr).await;
+    }
+
+    fn pack_compiler<'a>(dir: &str, _name: &str) -> std::borrow::Cow<'a, [u8]> {
+        let mut path = std::path::PathBuf::from(dir);
+
+        let mut cursor = std::io::Cursor::new(Vec::new());
+
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Zstd);
+
+
+        let _ = zip.start_file("cl.exe", options.clone()).unwrap();
+        
+        let cl = path.clone();
+        log::trace!("{:?}", cl);
+        println!("cl: {:?}", cl);
+
+        let mut file = std::fs::File::open(cl.join("cl.exe")).expect("can't find cl.exe");
+        
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let clui = path.clone();
+        log::trace!("{:?}", clui);
+        println!("clui: {:?}", clui);
+        let _ = zip.start_file("clui", options.clone());
+        let mut file = std::fs::File::open(clui.join("1033/clui.dll")).expect("can't find clui.dll");
+
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let content = zip.finish().unwrap();
+        let file = content.to_owned().into_inner();
+        let content = std::borrow::Cow::from(file);
+
+        match path.extension() {
+            Some(extension) => {
+                let mut ex = extension.to_str().unwrap().to_string();
+                ex.push_str(".zip");
+                path.set_extension(ex);
+            },
+            None => {
+                path.set_extension("zip");
+            }
+        }
+        return content;
     }
 
     fn pack_dir<'a>(dir: &str, _name: &str) -> std::borrow::Cow<'a, [u8]> {
@@ -111,5 +156,28 @@ impl Packager {
 
         let args = crate::communicate::package::SenderType::Archive(args);
         sender.send(args).await;
+    }
+
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    //cargo test --package crew --tests pack_tool -- --show-output
+    fn pack_tool() {
+        println!("test pack msvc dir");
+        let content = Packager::pack_compiler(r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.37.32822\bin\Hostx64\x64", "msvc");
+        
+        let cursor = std::io::Cursor::new(content);
+        let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
+
+        let path = common::utils::get_working_path("".to_string()).unwrap();
+        println!("unzip path: {:?}", path);
+        
+        for name in zip_archive.file_names() { 
+            println!("zip archive name: {}", name);
+        }
+        zip_archive.extract(path).unwrap();  
     }
 }
