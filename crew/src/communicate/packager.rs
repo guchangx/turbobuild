@@ -42,7 +42,7 @@ impl Packager {
         let clui = path.clone();
         log::trace!("{:?}", clui);
         println!("clui: {:?}", clui);
-        let _ = zip.start_file("clui", options.clone());
+        let _ = zip.start_file("1033/clui.dll", options.clone());
         let mut file = std::fs::File::open(clui.join("1033/clui.dll")).expect("can't find clui.dll");
 
         let _ = std::io::copy(&mut file, &mut zip);
@@ -162,22 +162,36 @@ impl Packager {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     #[test]
     //cargo test --package crew --tests pack_tool -- --show-output
     fn pack_tool() {
         println!("test pack msvc dir");
-        let content = Packager::pack_compiler(r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.37.32822\bin\Hostx64\x64", "msvc");
+        //14.39.33519
+        //14.37.32822
+        
+        let content = Packager::pack_compiler(r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64", "msvc");
         
         let cursor = std::io::Cursor::new(content);
-        let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
+        let zip_archive = zip::ZipArchive::new(cursor).unwrap();
 
         let path = common::utils::get_working_path("".to_string()).unwrap();
         println!("unzip path: {:?}", path);
         
-        for name in zip_archive.file_names() { 
-            println!("zip archive name: {}", name);
+        let expect_packages = Vec::from(["cl.exe", "1033/clui.dll"]);
+        let packages = zip_archive.file_names().collect::<Vec<&str>>();
+
+        assert!(expect_packages == packages);
+        
+        let mut zip_ = zip_archive.clone();
+        for name in packages {
+            
+            let file = zip_.by_name(name).unwrap();
+            let size = file.size();
+            println!("zip archive name: {}, size {}", name, size);
+            assert!(size > 0);
         }
-        zip_archive.extract(path).unwrap();  
     }
 }
