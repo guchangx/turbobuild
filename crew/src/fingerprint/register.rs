@@ -1,4 +1,3 @@
-use crate::communicate::notifier::notify;
 
 
 pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle) {
@@ -8,47 +7,56 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle) {
     let (sender, receiver) = tokio::sync::mpsc::channel::<crate::communicate::notifier::NotificationType>(128);
     
     let sender_ = sender.clone();
+
+
     rt.spawn(async move {
         let _ = notify.register(receiver).await;
-        
-        let compilers = crate::replica::toolchain::Property::load_replica_toolchain();
-        
-        let resources = crate::replica::toolchain::CrewsResource {
-            username: crate::fingerprint::gather::SystemInfo::fetch_username(),
-            aliasname: crate::fingerprint::gather::SystemInfo::fetch_aliasname(),
-            devicename: crate::fingerprint::gather::SystemInfo::fetch_devicename(),
-            addr: "".to_string(),
-            compiler_versions: compilers
-        };
-        
-        let info = serde_json::to_string(&resources).unwrap();
-        
-        let res = crate::communicate::notifier::NotificationType::Resource(info);
-        
-        sender_.send(res).await.expect("send local replica resource failed.");
     });
+
+    let compilers = crate::replica::toolchain::Property::load_replica_toolchain();
+        
+    let resources = crate::replica::toolchain::CrewsResource {
+        username: crate::fingerprint::gather::SystemInfo::fetch_username(),
+        aliasname: crate::fingerprint::gather::SystemInfo::fetch_aliasname(),
+        devicename: crate::fingerprint::gather::SystemInfo::fetch_devicename(),
+        addr: "".to_string(),
+        compiler_versions: compilers
+    };
     
+    let info = serde_json::to_string(&resources).unwrap();
+
+    let res = crate::communicate::notifier::NotificationType::Resource(info);
+    
+    sender_.send(res).await.expect("send local replica resource failed.");
+
     let mut fingerprint = crate::fingerprint::gather::SystemInfo::new();
-    
-    loop {
+
         
-        let (cpu_usage, memory_used) = crate::fingerprint::gather::SystemInfo::fetch_cpu_and_memory_usage();
+    let rt_ = rt.clone();
+    rt.spawn_blocking(move || {
+        let _ = rt_.spawn(async move {
+            loop {
         
-        fingerprint.cpu_usage = cpu_usage;
-        fingerprint.memory_usage = ((memory_used * 100 as f32 / fingerprint.memory_total) * 1000.0).round() / 1000.0;
-        
-        let info = serde_json::to_string(&fingerprint).unwrap();
-        
-        let con = crate::communicate::notifier::NotificationType::Constitution(info);
-        match sender.send(con).await {
-            Ok(_) => {
-                println!("send constitution success.");
-            },
-            Err(err) => {
-                println!("send notification error: {:?}", err);
+                let (cpu_usage, memory_used) = crate::fingerprint::gather::SystemInfo::fetch_cpu_and_memory_usage();
+                
+                fingerprint.cpu_usage = cpu_usage;
+                fingerprint.memory_usage = ((memory_used * 100 as f32 / fingerprint.memory_total) * 1000.0).round() / 1000.0;
+                
+                let info = serde_json::to_string(&fingerprint).unwrap();
+                
+                let con = crate::communicate::notifier::NotificationType::Constitution(info);
+                match sender.send(con).await {
+                    Ok(_) => {
+                       
+                    },
+                    Err(err) => {
+                        println!("send notification error: {:?}", err);
+                    }
+                }
+                
+                tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
             }
-        }
-        
-        tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
-    }
+        });
+    });
+
 }

@@ -19,8 +19,10 @@ impl Receiver {
     } 
     
     pub fn init(&self) {
-        println!("init ipc socket");
+        
         let listener = std::net::TcpListener::bind(format!("localhost:{}", self.port)).unwrap();
+        
+        println!("init ipc socket {}", listener.local_addr().unwrap());
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {

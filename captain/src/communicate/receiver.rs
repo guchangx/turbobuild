@@ -24,8 +24,8 @@ impl NotificationReceiver {
     pub fn init(&self) {     
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
-            println!("init communicate server");
             let addr = "127.0.0.1:50051".parse().expect("parse addr failed");
+            println!("init captain communicate server {}", addr);
             let receiver = NotificationReceiver {
                 common: self.common.clone(),
             };
@@ -73,7 +73,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                     Ok(notification) => {
                         
                         if notify::Type::Register as i32 == notification.r#type {
-                            println!("register request: {:?}", notification);
+                            println!("register request: {:?} {:?}", addr, notification);
                             
                             if let Some(addr) = addr {
                                  
@@ -96,7 +96,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
                         }
                         else if notify::Type::Unregister as i32 == notification.r#type {
-                            println!("unregister request: {:?}", notification);
+                            println!("unregister request: {:?} {:?}", addr, notification);
                             if let Some(addr) = addr {
                                 
                                 let common = common.lock().expect("common lock failed");
@@ -118,7 +118,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
                         }
                         else if notify::Type::Checkresource as i32 == notification.r#type {
-                            println!("checkresource request: {:?}", notification);
+                            println!("checkresource request: {:?} {:?}", addr, notification);
                             
                             let mut message = String::new();
                             
@@ -149,7 +149,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
                         }
                         else if notify::Type::Keepalive as i32 == notification.r#type {
-                            println!("keepalive request: {:?}", notification);
+                            println!("keepalive request: {:?} {:?}", addr, notification);
                             
                             if let Some(addr) = addr {
                                 let common = common.lock().expect("common lock failed");

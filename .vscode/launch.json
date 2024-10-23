@@ -60,6 +60,24 @@
         },
         {
             "type": "lldb",
+            "request": "launch",
+            "name": "Debug 'cocrew'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=cocrew",
+                    "--package=cocrew"
+                ],
+                "filter": {
+                    "name": "cocrew",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
             "request": "attach",
             "name": "Attach to 'redirect.dll'",
             "program": "redirect.dll",

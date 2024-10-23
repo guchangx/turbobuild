@@ -78,12 +78,13 @@ impl NotificationSender {
             match  notification_type {
                 NotificationType::Resource(message) => {
                     let request  = notify::NotifyRequest {
-                        r#type: notify::Type::Register as i32,
+                        r#type: notify::Type::Checkresource as i32,
                         message: message,
                     };
                     
                     if tx.is_closed() {
                         println!("crew notify tx is closed. so do't send message");
+                        break;
                     }
                     else {
                         if let Err(err) = tx.send(request).await {
@@ -100,6 +101,7 @@ impl NotificationSender {
                     
                     if tx.is_closed() {
                         println!("crew notify tx is closed. so do't send message");
+                        break;
                     }
                     else {
                         if let Err(err) = tx.send(request).await {

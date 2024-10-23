@@ -21,9 +21,9 @@ impl FileReceiver {
     pub fn init(&self) {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
-            println!("init communicate server");
-            let addr = "127.0.0.1:19302".parse().expect("parse addr failed");
             
+            let addr = "127.0.0.1:19302".parse().expect("parse addr failed");
+            println!("init cocrew communicate server {}", addr);
             let receiver = FileReceiver {
                 common: self.common.clone(),
             };
@@ -47,11 +47,13 @@ impl FileReceiver {
 
     }
 
-    async fn transmit_file(&self, request: package::FileTrRequest) -> package::FileTrResponse {
+    async fn transmit_file_handle(&self, request: package::FileTrRequest) -> package::FileTrResponse {
 
-        println!("sync request: {:?}", request);
         let name = request.name;
         let path = request.path;
+        
+        println!("name: {}, path: {}", name, path);
+
         let content = request.content;
         let file_type = request.file_type;
         
@@ -64,7 +66,6 @@ impl FileReceiver {
         }
         else {
             println!("unknown file type: {}", file_type);
-                        
         }
         
         let reply = package::FileTrResponse {
@@ -82,10 +83,10 @@ impl FileReceiver {
     async fn extract(path: &str, content: &[u8]) {
         if path.ends_with(".zip") {
             let cursor = std::io::Cursor::new(content);
-            let mut zip_archive = zip::ZipArchive::new(cursor).unwrap();
+            let mut zip = zip::ZipArchive::new(cursor).unwrap();
             let replica = crew::replica::toolchain::Property::new("".to_string(), path.to_string());
             let replica_path = replica.fetch_replica_path();
-            zip_archive.extract(replica_path).unwrap();  
+            zip.extract(replica_path).unwrap();  
         }
         else {
             
@@ -96,11 +97,11 @@ impl FileReceiver {
 #[tonic::async_trait]
 impl package::communicate_server::Communicate for FileReceiver {
     async fn transmit_file(&self, request: tonic::Request<package::FileTrRequest>) -> core::result::Result<tonic::Response<package::FileTrResponse>, tonic::Status> {
-        println!("sync request: {:?}", request);
+        println!("sync request transmit file");
         
         let tr_file = request.into_inner();
-        let reply = self.transmit_file(tr_file).await;
-        
+        let reply = self.transmit_file_handle(tr_file).await;
+
         Ok(tonic::Response::new(reply))
     }
     

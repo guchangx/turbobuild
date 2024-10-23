@@ -92,13 +92,18 @@ impl Property {
                 dir.pop();
                 dir.pop();
                 dir.push("Replica");
-                std::fs::create_dir(&dir).unwrap();
+                if !dir.exists() {
+                    std::fs::create_dir(&dir).unwrap();
+                }
                 path = dir.to_str().unwrap();
             }
             else {
                 dir.pop();
                 dir.push("Replica");
-                std::fs::create_dir(&dir).unwrap();
+                
+                if !dir.exists() {
+                    std::fs::create_dir(&dir).unwrap();
+                }
                 path = dir.to_str().unwrap();
             }
 
@@ -178,6 +183,7 @@ impl Property {
     pub async fn check_resource_and_judge_sync(resources: Vec<crate::replica::toolchain::CrewsResource>) {
     
         let compiler_env = crate::platform::windows::WindowsCompilerEnv::default();
+        let bin_dir = compiler_env.compiler_path;
 
         for item in resources {
             let mut has = false;
@@ -187,8 +193,16 @@ impl Property {
                 }
             }
             if !has {
-                println!("{} has not msvc {}, so sync it.", item.addr, compiler_env.msvc_version);
-                Self::sync_compiler_toolchain(compiler_env.compiler_path.to_str().unwrap(), &item.addr).await;
+                println!("{} not has msvc {}, so sync it. path: {:?}", item.addr, compiler_env.msvc_version, bin_dir.clone());
+            
+                if let Some(name) = bin_dir.clone().file_name() {
+                    if name.to_str() == Some("bin") {
+                        let path = bin_dir.clone();
+                        tokio::spawn(async move {
+                            Self::sync_compiler_toolchain(path.to_str().unwrap(), &item.addr).await;
+                        });
+                    }
+                } 
             }
         }
     }

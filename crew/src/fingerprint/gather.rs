@@ -69,8 +69,9 @@ impl SystemInfo {
     }
     
     fn fetch_addr() -> String {
-        let mut networks = sysinfo::Networks::new_with_refreshed_list();
-        for (interface_name, network) in &networks {
+        let networks = sysinfo::Networks::new_with_refreshed_list();
+        for (_, network) in &networks {
+            
             println!("Ip Networks: {:?}", network.ip_networks());
         }
         return "".to_string();
@@ -87,13 +88,9 @@ impl SystemInfo {
         let mut physical_cores: u32 = 0;
         if let Some(cores) = sys.physical_core_count() {
             physical_cores = cores as u32;
-            println!("physical cores {:?}", physical_cores);
         };
         
-        println!("CPU Architecture: {:?}", sysinfo::System::cpu_arch());
-        
         let virtual_cores = sys.cpus().len() as u32;
-        println!("cpu cores {}", virtual_cores);
         
         let mut frequency: Vec<u64> = vec![];
         
@@ -103,8 +100,6 @@ impl SystemInfo {
                 frequency.push(f);                
             }
         }
-        println!("cpu frequency: {:?}", frequency);
-        
         return (physical_cores, virtual_cores, frequency);
     }
     
@@ -131,7 +126,6 @@ impl SystemInfo {
         let mut os_version = "unknown".to_string();
         if let Some(os) = sysinfo::System::long_os_version() {
             os_version = os;
-            println!("Long OS Version: {:?}", os_version);
         }
         return os_version;
     }
@@ -145,7 +139,6 @@ impl SystemInfo {
         let total = sys.total_memory() as f32;
         
         let memory_usage = ((used * 100 as f32 / total) * 1000.0).round() / 1000.0;
-        println!("memory usage: {}", memory_usage);
         return (total, memory_usage);
     }
 

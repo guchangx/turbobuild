@@ -4,6 +4,7 @@ extern crate winapi;
 pub struct WindowsCompilerEnv {
     pub winkits_includes_path: Vec<std::ffi::OsString>,
     pub compiler_path: std::path::PathBuf,
+    //TODO should use bin_dir
     pub msvc_includes_path: std::path::PathBuf,
     pub msvc_version: String,
     pub env_args: String,
