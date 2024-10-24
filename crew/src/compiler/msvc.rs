@@ -1,12 +1,11 @@
 
-#[cfg(target_os = "windows")]
-
-extern crate regex;
+//#[cfg(target_os = "windows")]
+//extern crate regex;
 
 pub struct MSVC {
     pub working_parameters: crate::platform::windows::WindowsCompilerEnv,
     pub pool: std::sync::Arc<tokio::runtime::Handle>,
-    pub sender: std::sync::Arc<std::sync::Mutex<crate::communicate::packager::Packager>>,
+    pub sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>,
 }
 
 //TODO common param in func should be move in msvc struct
@@ -33,7 +32,7 @@ impl crate::compiler::interface::Compiler for MSVC {
 }
 
 async fn request_msvc_compile(compiler_input: CompilerInput, working_param: crate::platform::windows::WindowsCompilerEnv,
-                        sender: std::sync::Arc<std::sync::Mutex<crate::communicate::packager::Packager>>,
+                        sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>,
                         pool: std::sync::Arc<tokio::runtime::Handle>)
             -> (CompilerOutput, Option<ProcessedResults>) {
 
@@ -120,7 +119,7 @@ async fn request_msvc_compile(compiler_input: CompilerInput, working_param: crat
 }
 
 fn request_dist_multi_sync_once_compile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
-            compiler_commands: &Vec<std::ffi::OsString>, sender: std::sync::Arc<std::sync::Mutex<crate::communicate::packager::Packager>>, 
+            compiler_commands: &Vec<std::ffi::OsString>, sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>, 
             pool: std::sync::Arc<tokio::runtime::Handle>) 
             -> CompilerOutput {
 
@@ -285,7 +284,7 @@ fn request_dist_multi_sync_once_compile(compiler_path: &std::ffi::OsString, comp
 }
 
 async fn load_precompiled_result_file_from_disk_and_send(source_files: &Vec<String>,
-        _sender: std::sync::Arc<std::sync::Mutex<crate::communicate::packager::Packager>>, pool: std::sync::Arc<tokio::runtime::Handle>, project_dir: std::path::PathBuf)
+        _sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>, pool: std::sync::Arc<tokio::runtime::Handle>, project_dir: std::path::PathBuf)
             -> Vec<std::ffi::OsString> {
         
     let precompiled_files = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::ffi::OsString>::new()));
@@ -343,7 +342,7 @@ async fn load_precompiled_result_file_from_disk_and_send(source_files: &Vec<Stri
             zip_file.set_extension("zip");
 
             let handle = tokio::spawn(async move {
-                let sender = crate::communicate::packager::Packager::default();
+                let sender = crate::communicate::distributor::Distributor::default();
                 sender.file(zip_file.to_str().unwrap(), &content,  "").await;
             });
             
@@ -415,7 +414,7 @@ fn push_project_name_to_precompiled_file_path(path: &std::path::PathBuf, project
     }
 }
 
-fn request_dist_compile_and_sync_result(sender: std::sync::Arc<std::sync::Mutex<crate::communicate::packager::Packager>>, msvc_compile_input: &CompilerInput, precompiled_source: &PrecompiledSource)
+fn request_dist_compile_and_sync_result(sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>, msvc_compile_input: &CompilerInput, precompiled_source: &PrecompiledSource)
         -> CompilerOutput {
     let result = request_dist_compile_with_precompiled_source(sender, &msvc_compile_input, &precompiled_source);
     if result.compile_status {
@@ -708,10 +707,11 @@ fn request_dist_compile_with_source_and_include(working_param: crate::platform::
     return CompilerOutput::default();
 }
 
-fn request_dist_compile_with_precompiled_source(sender: std::sync::Arc<std::sync::Mutex<crate::communicate::packager::Packager>>, 
+fn request_dist_compile_with_precompiled_source(sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>, 
                     compiler_input: &CompilerInput, precompiled_source: &PrecompiledSource) 
                     -> CompilerOutput {
     
+
     let now = std::time::Instant::now();
     let mut dist_msvc_compiler_path= "";
     //TODO check remote compiler path, avoid sync again
@@ -729,8 +729,7 @@ fn request_dist_compile_with_precompiled_source(sender: std::sync::Arc<std::sync
        
                 tokio::runtime::Runtime::new().unwrap().spawn_blocking(move || {
                     let mut sender = sender.lock().unwrap();
-                    
-                    sender.toolchain(path.to_str().unwrap(), "");
+                    sender.sync();
                 });
             }
 

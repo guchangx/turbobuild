@@ -5,6 +5,7 @@ pub mod enter;
 pub mod platform;
 pub mod compiler;
 pub mod replica;
+mod roster;
 
 pub fn run() {
     common::logger::init_logger();

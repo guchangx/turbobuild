@@ -52,7 +52,7 @@ impl FileReceiver {
         let name = request.name;
         let path = request.path;
         
-        println!("name: {}, path: {}", name, path);
+        println!("transmit file handle name: {}, path: {}", name, path);
 
         let content = request.content;
         let file_type = request.file_type;

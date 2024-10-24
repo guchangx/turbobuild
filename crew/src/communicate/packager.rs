@@ -165,7 +165,6 @@ impl Packager {
         let args = crate::communicate::package::SenderType::Archive(args);
         sender.send(args).await;
     }
-
 }
 
 #[cfg(test)]

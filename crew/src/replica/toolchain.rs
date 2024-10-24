@@ -7,14 +7,14 @@ pub struct Property {
     replica_toolchain_versions: Vec<CompilerVersion>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CompilerVersion {
     pub version: String,
     pub host: Arch,
     pub target: Arch,
 }
 
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[allow(non_camel_case_types)]
 #[allow(dead_code)]
 pub enum Arch {
@@ -25,7 +25,7 @@ pub enum Arch {
     x64 = 4,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct CrewsResource {
     pub username: String,
     pub aliasname: String, 
@@ -58,7 +58,7 @@ impl Property {
         }
         else {
             let mut dir = std::env::current_exe().unwrap();
-            println!("dir: {:?}", dir);
+            log::info!("current dir: {:?}", dir);
             
             let mut path = "";
             if dir.components().any(|item| item.as_os_str() == "deps") {
@@ -85,7 +85,7 @@ impl Property {
         }
         else {
             let mut dir = std::env::current_exe().unwrap();
-            println!("dir: {:?}", dir);
+            log::info!("current dir {:?}", dir);
             
             let mut path = "";
             if dir.components().any(|item| item.as_os_str() == "deps") {

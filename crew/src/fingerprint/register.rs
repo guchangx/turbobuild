@@ -1,8 +1,8 @@
 
 
-pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle) {
+pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>) {
     
-    let notify = crate::communicate::notifier::NotificationSender::default();
+    let notify = crate::communicate::notifier::NotificationSender::new(common);
 
     let (sender, receiver) = tokio::sync::mpsc::channel::<crate::communicate::notifier::NotificationType>(128);
     

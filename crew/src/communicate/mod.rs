@@ -1,5 +1,5 @@
 pub mod notifier;
 pub mod package;
-mod dist;
+pub mod distributor;
 pub mod packager;
 

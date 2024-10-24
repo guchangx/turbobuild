@@ -5,7 +5,9 @@ pub mod notify {
 }
 
 #[derive(Default)] 
-pub struct NotificationSender {}
+pub struct NotificationSender {
+    common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>,
+}
 
 pub enum NotificationType {
     Resource(String),
@@ -13,6 +15,13 @@ pub enum NotificationType {
 }
 
 impl NotificationSender {
+
+    pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>) ->Self {
+        return Self {
+            common,
+        }
+    }
+
     pub async fn register(&self, mut receiver: tokio::sync::mpsc::Receiver<NotificationType>) -> Result<String, String> {
         use tokio_stream::StreamExt;
 
@@ -25,6 +34,8 @@ impl NotificationSender {
             Ok(response) => {
                 
                 let mut response_stream = response.into_inner();
+                let roster = self.common.upgrade().unwrap().lock().unwrap().roster.clone();
+
                 tokio::spawn(async move {
                     while let Some(stream) = response_stream.next().await {
                         match stream {
@@ -41,7 +52,7 @@ impl NotificationSender {
                                 else if response.r#type == notify::Type::Checkresource as i32 {
                                     
                                     let message = response.message.clone();
-                                    Self::handle_checkresource_response(&message).await;
+                                    Self::handle_checkresource_response(roster.clone(), &message).await;
                                 }
                                 else {
                                     
@@ -177,12 +188,21 @@ impl NotificationSender {
         }
     }
 
-    pub async fn handle_checkresource_response(message: &str) {
+    pub async fn handle_checkresource_response(roster: Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::ResourceList>>>, message: &str) {
         
         if !message.is_empty() {
             let resources: Vec<crate::replica::toolchain::CrewsResource> = serde_json::from_str(message).expect("serde from json failed.");
+            Self::update_crew_resource(roster, &resources).await;
             crate::replica::toolchain::Property::check_resource_and_judge_sync(resources).await;
             //TODO: time-consuming task, should be done in runtime.       
         }
     }
+
+    pub async fn update_crew_resource(roster: Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::ResourceList>>>, resouces: &Vec<crate::replica::toolchain::CrewsResource>) {
+
+        if let Some(roster) = roster { 
+            roster.lock().unwrap().update(resouces);
+        }
+    }
+
  }

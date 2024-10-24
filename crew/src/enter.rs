@@ -4,6 +4,7 @@ pub struct Common {
     pub socket: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::compileripc::socket::Receiver>>>,
     pub compiler_env: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::platform::windows::WindowsCompilerEnv>>>,
     pub pool: std::option::Option<std::sync::Arc<tokio::runtime::Handle>>,
+    pub roster: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::ResourceList>>>,
 }
 
 impl Common {
@@ -13,6 +14,7 @@ impl Common {
             socket: None,
             compiler_env: None,
             pool: None,
+            roster: None,
         };
         
         return common;
@@ -27,10 +29,16 @@ pub fn init() {
     let common = std::sync::Arc::new(std::sync::Mutex::new(common));
     let weak_common = std::sync::Arc::downgrade(&common);
 
+    let roster = crate::roster::crews::ResourceList::new();
+    let arc_roster = std::sync::Arc::new(std::sync::Mutex::new(roster));
+
+    let dist = crate::communicate::distributor::Distributor::new(arc_roster.clone());
+    let arc_dist = std::sync::Arc::new(std::sync::Mutex::new(dist));
+
     let packager = crate::communicate::packager::Packager::default();
     
     let packager = std::sync::Arc::new(std::sync::Mutex::new(packager));
-    let socket = crate::compileripc::socket::Receiver::new(weak_common.clone(), packager);
+    let socket = crate::compileripc::socket::Receiver::new(weak_common.clone(), arc_dist);
     let socket_ = socket.clone();
     
     let handle = std::thread::spawn(move || {
@@ -49,11 +57,14 @@ pub fn init() {
         .build()
         .unwrap();
 
-    runtime.spawn(crate::fingerprint::register::register_fingerprint_to_capation(runtime.handle().clone()));
+    runtime.spawn(crate::fingerprint::register::register_fingerprint_to_capation(runtime.handle().clone(), weak_common.clone()));
         
     weak_common.upgrade().unwrap().lock().unwrap().pool = Some(std::sync::Arc::new(runtime.handle().to_owned()));
     
-    println!("common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
+
+    weak_common.upgrade().unwrap().lock().unwrap().roster = Some(arc_roster);
+
+    println!("crew common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
     handle.join().expect("run compiler ipc receiver failed");
     
 }

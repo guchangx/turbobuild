@@ -6,11 +6,11 @@ use std::io::Write;
 pub struct Receiver {
     port: u16,
     common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>,
-    packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::packager::Packager>>,
+    packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>,
 }
 
 impl Receiver {
-    pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>, packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::packager::Packager>>) -> Self {
+    pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>, packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) -> Self {
         return Self {
             port: 9301,
             common,
@@ -31,7 +31,7 @@ impl Receiver {
                     let packager = self.packager.clone();
                     let runtime_ = runtime.clone();
                     let _ = runtime.spawn(async {
-                        Self::handle_ipc_stream(stream, runtime_, packager).await;                        
+                        Self::handle_ipc_stream(stream, runtime_, packager).await;
                     });
                     //can't block current run.
                 },
@@ -42,7 +42,7 @@ impl Receiver {
         }
     }
     
-    async fn handle_ipc_stream(mut stream: std::net::TcpStream, runtime: std::sync::Arc<tokio::runtime::Handle>, packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::packager::Packager>>) {
+    async fn handle_ipc_stream(mut stream: std::net::TcpStream, runtime: std::sync::Arc<tokio::runtime::Handle>, packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) {
        
         let mut data = "".to_string();
         let mut buffer = [0 as u8; 256];

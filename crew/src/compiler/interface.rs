@@ -7,7 +7,7 @@ pub trait Compiler {
 
 // local request compile
 pub async fn request_compile(compiler_input: CompilerInput, runtime: std::sync::Arc<tokio::runtime::Handle>, 
-                            packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::packager::Packager>>) 
+                            packager: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) 
                             -> (CompilerOutput, Option<ProcessedResults>) {
                     
     if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")

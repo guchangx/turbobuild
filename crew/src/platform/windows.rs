@@ -1,4 +1,3 @@
-extern crate winapi;
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct WindowsCompilerEnv {

@@ -1,5 +1,4 @@
 
-extern crate sysinfo;
 use sysinfo::System;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
