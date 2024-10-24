@@ -1,7 +1,13 @@
 
 #[derive(Default, Debug, Clone)]
+
+struct Task {
+    runing_tacsk_num: i32,
+    max_task_num: i32,
+}
 pub struct ResourceList {
     crews: Vec<crate::replica::toolchain::CrewsResource>,
+    scheduler: Vec<crate::replica::toolchain::CrewsResource>,
 }
 
 impl ResourceList {
@@ -64,6 +70,10 @@ impl ResourceList {
                 self.crews.push(crew.clone());
             }
         }
+    }
+
+    pub fn choose() {
+        
     }
     
 }

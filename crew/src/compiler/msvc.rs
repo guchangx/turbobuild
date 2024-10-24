@@ -284,7 +284,7 @@ fn request_dist_multi_sync_once_compile(compiler_path: &std::ffi::OsString, comp
 }
 
 async fn load_precompiled_result_file_from_disk_and_send(source_files: &Vec<String>,
-        _sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>, pool: std::sync::Arc<tokio::runtime::Handle>, project_dir: std::path::PathBuf)
+        sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>, pool: std::sync::Arc<tokio::runtime::Handle>, project_dir: std::path::PathBuf)
             -> Vec<std::ffi::OsString> {
         
     let precompiled_files = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::ffi::OsString>::new()));
@@ -307,6 +307,7 @@ async fn load_precompiled_result_file_from_disk_and_send(source_files: &Vec<Stri
         let project_dir = project_dir.clone();
 
         let handles = handles.clone();
+        let sender_ = sender.clone();
         let _ = pool.spawn_blocking(move || {
             
             let mut buffer = Vec::new();
@@ -341,9 +342,8 @@ async fn load_precompiled_result_file_from_disk_and_send(source_files: &Vec<Stri
             let content = std::borrow::Cow::from(file);
             zip_file.set_extension("zip");
 
-            let handle = tokio::spawn(async move {
-                let sender = crate::communicate::distributor::Distributor::default();
-                sender.file(zip_file.to_str().unwrap(), &content,  "").await;
+            let handle = tokio::spawn(async move { 
+                sender_.lock().unwrap().sync(zip_file.to_str().unwrap(), &content);
             });
             
             handles.lock().unwrap().push(handle);
