@@ -35,12 +35,14 @@ impl NotificationSender {
                 
                 let mut response_stream = response.into_inner();
                 let roster = self.common.upgrade().unwrap().lock().unwrap().roster.clone();
+                let tasks = self.common.upgrade().unwrap().lock().unwrap().tasks.clone();
 
                 tokio::spawn(async move {
                     while let Some(stream) = response_stream.next().await {
                         match stream {
                             Ok(response) => {
                                 if response.r#type == notify::Type::Register as i32 {
+                                    let message = response.message.clone();
 
                                 }
                                 else if response.r#type == notify::Type::Unregister as i32 {
@@ -202,6 +204,15 @@ impl NotificationSender {
 
         if let Some(roster) = roster { 
             roster.lock().unwrap().update(resouces);
+        }
+    }
+
+    pub async fn handle_register_response(manager: Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::TasksManager>>>, message: &str) {
+        if message.is_empty() {
+            let tasks: Vec<crate::roster::crews::Task> = serde_json::from_str(message).expect("serde from json failed.");
+            if let Some(manager) = manager {
+                manager.lock().unwrap().add(&tasks);
+            }
         }
     }
 

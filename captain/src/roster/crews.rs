@@ -1,5 +1,5 @@
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
 pub struct CrewConstitution {
     pub username: String,
     pub devicename: String,
@@ -18,14 +18,69 @@ pub struct CrewConstitution {
     pub description: String,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(serde::Deserialize, Clone)]
 pub struct CrewRegister {
     pub username: String,
     pub devicename: String,
-    pub aliasname: String,
     pub addr: String,
-    pub password: String,
-    pub license: String,
+    pub passcode: String,
+    pub core: u32,
+    pub memory: f32,
+}
+
+#[derive(serde::Deserialize, Clone)]
+pub struct Task {
+    pub username: String,
+    pub devicename: String,
+    pub addr: String,
+    pub core: u32,
+    pub memory: f32,
+    pub max_tasks: u32,
+    pub running_tasks: u32
+}
+
+pub struct TaskManager {
+    tasks: Vec<Task>,
+}
+
+impl TaskManager {
+    pub fn new() -> Self {
+        return Self {
+            tasks: Vec::new()
+        }
+    }
+
+    pub fn add(&mut self, task: Task) {
+        self.tasks.push(task);
+    }
+
+    pub fn add_from_crew(&mut self, crew: &CrewRegister) {
+
+        let task = Task {
+            username: crew.username,
+            devicename: crew.devicename,
+            addr: crew.addr,
+            core: crew.core,
+            memory: crew.memory,
+            max_tasks: 100,
+            running_tasks: 0,
+        };
+        self.add(task);
+    }
+
+    pub fn check(self, addr: &str, username: &str, devicename: &str) -> Vec<_> {
+        if addr.is_empty() && username.is_empty() && devicename.is_empty() {
+            return self.tasks.clone();
+        }
+        else {
+            if let Some(task) = self.tasks.iter().find(|item| item.addr == addr && item.username == username && item.devicename == devicename) {
+                return vec![task.clone()];
+            }
+            else {
+                return Vec::new();
+            }
+        }
+    }
 }
 
 pub struct ConstitutionList {
@@ -41,8 +96,22 @@ impl ConstitutionList {
         };
     }
     
-    pub fn check(&mut self, crew: CrewRegister) {
-            
+    pub fn check(&mut self, addr: &str, username: &str, devicename: &str) -> Vec<CrewConstitution> {
+        if addr.is_empty() && username.is_empty() && devicename.is_empty() {
+            let crews = self.crews.clone();
+            return crews;
+        }
+        else {
+            let mut constitution = Vec::new();
+            for crew in self.crews.clone() {
+                if (!crew.addr.is_empty() && crew.addr == addr) 
+                    && (crew.devicename == devicename)
+                    && (!crew.username.is_empty() && crew.username == username) {
+                        constitution.push(crew);
+                }
+            }
+            return constitution;
+        }
     }
     
     pub fn add(&mut self, crew: CrewConstitution) {

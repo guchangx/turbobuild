@@ -1,13 +1,8 @@
+use std::ops::Add;
 
-#[derive(Default, Debug, Clone)]
 
-struct Task {
-    runing_tacsk_num: i32,
-    max_task_num: i32,
-}
 pub struct ResourceList {
     crews: Vec<crate::replica::toolchain::CrewsResource>,
-    scheduler: Vec<crate::replica::toolchain::CrewsResource>,
 }
 
 impl ResourceList {
@@ -76,4 +71,48 @@ impl ResourceList {
         
     }
     
+}
+
+#[derive(serde::Deserialize, Clone)]
+pub struct Task {
+    pub username: String,
+    pub devicename: String,
+    pub addr: String,
+    pub core: u32,
+    pub memory: f32,
+    pub max: u32,
+    pub running: u32
+}
+
+#[derive(serde::Deserialize, Default, Clone)]
+pub struct TasksManager {
+    tasks: Vec<Task>,
+}
+
+impl TasksManager {
+    pub fn new() -> Self {
+        return Self {
+            tasks: Vec::new(),
+        }
+    }
+    pub fn add(&self, tasks: &Vec<Task>) {
+
+    }
+
+    pub fn schedule(&mut self) -> &str {
+        
+        let iter = self.tasks.iter_mut().min_by(|x, y| x.running.cmp(&y.running));
+
+        while let Some(task) = iter.next() {
+            if task.running == 0 {
+                task.running.add(1);
+                return task.addr.as_str();
+            }
+            else {
+                let next = iter.peek();
+                task
+            }
+        }
+        return "";
+    }
 }

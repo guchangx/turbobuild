@@ -1,5 +1,7 @@
 use std::{error::Error, fs::create_dir_all};
 
+use crate::roster;
+
 
 #[allow(non_camel_case_types)]
 pub mod notify {
@@ -75,23 +77,26 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                         if notify::Type::Register as i32 == notification.r#type {
                             println!("register request: {:?} {:?}", addr, notification);
                             
+                            let tasks = Vec::new();
                             if let Some(addr) = addr {
                                  
                                 let common = common.lock().expect("common lock failed");
-                                if let Some(roster) = &common.constitutions {
+                                if let Some(tasks) = &common.tasks {
                                     
                                     let mut crew = serde_json::from_str::<crate::roster::crews::CrewRegister>(&notification.message).expect("register request message parse failed");
                                     crew.addr = addr.ip().to_string();
                                     
-                                    roster.lock().expect("roster lock failed").check(crew);
+                                
+                                    tasks.lock().expect("roster lock failed").add_from_crew(&crew);
                                 }
                             }
 
+                            let tasks = serde_json::to_string(&tasks).unwrap();
                             let reply = notify::NotifyResponse {
                                 r#type: notify::Type::Register as i32,
-                                message: "register success".to_string(),
+                                message: tasks,
                                 error_code: 0,
-                                error_message: "".to_string(),
+                                error_message: "register success".to_string(),
                             };
                             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
                         }

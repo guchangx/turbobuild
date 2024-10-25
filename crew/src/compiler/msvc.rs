@@ -748,7 +748,6 @@ fn request_dist_compile_with_precompiled_source(sender: std::sync::Arc<std::sync
     
     log::debug!("fetch compiler toolchain and win kits response elapsed: {:?}", now.elapsed());
 
-    
     return CompilerOutput::default();
 
 }

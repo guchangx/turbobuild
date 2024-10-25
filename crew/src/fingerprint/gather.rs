@@ -147,24 +147,25 @@ impl SystemInfo {
 pub struct RegisterInfo {
     pub username: String,
     pub devicename: String,
-    pub aliasname: String,
     pub addr: String,
-    pub password: String,
-    pub license: String,
+    pub passcode: String,
+    pub core: u16,
+    pub memory: f32,
 }
 
 impl RegisterInfo {
     pub fn new() -> Self {
         let username = SystemInfo::fetch_username();
         let devicename = SystemInfo::fetch_devicename();
-        let aliasname = SystemInfo::fetch_aliasname();
+        let (_, core, _) = SystemInfo::fetch_cpu_info();
+        let (memory, _) = SystemInfo::fetch_memory_info();
         return Self {
             username,
             devicename,
-            aliasname,
             addr: "".to_string(),
-            password: "".to_string(),
-            license: "".to_string(),
+            core: core as u16,
+            memory,
+            passcode: "".to_string()
         };
     }
 }

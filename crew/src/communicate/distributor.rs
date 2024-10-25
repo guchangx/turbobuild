@@ -1,20 +1,20 @@
 
 #[derive(Default, Clone)]
 pub struct Distributor {
-    restor: std::sync::Arc<std::sync::Mutex::<crate::roster::crews::ResourceList>>,
+    tasks_manager: std::sync::Arc<std::sync::Mutex::<crate::roster::crews::TasksManager>>,
 }
 
 impl Distributor {
 
-    pub fn new(restor: std::sync::Arc<std::sync::Mutex::<crate::roster::crews::ResourceList>>) -> Self {
+    pub fn new(tasks_manager: std::sync::Arc<std::sync::Mutex::<crate::roster::crews::TasksManager>>) -> Self {
         return Self{
-            restor,
+            tasks_manager,
         }
     }
 
     
     pub fn sync<'a>(&self, path: &str, content: &std::borrow::Cow<'a, [u8]>) -> String {
-        let mut restor = self.restor.lock().unwrap();
+        let mut  = self.tasks_manager.lock().unwrap();
         
         for crew in restor.check("", "", "") {
             let mut sender = super::package::FileSender::new(crew.addr.as_str());
@@ -30,7 +30,7 @@ impl Distributor {
     }
 
     fn scheduler() {
-
+        
     }
 }
 

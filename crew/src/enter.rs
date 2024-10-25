@@ -1,3 +1,5 @@
+use core::sync;
+
 
 #[derive(Default, Clone)]
 pub struct Common {
@@ -5,6 +7,7 @@ pub struct Common {
     pub compiler_env: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::platform::windows::WindowsCompilerEnv>>>,
     pub pool: std::option::Option<std::sync::Arc<tokio::runtime::Handle>>,
     pub roster: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::ResourceList>>>,
+    pub tasks: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::TasksManager>>>,
 }
 
 impl Common {
@@ -15,6 +18,7 @@ impl Common {
             compiler_env: None,
             pool: None,
             roster: None,
+            tasks: None,
         };
         
         return common;
@@ -32,8 +36,13 @@ pub fn init() {
     let roster = crate::roster::crews::ResourceList::new();
     let arc_roster = std::sync::Arc::new(std::sync::Mutex::new(roster));
 
-    let dist = crate::communicate::distributor::Distributor::new(arc_roster.clone());
+    let tasks = crate::roster::crews::TasksManager::new();
+    let arc_tasks = std::sync::Arc::new(std::sync::Mutex::new(tasks));
+
+    let dist = crate::communicate::distributor::Distributor::new(arc_tasks.clone());
     let arc_dist = std::sync::Arc::new(std::sync::Mutex::new(dist));
+
+    weak_common.upgrade().unwrap().lock().unwrap().tasks = Some(arc_tasks);
 
     let packager = crate::communicate::packager::Packager::default();
     
