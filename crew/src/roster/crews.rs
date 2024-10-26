@@ -73,18 +73,18 @@ impl ResourceList {
     
 }
 
-#[derive(serde::Deserialize, Clone)]
+#[derive(serde::Deserialize, Clone, Debug)]
 pub struct Task {
     pub username: String,
     pub devicename: String,
     pub addr: String,
     pub core: u32,
     pub memory: f32,
-    pub max: u32,
-    pub running: u32
+    pub running: u32,
+    pub max: u32
 }
 
-#[derive(serde::Deserialize, Default, Clone)]
+#[derive(serde::Deserialize, Default, Clone, Debug)]
 pub struct TasksManager {
     tasks: Vec<Task>,
 }
@@ -95,24 +95,73 @@ impl TasksManager {
             tasks: Vec::new(),
         }
     }
-    pub fn add(&self, tasks: &Vec<Task>) {
-
+    pub fn add(&mut self, tasks: &Vec<Task>) {
+        self.tasks.append(tasks.clone().as_mut());
     }
 
     pub fn schedule(&mut self) -> &str {
-        
-        let iter = self.tasks.iter_mut().min_by(|x, y| x.running.cmp(&y.running));
 
-        while let Some(task) = iter.next() {
-            if task.running == 0 {
-                task.running.add(1);
-                return task.addr.as_str();
-            }
-            else {
-                let next = iter.peek();
-                task
-            }
+        let iter = self.tasks.iter_mut().filter(|item| item.running < item.max).min_by(|x, y| x.running.cmp(&y.running));
+        
+        if let Some(item) = iter {
+            item.running += 1;    
+            return item.addr.as_str();    
         }
-        return "";
+        else {
+            return "";    
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    //cargo test --package crew --tests shchedule_tasks -- --show-output
+    fn shchedule_tasks() {
+        println!("test schedule task");
+        let mut tasks = TasksManager::new();
+        let task = Task {
+            username: "".to_string(),
+            devicename: "".to_string(),
+            addr: "192.168.0.1".to_string(),
+            core: 8,
+            memory: 16.0,
+            running:0,
+            max:2,
+        };
+        tasks.add(&vec![task]);
+        
+        let task = Task {
+            username: "".to_string(),
+            devicename: "".to_string(),
+            addr: "192.168.0.2".to_string(),
+            core: 8,
+            memory: 16.0,
+            running:0,
+            max:4,
+        };
+        tasks.add(&vec![task]);
+        
+        let addr = tasks.schedule();
+        assert_eq!(addr, "192.168.0.1");
+
+        let addr = tasks.schedule();
+        assert_eq!(addr, "192.168.0.2");
+        
+        let addr = tasks.schedule();
+        assert_eq!(addr, "192.168.0.1");
+
+        let addr = tasks.schedule();
+        assert_eq!(addr, "192.168.0.2");
+
+        let addr = tasks.schedule();
+        assert_eq!(addr, "192.168.0.2");
+
+        let addr = tasks.schedule();
+        assert_eq!(addr, "192.168.0.2");
+
+        let addr = tasks.schedule();
+        assert_eq!(addr, "");
     }
 }

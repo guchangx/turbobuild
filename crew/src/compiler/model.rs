@@ -35,21 +35,21 @@ pub struct CompilerInput {
 }
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct PrecompiledSource {
-    pub preprocessed_source_contents: Option<Vec<u8>>,
-    pub preprocessed_source_path: std::ffi::OsString, 
+    pub contents: Option<Vec<u8>>,
+    pub path: std::ffi::OsString, 
 }
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
 pub struct CompilerOutput {
-    pub compiled_filename: Vec<std::ffi::OsString>,
-    pub compile_status: bool,
-    pub compile_output: std::ffi::OsString,
+    pub filename: Vec<std::ffi::OsString>,
+    pub status: bool,
+    pub output: std::ffi::OsString,
 }
 
 impl CompilerOutput {
     pub fn set(&mut self, value: Self) {
-        self.compiled_filename = value.compiled_filename;
-        self.compile_status = value.compile_status;
-        self.compile_output = value.compile_output;
+        self.filename = value.filename;
+        self.status = value.status;
+        self.output = value.output;
     }
 }
 

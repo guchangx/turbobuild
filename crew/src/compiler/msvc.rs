@@ -85,8 +85,8 @@ async fn request_msvc_compile(compiler_input: CompilerInput, working_param: crat
             if true {
                 // dist with preprocessed source
                 let now = std::time::Instant::now();
-                let output = request_dist_multi_sync_once_compile(&compiler_path, &compiler_input.compiler_working_dir, &compiler_commands.clone(), sender, pool);
-                println!("request_dist_multi_sync_once_compile elaspsed time:{:?}", now.elapsed());
+                let output = request_multi_dist_once_compile(&compiler_path, &compiler_input.compiler_working_dir, &compiler_commands.clone(), sender, pool);
+                println!("requestmulti_dist_sync_once_compile elaspsed time:{:?}", now.elapsed());
                 //let output = request_dist_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
                 default_output.set(output);
             }
@@ -110,15 +110,15 @@ async fn request_msvc_compile(compiler_input: CompilerInput, working_param: crat
     else {
         let compiled_filename: Vec<std::ffi::OsString> = Vec::new();
         let result = CompilerOutput {
-            compiled_filename,
-            compile_status: false,
-            compile_output: std::ffi::OsString::from("don't need compile anything."),
+            filename: compiled_filename,
+            status: false,
+            output: std::ffi::OsString::from("don't need compile anything."),
         };
         return (result, None);
     }
 }
 
-fn request_dist_multi_sync_once_compile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
+fn request_multi_dist_once_compile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
             compiler_commands: &Vec<std::ffi::OsString>, sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>, 
             pool: std::sync::Arc<tokio::runtime::Handle>) 
             -> CompilerOutput {
@@ -162,7 +162,8 @@ fn request_dist_multi_sync_once_compile(compiler_path: &std::ffi::OsString, comp
         else {
             log::warn!("preprocessed multiple sources are not same with commands. elapsed time: {:?}.", now.elapsed());
         }
-
+        
+        let mut addr = String::new();
         if stdout.is_empty() {
             let now = std::time::Instant::now();
  
@@ -170,16 +171,18 @@ fn request_dist_multi_sync_once_compile(compiler_path: &std::ffi::OsString, comp
             let i_path = std::path::PathBuf::from(compiler_working_dir).join(output_dir);
             
             let pool_ = pool.clone();
-            let sender_ = sender.clone();
+            
+            addr = sender.lock().unwrap().schedule();
+            
             let result = pool.block_on(async {
-                let  precompiled_files = load_precompiled_result_file_from_disk_and_send(&source_files, sender_.clone(), pool_, i_path).await;
+                let  precompiled_files = load_and_transmit_precompiled_result_from_disk(&source_files, &addr, pool_, i_path).await;
                 log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
           
                 for file in precompiled_files {
                     commands.push(file);
                 }
 
-                let compiler_input = CompilerInput {
+                let input = CompilerInput {
                     compiler_path_or_arch: compiler_path.to_owned(),
                     compiler_working_dir: compiler_working_dir.to_owned(),
                     compiler_commands: commands.to_owned(),
@@ -188,11 +191,11 @@ fn request_dist_multi_sync_once_compile(compiler_path: &std::ffi::OsString, comp
                 };
 
                 let precompiled_suorce = crate::compiler::model::PrecompiledSource {
-                    preprocessed_source_contents: None,
-                    preprocessed_source_path: std::ffi::OsString::new()
+                    contents: None,
+                    path: std::ffi::OsString::new()
                 };
 
-                let output = request_dist_compile_and_sync_result(sender_.clone(), &compiler_input, &precompiled_suorce);
+                let output = request_dist_compile_and_wait_result(&addr, &input, &precompiled_suorce).await;
                 log::debug!("request dist compile without precompiled source files elapsed time {:?}", now.elapsed());
                 return output;                                 
             });
@@ -226,15 +229,16 @@ fn request_dist_multi_sync_once_compile(compiler_path: &std::ffi::OsString, comp
                         };
 
                         let precompiled_suorce = PrecompiledSource {
-                            preprocessed_source_contents: Some(first.as_bytes().to_vec()),
-                            preprocessed_source_path: std::ffi::OsString::from(&extension_i_path)
+                            contents: Some(first.as_bytes().to_vec()),
+                            path: std::ffi::OsString::from(&extension_i_path)
                         };
 
                         log::debug!("sync precompiled source file {:?}. size: {:.2?}M.", extension_i_path.file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
                         content = last.to_string().into();
-                        let sender_ = sender.clone();
+
+                        let addr_ = addr.clone();
                         let handle = pool.spawn_blocking(move || {
-                            let _ = request_dist_compile_and_sync_result(sender_.clone(), 
+                            let _ = request_dist_compile_and_wait_result(&addr_,
                                 &msvc_compile_empty_input, &precompiled_suorce);
                         });
                         
@@ -253,8 +257,8 @@ fn request_dist_multi_sync_once_compile(compiler_path: &std::ffi::OsString, comp
                 };
 
                 let precompiled_suorce = PrecompiledSource {
-                    preprocessed_source_contents: Some(content.as_bytes().to_vec()),
-                    preprocessed_source_path: std::ffi::OsString::from(&extension_i_path)
+                    contents: Some(content.as_bytes().to_vec()),
+                    path: std::ffi::OsString::from(&extension_i_path)
                 };
 
                 pool.block_on(async {
@@ -264,13 +268,17 @@ fn request_dist_multi_sync_once_compile(compiler_path: &std::ffi::OsString, comp
                 });
                 
                 let now = std::time::Instant::now();
-                let output = request_dist_compile_and_sync_result(sender, &compiler_input, &precompiled_suorce);
+                let output = pool.block_on(async move {
+                    let output = request_dist_compile_and_wait_result(&addr, &compiler_input, &precompiled_suorce).await;
+                    return output;
+                });
+                
                 log::debug!("request {:?} dist compile with precompiled source size: {:?}M, response elapsed: {:?}.", extension_i_path.file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0, now.elapsed());
         
-                let mut file = output.compiled_filename;
-                result.compiled_filename.append(&mut file);
-                result.compile_output = std::ffi::OsString::from(output.compile_output.to_str().unwrap());
-                result.compile_status = output.compile_status;
+                let mut file = output.filename;
+                result.filename.append(&mut file);
+                result.output = std::ffi::OsString::from(output.output.to_str().unwrap());
+                result.status = output.status;
 
                 break;
             }
@@ -283,8 +291,8 @@ fn request_dist_multi_sync_once_compile(compiler_path: &std::ffi::OsString, comp
     }
 }
 
-async fn load_precompiled_result_file_from_disk_and_send(source_files: &Vec<String>,
-        sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>, pool: std::sync::Arc<tokio::runtime::Handle>, project_dir: std::path::PathBuf)
+async fn load_and_transmit_precompiled_result_from_disk(source_files: &Vec<String>,
+        addr: &str, pool: std::sync::Arc<tokio::runtime::Handle>, project_dir: std::path::PathBuf)
             -> Vec<std::ffi::OsString> {
         
     let precompiled_files = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::ffi::OsString>::new()));
@@ -306,11 +314,10 @@ async fn load_precompiled_result_file_from_disk_and_send(source_files: &Vec<Stri
 
         let project_dir = project_dir.clone();
 
+        let addr = addr.to_owned();
         let handles = handles.clone();
-        let sender_ = sender.clone();
+
         let _ = pool.spawn_blocking(move || {
-            
-            let mut buffer = Vec::new();
 
             let mut cursor = std::io::Cursor::new(Vec::new());
             let mut zip = zip::ZipWriter::new(&mut cursor);
@@ -328,11 +335,10 @@ async fn load_precompiled_result_file_from_disk_and_send(source_files: &Vec<Stri
                 path.set_extension("i");
                 zip.start_file(path.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
                 let file = std::fs::File::open(&path).unwrap();
-                let mut file = std::io::BufReader::new(file);
-                file.read_to_end(&mut buffer).unwrap();
-                zip.write_all(&buffer[..]).unwrap();
-                buffer.clear();
                 
+                let mut file = std::io::BufReader::new(file);
+                let _ = std::io::copy(&mut file, &mut zip);
+
                 let mut precompiled_files = precompiled_files.lock().unwrap();
                 precompiled_files.push(path.clone().into_os_string());
             }
@@ -341,9 +347,9 @@ async fn load_precompiled_result_file_from_disk_and_send(source_files: &Vec<Stri
             let file = content.to_owned().into_inner();
             let content = std::borrow::Cow::from(file);
             zip_file.set_extension("zip");
-
-            let handle = tokio::spawn(async move { 
-                sender_.lock().unwrap().sync(zip_file.to_str().unwrap(), &content);
+            
+            let handle = tokio::spawn(async move {    
+                crate::communicate::distributor::Distributor::sync(&addr, zip_file.to_str().unwrap(), &content).await;
             });
             
             handles.lock().unwrap().push(handle);
@@ -414,10 +420,11 @@ fn push_project_name_to_precompiled_file_path(path: &std::path::PathBuf, project
     }
 }
 
-fn request_dist_compile_and_sync_result(sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>, msvc_compile_input: &CompilerInput, precompiled_source: &PrecompiledSource)
+async fn request_dist_compile_and_wait_result(addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource)
         -> CompilerOutput {
-    let result = request_dist_compile_with_precompiled_source(sender, &msvc_compile_input, &precompiled_source);
-    if result.compile_status {
+            
+    let result = request_dist_compile_with_precompiled_source(addr, &input, &precompiled).await;
+    if result.status {
 
     }
     else {
@@ -563,9 +570,9 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
     };
     
     let result = CompilerOutput {
-        compiled_filename,
-        compile_status: status,
-        compile_output: std::ffi::OsString::from(compile_output.to_string()),
+        filename: compiled_filename,
+        status: status,
+        output: std::ffi::OsString::from(compile_output.to_string()),
     };
 
     return (result, Some(compiled_results));
@@ -707,49 +714,25 @@ fn request_dist_compile_with_source_and_include(working_param: crate::platform::
     return CompilerOutput::default();
 }
 
-fn request_dist_compile_with_precompiled_source(sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>, 
-                    compiler_input: &CompilerInput, precompiled_source: &PrecompiledSource) 
+async fn request_dist_compile_with_precompiled_source(addr: &str, 
+                    _input: &CompilerInput, precompiled: &PrecompiledSource) 
                     -> CompilerOutput {
-    
 
     let now = std::time::Instant::now();
-    let mut dist_msvc_compiler_path= "";
-    //TODO check remote compiler path, avoid sync again
-    if dist_msvc_compiler_path.is_empty() {
+    let path = precompiled.path.clone();
+    
+    if let Some(content) = precompiled.contents.clone() {
+        let content = std::borrow::Cow::from(content);
 
-        let mut path = std::path::PathBuf::from(compiler_input.compiler_path_or_arch.to_str().unwrap());
-
-        if path.is_file() {
-            path.pop();
-        }
-
-        if path.is_dir() {
-            
-            if let Some(content) = precompiled_source.preprocessed_source_contents.clone() {
-       
-                tokio::runtime::Runtime::new().unwrap().spawn_blocking(move || {
-                    let mut sender = sender.lock().unwrap();
-                    sender.sync();
-                });
-            }
-
-            if !dist_msvc_compiler_path.is_empty() {
-                let mut compiler_path = std::path::PathBuf::from(&dist_msvc_compiler_path);
-                if !compiler_path.ends_with("cl.exe") {
-                    compiler_path.push("cl.exe");
-                    dist_msvc_compiler_path = compiler_path.to_str().unwrap();
-                }
-            }
-        }
+        crate::communicate::distributor::Distributor::sync(addr, path.to_str().unwrap(), &content).await;
     }
     else {
-
+        log::warn!("precompiled source content is empty.");
     }
-    
+
     log::debug!("fetch compiler toolchain and win kits response elapsed: {:?}", now.elapsed());
 
     return CompilerOutput::default();
-
 }
 
 fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {

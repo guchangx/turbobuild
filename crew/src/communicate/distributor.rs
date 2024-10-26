@@ -11,26 +11,28 @@ impl Distributor {
             tasks_manager,
         }
     }
-
     
-    pub fn sync<'a>(&self, path: &str, content: &std::borrow::Cow<'a, [u8]>) -> String {
-        let mut  = self.tasks_manager.lock().unwrap();
+    pub async fn sync<'a>(addr: &str, path: &str, content: &std::borrow::Cow<'a, [u8]>) -> String {
+        let mut sender = super::package::FileSender::new(addr);
         
-        for crew in restor.check("", "", "") {
-            let mut sender = super::package::FileSender::new(crew.addr.as_str());
-            
-            let args = super::package::CommandArgs {
-                
-            };
-            let command = super::package::SenderType::Command(args);
-            sender.send(command);
-        }
+        let file = super::package::ArchiveArgs {
+            file_type: super::package::FileType::PrecompileedFile,
+            name: "".to_string(),
+            path: path.to_string(),
+            content: content.clone(),
+        };
+        
+        let file = super::package::SenderType::Archive(file);
+        sender.send(file).await;
         
         return "".to_string();
     }
 
-    fn scheduler() {
-        
+    pub fn schedule(&self) -> String{
+        let mut manager  = self.tasks_manager.lock().unwrap();
+        let addr = manager.schedule();
+        println!("sync addr: {:?}", addr);
+        return addr.to_owned();
     }
 }
 
