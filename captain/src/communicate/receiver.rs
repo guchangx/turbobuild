@@ -1,6 +1,6 @@
-use std::{error::Error, fs::create_dir_all};
 
-use crate::roster;
+use std::{error::Error};
+
 
 
 #[allow(non_camel_case_types)]
@@ -26,7 +26,7 @@ impl NotificationReceiver {
     pub fn init(&self) {     
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
-            let addr = "127.0.0.1:50051".parse().expect("parse addr failed");
+            let addr = "0.0.0.0:50051".parse().expect("parse addr failed");
             println!("init captain communicate server {}", addr);
             let receiver = NotificationReceiver {
                 common: self.common.clone(),
@@ -77,7 +77,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                         if notify::Type::Register as i32 == notification.r#type {
                             println!("register request: {:?} {:?}", addr, notification);
                             
-                            let tasks = Vec::new();
+                            let mut tasker: Vec<crate::roster::crews::Task> = Vec::new();
                             if let Some(addr) = addr {
                                  
                                 let common = common.lock().expect("common lock failed");
@@ -86,12 +86,13 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                     let mut crew = serde_json::from_str::<crate::roster::crews::CrewRegister>(&notification.message).expect("register request message parse failed");
                                     crew.addr = addr.ip().to_string();
                                     
-                                
                                     tasks.lock().expect("roster lock failed").add_from_crew(&crew);
+                                    
+                                    tasker = tasks.lock().expect("roster lock failed").check("", "", "");
                                 }
                             }
-
-                            let tasks = serde_json::to_string(&tasks).unwrap();
+                            
+                            let tasks = serde_json::to_string(&tasker).unwrap();
                             let reply = notify::NotifyResponse {
                                 r#type: notify::Type::Register as i32,
                                 message: tasks,
@@ -118,7 +119,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 r#type: notify::Type::Unregister as i32,
                                 message: "unregister success".to_string(),
                                 error_code: 0,
-                                error_message: "".to_string(),
+                                error_message: "unregister success".to_string(),
                             };
                             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
                         }
@@ -170,7 +171,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 r#type: notify::Type::Keepalive as i32,
                                 message: "keepalive success".to_string(),
                                 error_code: 0,
-                                error_message: "".to_string(),
+                                error_message: "keepalive success".to_string(),
                             };
                             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
                         }

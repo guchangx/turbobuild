@@ -156,7 +156,7 @@ impl Packager {
         let mut sender = crate::communicate::package::FileSender::new(addr);
 
         let args = crate::communicate::package::ArchiveArgs {
-            file_type: crate::communicate::package::FileType::PrecompileedFile,
+            file_type: crate::communicate::package::FileType::Unknown,
             name: "precompiledsourcefile".to_string(),
             path: path.to_owned(),
             content: content.to_owned(),

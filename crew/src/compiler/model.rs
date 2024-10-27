@@ -25,7 +25,7 @@ impl Default for SyncData {
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
 pub struct CompilerInput {
-    pub compiler_path_or_arch: std::ffi::OsString,
+    pub compiler_path: std::ffi::OsString,
     //TODO should remove arch args
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,

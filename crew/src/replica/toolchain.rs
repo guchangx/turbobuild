@@ -1,4 +1,3 @@
-use tonic::Streaming;
 
 
 pub struct Property {
@@ -23,6 +22,26 @@ pub enum Arch {
     arm64 = 2,
     x86 = 3,
     x64 = 4,
+}
+
+impl Arch {
+    pub fn format(arch: &str) -> Arch {
+        if arch == "x86" {
+            return Arch::x86;
+        }
+        else if arch == "x64" {
+            return Arch::x64;
+        }
+        else if arch == "arm" {
+            return Arch::arm;
+        }
+        else if arch == "arm64" {
+            return Arch::arm64;
+        }
+        else {
+            return Arch::unknown;
+        }
+    }   
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

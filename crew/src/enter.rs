@@ -1,4 +1,3 @@
-use core::sync;
 
 
 #[derive(Default, Clone)]
@@ -39,14 +38,11 @@ pub fn init() {
     let tasks = crate::roster::crews::TasksManager::new();
     let arc_tasks = std::sync::Arc::new(std::sync::Mutex::new(tasks));
 
-    let dist = crate::communicate::distributor::Distributor::new(arc_tasks.clone());
+    let dist = crate::communicate::distributor::Distributor::new(arc_tasks.clone(), arc_roster.clone());
     let arc_dist = std::sync::Arc::new(std::sync::Mutex::new(dist));
 
     weak_common.upgrade().unwrap().lock().unwrap().tasks = Some(arc_tasks);
 
-    let packager = crate::communicate::packager::Packager::default();
-    
-    let packager = std::sync::Arc::new(std::sync::Mutex::new(packager));
     let socket = crate::compileripc::socket::Receiver::new(weak_common.clone(), arc_dist);
     let socket_ = socket.clone();
     
@@ -69,7 +65,6 @@ pub fn init() {
     runtime.spawn(crate::fingerprint::register::register_fingerprint_to_capation(runtime.handle().clone(), weak_common.clone()));
         
     weak_common.upgrade().unwrap().lock().unwrap().pool = Some(std::sync::Arc::new(runtime.handle().to_owned()));
-    
 
     weak_common.upgrade().unwrap().lock().unwrap().roster = Some(arc_roster);
 

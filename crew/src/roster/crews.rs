@@ -1,6 +1,5 @@
-use std::ops::Add;
 
-
+#[derive(Default, Clone)]
 pub struct ResourceList {
     crews: Vec<crate::replica::toolchain::CrewsResource>,
 }
@@ -34,9 +33,8 @@ impl ResourceList {
         else {
             let mut resource = Vec::new();
             for crew in self.crews.clone() {
-                if (!crew.addr.is_empty() && crew.addr == addr) 
-                    && (crew.devicename == devicename)
-                    && (!crew.username.is_empty() && crew.username == username) {
+                if (!crew.addr.is_empty() && crew.addr == addr) && (devicename.is_empty() || crew.devicename == devicename)
+                    && (username.is_empty() || crew.username == username) {
                         resource.push(crew);
                 }
             }
@@ -109,6 +107,12 @@ impl TasksManager {
         }
         else {
             return "";    
+        }
+    }
+    
+    pub fn done(&mut self, addr: &str) {
+        if let Some(task) = self.tasks.iter_mut().find(|item| item.addr == addr) {
+            task.running -= 1;
         }
     }
 }

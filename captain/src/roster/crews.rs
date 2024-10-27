@@ -28,15 +28,15 @@ pub struct CrewRegister {
     pub memory: f32,
 }
 
-#[derive(serde::Deserialize, Clone)]
+#[derive(serde::Deserialize, Clone, serde::Serialize)]
 pub struct Task {
     pub username: String,
     pub devicename: String,
     pub addr: String,
     pub core: u32,
     pub memory: f32,
-    pub max_tasks: u32,
-    pub running_tasks: u32
+    pub running: u32,
+    pub max: u32
 }
 
 pub struct TaskManager {
@@ -57,18 +57,18 @@ impl TaskManager {
     pub fn add_from_crew(&mut self, crew: &CrewRegister) {
 
         let task = Task {
-            username: crew.username,
-            devicename: crew.devicename,
-            addr: crew.addr,
+            username: crew.username.clone(),
+            devicename: crew.devicename.clone(),
+            addr: crew.addr.clone(),
             core: crew.core,
             memory: crew.memory,
-            max_tasks: 100,
-            running_tasks: 0,
+            running: 0,
+            max: 100,
         };
         self.add(task);
     }
 
-    pub fn check(self, addr: &str, username: &str, devicename: &str) -> Vec<_> {
+    pub fn check(&self, addr: &str, username: &str, devicename: &str) -> Vec<Task> {
         if addr.is_empty() && username.is_empty() && devicename.is_empty() {
             return self.tasks.clone();
         }
@@ -117,8 +117,9 @@ impl ConstitutionList {
     pub fn add(&mut self, crew: CrewConstitution) {
         self.crews.push(crew);
     }
+    
     pub fn remove(&mut self, crew: CrewRegister) -> bool {
-        let index = self.crews.iter().position(|arg| arg.username == crew.username && arg.aliasname == crew.aliasname && arg.addr == crew.addr);
+        let index = self.crews.iter().position(|arg| arg.username == crew.username && arg.addr == crew.addr);
         match index {
             Some(index) => {
                 self.crews.remove(index);

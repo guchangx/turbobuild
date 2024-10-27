@@ -10,7 +10,8 @@ pub struct MSVC {
 
 //TODO common param in func should be move in msvc struct
 use std::{ops::{Index, Add}, io::Read};
-use std::io::Write;
+
+use winapi::um::winbase::{SetDefaultCommConfigA, VerifyVersionInfoA};
 
 use crate::compiler::model::{CompilerInput, CompilerOutput, ProcessedResults, PrecompiledSource};
 
@@ -172,7 +173,7 @@ fn request_multi_dist_once_compile(compiler_path: &std::ffi::OsString, compiler_
             
             let pool_ = pool.clone();
             
-            addr = sender.lock().unwrap().schedule();
+            addr = sender.clone().lock().unwrap().schedule();
             
             let result = pool.block_on(async {
                 let  precompiled_files = load_and_transmit_precompiled_result_from_disk(&source_files, &addr, pool_, i_path).await;
@@ -183,7 +184,7 @@ fn request_multi_dist_once_compile(compiler_path: &std::ffi::OsString, compiler_
                 }
 
                 let input = CompilerInput {
-                    compiler_path_or_arch: compiler_path.to_owned(),
+                    compiler_path: compiler_path.to_owned(),
                     compiler_working_dir: compiler_working_dir.to_owned(),
                     compiler_commands: commands.to_owned(),
                     build_and_compiler_type: std::ffi::OsString::from("MSBuild_Precompile"),
@@ -195,7 +196,7 @@ fn request_multi_dist_once_compile(compiler_path: &std::ffi::OsString, compiler_
                     path: std::ffi::OsString::new()
                 };
 
-                let output = request_dist_compile_and_wait_result(&addr, &input, &precompiled_suorce).await;
+                let output = request_dist_compile_and_wait_result(&addr, &input, &precompiled_suorce, sender).await;
                 log::debug!("request dist compile without precompiled source files elapsed time {:?}", now.elapsed());
                 return output;                                 
             });
@@ -206,6 +207,7 @@ fn request_multi_dist_once_compile(compiler_path: &std::ffi::OsString, compiler_
         let mut index = 0;
         let mut handles = Vec::new();
 
+        let addr_ = addr.clone();
         for file in &source_files {
             
             let path = std::path::PathBuf::from(file);
@@ -221,7 +223,7 @@ fn request_multi_dist_once_compile(compiler_path: &std::ffi::OsString, compiler_
                         let (first, last) = content.split_at(position);
             
                         let msvc_compile_empty_input = CompilerInput {
-                            compiler_path_or_arch: compiler_path.to_owned(),
+                            compiler_path: compiler_path.to_owned(),
                             compiler_working_dir: std::ffi::OsString::from(""),
                             compiler_commands: Vec::<std::ffi::OsString>::new(),
                             build_and_compiler_type: std::ffi::OsString::from("Sync Precompiled Source File"),
@@ -236,10 +238,11 @@ fn request_multi_dist_once_compile(compiler_path: &std::ffi::OsString, compiler_
                         log::debug!("sync precompiled source file {:?}. size: {:.2?}M.", extension_i_path.file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
                         content = last.to_string().into();
 
-                        let addr_ = addr.clone();
+                        let addr__ = addr_.clone();
+                        let sender_ = sender.clone();
                         let handle = pool.spawn_blocking(move || {
-                            let _ = request_dist_compile_and_wait_result(&addr_,
-                                &msvc_compile_empty_input, &precompiled_suorce);
+                            let _ = request_dist_compile_and_wait_result(&addr__,
+                                &msvc_compile_empty_input, &precompiled_suorce, sender_);
                         });
                         
                         handles.push(handle);
@@ -249,7 +252,7 @@ fn request_multi_dist_once_compile(compiler_path: &std::ffi::OsString, compiler_
             else {
 
                 let compiler_input = CompilerInput {
-                    compiler_path_or_arch: compiler_path.to_owned(),
+                    compiler_path: compiler_path.to_owned(),
                     compiler_working_dir: compiler_working_dir.to_owned(),
                     compiler_commands: commands.to_owned(),
                     build_and_compiler_type: std::ffi::OsString::from("MSBuild Precompile"),
@@ -268,8 +271,10 @@ fn request_multi_dist_once_compile(compiler_path: &std::ffi::OsString, compiler_
                 });
                 
                 let now = std::time::Instant::now();
+                let sender_ =  sender.clone();
+                let addr__ = addr_.clone();
                 let output = pool.block_on(async move {
-                    let output = request_dist_compile_and_wait_result(&addr, &compiler_input, &precompiled_suorce).await;
+                    let output = request_dist_compile_and_wait_result(&addr__, &compiler_input, &precompiled_suorce, sender_).await;
                     return output;
                 });
                 
@@ -284,6 +289,8 @@ fn request_multi_dist_once_compile(compiler_path: &std::ffi::OsString, compiler_
             }
             index = index.add(1);
         }
+
+        sender.lock().unwrap().done(addr.as_str());
         return result;
     }
     else {
@@ -420,17 +427,67 @@ fn push_project_name_to_precompiled_file_path(path: &std::path::PathBuf, project
     }
 }
 
-async fn request_dist_compile_and_wait_result(addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource)
-        -> CompilerOutput {
-            
-    let result = request_dist_compile_with_precompiled_source(addr, &input, &precompiled).await;
-    if result.status {
+fn parse_version_from_path(path: &str) -> Option<crate::replica::toolchain::CompilerVersion> {
+    let path = std::path::PathBuf::from(path);
 
+    let mut iter = path.components().skip_while(|item| 
+        item.as_os_str().to_string_lossy().contains(".") && !item.as_os_str().to_string_lossy().contains("exe")
+    );
+        
+    if let Some(version) = iter.next() {
+
+        let mut cversion = crate::replica::toolchain::CompilerVersion {
+            version: version.as_os_str().to_string_lossy().to_string(),
+            host: crate::replica::toolchain::Arch::unknown,
+            target: crate::replica::toolchain::Arch::unknown,
+        };
+        
+        iter.next();
+
+        if let Some(host) = iter.next() {
+            
+            let host = host.as_os_str().to_str().unwrap();
+            let host = crate::replica::toolchain::Arch::format(host);
+            cversion.host = host;
+        } 
+        
+        if let Some(target) = iter.next() {
+            let target = target.as_os_str().to_str().unwrap();
+            let target = crate::replica::toolchain::Arch::format(target);
+            cversion.target = target;
+        }
+
+        return Some(cversion);
     }
     else {
-        log::trace!("request remote compile and sync back failed: {:?}", result);
+        return None;
     }
-    return result;
+
+    //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\cl.exe
+}
+
+async fn request_dist_compile_and_wait_result(addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource, sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>)
+        -> CompilerOutput {
+    
+    let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
+    
+    if sender.lock().unwrap().check(addr, &cversion) {
+            
+        let result = request_dist_compile_with_precompiled_source(addr, &input, &precompiled).await;
+        if result.status {
+        
+        }
+        else {
+            log::trace!("request remote compile and sync back failed: {:?}", result);
+            
+        }
+        return result;
+    }
+    else {
+        log::trace!("dist compile failed, {} no available remote compiler {:?}", addr, cversion);
+
+        return CompilerOutput::default();
+    }
 }
 
 fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir: std::ffi::OsString, 
@@ -646,7 +703,7 @@ fn request_local_compile_by_preprocessed_source(msvc_compile_input: &CompilerInp
         }
     }
 
-    let (output, results) = request_local_compile(msvc_compile_input.compiler_path_or_arch.clone(),
+    let (output, results) = request_local_compile(msvc_compile_input.compiler_path.clone(),
                     msvc_compile_input.compiler_working_dir.clone(), commands,
                     msvc_compile_input.build_and_compiler_type.clone(), true);
 
@@ -656,7 +713,7 @@ fn request_local_compile_by_preprocessed_source(msvc_compile_input: &CompilerInp
 fn request_dist_compile_with_source_and_include(working_param: crate::platform::windows::WindowsCompilerEnv, msvc_compile_input: &CompilerInput) -> CompilerOutput {
     log::debug!("request dist compile with source and include file.");
     //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\cl.exe
-    let local_compiler_arch = msvc_compile_input.compiler_path_or_arch.to_str().unwrap();
+    let local_compiler_arch = msvc_compile_input.compiler_path.to_str().unwrap();
     let compiler_dir = std::path::Path::new(&working_param.compiler_path).join("Hostx64").join(local_compiler_arch);
 
     log::trace!("vs compiler install dir: {:?}.", compiler_dir);
@@ -715,11 +772,17 @@ fn request_dist_compile_with_source_and_include(working_param: crate::platform::
 }
 
 async fn request_dist_compile_with_precompiled_source(addr: &str, 
-                    _input: &CompilerInput, precompiled: &PrecompiledSource) 
+                    input: &CompilerInput, precompiled: &PrecompiledSource) 
                     -> CompilerOutput {
 
     let now = std::time::Instant::now();
     let path = precompiled.path.clone();
+    if input.compiler_commands.is_empty() {
+        
+    }
+    else {
+        
+    }
     
     if let Some(content) = precompiled.contents.clone() {
         let content = std::borrow::Cow::from(content);
@@ -933,7 +996,7 @@ fn enrich_compiler_commands(compiler_input: CompilerInput) -> (Vec<std::ffi::OsS
         return (commands, compiler_path);
     }
     else if  compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
-        compiler_path = compiler_input.compiler_path_or_arch;
+        compiler_path = compiler_input.compiler_path;
         return (commands, compiler_path);
     }
     else {
@@ -1003,7 +1066,7 @@ fn parse_compiler_input_command(compiler_input: CompilerInput, working_compiler_
         return (args, compiler_path);
     }
     else if  compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
-        compiler_path = compiler_input.compiler_path_or_arch;
+        compiler_path = compiler_input.compiler_path;
         return (args, compiler_path);
     }
     else {

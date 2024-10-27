@@ -19,11 +19,17 @@ pub struct FileArgs {
     
 }
 
+pub struct PrecompiledFile<'a> {
+    pub name: String,
+    pub path: String,
+    pub command: String,
+    pub content: std::borrow::Cow<'a, [u8]>,
+}
+
 pub enum FileType {
     Unknown = 0,
     ToolChain = 1,
     Kits = 2,
-    PrecompileedFile = 3,
 }
 
 pub struct ArchiveArgs<'a> {
@@ -36,6 +42,7 @@ pub struct ArchiveArgs<'a> {
 pub enum SenderType<'a> {
     Command(CommandArgs),
     Archive(ArchiveArgs<'a>),
+    Compile(PrecompiledFile<'a>),
     CheckResource,
 } 
 
@@ -66,8 +73,10 @@ impl FileSender {
             SenderType::Archive(args) => {
                 self.send_file(args).await;
             },
-            SenderType::CheckResource => {
-            }
+            SenderType::Compile(args) => {
+                
+            },
+            _ => {}
         }
     }
     

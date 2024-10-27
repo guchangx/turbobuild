@@ -8,9 +8,12 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
     
     let sender_ = sender.clone();
 
-
+    let args = std::env::args().collect::<Vec<String>>();
+    let captain = args.iter().find(|item| item.starts_with("-h") || item.starts_with("/h")).expect("can't find captain address.").to_owned();
+    
+    
     rt.spawn(async move {
-        let _ = notify.register(receiver).await;
+        let _ = notify.register(receiver, &captain).await;
     });
 
     let compilers = crate::replica::toolchain::Property::load_replica_toolchain();

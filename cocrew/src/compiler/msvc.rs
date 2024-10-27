@@ -82,7 +82,7 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
         }
     }
 
-    let (output, results) = request_local_compile(compiler_input.compiler_path_or_arch.clone(),
+    let (output, results) = request_local_compile(compiler_input.compiler_path.clone(),
                     compiler_input.compiler_working_dir.clone(), commands,
                     compiler_input.build_and_compiler_type.clone(), true);
 
@@ -229,9 +229,9 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
     };
     
     let result = CompilerOutput {
-        compiled_filename,
-        compile_status: status,
-        compile_output: std::ffi::OsString::from(compile_output.to_string()),
+        filename: compiled_filename,
+        status: status,
+        output: std::ffi::OsString::from(compile_output.to_string()),
     };
 
     return (result, Some(compiled_results));

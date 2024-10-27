@@ -22,10 +22,15 @@ impl NotificationSender {
         }
     }
 
-    pub async fn register(&self, mut receiver: tokio::sync::mpsc::Receiver<NotificationType>) -> Result<String, String> {
+    pub async fn register(&self, mut receiver: tokio::sync::mpsc::Receiver<NotificationType>, addr: &str) -> Result<String, String> {
         use tokio_stream::StreamExt;
-
-        let mut client = notify::communicate_client::CommunicateClient::connect("http://localhost:50051").await.unwrap();
+        
+        let mut ip = "localhost";
+        if !addr.is_empty() {
+            ip.clone_from(&addr);
+        }
+        
+        let mut client = notify::communicate_client::CommunicateClient::connect(format!("http://{}:50051", ip)).await.unwrap();
 
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
