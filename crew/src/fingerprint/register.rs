@@ -9,9 +9,18 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
     let sender_ = sender.clone();
 
     let args = std::env::args().collect::<Vec<String>>();
-    let captain = args.iter().find(|item| item.starts_with("-h") || item.starts_with("/h")).expect("can't find captain address.").to_owned();
+    let mut captain = String::new();
+
+    let mut iter = args.iter().skip_while(|item| item.starts_with("-h") || item.starts_with("/h"));
     
-    
+    iter.next();
+    iter.next();
+
+    if let Some(addr) = iter.next() {
+        println!("captain addr: {:?}", addr);
+        captain = addr.to_owned();
+    }
+        
     rt.spawn(async move {
         let _ = notify.register(receiver, &captain).await;
     });
