@@ -13,14 +13,22 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
 
     let mut iter = args.iter().skip_while(|item| item.starts_with("-h") || item.starts_with("/h"));
     
-    iter.next();
-    iter.next();
-
-    if let Some(addr) = iter.next() {
-        println!("captain addr: {:?}", addr);
-        captain = addr.to_owned();
+    if let Some(_) = iter.next() {
+        iter.next();
+        iter.next();
+    
+        if let Some(addr) = iter.next() {
+            println!("captain addr: {:?}", addr);
+            captain = addr.to_owned();
+        }
+        else {
+            
+        }
     }
-        
+    else {
+        println!("no -h or /h parameters specified, use local address.");
+    }
+
     rt.spawn(async move {
         let _ = notify.register(receiver, &captain).await;
     });
