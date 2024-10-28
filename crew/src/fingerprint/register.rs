@@ -74,7 +74,7 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
                     }
                 }
                 
-                tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+                tokio::time::sleep(tokio::time::Duration::from_secs(45)).await;
             }
         });
     });
