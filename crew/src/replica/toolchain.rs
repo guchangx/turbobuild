@@ -212,7 +212,7 @@ impl Property {
                 }
             }
             if !has {
-                println!("{} not has msvc {}, so sync it. path: {:?}", item.addr, compiler_env.msvc_version, bin_dir.clone());
+                println!("check resource {} not has msvc {}, so sync it. path: {:?}", item.addr, compiler_env.msvc_version, bin_dir.clone());
             
                 if let Some(name) = bin_dir.clone().file_name() {
                     if name.to_str() == Some("bin") {
