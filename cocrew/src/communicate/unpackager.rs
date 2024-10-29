@@ -23,7 +23,7 @@ impl FileReceiver {
         runtime.block_on(async move {
             
             let addr = "0.0.0.0:19302".parse().expect("parse addr failed");
-            println!("init cocrew communicate server {}", addr);
+            log::debug!("init cocrew communicate server {}", addr);
             let receiver = FileReceiver {
                 common: self.common.clone(),
             };
@@ -37,7 +37,7 @@ impl FileReceiver {
             
             match result {
                 Ok(_) => {
-                    println!("run communicate rpc service end");
+                    log::debug!("run communicate rpc service end");
                 },
                 Err(err) => {
                     panic!("run communicate rpc service failed: {}", err);
@@ -52,7 +52,7 @@ impl FileReceiver {
         let name = request.name;
         let path = request.path;
         
-        println!("transmit file handle name: {}, path: {}", name, path);
+        log::debug!("transmit file handle name: {}, path: {}", name, path);
 
         let content = request.content;
         let file_type = request.file_type;
@@ -65,7 +65,7 @@ impl FileReceiver {
                 
         }
         else {
-            println!("unknown file type: {}", file_type);
+            log::debug!("unknown file type: {}", file_type);
         }
         
         let reply = package::FileTrResponse {
@@ -97,7 +97,7 @@ impl FileReceiver {
 #[tonic::async_trait]
 impl package::communicate_server::Communicate for FileReceiver {
     async fn transmit_file(&self, request: tonic::Request<package::FileTrRequest>) -> core::result::Result<tonic::Response<package::FileTrResponse>, tonic::Status> {
-        println!("sync request transmit file.");
+        log::debug!("sync request transmit file.");
         
         let tr_file = request.into_inner();
         let reply = self.transmit_file_handle(tr_file).await;
@@ -106,7 +106,7 @@ impl package::communicate_server::Communicate for FileReceiver {
     }
     
     async fn transmit_command(&self, request: tonic::Request<package::CommandTrRequest>) -> core::result::Result<tonic::Response<package::CommandTrResponse>, tonic::Status> {
-        println!("sync request command: {:?}", request);
+        log::debug!("sync request command: {:?}", request);
         
         let reply = package::CommandTrResponse {
             error_code: 0,

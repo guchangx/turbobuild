@@ -8,7 +8,7 @@ pub mod replica;
 mod roster;
 
 pub fn run() {
-    common::logger::init_logger();
+    tools::logger::init_logger();
 
     let rt  = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     let _ = rt.block_on(async move {

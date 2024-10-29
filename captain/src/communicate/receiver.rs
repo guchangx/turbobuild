@@ -26,7 +26,7 @@ impl NotificationReceiver {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
             let addr = "0.0.0.0:50051".parse().expect("parse addr failed");
-            println!("init captain communicate server {}", addr);
+            log::info!("init captain communicate server {}", addr);
             let receiver = NotificationReceiver {
                 common: self.common.clone(),
             };
@@ -39,7 +39,7 @@ impl NotificationReceiver {
             
             match result {
                 Ok(_) => {
-                    println!("run communicate rpc service end");
+                    log::debug!("run communicate rpc service end");
                 },
                 Err(err) => {
                     panic!("run communicate rpc service failed: {}", err);
@@ -60,7 +60,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
 
         use tokio_stream::StreamExt;
         let addr = request.remote_addr();
-        println!("notify request from: {:?}", addr);
+        log::debug!("notify request from: {:?}", addr);
         
         let common = self.common.upgrade().expect("upgrade common failed");
         
@@ -74,7 +74,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                     Ok(notification) => {
                         
                         if notify::Type::Register as i32 == notification.r#type {
-                            println!("register request: {:?} {:?}", addr, notification);
+                            log::debug!("register request: {:?} {:?}", addr, notification);
                             
                             let mut tasker: Vec<crate::roster::crews::Task> = Vec::new();
                             if let Some(addr) = addr {
@@ -101,7 +101,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
                         }
                         else if notify::Type::Unregister as i32 == notification.r#type {
-                            println!("unregister request: {:?} {:?}", addr, notification);
+                            log::debug!("unregister request: {:?} {:?}", addr, notification);
                             if let Some(addr) = addr {
                                 
                                 let common = common.lock().expect("common lock failed");
@@ -123,7 +123,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
                         }
                         else if notify::Type::Checkresource as i32 == notification.r#type {
-                            println!("checkresource request: {:?} {:?}", addr, notification);
+                            log::debug!("checkresource request: {:?} {:?}", addr, notification);
                             
                             let mut message = String::new();
                             
@@ -154,7 +154,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
                         }
                         else if notify::Type::Keepalive as i32 == notification.r#type {
-                            println!("keepalive request: {:?} {:?}", addr, notification);
+                            log::debug!("keepalive request: {:?} {:?}", addr, notification);
                             
                             if let Some(addr) = addr {
                                 let common = common.lock().expect("common lock failed");
@@ -177,10 +177,10 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                         else {
                             
                         }
-                        println!("notify message end.");
+                        log::debug!("notify message end.");
                     },
                     Err(err) => {
-                        println!("notify client request detail error : {:?}", err);
+                        log::debug!("notify client request detail error : {:?}", err);
                         
                         if let Some(source) = err.source() {
                             if let Some(hyper_source) = source.source() {
@@ -211,7 +211,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                      }
                 }
             }
-            println!("receive notify stream end");
+            log::debug!("receive notify stream end");
         });
 
         let response = tokio_stream::wrappers::ReceiverStream::new(rx);

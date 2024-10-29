@@ -72,12 +72,12 @@ impl Property {
     }
 
     fn access_or_create_replica_dir() -> String {
-        let path = common::utils::get_or_create_working_path("Replica");
+        let path = tools::utils::get_or_create_working_path("Replica");
         return path;
     }
 
     pub fn access_replica_toolchain_path(&self) -> String {
-        let path = common::utils::get_or_create_working_path("Replica");
+        let path = tools::utils::get_or_create_working_path("Replica");
         let mut path = std::path::PathBuf::from(path);
         if path.exists() && path.is_dir() {
             path.push("MSVC");
@@ -94,7 +94,7 @@ impl Property {
     pub fn load_replica_toolchain() -> Vec<CompilerVersion> {
         let mut versions = Vec::new();
 
-        if let Some(path) = common::utils::get_working_path("Replica".to_string()) {
+        if let Some(path) = tools::utils::get_working_path("Replica".to_string()) {
             let mut replica = std::path::PathBuf::from(path.clone());
             replica.push("MSVC");
         

@@ -182,7 +182,7 @@ mod tests {
         let cursor = std::io::Cursor::new(content);
         let zip_archive = zip::ZipArchive::new(cursor).unwrap();
 
-        let path = common::utils::get_working_path("".to_string()).unwrap();
+        let path = tools::utils::get_working_path("".to_string()).unwrap();
         println!("unzip path: {:?}", path);
         
         let expect_packages = Vec::from(["Hostx64/x64/cl.exe", "Hostx64/x64/1033/clui.dll", "Hostx64/x86/cl.exe", "Hostx64/x86/1033/clui.dll"]);

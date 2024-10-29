@@ -26,7 +26,7 @@ pub fn msvc_detours(app_path: String, command_line: String, workding_directory: 
         let currentDirectoryWideChars: Vec<u16> = lpCurrentDirectory.encode_wide().chain(std::iter::once(0)).collect();
         
         
-        let dllPath = common::utils::get_working_path("redirect64.dll".to_string());
+        let dllPath = tools::utils::get_working_path("redirect64.dll".to_string());
         if let Some(dllPath) = dllPath {
 
             let dllPath = std::ffi::CString::new(dllPath).unwrap();

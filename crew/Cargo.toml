@@ -8,7 +8,7 @@ documentation.workspace = true
 
 
 [dependencies]
-common = { path = "../common" }
+tools = { path = "../tools" }
 
 tonic = "0.12.3"
 prost = "0.13.3"

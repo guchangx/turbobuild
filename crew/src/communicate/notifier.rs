@@ -63,7 +63,7 @@ impl NotificationSender {
                                 else {
                                     
                                 }
-                                println!("notify response: {:?}", response);
+                                log::debug!("notify response: {:?}", response);
                             }
                             Err(err) => {
                                 eprintln!("notify response failed: {:?}", err);
@@ -71,7 +71,7 @@ impl NotificationSender {
                             }
                         }
                     }
-                    println!("poll next stream end.");
+                    log::debug!("poll next stream end.");
                 });
             },
             Err(status) => {
@@ -88,7 +88,7 @@ impl NotificationSender {
         };
     
         if let Err(err) = tx.send(request).await {
-            eprintln!("notify register error: {:?}", err);
+            log::error!("notify register error: {:?}", err);
         };
 
         while let Some(notification_type) = receiver.recv().await {
@@ -100,12 +100,12 @@ impl NotificationSender {
                     };
                     
                     if tx.is_closed() {
-                        println!("crew notify tx is closed. so do't send message");
+                        log::debug!("crew notify tx is closed. so do't send message");
                         break;
                     }
                     else {
                         if let Err(err) = tx.send(request).await {
-                            eprintln!("crew notify resource error: {:?}", err);
+                            log::error!("crew notify resource error: {:?}", err);
                         };
                     }
                 },
@@ -117,12 +117,12 @@ impl NotificationSender {
                     };
                     
                     if tx.is_closed() {
-                        println!("crew notify tx is closed. so do't send message");
+                        log::debug!("crew notify tx is closed. so do't send message");
                         break;
                     }
                     else {
                         if let Err(err) = tx.send(request).await {
-                            eprintln!("crew notify constitution error: {:?}", err);
+                            log::error!("crew notify constitution error: {:?}", err);
                             break;
                         }; 
                     }
@@ -140,7 +140,7 @@ impl NotificationSender {
         };
     
         if let Err(err) = tx.send(request).await {
-            eprintln!("notify unregister error: {:?}", err);
+            log::error!("notify unregister error: {:?}", err);
         };
 
         return Ok("OK".to_string());
@@ -158,10 +158,10 @@ impl NotificationSender {
             Ok(response) => {
                 
                 let response = response.into_inner();
-                println!("response {:?}", response);
+                log::debug!("response {:?}", response);
             },
             Err(err) => {
-                println!("report crew resource. {:?}", err);
+                log::debug!("report crew resource. {:?}", err);
             }
         }
     }
@@ -188,7 +188,7 @@ impl NotificationSender {
                 }
             }
             Err(err) => {
-                println!("report crew resource. {:?}", err);
+                log::debug!("report crew resource. {:?}", err);
                 return Vec::new();
             }
         }

@@ -22,7 +22,9 @@ impl Common {
 }
 
 pub fn init_common() {
-    
+
+    log::trace!("captain init common");
+
     let common = Common::new();
     let common = std::sync::Arc::new(std::sync::Mutex::new(common));
     let weak_common = std::sync::Arc::downgrade(&common);
@@ -49,6 +51,6 @@ pub fn init_common() {
     let arc_notification_receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
     weak_common.upgrade().unwrap().lock().unwrap().notification = Some(arc_notification_receiver.clone());
     
-    println!("common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
+    log::debug!("common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
     handle.join().expect("run notification receiver failed");
 }

@@ -15,7 +15,8 @@ impl Common {
 }
 
 pub fn init_common() {
-    println!("init cocrew");
+    log::info!("init cocrew");
+
     let common = Common::new();
     let common = std::sync::Arc::new(std::sync::Mutex::new(common));
     let weak_common = std::sync::Arc::downgrade(&common);
@@ -30,5 +31,5 @@ pub fn init_common() {
     weak_common.upgrade().unwrap().lock().unwrap().file_receiver = Some(std::sync::Arc::new(std::sync::Mutex::new(receiver)));
 
     handle.join().unwrap();
-    println!("common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
+    log::info!("common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
 }

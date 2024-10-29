@@ -18,7 +18,7 @@ impl Property {
 
     fn fetch_local_replica_dir() -> String {
 
-        match common::utils::get_working_path("Replica".to_string()) {
+        match tools::utils::get_working_path("Replica".to_string()) {
             Some(path) => {
                 return path;
             },

@@ -204,7 +204,7 @@ impl Resource {
 
     fn fetch_compiler_path() -> std::ffi::OsString {
         
-        let replice = common::utils::get_working_path("Replice".to_string());
+        let replice = tools::utils::get_working_path("Replice".to_string());
         return std::ffi::OsString::new(); 
     }
     

@@ -5,7 +5,7 @@ pub fn init_logger() {
     .format_timestamp_millis()
     .write_style(env_logger::WriteStyle::Always)
     .format_level(true)
-    .filter(Some("turbobuild"), log::LevelFilter::Trace)
+    .filter(None, log::LevelFilter::Trace)
     .target(env_logger::Target::Stdout)
     .try_init();
 

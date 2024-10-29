@@ -49,7 +49,6 @@ impl Distributor {
     pub fn schedule(&self) -> String {
         let mut manager  = self.tasker.lock().unwrap();
         let addr = manager.schedule();
-        println!("sync addr: {:?}", addr);
         return addr.to_owned();
     }
     
