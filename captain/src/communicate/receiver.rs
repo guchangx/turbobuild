@@ -2,7 +2,6 @@
 use std::{error::Error};
 
 
-
 #[allow(non_camel_case_types)]
 pub mod notify {
     include!("./../../proto/notify.rs");
@@ -138,7 +137,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                     crew.addr = addr.ip().to_string();
                                     
                                     let mut resourcelist = roster.lock().expect("roster lock failed");
-                                    resourcelist.add(crew);
+                                    resourcelist.update(crew);
                                     let res = resourcelist.check("", "", "");
                                     
                                     message = serde_json::to_string(&res).expect("build crew resource json failed.");
@@ -149,7 +148,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 r#type: notify::Type::Checkresource as i32,
                                 message: message,
                                 error_code: 0,
-                                error_message: "".to_string(),
+                                error_message: "checkresource success".to_string(),
                             };
                             
                             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
@@ -188,7 +187,21 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 if let Some(inner_source) = hyper_source.source() {
                                     if let Some(err) = inner_source.downcast_ref::<hyper::Error>() {
                                         if let Some(source) = err.source() {
-                                            println!("notify client error {:?}, remote {:?}", source.to_string(), addr);             
+                                            println!("notify client error {:?}, remote {:?}", source.to_string(), addr);
+
+                                            let common = common.lock().expect("common lock failed");    
+
+                                            if let Some(roster) = &common.resources {
+
+                                                let mut resourcelist = roster.lock().expect("roster lock failed");
+                                                
+                                                resourcelist.remove(&addr.unwrap().ip().to_string(), "", "");
+                                            }
+           
+                                            if let Some(tasks) = &common.tasks {
+                                                let mut tasks = tasks.lock().unwrap();
+                                                let _ = tasks.remove(&addr.unwrap().ip().to_string(), "", "");
+                                            }
                                         }
                                     }
                                 }

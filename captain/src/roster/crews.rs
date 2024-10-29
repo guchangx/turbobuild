@@ -81,6 +81,25 @@ impl TaskManager {
             }
         }
     }
+
+    pub fn remove(&mut self, addr: &str, username: &str, devicename: &str) -> bool {
+        let index = self.tasks.iter().position(|arg| {
+            if (username.is_empty() || arg.username == username) && (devicename.is_empty() || arg.devicename == devicename) && arg.addr == addr {
+                return true;
+            }
+            else {
+                return false;
+            }
+        });
+
+        match index {
+            Some(index) => {
+                self.tasks.remove(index);
+                true
+            },
+            None => false
+        }
+    }
 }
 
 pub struct ConstitutionList {
@@ -191,8 +210,22 @@ impl ResourceList {
         self.crews.push(crew);
     }
 
-    pub fn remove(&mut self, crew: CrewResource) -> bool {
-        let index = self.crews.iter().position(|arg| arg.username == crew.username && arg.aliasname == crew.aliasname && arg.addr == crew.addr);
+    pub fn update(&mut self, crew: CrewResource) {
+        if !self.crews.iter().any(|item| item.addr == crew.addr && item.devicename == crew.devicename && item.username == crew.username) {
+            self.add(crew);
+        }
+    }
+
+    pub fn remove(&mut self, addr: &str, username: &str, devicename: &str) -> bool {
+        let index = self.crews.iter().position(|arg| { 
+            if (username.is_empty() || arg.username == username) && (devicename.is_empty() || arg.devicename == devicename) && arg.addr == addr {
+                return true;
+            }
+            else {
+                return false;
+            }
+        });
+
         match index {
             Some(index) => {
                 self.crews.remove(index);

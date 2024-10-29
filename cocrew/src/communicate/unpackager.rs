@@ -85,8 +85,8 @@ impl FileReceiver {
             let cursor = std::io::Cursor::new(content);
             let mut zip = zip::ZipArchive::new(cursor).unwrap();
             let replica = crew::replica::toolchain::Property::new("".to_string(), path.to_string());
-            let replica_path = replica.fetch_replica_path();
-            zip.extract(replica_path).unwrap();  
+            let replica_path = replica.access_replica_toolchain_path();
+            zip.extract(replica_path).unwrap();
         }
         else {
             
@@ -97,7 +97,7 @@ impl FileReceiver {
 #[tonic::async_trait]
 impl package::communicate_server::Communicate for FileReceiver {
     async fn transmit_file(&self, request: tonic::Request<package::FileTrRequest>) -> core::result::Result<tonic::Response<package::FileTrResponse>, tonic::Status> {
-        println!("sync request transmit file");
+        println!("sync request transmit file.");
         
         let tr_file = request.into_inner();
         let reply = self.transmit_file_handle(tr_file).await;
@@ -106,7 +106,7 @@ impl package::communicate_server::Communicate for FileReceiver {
     }
     
     async fn transmit_command(&self, request: tonic::Request<package::CommandTrRequest>) -> core::result::Result<tonic::Response<package::CommandTrResponse>, tonic::Status> {
-        println!("sync request: {:?}", request);
+        println!("sync request command: {:?}", request);
         
         let reply = package::CommandTrResponse {
             error_code: 0,

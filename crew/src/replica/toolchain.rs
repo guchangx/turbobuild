@@ -57,7 +57,7 @@ impl Property {
     
     pub fn default() -> Self {
         return Property {
-            replica_dir: Self::load_or_create_replica_dir(),
+            replica_dir: Self::access_or_create_replica_dir(),
             original_toolchain_path: String::new(),
             replica_toolchain_versions: Self::load_replica_toolchain(),
         }
@@ -71,70 +71,31 @@ impl Property {
         }
     }
 
-    fn load_or_create_replica_dir() -> String {
-        if let Some(path) = common::utils::get_working_path("Replica".to_string()) {
-            return path;
-        }
-        else {
-            let mut dir = std::env::current_exe().unwrap();
-            log::info!("current dir: {:?}", dir);
-            
-            let mut path = "";
-            if dir.components().any(|item| item.as_os_str() == "deps") {
-                dir.pop();
-                dir.pop();
-                dir.push("Replica");
-                std::fs::create_dir(&dir).unwrap();
-                path = dir.to_str().unwrap();
-            }
-            else {
-                dir.pop();
-                dir.push("Replica");
-                std::fs::create_dir(&dir).unwrap();
-                path = dir.to_str().unwrap();
-            }
-
-            return path.to_string();
-        }
+    fn access_or_create_replica_dir() -> String {
+        let path = common::utils::get_or_create_working_path("Replica");
+        return path;
     }
 
-    pub fn fetch_replica_path(&self) -> String {
-        if let Some(path) = common::utils::get_working_path("Replica".to_string()) {
-            return path;
-        }
-        else {
-            let mut dir = std::env::current_exe().unwrap();
-            log::info!("current dir {:?}", dir);
-            
-            let mut path = "";
-            if dir.components().any(|item| item.as_os_str() == "deps") {
-                dir.pop();
-                dir.pop();
-                dir.push("Replica");
-                if !dir.exists() {
-                    std::fs::create_dir(&dir).unwrap();
-                }
-                path = dir.to_str().unwrap();
+    pub fn access_replica_toolchain_path(&self) -> String {
+        let path = common::utils::get_or_create_working_path("Replica");
+        let mut path = std::path::PathBuf::from(path);
+        if path.exists() && path.is_dir() {
+            path.push("MSVC");
+            if path.exists() {
+                
             }
             else {
-                dir.pop();
-                dir.push("Replica");
-                
-                if !dir.exists() {
-                    std::fs::create_dir(&dir).unwrap();
-                }
-                path = dir.to_str().unwrap();
+                std::fs::create_dir(&path).unwrap();
             }
-
-            return path.to_string();
         }
+        return path.to_string_lossy().to_string();
     }
 
     pub fn load_replica_toolchain() -> Vec<CompilerVersion> {
         let mut versions = Vec::new();
 
         if let Some(path) = common::utils::get_working_path("Replica".to_string()) {
-            let mut replica = std::path::PathBuf::from(path);
+            let mut replica = std::path::PathBuf::from(path.clone());
             replica.push("MSVC");
         
             if replica.exists() {
@@ -190,7 +151,7 @@ impl Property {
                 return versions;
             }
             else {
-                println!("can't find msvc in replica dir.");
+                println!("can't find msvc in replica dir. {}", path);
             }
         }
         else {
@@ -205,13 +166,13 @@ impl Property {
         let bin_dir = compiler_env.compiler_path;
 
         for item in resources {
-            let mut has = false;
+            let mut exist = false;
             for compiler in item.compiler_versions {
                 if compiler.version == compiler_env.msvc_version {
-                    has = true;
+                    exist = true;
                 }
             }
-            if !has {
+            if !exist {
                 println!("check resource {} not has msvc {}, so sync it. path: {:?}", item.addr, compiler_env.msvc_version, bin_dir.clone());
             
                 if let Some(name) = bin_dir.clone().file_name() {
@@ -221,7 +182,7 @@ impl Property {
                             Self::sync_compiler_toolchain(path.to_str().unwrap(), &item.addr).await;
                         });
                     }
-                } 
+                }
             }
         }
     }
@@ -242,7 +203,7 @@ mod tests {
         let versions = Property::load_replica_toolchain();
         println!("path version: {:?}", versions);
 
-        let path = Property::load_or_create_replica_dir();
+        let path = Property::access_or_create_replica_dir();
         println!("path: {:?}", path);
     }
 }

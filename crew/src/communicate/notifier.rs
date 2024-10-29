@@ -48,7 +48,6 @@ impl NotificationSender {
                             Ok(response) => {
                                 if response.r#type == notify::Type::Register as i32 {
                                     let message = response.message.clone();
-
                                 }
                                 else if response.r#type == notify::Type::Unregister as i32 {
                                 
@@ -202,6 +201,9 @@ impl NotificationSender {
             Self::update_crew_resource(roster, &resources).await;
             crate::replica::toolchain::Property::check_resource_and_judge_sync(resources).await;
             //TODO: time-consuming task, should be done in runtime.       
+        }
+        else {
+            log::warn!("check resource response is empty.");
         }
     }
 

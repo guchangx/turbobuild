@@ -30,14 +30,14 @@ pub fn init() {
     
     log::debug!("init crew");
 
-    let sys = sysinfo::System::new_with_specifics(RefreshKind::new().with_processes(sysinfo::ProcessRefreshKind::everything()),);
+    let sysinfo = sysinfo::System::new_with_specifics(RefreshKind::new().with_processes(sysinfo::ProcessRefreshKind::everything()),);
     
-    let process = sys.processes_by_name("cocrew".as_ref());
+    let process = sysinfo.processes_by_name("cocrew".as_ref());
     if process.count() >= 1 {
         println!("cocrew already running.");
     }
     else {
-        std::process::Command::new("cocrew.exe")
+        std::process::Command::new("cocrew")
             .spawn()
             .expect("failed to start cocrew");
     }
