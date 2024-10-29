@@ -52,18 +52,19 @@ impl Receiver {
                 Ok(size) => {
                     data = data + std::str::from_utf8(&buffer[..size]).unwrap();
                     if size < buffer.len() {
-                        println!("read buildassist connection data done");
-                        println!("{:?}", data);
+                        println!("buildassist connection data {}", data);
                         
-                        let input = crate::compiler::model::CompilerInput::default();
-                        crate::compiler::interface::request_compile(input, runtime.clone(), distor).await;
+                        let input: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
+                        
+                        println!("buildassist connection data {:?}", input);
+                        //crate::compiler::interface::request_compile(input, runtime.clone(), distor).await;
                         
                         stream.write_all(b"done").unwrap();
                         break;
                     }
                 },
                 Err(err) => {
-                    println!("read buildassist connect data error: {}", err);
+                    println!("buildassist connect data error: {}", err);
                     break;
                 }
             }

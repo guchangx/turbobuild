@@ -76,6 +76,15 @@ impl FileReceiver {
         return reply;
     }
     
+    async fn transmit_compile_handle(&self, request: package::CompileTrRequest) -> package::CompileTrResponse {
+
+        let reply = package::CompileTrResponse {
+            error_code: 0,
+            error_message: "sync compile success.".to_string(),
+        };
+        
+        return reply;
+    }
     async fn persistence(path: &str, content: &[u8]) {
         
     }
@@ -110,12 +119,7 @@ impl package::communicate_server::Communicate for FileReceiver {
         let rt_compile = request.into_inner();
         log::debug!("sync request command: {:?} {:?}", rt_compile.path, rt_compile.command);
         
-        
-        let reply = package::CompileTrResponse {
-            error_code: 0,
-            error_message: "sync compile success.".to_string(),
-        };
-        
+        let reply = self.transmit_compile_handle(rt_compile).await;
         Ok(tonic::Response::new(reply))
     }
 }

@@ -24,13 +24,13 @@ impl SocketClient {
                 let commands: Vec<_> = compiler_input.compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
 
                 let buffer = format!(
-                    r#"{{"compiler_path_or_arch":"{}", "compiler_working_dir":"{}", "compiler_commands":"{:?}", "build_and_compiler_type":"{}"}}"#,
-                    compiler_input.compiler_path_or_arch.to_string_lossy(), 
-                    compiler_input.compiler_working_dir.to_string_lossy(), 
+                    r#"{{"compiler_path": "{}", "compiler_working_dir": "{}", "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
+                    compiler_input.compiler_path_or_arch.to_string_lossy(),
+                    compiler_input.compiler_working_dir.to_string_lossy(),
                     commands,
                     compiler_input.build_and_compiler_type.to_string_lossy()
                 );
-
+                
                 stream.write(buffer.as_bytes()).unwrap();
 
                 let mut data = String::new();
