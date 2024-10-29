@@ -2,11 +2,14 @@ syntax = "proto3";
 
 package pack;
 
-message CommandTrRequest {
-    string command = 1;
+message CompileTrRequest {
+    string name = 1;
+    string path = 2;
+    repeated string command = 3;
+    bytes content = 4;
 }
 
-message CommandTrResponse {
+message CompileTrResponse {
     int32 error_code = 1;
     string error_message = 2;
 }
@@ -44,6 +47,5 @@ message CocrewResource {
 
 service communicate {
     rpc transmit_file(FileTrRequest) returns (FileTrResponse) {}
-    rpc transmit_command(CommandTrRequest) returns (CommandTrResponse) {}
-    rpc check_cocrew_resource(CheckResource) returns (CocrewResource) {}
+    rpc transmit_compile(CompileTrRequest) returns (CompileTrResponse) {}
 }

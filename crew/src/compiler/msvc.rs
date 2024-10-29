@@ -60,7 +60,6 @@ async fn request_msvc_compile(compiler_input: CompilerInput, working_param: crat
     let _source_file = fetch_compiler_source_file(compiler_input.build_and_compiler_type.clone(),
         compiler_commands.clone(), working_path.clone()).unwrap();
 
-
     let _object = fetch_compiler_object_file(compiler_input.build_and_compiler_type.clone(),
                                 compiler_commands.clone(), working_path.clone());
  
@@ -356,7 +355,7 @@ async fn load_and_transmit_precompiled_result_from_disk(source_files: &Vec<Strin
             zip_file.set_extension("zip");
             
             let handle = tokio::spawn(async move {    
-                crate::communicate::distributor::Distributor::sync(&addr, zip_file.to_str().unwrap(), &content).await;
+                crate::communicate::distributor::Distributor::compile(&addr, Vec::new(), zip_file.to_str().unwrap(), &content).await;
             });
             
             handles.lock().unwrap().push(handle);
@@ -777,20 +776,18 @@ async fn request_dist_compile_with_precompiled_source(addr: &str,
 
     let now = std::time::Instant::now();
     let path = precompiled.path.clone();
-    if input.compiler_commands.is_empty() {
-        
-    }
-    else {
-        
-    }
+    if input.compiler_commands.clone().is_empty() {
+        if let Some(content) = precompiled.contents.clone() {
+            let content = std::borrow::Cow::from(content);
     
-    if let Some(content) = precompiled.contents.clone() {
-        let content = std::borrow::Cow::from(content);
-
-        crate::communicate::distributor::Distributor::sync(addr, path.to_str().unwrap(), &content).await;
+            crate::communicate::distributor::Distributor::compile(addr, input.compiler_commands.clone(), path.to_str().unwrap(), &content).await;
+        }
+        else {
+            log::warn!("precompiled source content is empty.");
+        }   
     }
     else {
-        log::warn!("precompiled source content is empty.");
+        log::warn!("compiler commands is empty, so do nothing.")
     }
 
     log::debug!("fetch compiler toolchain and win kits response elapsed: {:?}", now.elapsed());

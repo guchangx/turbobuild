@@ -19,7 +19,7 @@ impl Distributor {
         
         let file = super::package::ArchiveArgs {
             file_type: super::package::FileType::ToolChain,
-            name: "test".to_string(),
+            name: "".to_string(),
             path:  path.to_string(),    
             content: content.clone(),
         };
@@ -30,12 +30,12 @@ impl Distributor {
         return "".to_string();
     }
     
-    pub async fn compile<'a>(addr: &str, command: &str, path: &str, content: &std::borrow::Cow<'a, [u8]>) {
+    pub async fn compile<'a>(addr: &str, command: Vec<std::ffi::OsString>, path: &str, content: &std::borrow::Cow<'a, [u8]>) {
 
         let args = super::package::PrecompiledFile {
             name: "".to_string(),
             path: path.to_string(),
-            command: command.to_string(),
+            command: command.into_iter().map(|item| item.into_string().unwrap()).collect(),
             content: content.clone(),
         };
 

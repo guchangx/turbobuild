@@ -22,7 +22,7 @@ pub struct FileArgs {
 pub struct PrecompiledFile<'a> {
     pub name: String,
     pub path: String,
-    pub command: String,
+    pub command: Vec<String>,
     pub content: std::borrow::Cow<'a, [u8]>,
 }
 
@@ -118,6 +118,28 @@ impl FileSender {
             }
             Err(err) => {
                 println!("send file failed {:?}", err);
+            }
+        }
+    }
+
+    async fn send_compile(&mut self, compiled: PrecompiledFile<'_>) {
+        let request = tonic::Request::new(pack::CompileTrRequest {
+            name: compiled.name,
+            path: compiled.path,
+            command: compiled.command,
+            content: compiled.content,
+        });
+
+        let response = self.to_owned().client.transmit_compile(request).await;
+        match response {
+            Ok(response) => {
+                let inner = response.into_inner();
+                if inner.error_code == 0 {
+                    log::debug!("send compiled success: {}", inner.error_message);
+                }
+            }
+            Err(err) => {
+                log::warn!("send compiled failed {:?}", err);
             }
         }
     }
