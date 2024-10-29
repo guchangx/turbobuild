@@ -106,11 +106,14 @@ impl package::communicate_server::Communicate for FileReceiver {
     }
     
     async fn transmit_compile(&self, request: tonic::Request<package::CompileTrRequest>) -> core::result::Result<tonic::Response<package::CompileTrResponse>, tonic::Status> {
-        log::debug!("sync request command: {:?}", request);
         
-        let reply = package::CommandTrResponse {
+        let rt_compile = request.into_inner();
+        log::debug!("sync request command: {:?} {:?}", rt_compile.path, rt_compile.command);
+        
+        
+        let reply = package::CompileTrResponse {
             error_code: 0,
-            error_message: "sync command success.".to_string(),
+            error_message: "sync compile success.".to_string(),
         };
         
         Ok(tonic::Response::new(reply))
