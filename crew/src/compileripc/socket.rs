@@ -71,3 +71,25 @@ impl Receiver {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    //cargo test --package crew --tests serde_json_2_struct -- --show-output
+    fn serde_json_2_struct() {
+        
+        let compiler_commands = vec![std::ffi::OsString::from("")];
+        let commands: Vec<_> = compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
+
+        let data = format!(
+            r#"{{"compiler_path": "{}", "compiler_working_dir": "{}", "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
+            "",
+            "",
+            commands,
+            ""
+        );
+
+        let input: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
+        assert!(input["compiler_path"].as_str().is_some());
+    }
+}
