@@ -27,7 +27,9 @@ impl Receiver {
             match stream {
                 Ok(stream) => {
                     println!("new buildassist connection socket");
-                    let runtime = self.common.upgrade().unwrap().lock().unwrap().pool.clone().unwrap();
+                    let runtime = self.common.upgrade().unwrap()
+                        .lock().unwrap()
+                        .pool.clone().unwrap();
                     
                     let distributor = self.distributor.clone();
                     let runtime_ = runtime.clone();
@@ -52,12 +54,23 @@ impl Receiver {
                 Ok(size) => {
                     data = data + std::str::from_utf8(&buffer[..size]).unwrap();
                     if size < buffer.len() {
-                        println!("buildassist connection data {}", data);
+                        log::debug!("buildassist connection data {:?}", data);
                         
                         let input: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
+
+                        let compiler = input["compiler_path"].as_str().unwrap();
+                        let working = input["compiler_working_dir"].as_str().unwrap();
+                        let commands = input["compiler_commands"].as_array().unwrap();
+                        let r#type = input["build_and_compiler_type"].as_str().unwrap();
+                        let input = crate::compiler::model::CompilerInput {
+                            compiler_path: std::ffi::OsString::from(compiler),
+                            compiler_working_dir: std::ffi::OsString::from(working),
+                            compiler_commands: commands.iter().map(|item| item.as_str().unwrap().into()).collect(),
+                            build_and_compiler_type: std::ffi::OsString::from(r#type),
+                            env_input: None,
+                        };
                         
-                        println!("buildassist connection data {:?}", input);
-                        //crate::compiler::interface::request_compile(input, runtime.clone(), distor).await;
+                        crate::compiler::interface::request_compile(input, runtime.clone(), distor).await;
                         
                         stream.write_all(b"done").unwrap();
                         break;

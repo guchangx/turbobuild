@@ -1,6 +1,6 @@
 
 pub struct CompilerInput {
-    pub compiler_path_or_arch: std::ffi::OsString,
+    pub compiler_path: std::ffi::OsString,
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
     pub build_and_compiler_type: std::ffi::OsString,
@@ -22,7 +22,7 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
                 }
 
                 let input = CompilerInput {
-                    compiler_path_or_arch: std::ffi::OsString::from(compiler),
+                    compiler_path: std::ffi::OsString::from(compiler),
                     compiler_working_dir: std::ffi::OsString::from(working_dir),
                     compiler_commands: commands,
                     build_and_compiler_type: std::ffi::OsString::from("MSBuild_MSVC"),
@@ -38,7 +38,7 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
      else {
         let (compiler_path, commands) = fetch_and_parse_commands_for_cmake(&mut commands);
         let input = CompilerInput {
-            compiler_path_or_arch: compiler_path,
+            compiler_path: compiler_path,
             compiler_working_dir: std::ffi::OsString::from(working_dir),
             compiler_commands: commands,
             build_and_compiler_type: std::ffi::OsString::from("CMake_MSVC"),
@@ -133,7 +133,7 @@ fn parse_commands_by_line(line: String) -> (String, Vec<std::ffi::OsString>) {
         if let Some(end) = line[start..].find(cl) {
             let assit_cl = &line[start..(start + end + cl.len() + 1)];
             line_ = line.replace(assist, "").to_string();
-            compiler = assit_cl.replace(assist, "");
+            compiler = assit_cl.replace(assist, "").trim_end().to_string();
         }
     }
     
