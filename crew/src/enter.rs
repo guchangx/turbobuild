@@ -37,20 +37,24 @@ pub fn init() {
         println!("cocrew already running.");
     }
     else {
-        std::process::Command::new("cocrew")
-            .spawn()
-            .expect("failed to start cocrew");
+
+        match std::process::Command::new("cocrew").spawn() {
+            Ok(_) => {},
+            Err(err) => {
+                log::error!("can't run cocrew error: {}", err);
+            }
+        }
     }
     
     let common = Common::new();
     let common = std::sync::Arc::new(std::sync::Mutex::new(common));
     let weak_common = std::sync::Arc::downgrade(&common);
 
-    let roster = crate::roster::crews::ResourceList::new();
-    let arc_roster = std::sync::Arc::new(std::sync::Mutex::new(roster));
-
     let tasks = crate::roster::crews::TasksManager::new();
     let arc_tasks = std::sync::Arc::new(std::sync::Mutex::new(tasks));
+    
+    let roster = crate::roster::crews::ResourceList::new();
+    let arc_roster = std::sync::Arc::new(std::sync::Mutex::new(roster));
 
     let dist = crate::communicate::distributor::Distributor::new(arc_tasks.clone(), arc_roster.clone());
     let arc_dist = std::sync::Arc::new(std::sync::Mutex::new(dist));
