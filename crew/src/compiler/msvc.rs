@@ -24,11 +24,27 @@ impl crate::compiler::interface::Compiler for MSVC {
         let pool = self.pool.clone();
         let sender = self.sender.clone();
 
-        let output = self.pool.block_on(async move {
-            let output = request_msvc_compile(compiler_input, working_param, sender, pool).await;
-            return output;
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
+
+        let runtime = self.pool.clone();
+        let _ = self.pool.spawn_blocking(move || {
+            let output = runtime.block_on(async move {
+                let output = request_msvc_compile(compiler_input, working_param, sender, pool).await;
+                return output;
+            });
+            let _ = tx.send(output);
         });
-        return output;
+
+        loop {
+            match rx.try_recv() {
+                Ok(output) => return output,
+                Err(err) => {
+                    if err ==  tokio::sync::oneshot::error::TryRecvError::Empty {
+                        std::thread::sleep(std::time::Duration::from_millis(1000));
+                    }
+                }
+            }
+        }
     }
 }
 

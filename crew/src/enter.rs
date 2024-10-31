@@ -80,9 +80,10 @@ pub fn init() {
         .build()
         .unwrap();
 
-    runtime.spawn(crate::fingerprint::register::register_fingerprint_to_capation(runtime.handle().clone(), weak_common.clone()));
+    let rt = runtime.handle();
+    runtime.spawn(crate::fingerprint::register::register_fingerprint_to_capation(rt.clone(), weak_common.clone()));
         
-    weak_common.upgrade().unwrap().lock().unwrap().pool = Some(std::sync::Arc::new(runtime.handle().to_owned()));
+    weak_common.upgrade().unwrap().lock().unwrap().pool = Some(std::sync::Arc::new(rt.clone()));
 
     weak_common.upgrade().unwrap().lock().unwrap().roster = Some(arc_roster);
 

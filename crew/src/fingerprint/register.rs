@@ -51,32 +51,28 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
 
     let mut fingerprint = crate::fingerprint::gather::SystemInfo::new();
 
-        
-    let rt_ = rt.clone();
-    rt.spawn_blocking(move || {
-        let _ = rt_.spawn(async move {
-            loop {
-        
-                let (cpu_usage, memory_used) = crate::fingerprint::gather::SystemInfo::fetch_cpu_and_memory_usage();
-                
-                fingerprint.cpu_usage = cpu_usage;
-                fingerprint.memory_usage = ((memory_used * 100 as f32 / fingerprint.memory_total) * 1000.0).round() / 1000.0;
-                
-                let info = serde_json::to_string(&fingerprint).unwrap();
-                
-                let con = crate::communicate::notifier::NotificationType::Constitution(info);
-                match sender.send(con).await {
-                    Ok(_) => {
-                       
-                    },
-                    Err(err) => {
-                        println!("send notification error: {:?}", err);
-                    }
+    rt.spawn(async move {
+        loop {
+    
+            let (cpu_usage, memory_used) = crate::fingerprint::gather::SystemInfo::fetch_cpu_and_memory_usage();
+            
+            fingerprint.cpu_usage = cpu_usage;
+            fingerprint.memory_usage = ((memory_used * 100 as f32 / fingerprint.memory_total) * 1000.0).round() / 1000.0;
+            
+            let info = serde_json::to_string(&fingerprint).unwrap();
+            
+            let con = crate::communicate::notifier::NotificationType::Constitution(info);
+            match sender.send(con).await {
+                Ok(_) => {
+                    
+                },
+                Err(err) => {
+                    println!("send notification error: {:?}", err);
                 }
-                
-                tokio::time::sleep(tokio::time::Duration::from_secs(45)).await;
             }
-        });
+            
+            tokio::time::sleep(tokio::time::Duration::from_secs(45)).await;
+        }
     });
 
 }
