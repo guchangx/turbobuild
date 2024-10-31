@@ -66,6 +66,7 @@ impl SocketClient {
 
 #[cfg(test)]
 mod tests {
+
     #[test]
     //cargo test --package buildassist --tests serde_json_2_struct -- --show-output
     fn serde_json_2_struct() {
@@ -73,24 +74,17 @@ mod tests {
         let compiler_commands = vec![std::ffi::OsString::from("/test")];
         let commands: Vec<_> = compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
         
-        
-        
         let data = format!(
             r#"{{"compiler_path": "{}", "compiler_working_dir": "{}", "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
-            std::ffi::OsString::from(r#"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\cl.exe"#).to_string_lossy(),
+            std::ffi::OsString::from(r#"C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe"#).to_string_lossy(),
             std::ffi::OsString::new().to_string_lossy(),
             commands,
             std::ffi::OsString::new().to_string_lossy()
         );
-
-        println!("{}", data.as_str());
-        let fmt = format!(r#"{}"#, data.as_str());
-        let input: serde_json::Value = serde_json::from_str(&fmt).unwrap();
+        let input: serde_json::Value = serde_json::from_str(&data).unwrap();
         assert!(input["compiler_path"].as_str().is_some());
-        
-        let data = r#"{"compiler_path": "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\cl.exe", "compiler_working_dir": "E:\TestFuture\GammaRay\GammaRayTool\build_enable\core", "compiler_commands": ["/c", "/IE:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\core", "/Zi", "/nologo", "/W1", "/WX-", "/diagnostics:column", "/Od", "/Ob0", "/GR", "/Fo\"gammaray_core.dir\\Debug\\\\\"", "/Fd\"gammaray_core.dir\\Debug\\vc143.pdb\"", "/external:W0", "/Gd", "/TP", "/wd4244", "/wd4267", "/errorReport:prompt", "/external:I", "qrc_gammaray.cpp"], "build_and_compiler_type": "MSBuild_MSVC"}"#;
-        println!("{}", data);
-        let input: serde_json::Value = serde_json::from_str(data).unwrap();
-        assert!(input["compiler_path"].as_str().is_some());
+        assert!(input["compiler_working_dir"].as_str().is_some());
+        assert!(input["compiler_commands"].as_array().is_some());
+        assert!(input["build_and_compiler_type"].as_str().is_some());
     }
 }

@@ -96,7 +96,7 @@ fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsStr
             match fetch_compiler_parameters_from_response_file(rspfile.to_string_lossy().replace("@", "")) {
                 Some(line) => {
                     
-                    let (compiler, commands) = parse_commands_by_line(line);
+                    let (compiler, commands) = parse_commands_by_line(line.as_str());
                     //let (compiler, commands) = parse_compiler_commands(line);
                     
                     let path = std::path::PathBuf::from(compiler.clone());
@@ -123,7 +123,7 @@ fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsStr
     };
 }
 
-fn parse_commands_by_line(line: String) -> (String, Vec<std::ffi::OsString>) {
+fn parse_commands_by_line(line: &str) -> (String, Vec<std::ffi::OsString>) {
 
     let mut line_ = String::new();
     let mut compiler = String::new();
@@ -132,65 +132,119 @@ fn parse_commands_by_line(line: String) -> (String, Vec<std::ffi::OsString>) {
         let cl = "cl.exe";
         if let Some(end) = line[start..].find(cl) {
             let assit_cl = &line[start..(start + end + cl.len() + 1)];
-            line_ = line.replace(assist, "").to_string();
+            line_ = line.replace(assit_cl, "").to_string();
             compiler = assit_cl.replace(assist, "").trim_end().to_string();
         }
     }
+    else {
+        line_.push_str(line);
+    }
     
-    let commands:Vec<_> = line_.split(' ').collect();
-    
+    let commands: Vec<_> = line_.split(&[' ', '\u{A0}']).collect();
+
     let mut result = Vec::new();
     let mut iter = commands.iter();
 
-    for &item in iter.clone() {
-        
-        if item == "/D" || item == "/d" {
-            if let Some(next) = iter.next() {
-                result.push(std::ffi::OsString::from(item.to_owned() + " " + next));                
-            }
-        }
-        // /I"E:\Test Future\GammaRay\GammaRayTool\build enable\3rdparty\kde"
-        else if item.contains('"') {
+    while let Some(&item) = iter.next() {
+        if item.contains('"') {
             let count = item.matches('"').collect::<Vec<&str>>().len();
             if count % 2 == 0 {
-                result.push(std::ffi::OsString::from(item));
+                result.push(item.to_owned());
             }
             else {
-
                 let mut command = String::new();
 
                 while let Some(next) = iter.next() {
                     if next.contains('"') {
-                        result.push(std::ffi::OsString::from(command.clone() + item + " " + next));
+                        let arg = command.clone() + item + " " + next;
+                        result.push(arg);
                         break;
                     }
                     else {
                         command = command + item + " " + next + " ";
                     }
                 }
+            }
+        }
+        else {
+            result.push(item.to_owned());
+        }
+    }
 
+    let mut result_ = Vec::new();
+    let mut iter = result.iter();
+
+    while let Some(item) = iter.next() {
+        if item == "/D" || item == "/d" {
+            if let Some(next) = iter.next() {
+                let arg = std::ffi::OsString::from(item.to_owned() + " " + next);
+                result_.push(arg);
+            }
+        }
+        else if item.starts_with("/external:I") {
+            if item == "/external:I" {
                 if let Some(next) = iter.next() {
-                    if next.contains('"') {
-                        result.push(std::ffi::OsString::from(item.to_owned() + " " + next));
-                    }
-                    else {
-                        
-                    }            
+                    let arg = std::ffi::OsString::from(item.to_owned() + " " + next);
+                    result_.push(arg);
                 }
+            }
+            else {
+                result_.push(std::ffi::OsString::from(item));
+            }
+        }
+        else if item.starts_with("/i") || item.starts_with("/I") {
+
+            if item == "/I" || item == "/i" {
+                if let Some(next) = iter.next() {
+                    let arg = std::ffi::OsString::from(item.to_owned() + " " + next);
+                    result_.push(arg);
+                }
+            }
+            else {
+                result_.push(std::ffi::OsString::from(item));
             }
         }
         else if item.starts_with("/Fo") || item.starts_with("/Fd") {
             let arg_without_enclosed_quotation = item.replace('"', "");
-            result.push(std::ffi::OsString::from(arg_without_enclosed_quotation));
+            result_.push(std::ffi::OsString::from(arg_without_enclosed_quotation));
         }
         else if item.is_empty() {
             iter.next();
-        } 
+        }
         else {
-            result.push(std::ffi::OsString::from(item));
-            iter.next();
+            result_.push(std::ffi::OsString::from(item));
         }
     }
     
-    return (compiler, result);
+    return (compiler, result_);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    //cargo test --package buildassist --tests parse_commands -- --show-output
+    fn parse_commands() {
+        let line = r#"/c /IE:\TestFuture\GammaRay\GammaRayTool\build_enable\3rdparty\kde /Zi /nologo /W1 /WX- /diagnostics:column /Od /Ob0 /D _WINDLL /D _UNICODE /D UNICODE /D WIN32 /D _WINDOWS /D UNICODE /D _UNICODE /D _USING_V110_SDK71_=1 /D QT_DISABLE_DEPRECATED_BEFORE=0x050500 /D QT_USE_FAST_CONCATENATION /D QT_USE_FAST_OPERATOR_PLUS /D QT_NO_CAST_TO_ASCII /D QT_NO_URL_CAST_FROM_STRING /D QT_NO_DEBUG_OUTPUT /D QT_CORE_LIB /D "CMAKE_INTDIR=\"Debug\"" /D MAKE_KITEMMODELS_LIB /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /Fo"gammaray_kitemmodels.dir\Debug\\" /Fd"gammaray_kitemmodels.dir\Debug\vc143.pdb" /external:W0 /Gd /TP /wd4244 /wd4267 /errorReport:prompt AssistClCompilerPath:C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\cl.exe /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include/QtCore" E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\kmodelindexproxymapper.cpp E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\krecursivefilterproxymodel.cpp"#;
+        let (compiler, commands) = parse_commands_by_line(line);
+        assert!(!compiler.is_empty() && compiler.ends_with("cl.exe"));
+        println!("commands {:?}", commands);
+    }
+
+    #[test]
+    fn parse_commands_include_space_path() {
+        let line = r#"/c /I"E:\TestFuture\GammaRay\GammaRay Tool\3rdparty\" /I "E:\TestFuture\GammaRay\GammaRay Tool\3rdparty\" /Zi /nologo /Fo"gammaray kit.dir\Debug\\" /Fd"gammaray kit.dir\Debug\vc143.pdb""#;
+        let (compiler, commands) = parse_commands_by_line(line);
+        assert!(compiler.is_empty());
+        println!("commands {:?}", commands);
+        assert_eq!(commands.len(), 7);
+    }
+
+    #[test]
+    fn parse_commands_other() {
+        let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /I"D:\Webex\spark-client-framework\." /I"D:\Webex\spark-client-framework\.." /I"D:\Webex\spark-client-framework\thirdparty\nlohmann\include" /Zi /W3 /WX /diagnostics:column /MP /O2 /Ob2 /Os /D _UNICODE /D UNICODE /D WIN32 /D _WINDOWS /D NDEBUG /D TP_FOR_GENERIC=1 /D THREAD_SAFE_EVENTLOOP=1 /D UNICODE /D _UNICODE /D bwc_EXPORTS /D CMAKE_BUILD /D DESKTOP_PLATFORM /D SCF_STATIC_DEFINE /D "CMAKE_INTDIR=\"Release\"" /Gm- /EHsc /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++17 /Fo"BwcCore.dir\Release\\" /Fd"BwcCore.dir\Release\BwcCore.pdb" /external:W3 /Gd /TP /wd4251 /wd4275 /errorReport:prompt /we4700 /we4701 /we6001 /we26494  /Zc:__cplusplus /bigobj /F2000000 "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Modules\TemporaryLogin\config_filler.cpp" "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Source\blf_manager.cpp" "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Source\boss_admin.cpp" "#;
+        let (compiler, commands) = parse_commands_by_line(line);
+        assert!(compiler.is_empty());
+        println!("commands {:?}", commands);
+    }
 }
