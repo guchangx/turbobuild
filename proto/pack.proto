@@ -3,10 +3,12 @@ syntax = "proto3";
 package pack;
 
 message CompileTrRequest {
-    string name = 1;
-    string path = 2;
-    repeated string command = 3;
-    bytes content = 4;
+    string file = 1;
+    string compiler = 2;
+    string working_dir = 3;
+    string variety = 4;
+    repeated string commands = 5;
+    bytes content = 6;
 }
 
 message CompileTrResponse {

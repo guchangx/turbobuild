@@ -20,9 +20,11 @@ pub struct FileArgs {
 }
 
 pub struct PrecompiledFile<'a> {
-    pub name: String,
-    pub path: String,
-    pub command: Vec<String>,
+    pub file: String,
+    pub compiler: String,
+    pub working_dir: String,
+    pub variety: String,
+    pub commands: Vec<String>,
     pub content: std::borrow::Cow<'a, [u8]>,
 }
 
@@ -105,9 +107,11 @@ impl FileSender {
 
     async fn send_compile(&mut self, compiled: PrecompiledFile<'_>) {
         let request = tonic::Request::new(pack::CompileTrRequest {
-            name: compiled.name,
-            path: compiled.path,
-            command: compiled.command,
+            file: compiled.file,
+            compiler: compiled.compiler,
+            working_dir: compiled.working_dir,
+            variety: compiled.variety,
+            commands: compiled.commands,
             content: compiled.content.to_vec(),
         });
 

@@ -30,12 +30,14 @@ impl Distributor {
         return "".to_string();
     }
     
-    pub async fn compile<'a>(addr: &str, command: Vec<std::ffi::OsString>, path: &str, content: &std::borrow::Cow<'a, [u8]>) {
+    pub async fn compile<'a>(addr: &str, file: std::ffi::OsString, input: &crate::compiler::model::CompilerInput, content: &std::borrow::Cow<'a, [u8]>) {
 
         let args = super::package::PrecompiledFile {
-            name: "".to_string(),
-            path: path.to_string(),
-            command: command.into_iter().map(|item| item.into_string().unwrap()).collect(),
+            file: file.to_string_lossy().to_string(),
+            compiler: input.compiler_path.to_string_lossy().to_string(),
+            working_dir: input.compiler_working_dir.to_string_lossy().to_string(),
+            variety: input.build_and_compiler_type.to_string_lossy().to_string(),
+            commands: input.compiler_commands.iter().map(|item| item.clone().into_string().unwrap()).collect(),
             content: content.clone(),
         };
 

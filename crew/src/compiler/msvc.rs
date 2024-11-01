@@ -404,8 +404,9 @@ impl MSVC {
                 let content = std::borrow::Cow::from(file);
                 zip_file.set_extension("zip");
                 
-                let handle = tokio::spawn(async move {    
-                    crate::communicate::distributor::Distributor::compile(&addr, Vec::new(), zip_file.to_str().unwrap(), &content).await;
+                let handle = tokio::spawn(async move {
+                    let intput = CompilerInput::default();
+                    crate::communicate::distributor::Distributor::compile(&addr, zip_file.as_os_str().into(), &intput, &content).await;
                 });
                 
                 handles.lock().unwrap().push(handle);
@@ -806,7 +807,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
         if let Some(content) = precompiled.contents.clone() {
             let content = std::borrow::Cow::from(content);
     
-            crate::communicate::distributor::Distributor::compile(addr, input.compiler_commands.clone(), path.to_str().unwrap(), &content).await;
+            crate::communicate::distributor::Distributor::compile(addr, path, input, &content).await;
         }
         else {
             log::warn!("precompiled source content is empty.");

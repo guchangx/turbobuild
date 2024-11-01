@@ -1,4 +1,6 @@
 
+use std::io::Write;
+
 pub mod package {
     include!("../../proto/pack.rs");
 }
@@ -78,6 +80,37 @@ impl FileReceiver {
     
     async fn transmit_compile_handle(&self, request: package::CompileTrRequest) -> package::CompileTrResponse {
 
+        let file = request.file;
+        let compiler = request.compiler;
+
+        log::trace!("compile handle name: {} {}", file, compiler);
+        let commands = request.commands;
+        let content = request.content;
+
+        let mut file = std::fs::File::create(&file).unwrap();
+        match file.write_all(&content) {
+            Ok(_) => {
+                log::trace!("sync file done: {:?}", file);
+            },
+            Err(err) => {
+                log::error!("sync file failed. {:?}", err)
+            }
+        }
+
+        if commands.is_empty() {
+        
+        }
+        else {
+            let compiler_input = crew::compiler::model::CompilerInput {
+                compiler_path: std::ffi::OsString::from(compiler),
+                compiler_working_dir: std::ffi::OsString::from(request.working_dir),
+                compiler_commands: commands.iter().map(|item| std::ffi::OsString::from(item)).collect(),
+                build_and_compiler_type: std::ffi::OsString::from(request.variety),
+            };
+
+            crate::compiler::interface::build(compiler_input);
+        }
+
         let reply = package::CompileTrResponse {
             error_code: 0,
             error_message: "sync compile success.".to_string(),
@@ -85,6 +118,7 @@ impl FileReceiver {
         
         return reply;
     }
+
     async fn persistence(path: &str, content: &[u8]) {
         
     }
@@ -117,7 +151,7 @@ impl package::communicate_server::Communicate for FileReceiver {
     async fn transmit_compile(&self, request: tonic::Request<package::CompileTrRequest>) -> core::result::Result<tonic::Response<package::CompileTrResponse>, tonic::Status> {
         
         let rt_compile = request.into_inner();
-        log::debug!("sync request command: {:?} {:?}", rt_compile.path, rt_compile.command);
+        log::debug!("sync request command: {:?} {:?}", rt_compile.compiler, rt_compile.commands);
         
         let reply = self.transmit_compile_handle(rt_compile).await;
         Ok(tonic::Response::new(reply))

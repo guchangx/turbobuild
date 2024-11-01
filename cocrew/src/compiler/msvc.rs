@@ -7,7 +7,7 @@ pub struct MSVC {
 
 impl crate::compiler::interface::Compiler for MSVC {
 
-    fn dist_request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<ProcessedResults>) {
+    fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<ProcessedResults>) {
         
         let output = request_local_compile_by_preprocessed_source(&compiler_input);
         return output;
