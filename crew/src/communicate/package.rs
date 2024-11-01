@@ -74,7 +74,7 @@ impl FileSender {
                 self.send_file(args).await;
             },
             SenderType::Compile(args) => {
-                
+                self.send_compile(args).await;
             },
             _ => {}
         }

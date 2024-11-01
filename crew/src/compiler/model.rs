@@ -30,8 +30,6 @@ pub struct CompilerInput {
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
     pub build_and_compiler_type: std::ffi::OsString,
-
-    pub env_input: Option<crate::platform::windows::WindowsCompilerEnv>,
 }
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct PrecompiledSource {

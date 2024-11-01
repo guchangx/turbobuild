@@ -7,6 +7,7 @@ pub struct Receiver {
     port: u16,
     common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>,
     distributor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>,
+    work_env: crate::platform::windows::WindowsCompilerEnv,
 }
 
 impl Receiver {
@@ -15,6 +16,7 @@ impl Receiver {
             port: 9301,
             common,
             distributor,
+            work_env: crate::platform::windows::WindowsCompilerEnv::default()
         }
     } 
     
@@ -33,8 +35,9 @@ impl Receiver {
                     
                     let distributor = self.distributor.clone();
                     let runtime_ = runtime.clone();
+                    let env = self.work_env.clone();
                     let _ = runtime.spawn(async {
-                        Self::handle_ipc_stream(stream, runtime_, distributor).await;
+                        Self::handle_ipc_stream(stream, runtime_, env, distributor).await;
                     });
                     //can't block current run.
                 },
@@ -45,7 +48,7 @@ impl Receiver {
         }
     }
     
-    async fn handle_ipc_stream(mut stream: std::net::TcpStream, runtime: std::sync::Arc<tokio::runtime::Handle>, distor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) {
+    async fn handle_ipc_stream(mut stream: std::net::TcpStream, runtime: std::sync::Arc<tokio::runtime::Handle>, work_env: crate::platform::windows::WindowsCompilerEnv, distor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) {
        
         let mut data = "".to_string();
         let mut buffer = [0 as u8; 256];
@@ -67,11 +70,9 @@ impl Receiver {
                             compiler_working_dir: std::ffi::OsString::from(working),
                             compiler_commands: commands.iter().map(|item| item.as_str().unwrap().into()).collect(),
                             build_and_compiler_type: std::ffi::OsString::from(r#type),
-                            env_input: None,
                         };
-                        
-                        crate::compiler::interface::request_compile(input, runtime.clone(), distor).await;
-                        
+
+                        crate::compiler::interface::request_compile(input, runtime.clone(), if work_env.winkits_includes_path.is_empty() {Some(work_env)} else { None }, distor).await;                        
                         stream.write_all(b"done").unwrap();
                         break;
                     }

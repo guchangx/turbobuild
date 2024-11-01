@@ -2,16 +2,15 @@
 //#[cfg(target_os = "windows")]
 //extern crate regex;
 
+#[derive(Clone)]
 pub struct MSVC {
-    pub working_parameters: crate::platform::windows::WindowsCompilerEnv,
-    pub pool: std::sync::Arc<tokio::runtime::Handle>,
+    pub work_env: crate::platform::windows::WindowsCompilerEnv,
+    pub runtime: std::sync::Arc<tokio::runtime::Handle>,
     pub sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>,
 }
 
 //TODO common param in func should be move in msvc struct
 use std::{ops::{Index, Add}, io::Read};
-
-use winapi::um::winbase::{SetDefaultCommConfigA, VerifyVersionInfoA};
 
 use crate::compiler::model::{CompilerInput, CompilerOutput, ProcessedResults, PrecompiledSource};
 
@@ -20,16 +19,15 @@ use crate::compiler::model::{CompilerInput, CompilerOutput, ProcessedResults, Pr
 impl crate::compiler::interface::Compiler for MSVC {
     fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<ProcessedResults>) {
 
-        let working_param = self.working_parameters.clone();
-        let pool = self.pool.clone();
-        let sender = self.sender.clone();
-
         let (tx, mut rx) = tokio::sync::oneshot::channel();
 
-        let runtime = self.pool.clone();
-        let _ = self.pool.spawn_blocking(move || {
+        let runtime = self.runtime.clone();
+        
+        let self_ = self.clone();
+
+        let _ = self.runtime.spawn_blocking(move || {
             let output = runtime.block_on(async move {
-                let output = request_msvc_compile(compiler_input, working_param, sender, pool).await;
+                let output = self_.request_msvc_compile(compiler_input).await;
                 return output;
             });
             let _ = tx.send(output);
@@ -48,349 +46,387 @@ impl crate::compiler::interface::Compiler for MSVC {
     }
 }
 
-async fn request_msvc_compile(compiler_input: CompilerInput, working_param: crate::platform::windows::WindowsCompilerEnv,
-                        sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>,
-                        pool: std::sync::Arc<tokio::runtime::Handle>)
-            -> (CompilerOutput, Option<ProcessedResults>) {
+impl MSVC {
+    async fn request_msvc_compile(self, compiler_input: CompilerInput) -> (CompilerOutput, Option<ProcessedResults>) {
 
-    let env = working_param;
-    let now = std::time::Instant::now();
-    //let (compiler_commands, compiler_path) = parse_compiler_input_command(compiler_input.clone(), &env);
+        let now = std::time::Instant::now();
 
-    let (compiler_commands, compiler_path) = enrich_compiler_commands(compiler_input.clone());
-    println!("parse compiler input commmands elaspsed time:{:?}", now.elapsed());
-    let working_path = std::path::PathBuf::from(compiler_input.compiler_working_dir.to_str().unwrap());
+        let (compiler_commands, compiler_path) = &self.enrich_compiler_commands(&compiler_input);
+        println!("parse compiler input commmands elaspsed time:{:?}", now.elapsed());
+        let working_path = std::path::PathBuf::from(&compiler_input.compiler_working_dir);
 
-    if !working_path.exists() {
-        let result = std::fs::create_dir_all(working_path.clone());
-        match result {
-            Ok(_) => {
-                log::info!("create dir in: {:?}", working_path);
-            },
-            Err(error) => {
-                log::warn!("can not create dir in: {:?}, error code: {:?}", working_path, error)
-            },
+        if !working_path.exists() {
+            let result = std::fs::create_dir_all(working_path.clone());
+            match result {
+                Ok(_) => {
+                    log::info!("create dir in: {:?}", working_path);
+                },
+                Err(error) => {
+                    log::warn!("can not create dir in: {:?}, error code: {:?}", working_path, error)
+                },
+            }
+        }
+
+        let _source_file = fetch_compiler_source_file(&compiler_input.build_and_compiler_type,
+            compiler_commands, &compiler_input.compiler_working_dir).unwrap();
+
+        let _object = fetch_compiler_object_file(&compiler_input.build_and_compiler_type,
+                                    &compiler_commands, &compiler_input.compiler_working_dir);
+    
+        let exists_source_file_in_command = determine_whether_need_compile(compiler_commands.clone());
+        
+        if exists_source_file_in_command {
+
+            let mut default_output = CompilerOutput::default();
+            let mut default_results = Vec::<crate::compiler::model::ProcessedResult>::new();
+
+            //TODO add expression to determine use local build or dist build
+            
+            if false {
+                let (output, results) = request_local_compile(compiler_path, &compiler_input.compiler_working_dir,
+                                                            compiler_commands, compiler_input.build_and_compiler_type,
+                                                            false);
+                default_output.set(output);
+                if let Some(results) =  results {
+                    default_results = results;
+                }
+            }
+            else {
+                if true {
+                    // dist with preprocessed source
+                    let now = std::time::Instant::now();
+                    let output = self.request_multi_dist_once_compile(&compiler_path, &compiler_input.compiler_working_dir, &compiler_commands.clone());
+                    println!("requestmulti_dist_sync_once_compile elaspsed time:{:?}", now.elapsed());
+                    //let output = request_dist_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
+                    default_output.set(output);
+                }
+                else {
+                    //dist with source file and include file
+                    let output = request_dist_compile_with_source_and_include(&self.work_env, &compiler_input);
+                    default_output.set(output);
+                }
+            }
+            
+            //TODO cache the result to redis or cloud
+
+            if default_results.is_empty() {
+                return (default_output, None);
+            }
+            else {
+                return (default_output, Some(default_results))
+            }        
+        }
+        else {
+            let compiled_filename: Vec<std::ffi::OsString> = Vec::new();
+            let result = CompilerOutput {
+                filename: compiled_filename,
+                status: false,
+                output: std::ffi::OsString::from("don't need compile anything."),
+            };
+            return (result, None);
         }
     }
 
-    let _source_file = fetch_compiler_source_file(compiler_input.build_and_compiler_type.clone(),
-        compiler_commands.clone(), working_path.clone()).unwrap();
+    fn enrich_compiler_commands(&self, compiler_input: &CompilerInput) -> (Vec<std::ffi::OsString>, std::ffi::OsString) {
 
-    let _object = fetch_compiler_object_file(compiler_input.build_and_compiler_type.clone(),
-                                compiler_commands.clone(), working_path.clone());
- 
-    let exists_source_file_in_command = determine_whether_need_compile(compiler_commands.clone());
+        let mut commands = compiler_input.compiler_commands.clone();
     
-    if exists_source_file_in_command {
-
-        let mut default_output = CompilerOutput::default();
-        let mut default_results = Vec::<crate::compiler::model::ProcessedResult>::new();
-
-        //TODO add expression to determine use local build or dist build
-        
-        if false {
-            let (output, results) = request_local_compile(compiler_path, compiler_input.compiler_working_dir,
-                                                          compiler_commands.clone(), compiler_input.build_and_compiler_type,
-                                                          false);
-            default_output.set(output);
-            if let Some(results) =  results {
-                default_results = results;
+        let mut compiler_path = std::ffi::OsString::new();
+        if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild") {
+            let env =  &self.work_env;
+            let winkits_includes = &env.winkits_includes_path;
+    
+            for include in winkits_includes {
+                let mut instruct = "/I".to_string();
+                instruct += include.to_str().unwrap();
+                commands.push(std::ffi::OsString::from(instruct));
             }
+            let msvc_includes = env.msvc_includes_path.display().to_string();
+        
+            let mut instruct = String::from("/I");
+            instruct += &msvc_includes;
+            commands.push(std::ffi::OsString::from(instruct));
+    
+            return (commands, compiler_path);
+        }
+        else if  compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
+            compiler_path = compiler_input.compiler_path.clone();
+            return (commands, compiler_path);
         }
         else {
-            if true {
-                // dist with preprocessed source
+            return (commands, compiler_path);
+        }
+    }
+
+    fn request_multi_dist_once_compile(&self, compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> CompilerOutput {
+
+        let mut result = CompilerOutput::default();
+        let now = std::time::Instant::now();
+        let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, compiler_commands, false);
+
+        if status {
+            let files = String::from_utf8_lossy(&stderr);
+
+            let mut source_files: Vec<String> = Vec::new();
+            let mut project = String::from("");
+            
+            if let Some(sources) = fetch_compiler_source_file (
+                &std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir) {
+                
+                for item in sources {
+                    source_files.push(item.1.to_string_lossy().to_string());
+                }
+            }
+
+            match fetch_compiler_object_file(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir) {
+                GeneratedObject::PathWithObjName(path) => {project = path.to_str().unwrap().to_owned()},
+                GeneratedObject::PathWithoutObjName(path) => {project = path.to_str().unwrap().to_owned()},
+                GeneratedObject::NoneObjPath => {log::warn!("can't fetch object file")}
+            }
+
+            let count = files.lines().count();
+            if count.eq(&source_files.len()) {
+                log::debug!("local preprocessed multiple sources, count: {:?}. elapsed time: {:?}.", count, now.elapsed());
+            }
+            else {
+                log::warn!("preprocessed multiple sources are not same with commands. elapsed time: {:?}.", now.elapsed());
+            }
+
+            let mut commands = tidyup_commands_2_precompile(compiler_commands);
+            
+            let mut addr = String::new();
+            if stdout.is_empty() {
                 let now = std::time::Instant::now();
-                let output = request_multi_dist_once_compile(&compiler_path, &compiler_input.compiler_working_dir, &compiler_commands.clone(), sender, pool);
-                println!("requestmulti_dist_sync_once_compile elaspsed time:{:?}", now.elapsed());
-                //let output = request_dist_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
-                default_output.set(output);
-            }
-            else {
-                //dist with source file and include file
-
-                let output = request_dist_compile_with_source_and_include(env, &compiler_input);
-                default_output.set(output);
-            }
-        }
-        
-        //TODO cache the result to redis or cloud
-
-        if default_results.is_empty() {
-            return (default_output, None);
-        }
-        else {
-            return (default_output, Some(default_results))
-        }        
-    }
-    else {
-        let compiled_filename: Vec<std::ffi::OsString> = Vec::new();
-        let result = CompilerOutput {
-            filename: compiled_filename,
-            status: false,
-            output: std::ffi::OsString::from("don't need compile anything."),
-        };
-        return (result, None);
-    }
-}
-
-fn request_multi_dist_once_compile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
-            compiler_commands: &Vec<std::ffi::OsString>, sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>, 
-            pool: std::sync::Arc<tokio::runtime::Handle>) 
-            -> CompilerOutput {
-
-    let mut result = CompilerOutput::default();
-    let now = std::time::Instant::now();
-    let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, compiler_commands, false);
-
-    if status {
-        let files = String::from_utf8_lossy(&stderr);
-        let mut commands:Vec<std::ffi::OsString> = Vec::new();
-        let mut source_files: Vec<String> = Vec::new();
-        let mut project = String::from("");
-        
-        for (_, value) in compiler_commands.iter().enumerate() {
-            let value = value.to_string_lossy();
-            if value.ends_with(".cpp") {
-                source_files.push(value.to_string());
-                continue;
-            }
-            else if value.ends_with(".c") {
-                source_files.push(value.to_string());
-                continue;
-            }
-            else if value.contains(".dir") || value.contains("/Fo") {
-                if project.is_empty() {
-                    project = value.to_string();
-                }
-                commands.push(std::ffi::OsString::from(value.to_string()));
-                continue;
-            }
-            else {
-                commands.push(std::ffi::OsString::from(value.to_string()));
-            }
-        };
-
-        let count = files.lines().count();
-        if count.eq(&source_files.len()) {
-            log::trace!("local preprocessed multiple sources, count: {:?}. elapsed time: {:?}.", count, now.elapsed());
-        }
-        else {
-            log::warn!("preprocessed multiple sources are not same with commands. elapsed time: {:?}.", now.elapsed());
-        }
-        
-        let mut addr = String::new();
-        if stdout.is_empty() {
-            let now = std::time::Instant::now();
- 
-            let output_dir = project.replace("/Fo", "").replace("\\\\", "\\");
-            let i_path = std::path::PathBuf::from(compiler_working_dir).join(output_dir);
-            
-            let pool_ = pool.clone();
-            
-            addr = sender.clone().lock().unwrap().schedule();
-            
-            let result = pool.block_on(async {
-                let  precompiled_files = load_and_transmit_precompiled_result_from_disk(&source_files, &addr, pool_, i_path).await;
-                log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
-          
-                for file in precompiled_files {
-                    commands.push(file);
-                }
-
-                let input = CompilerInput {
-                    compiler_path: compiler_path.to_owned(),
-                    compiler_working_dir: compiler_working_dir.to_owned(),
-                    compiler_commands: commands.to_owned(),
-                    build_and_compiler_type: std::ffi::OsString::from("MSBuild_Precompile"),
-                    env_input: None
-                };
-
-                let precompiled_suorce = crate::compiler::model::PrecompiledSource {
-                    contents: None,
-                    path: std::ffi::OsString::new()
-                };
-
-                let output = request_dist_compile_and_wait_result(&addr, &input, &precompiled_suorce, sender).await;
-                log::debug!("request dist compile without precompiled source files elapsed time {:?}", now.elapsed());
-                return output;                                 
-            });
-            return result;
-        }
-
-        let mut content = String::from_utf8_lossy(&stdout);
-        let mut index = 0;
-        let mut handles = Vec::new();
-
-        let addr_ = addr.clone();
-        for file in &source_files {
-            
-            let path = std::path::PathBuf::from(file);
-            let extension_i_path = push_project_name_to_precompiled_file_path(&path, project.clone());
-            commands.push(extension_i_path.clone().into_os_string());
-            
-            if let Some(next_file) = source_files.get(index + 1) {
-                //#line 1 "D:\\TrainSpace\\json\\tests\\abi\\main.cpp"
-                let line = format!(r#"#line 1 "{}""#, next_file).replace(r"\", r"\\");
-                if let Some(position) = content.find(&line) {
-                    if position.gt(&0) {
     
-                        let (first, last) = content.split_at(position);
+                let output_dir = project.replace("/Fo", "").replace("\\\\", "\\");
+                let i_path = std::path::PathBuf::from(compiler_working_dir).join(output_dir);
+
+                addr = self.sender.lock().unwrap().schedule();
+                
+                let result = self.runtime.block_on(async {
+                    let  precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, i_path).await;
+                    log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
             
-                        let msvc_compile_empty_input = CompilerInput {
-                            compiler_path: compiler_path.to_owned(),
-                            compiler_working_dir: std::ffi::OsString::from(""),
-                            compiler_commands: Vec::<std::ffi::OsString>::new(),
-                            build_and_compiler_type: std::ffi::OsString::from("Sync Precompiled Source File"),
-                            env_input: None
-                        };
+                    for file in precompiled_files {
+                        commands.push(file);
+                    }
 
-                        let precompiled_suorce = PrecompiledSource {
-                            contents: Some(first.as_bytes().to_vec()),
-                            path: std::ffi::OsString::from(&extension_i_path)
-                        };
+                    let input = CompilerInput {
+                        compiler_path: compiler_path.to_owned(),
+                        compiler_working_dir: compiler_working_dir.to_owned(),
+                        compiler_commands: commands.to_owned(),
+                        build_and_compiler_type: std::ffi::OsString::from("MSBuild_Precompile")
+                    };
 
-                        log::debug!("sync precompiled source file {:?}. size: {:.2?}M.", extension_i_path.file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
-                        content = last.to_string().into();
+                    let precompiled_suorce = crate::compiler::model::PrecompiledSource {
+                        contents: None,
+                        path: std::ffi::OsString::new()
+                    };
 
-                        let addr__ = addr_.clone();
-                        let sender_ = sender.clone();
-                        let handle = pool.spawn_blocking(move || {
-                            let _ = request_dist_compile_and_wait_result(&addr__,
-                                &msvc_compile_empty_input, &precompiled_suorce, sender_);
-                        });
-                        
-                        handles.push(handle);
+                    let output = self.request_dist_compile_and_wait_result(&addr, &input, &precompiled_suorce).await;
+                    log::debug!("request dist compile without precompiled source files elapsed time {:?}", now.elapsed());
+                    return output;                                 
+                });
+                return result;
+            }
+
+            let mut content = String::from_utf8_lossy(&stdout);
+            //TODO should not convrt to String
+
+            let mut index = 0;
+            let mut handles = Vec::new();
+
+            let addr_ = addr.clone();
+
+            for file in &source_files {
+                
+                let path = std::path::PathBuf::from(file);
+                let extension_i_path = push_project_name_to_precompiled_file_path(&path, project.clone());
+                commands.push(extension_i_path.clone().into_os_string());
+                
+                if let Some(next_file) = source_files.get(index + 1) {
+                    //#line 1 "D:\\TrainSpace\\json\\tests\\abi\\main.cpp"
+                    let line = format!(r#"#line 1 "{}""#, next_file).replace(r"\", r"\\");
+                    if let Some(position) = content.find(&line) {
+                        if position.gt(&0) {
+        
+                            let (first, last) = content.split_at(position);
+                
+                            let msvc_compile_empty_input = CompilerInput {
+                                compiler_path: compiler_path.to_owned(),
+                                compiler_working_dir: std::ffi::OsString::from(""),
+                                compiler_commands: Vec::<std::ffi::OsString>::new(),
+                                build_and_compiler_type: std::ffi::OsString::from("Sync Precompiled Source File")
+                            };
+
+                            let precompiled_suorce = PrecompiledSource {
+                                contents: Some(first.as_bytes().to_vec()),
+                                path: std::ffi::OsString::from(&extension_i_path)
+                            };
+
+                            log::debug!("sync precompiled source file {:?}. size: {:.2?}M.", extension_i_path.file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
+                            content = last.to_string().into();
+
+                            let addr__ = addr_.clone();
+                            let self_ = self.clone();
+
+                            let handle = self.runtime.spawn_blocking( move || {
+                                let _ = self_.request_dist_compile_and_wait_result(&addr__,
+                                    &msvc_compile_empty_input, &precompiled_suorce);
+                            });
+                            
+                            handles.push(handle);
+                        }
                     }
                 }
+                else {
+
+                    let compiler_input = CompilerInput {
+                        compiler_path: compiler_path.to_owned(),
+                        compiler_working_dir: compiler_working_dir.to_owned(),
+                        compiler_commands: commands.to_owned(),
+                        build_and_compiler_type: std::ffi::OsString::from("MSBuild Precompile")
+                    };
+
+                    let precompiled_suorce = PrecompiledSource {
+                        contents: Some(content.as_bytes().to_vec()),
+                        path: std::ffi::OsString::from(&extension_i_path)
+                    };
+
+                    self.runtime.block_on(async {
+                        for handle in handles {
+                            handle.await.expect("join sync precompiled results thread failed.");
+                        }    
+                    });
+                    
+                    let now = std::time::Instant::now();
+                    let addr__ = addr_.clone();
+                    
+                    let output = self.runtime.block_on(async move {
+                        let output = self.request_dist_compile_and_wait_result(&addr__, &compiler_input, &precompiled_suorce).await;
+                        return output;
+                    });
+                    
+                    log::debug!("request {:?} dist compile with precompiled source size: {:?}M, response elapsed: {:?}.", extension_i_path.file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0, now.elapsed());
+            
+                    let mut file = output.filename;
+                    result.filename.append(&mut file);
+                    result.output = std::ffi::OsString::from(output.output.to_str().unwrap());
+                    result.status = output.status;
+
+                    break;
+                }
+                index = index.add(1);
+            }
+
+            self.sender.lock().unwrap().done(addr.as_str());
+            return result;
+        }
+        else {
+            return result;
+        }
+    }
+
+    async fn request_dist_compile_and_wait_result(&self, addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
+    
+        let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
+        
+        if self.sender.lock().unwrap().check(addr, &cversion) {
+                
+            let result = request_dist_compile_with_precompiled_source(addr, &input, &precompiled).await;
+            if result.status {
+            
             }
             else {
-
-                let compiler_input = CompilerInput {
-                    compiler_path: compiler_path.to_owned(),
-                    compiler_working_dir: compiler_working_dir.to_owned(),
-                    compiler_commands: commands.to_owned(),
-                    build_and_compiler_type: std::ffi::OsString::from("MSBuild Precompile"),
-                    env_input: None
-                };
-
-                let precompiled_suorce = PrecompiledSource {
-                    contents: Some(content.as_bytes().to_vec()),
-                    path: std::ffi::OsString::from(&extension_i_path)
-                };
-
-                pool.block_on(async {
-                    for handle in handles {
-                        handle.await.expect("join sync precompiled results thread failed.");
-                    }    
-                });
+                log::trace!("request remote compile and sync back failed: {:?}", result);
                 
-                let now = std::time::Instant::now();
-                let sender_ =  sender.clone();
-                let addr__ = addr_.clone();
-                let output = pool.block_on(async move {
-                    let output = request_dist_compile_and_wait_result(&addr__, &compiler_input, &precompiled_suorce, sender_).await;
-                    return output;
-                });
-                
-                log::debug!("request {:?} dist compile with precompiled source size: {:?}M, response elapsed: {:?}.", extension_i_path.file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0, now.elapsed());
+            }
+            return result;
+        }
+        else {
+            log::trace!("dist compile failed, {} no available remote compiler {:?}", addr, cversion);
+
+            return CompilerOutput::default();
+        }
+    }
+    
+    async fn load_and_transmit_precompiled_result(&self, source_files: &Vec<String>, addr: &str, project_dir: std::path::PathBuf) -> Vec<std::ffi::OsString> {
+            
+        let precompiled_files = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::ffi::OsString>::new()));
         
-                let mut file = output.filename;
-                result.filename.append(&mut file);
-                result.output = std::ffi::OsString::from(output.output.to_str().unwrap());
-                result.status = output.status;
+        let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Zstd);
 
+        let mut split_source_files = source_files.to_owned();
+        let handles = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+
+        loop {
+            let mut left = Vec::<String>::new();
+            if split_source_files.len() >= 32 {
+                left = split_source_files.split_off(32);
+            }
+
+            let precompiled_files = precompiled_files.clone();
+
+            let project_dir = project_dir.clone();
+
+            let addr = addr.to_owned();
+            let handles = handles.clone();
+
+            let _ = self.runtime.spawn_blocking(move || {
+
+                let mut cursor = std::io::Cursor::new(Vec::new());
+                let mut zip = zip::ZipWriter::new(&mut cursor);
+                
+                let mut zip_file = project_dir.clone();
+
+                for file in split_source_files.to_owned() {
+
+                    let mut path = project_dir.clone();
+
+                    let file = std::path::PathBuf::from(file);
+                    let file_name = file.file_stem().unwrap();
+                    
+                    path = path.join(file_name);
+                    path.set_extension("i");
+                    zip.start_file(path.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
+                    let file = std::fs::File::open(&path).unwrap();
+                    
+                    let mut file = std::io::BufReader::new(file);
+                    let _ = std::io::copy(&mut file, &mut zip);
+
+                    let mut precompiled_files = precompiled_files.lock().unwrap();
+                    precompiled_files.push(path.clone().into_os_string());
+                }
+
+                let content = zip.finish().unwrap();
+                let file = content.to_owned().into_inner();
+                let content = std::borrow::Cow::from(file);
+                zip_file.set_extension("zip");
+                
+                let handle = tokio::spawn(async move {    
+                    crate::communicate::distributor::Distributor::compile(&addr, Vec::new(), zip_file.to_str().unwrap(), &content).await;
+                });
+                
+                handles.lock().unwrap().push(handle);
+            });
+
+            if left.is_empty() {
                 break;
             }
-            index = index.add(1);
+
+            split_source_files = left;
         }
 
-        sender.lock().unwrap().done(addr.as_str());
-        return result;
-    }
-    else {
-        return result;
+        for handle in handles.lock().unwrap().iter_mut() {
+            handle.await.unwrap();
+        }
+
+        let precompiled_files = precompiled_files.lock().unwrap();
+        return precompiled_files.clone();
     }
 }
 
-async fn load_and_transmit_precompiled_result_from_disk(source_files: &Vec<String>,
-        addr: &str, pool: std::sync::Arc<tokio::runtime::Handle>, project_dir: std::path::PathBuf)
-            -> Vec<std::ffi::OsString> {
-        
-    let precompiled_files = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::ffi::OsString>::new()));
-
-    
-    let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Zstd);
-
-    let mut split_source_files = source_files.to_owned();
-    let handles = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-
-    loop {
-        let mut left = Vec::<String>::new();
-        if split_source_files.len() >= 32 {
-            left = split_source_files.split_off(32);
-        }
-
-        let precompiled_files = precompiled_files.clone();
-
-        let project_dir = project_dir.clone();
-
-        let addr = addr.to_owned();
-        let handles = handles.clone();
-
-        let _ = pool.spawn_blocking(move || {
-
-            let mut cursor = std::io::Cursor::new(Vec::new());
-            let mut zip = zip::ZipWriter::new(&mut cursor);
-            
-            let mut zip_file = project_dir.clone();
-
-            for file in split_source_files.to_owned() {
-
-                let mut path = project_dir.clone();
-
-                let file = std::path::PathBuf::from(file);
-                let file_name = file.file_stem().unwrap();
-                
-                path = path.join(file_name);
-                path.set_extension("i");
-                zip.start_file(path.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
-                let file = std::fs::File::open(&path).unwrap();
-                
-                let mut file = std::io::BufReader::new(file);
-                let _ = std::io::copy(&mut file, &mut zip);
-
-                let mut precompiled_files = precompiled_files.lock().unwrap();
-                precompiled_files.push(path.clone().into_os_string());
-            }
-
-            let content = zip.finish().unwrap();
-            let file = content.to_owned().into_inner();
-            let content = std::borrow::Cow::from(file);
-            zip_file.set_extension("zip");
-            
-            let handle = tokio::spawn(async move {    
-                crate::communicate::distributor::Distributor::compile(&addr, Vec::new(), zip_file.to_str().unwrap(), &content).await;
-            });
-            
-            handles.lock().unwrap().push(handle);
-        });
-
-        if left.is_empty() {
-            break;
-        }
-
-        split_source_files = left;
-    }
-
-    for handle in handles.lock().unwrap().iter_mut() {
-        handle.await.unwrap();
-    }
-
-    let precompiled_files = precompiled_files.lock().unwrap();
-    return precompiled_files.clone();
-}
 
 fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
         compiler_commands: &Vec<std::ffi::OsString>, by_stdout: bool) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
@@ -481,32 +517,8 @@ fn parse_version_from_path(path: &str) -> Option<crate::replica::toolchain::Comp
     //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\cl.exe
 }
 
-async fn request_dist_compile_and_wait_result(addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource, sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>)
-        -> CompilerOutput {
-    
-    let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
-    
-    if sender.lock().unwrap().check(addr, &cversion) {
-            
-        let result = request_dist_compile_with_precompiled_source(addr, &input, &precompiled).await;
-        if result.status {
-        
-        }
-        else {
-            log::trace!("request remote compile and sync back failed: {:?}", result);
-            
-        }
-        return result;
-    }
-    else {
-        log::trace!("dist compile failed, {} no available remote compiler {:?}", addr, cversion);
-
-        return CompilerOutput::default();
-    }
-}
-
-fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir: std::ffi::OsString, 
-                                compiler_commands: Vec<std::ffi::OsString>, build_and_compiler_type: std::ffi::OsString,
+fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
+                                compiler_commands: &Vec<std::ffi::OsString>, build_and_compiler_type: std::ffi::OsString,
                             sync_compile_result: bool) -> (CompilerOutput, Option<ProcessedResults>) {
     let now = std::time::Instant::now();
     let (status, stdout, _stderr) = start_local_compiler(&compiler_path, &compiler_working_dir, &compiler_commands);
@@ -525,8 +537,8 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
         }
         log::trace!("last compiled source file: {:?}", last);
         log::debug!("local compile file count: {:?}, elapsed: {:?}.", lines.len(), now.elapsed());
-        let working_path = std::path::PathBuf::from(compiler_working_dir.to_owned());
-        let (pdb_path, _one_pdb )= fetch_compile_pdb_path(build_and_compiler_type.clone(), compiler_commands.to_owned(), working_path.clone());
+
+        let (pdb_path, _one_pdb )= fetch_compile_pdb_path(build_and_compiler_type.clone(), compiler_commands.to_owned(), compiler_working_dir);
         let pdb_path = std::rc::Rc::new(pdb_path);
         for line in output {
             let line = line.replace(r#"""#, "");
@@ -537,7 +549,7 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                     let mut idb: Option<(std::ffi::OsString, Vec<u8>)> = None;
     
                     let mut result_path = std::path::PathBuf::from("");
-                    let object = fetch_compiler_object_file(build_and_compiler_type.clone(), compiler_commands.to_owned(), working_path.clone());
+                    let object = fetch_compiler_object_file(&build_and_compiler_type, compiler_commands, compiler_working_dir);
                     match object {
                         GeneratedObject::PathWithObjName(path) => {
                             result_path = path;
@@ -718,14 +730,14 @@ fn request_local_compile_by_preprocessed_source(msvc_compile_input: &CompilerInp
         }
     }
 
-    let (output, results) = request_local_compile(msvc_compile_input.compiler_path.clone(),
-                    msvc_compile_input.compiler_working_dir.clone(), commands,
+    let (output, results) = request_local_compile(&msvc_compile_input.compiler_path,
+                    &msvc_compile_input.compiler_working_dir, &commands,
                     msvc_compile_input.build_and_compiler_type.clone(), true);
 
     return (output, results);
 }
 
-fn request_dist_compile_with_source_and_include(working_param: crate::platform::windows::WindowsCompilerEnv, msvc_compile_input: &CompilerInput) -> CompilerOutput {
+fn request_dist_compile_with_source_and_include(working_param: &crate::platform::windows::WindowsCompilerEnv, msvc_compile_input: &CompilerInput) -> CompilerOutput {
     log::debug!("request dist compile with source and include file.");
     //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\cl.exe
     let local_compiler_arch = msvc_compile_input.compiler_path.to_str().unwrap();
@@ -780,15 +792,13 @@ fn request_dist_compile_with_source_and_include(working_param: crate::platform::
     };
 
     let mut input = msvc_compile_input.to_owned();
-    input.env_input = Some(env_input.clone());
+    //input.env_input = Some(env_input.clone());
     input.build_and_compiler_type = std::ffi::OsString::from("MSBuild Dist");
 
     return CompilerOutput::default();
 }
 
-async fn request_dist_compile_with_precompiled_source(addr: &str, 
-                    input: &CompilerInput, precompiled: &PrecompiledSource) 
-                    -> CompilerOutput {
+async fn request_dist_compile_with_precompiled_source(addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
 
     let now = std::time::Instant::now();
     let path = precompiled.path.clone();
@@ -986,38 +996,6 @@ fn split_commonds_by_space(compiler_commands: &mut String) -> Vec<std::ffi::OsSt
     return args;
 }
 
-fn enrich_compiler_commands(compiler_input: CompilerInput) -> (Vec<std::ffi::OsString>, std::ffi::OsString) {
-
-    let mut commands = compiler_input.compiler_commands;
-
-    let mut compiler_path = std::ffi::OsString::new();
-    if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild") {
-        let env =  compiler_input.env_input.unwrap();
-        let winkits_includes = env.winkits_includes_path;
-
-        for include in winkits_includes {
-            let mut instruct = "/I".to_string();
-            instruct += include.to_str().unwrap();
-            commands.push(std::ffi::OsString::from(instruct));
-        }
-        let msvc_includes = env.msvc_includes_path.display().to_string();
-    
-        let mut instruct = String::from("/I");
-        instruct += &msvc_includes;
-        commands.push(std::ffi::OsString::from(instruct));
-
-        return (commands, compiler_path);
-    }
-    else if  compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
-        compiler_path = compiler_input.compiler_path;
-        return (commands, compiler_path);
-    }
-    else {
-        return (commands, compiler_path);
-    }
-
-}
-
 fn parse_compiler_input_command(compiler_input: CompilerInput, working_compiler_env: &crate::platform::windows::WindowsCompilerEnv) -> (Vec<std::ffi::OsString>, std::ffi::OsString) {
 
     let compile_commands:Vec<std::ffi::OsString> = compiler_input.compiler_commands;
@@ -1026,32 +1004,6 @@ fn parse_compiler_input_command(compiler_input: CompilerInput, working_compiler_
     let commands_iter = compile_commands.iter().map(|arg| arg.to_str().unwrap().to_owned());
     if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild") {
         let mut commands = commands_iter.last().unwrap();
-
-        if compiler_input.env_input.is_none() {
-            let complier_path_from_input = extract_additional_input_commands(&mut commands);
-            match complier_path_from_input {
-                Some(compiler_path_specified) => {
-                    compiler_path = compiler_path_specified;
-                },
-                None => {
-                    //use default x64 cl.exe
-                    // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.32.31326\bin\Hostx64\x64\cl.exe
-                    let path = &working_compiler_env.compiler_path;
-                    let compiler_path_by_specified = path.join("Hostx64").join("x64").join("cl.exe");
-                    compiler_path = std::ffi::OsString::from(compiler_path_by_specified.to_str().unwrap());
-                },
-            }
-        }
-        else {
-            match compiler_input.env_input {
-                Some(env) => {
-                    compiler_path = env.compiler_path.as_os_str().into();
-                },
-                None => {
-                    
-                },
-            }
-        }
 
         args = extract_macro_contain_space_arg(&mut commands);
         let mut args_with_path = extract_path_ecnclosed_quotation_arg(&mut commands);
@@ -1087,9 +1039,10 @@ fn parse_compiler_input_command(compiler_input: CompilerInput, working_compiler_
     }
 }
 
-fn fetch_compiler_source_file(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) 
+fn fetch_compiler_source_file(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) 
                                     -> Option<std::collections::HashMap<String, std::path::PathBuf>> {
 
+    let working_dir = std::path::PathBuf::from(working_dir);
     if build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || build_and_compiler_type.to_string_lossy().contains("CMake")
         || build_and_compiler_type.to_string_lossy().contains("Dist") {
@@ -1133,17 +1086,25 @@ fn fetch_compiler_source_file(build_and_compiler_type: std::ffi::OsString, compi
     return None;
 }
 
+fn tidyup_commands_2_precompile(compiler_commands: &Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+    let mut commands = compiler_commands.clone();
+    commands.retain(|item| !item.to_string_lossy().to_lowercase().contains(".cpp") || !item.to_string_lossy().to_lowercase().contains(".c"));
+    return commands;
+}
+
 enum GeneratedObject {
     NoneObjPath,
     PathWithObjName(std::path::PathBuf),
     PathWithoutObjName(std::path::PathBuf),
 }
 
-fn fetch_compiler_object_file(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) -> GeneratedObject {
+fn fetch_compiler_object_file(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> GeneratedObject {
 
     if build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || build_and_compiler_type.to_string_lossy().contains("CMake") 
         || build_and_compiler_type.to_string_lossy().contains("Dist") {
+        
+        let working_dir = std::path::PathBuf::from(working_dir);
 
         let object_param = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().starts_with("/Fo")).collect::<Vec<_>>();
 
@@ -1187,10 +1148,12 @@ enum ProgramDataBase {
     PathWithoutPDBName(std::path::PathBuf),
 }
 
-fn fetch_compile_pdb_path(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) -> (ProgramDataBase, bool) {
+fn fetch_compile_pdb_path(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> (ProgramDataBase, bool) {
     if build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || build_and_compiler_type.to_string_lossy().contains("CMake") 
         || build_and_compiler_type.to_string_lossy().contains("Dist") {
+        
+        let working_dir = std::path::PathBuf::from(working_dir);
 
         let pdb_param = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().starts_with("/Fd")).collect::<Vec<_>>();
         
