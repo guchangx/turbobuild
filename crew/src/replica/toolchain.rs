@@ -38,6 +38,12 @@ impl Arch {
         else if arch == "arm64" {
             return Arch::arm64;
         }
+        else if arch == "Hostx64" {
+            return Arch::x64;
+        }
+        else if arch == "Hostx86" {
+            return Arch::x86;
+        }
         else {
             return Arch::unknown;
         }

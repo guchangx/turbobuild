@@ -5,6 +5,7 @@ pub fn init_logger() {
     .format_timestamp_millis()
     .write_style(env_logger::WriteStyle::Always)
     .format_level(true)
+    .format_target(true)
     .filter(Some("captain"), log::LevelFilter::Trace)
     .filter(Some("crew"), log::LevelFilter::Trace)
     .filter(Some("cocrew"), log::LevelFilter::Trace)

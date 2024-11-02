@@ -23,4 +23,9 @@ fn main()  {
         Ok(_) => println!("cocrew compile pack proto file success."),
         Err(e) => println!("cocrew compile pack proto file error: {}", e),
     }
+
+    
+    println!("cargo:rerun-if-changed=./3dparty/detours/include/detours.h");
+    println!("cargo:rustc-link-search=native=./turbobuild/3dparty/detours/lib.X64");
+    println!("cargo:rustc-link-lib=static=detours");
 }
