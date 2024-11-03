@@ -102,11 +102,17 @@ pub mod communicate_server {
             &self,
             request: tonic::Request<super::FileTrRequest>,
         ) -> std::result::Result<tonic::Response<super::FileTrResponse>, tonic::Status>;
+        /// Server streaming response type for the transmit_compile method.
+        type transmit_compileStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::CompileTrResponse, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
         async fn transmit_compile(
             &self,
             request: tonic::Request<super::CompileTrRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::CompileTrResponse>,
+            tonic::Response<Self::transmit_compileStream>,
             tonic::Status,
         >;
     }
@@ -236,11 +242,12 @@ pub mod communicate_server {
                     struct transmit_compileSvc<T: Communicate>(pub Arc<T>);
                     impl<
                         T: Communicate,
-                    > tonic::server::UnaryService<super::CompileTrRequest>
+                    > tonic::server::ServerStreamingService<super::CompileTrRequest>
                     for transmit_compileSvc<T> {
                         type Response = super::CompileTrResponse;
+                        type ResponseStream = T::transmit_compileStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
+                            tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
@@ -271,7 +278,7 @@ pub mod communicate_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.server_streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

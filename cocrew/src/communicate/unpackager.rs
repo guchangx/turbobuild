@@ -78,7 +78,7 @@ impl FileReceiver {
         return reply;
     }
     
-    async fn transmit_compile_handle(&self, request: package::CompileTrRequest) -> package::CompileTrResponse {
+    async fn transmit_compile_handle(&self, request: package::CompileTrRequest, tx: tokio::sync::mpsc::Sender<Result<package::CompileTrResponse, tonic::Status>>) {
 
         let file = request.file;
         let compiler = request.compiler;
@@ -87,20 +87,8 @@ impl FileReceiver {
         let commands = request.commands;
         let content = request.content;
 
-        let mut file = std::fs::File::create(&file).unwrap();
-        match file.write_all(&content) {
-            Ok(_) => {
-                log::trace!("sync file done: {:?}", file);
-            },
-            Err(err) => {
-                log::error!("sync file failed. {:?}", err)
-            }
-        }
+        if file.is_empty() {
 
-        if commands.is_empty() {
-        
-        }
-        else {
             let compiler_input = crew::compiler::model::CompilerInput {
                 compiler_path: std::ffi::OsString::from(compiler),
                 compiler_working_dir: std::ffi::OsString::from(request.working_dir),
@@ -109,14 +97,40 @@ impl FileReceiver {
             };
 
             crate::compiler::interface::build(compiler_input);
-        }
+            
 
-        let reply = package::CompileTrResponse {
-            error_code: 0,
-            error_message: "sync compile success.".to_string(),
-        };
-        
-        return reply;
+            let reply = package::CompileTrResponse {
+                error_code: 0,
+                error_message: "transmit do compile success.".to_string(),
+            };
+
+            let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+
+        }
+        else if !content.is_empty() {
+            let mut file = std::fs::File::create(&file).unwrap();
+            match file.write_all(&content) {
+                Ok(_) => {
+                    log::trace!("transmit file done: {:?}", file);
+                },
+                Err(err) => {
+                    log::error!("transmit file failed. {:?}", err)
+                }
+            }
+            let reply = package::CompileTrResponse {
+                error_code: 0,
+                error_message: "transmit do save file success.".to_string(),
+            };
+
+            let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+        }
+        else {
+            let reply = package::CompileTrResponse {
+                error_code: 0,
+                error_message: "sync compile success.".to_string(),
+            };
+             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+        }
     }
 
     async fn persistence(path: &str, content: &[u8]) {
@@ -137,6 +151,10 @@ impl FileReceiver {
     }
 }
 
+type ResponseStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::CompileTrResponse, tonic::Status>> + Send>>;
+
+
+
 #[tonic::async_trait]
 impl package::communicate_server::Communicate for FileReceiver {
     async fn transmit_file(&self, request: tonic::Request<package::FileTrRequest>) -> core::result::Result<tonic::Response<package::FileTrResponse>, tonic::Status> {
@@ -148,14 +166,19 @@ impl package::communicate_server::Communicate for FileReceiver {
         Ok(tonic::Response::new(reply))
     }
     
-    async fn transmit_compile(&self, request: tonic::Request<package::CompileTrRequest>) -> core::result::Result<tonic::Response<package::CompileTrResponse>, tonic::Status> {
+    type transmit_compileStream = ResponseStream;
+    async fn transmit_compile(&self, request: tonic::Request<package::CompileTrRequest>) -> core::result::Result<tonic::Response<Self::transmit_compileStream>, tonic::Status> {
         
         let rt_compile = request.into_inner();
         log::debug!("sync request command: {:?} {:?}", rt_compile.compiler, rt_compile.commands);
         
-        let reply = self.transmit_compile_handle(rt_compile).await;
-        Ok(tonic::Response::new(reply))
+        let (tx, rx) = tokio::sync::mpsc::channel(128);
+        let self_ = self.clone();
+        let _ = tokio::task::spawn(async move {
+            self_.transmit_compile_handle(rt_compile, tx).await;
+        }).await;
+
+        let response = tokio_stream::wrappers::ReceiverStream::new(rx);
+        return Ok(tonic::Response::new(Box::pin(response) as ResponseStream));
     }
 }
-
-

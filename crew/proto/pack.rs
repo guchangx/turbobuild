@@ -201,7 +201,7 @@ pub mod communicate_client {
             &mut self,
             request: impl tonic::IntoRequest<super::CompileTrRequest>,
         ) -> std::result::Result<
-            tonic::Response<super::CompileTrResponse>,
+            tonic::Response<tonic::codec::Streaming<super::CompileTrResponse>>,
             tonic::Status,
         > {
             self.inner
@@ -219,7 +219,7 @@ pub mod communicate_client {
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("pack.communicate", "transmit_compile"));
-            self.inner.unary(req, path, codec).await
+            self.inner.server_streaming(req, path, codec).await
         }
     }
 }

@@ -64,7 +64,8 @@ impl Receiver {
                         let compiler = input["compiler_path"].as_str().unwrap();
                         let working = input["compiler_working_dir"].as_str().unwrap();
                         let commands = input["compiler_commands"].as_array().unwrap();
-                                                let r#type = input["build_and_compiler_type"].as_str().unwrap();
+                        let r#type = input["build_and_compiler_type"].as_str().unwrap();
+                        
                         let input = crate::compiler::model::CompilerInput {
                             compiler_path: std::ffi::OsString::from(compiler),
                             compiler_working_dir: std::ffi::OsString::from(working),

@@ -1,4 +1,5 @@
 use pack::CheckResource;
+use tokio_stream::StreamExt;
 use winapi::shared::{evntrace, winerror::NOERROR};
 
 
@@ -116,11 +117,22 @@ impl FileSender {
         });
 
         let response = self.to_owned().client.transmit_compile(request).await;
+
         match response {
             Ok(response) => {
-                let inner = response.into_inner();
-                if inner.error_code == 0 {
-                    log::debug!("send compiled success: {}", inner.error_message);
+                let mut stream = response.into_inner();
+                while let Some(inner) = stream.next().await {
+                    match inner {
+                        Ok(response) => {
+                            if response.error_code == 0 {
+                                log::debug!("send compiled success: {}", response.error_message);
+                                
+                            }
+                        },
+                        Err(err) => {
+   
+                        },
+                    }
                 }
             }
             Err(err) => {
