@@ -1,5 +1,5 @@
 
-use winapi::um::{handleapi::CloseHandle, processthreadsapi::CreateProcessW};
+use winapi::um::{errhandlingapi::GetLastError, handleapi::CloseHandle, processthreadsapi::CreateProcessW};
 
 use crate::detours::detours::DetourCreateProcessWithDllExW;
 use std::os::windows::{ffi::OsStrExt, io::FromRawHandle};
@@ -12,7 +12,7 @@ pub fn msvc_detours(app_path: String, command_line: String, workding_directory: 
         
         let lpCommandLine = command_line.as_str();
 
-        let bInheritHandles = 0;   
+        let bInheritHandles = winapi::shared::minwindef::TRUE;
         let dwCreationFlags = winapi::um::winbase::CREATE_DEFAULT_ERROR_MODE | winapi::um::winbase::CREATE_SUSPENDED;
         let lpEnvironment = std::ptr::null_mut();
         
@@ -45,7 +45,7 @@ pub fn msvc_detours(app_path: String, command_line: String, workding_directory: 
             };
 
             let ret = winapi::um::namedpipeapi::CreatePipe( &mut hStdOutputRead as winapi::shared::ntdef::PHANDLE, &mut hStdOutputWrite as winapi::shared::ntdef::PHANDLE, &mut pipeAttributes, 0);
-            if winapi::shared::minwindef::FALSE == ret 
+            if winapi::shared::minwindef::FALSE == ret
             {
                 println!("create output pipe failed.")
             }
@@ -61,13 +61,16 @@ pub fn msvc_detours(app_path: String, command_line: String, workding_directory: 
             let mut lpStartupInfo: crate::detours::detours::_STARTUPINFOW = std::mem::MaybeUninit::zeroed().assume_init();
             lpStartupInfo.hStdError = hStdErrorWrite as *mut std::ffi::c_void;
             lpStartupInfo.hStdOutput = hStdOutputWrite as *mut std::ffi::c_void;
+            lpStartupInfo.dwFlags |=  winapi::um::winbase::STARTF_USESTDHANDLES;
+
             let mut lpProcessInformation: crate::detours::detours::_PROCESS_INFORMATION = std::mem::MaybeUninit::zeroed().assume_init();
             
             let ret = DetourCreateProcessWithDllExW(appNameWideChars.as_ptr(), 
                 commandLineWideChars.as_mut_ptr(), 
                 lpProcessAttributes,
                 lpThreadAttributes, 
-                bInheritHandles, dwCreationFlags, 
+                bInheritHandles, 
+                dwCreationFlags, 
                 lpEnvironment, 
                 currentDirectoryWideChars.as_ptr(), 
                 &mut lpStartupInfo as *mut _, 
@@ -94,7 +97,7 @@ pub fn msvc_detours(app_path: String, command_line: String, workding_directory: 
                 let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
 
                 let bStdOutputRead = winapi::um::fileapi::ReadFile(
-                    hStdOutputWrite, 
+                    hStdOutputWrite,
                     chTmpStdOutputReadBuffer.as_mut_ptr() as *mut _, 
                     chTmpStdOutputReadBuffer.len() as u32, 
                     &mut bytesStdOuputRead,
@@ -102,10 +105,10 @@ pub fn msvc_detours(app_path: String, command_line: String, workding_directory: 
                 );
 
                 if bStdOutputRead == winapi::shared::minwindef::TRUE{
-                    println!("read std output pipe size {:?}  {:?}", bytesStdOuputRead, chTmpStdOutputReadBuffer);
+                    println!("read stdout pipe size {:?}  {:?}", bytesStdOuputRead, chTmpStdOutputReadBuffer);
                 }
                 else {
-                    println!("can't read std output pipe.");
+                    println!("can't read stdout pipe. {}", winapi::um::errhandlingapi::GetLastError());
                 }
 
                 winapi::um::handleapi::CloseHandle(hStdOutputWrite);
@@ -124,10 +127,10 @@ pub fn msvc_detours(app_path: String, command_line: String, workding_directory: 
                 );
 
                 if bStdErrorRead == winapi::shared::minwindef::TRUE {
-                    println!("read std error pipe size {:?}  {:?}", bytesStdErrorRead, chTmpStdErrorReadBuffer);
+                    println!("read stderr pipe size {:?}  {:?}", bytesStdErrorRead, chTmpStdErrorReadBuffer);
                 }   
                 else {
-                    println!("can't read std error pipe.");
+                    println!("can't read stderr pipe.");
                 }
 
 
@@ -153,4 +156,6 @@ pub fn msvc_detours(app_path: String, command_line: String, workding_directory: 
             return (true, std::sync::Arc::new("".as_bytes().to_vec()), std::sync::Arc::new("".as_bytes().to_vec()));
         }
     }
-} 
+}
+
+

@@ -16,6 +16,18 @@ impl crate::compiler::interface::Compiler for MSVC {
 
 fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) -> (CompilerOutput, Option<ProcessedResults>) {
 
+    if !compiler_input.compiler_working_dir.is_empty() {
+        let path = std::path::PathBuf::from(&compiler_input.compiler_working_dir);
+        if !path.exists() {
+            match std::fs::create_dir_all(&path) {
+                Ok(_) => {},
+                Err(error) => {
+                    log::warn!("dist worker create dir {:?} failed. {:?}.", &path, error);
+                },
+            }
+        }
+    }
+
     //replace .cpp/.c to .i
     let commands = compiler_input.compiler_commands.clone();
 
@@ -66,18 +78,6 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
                 if !path.exists() {
                     let _ = std::fs::create_dir_all(&path);
                 }
-            }
-        }
-    }
-
-    if !compiler_input.compiler_working_dir.is_empty() {
-        let path = std::path::PathBuf::from(&compiler_input.compiler_working_dir);
-        if !path.exists() {
-            match std::fs::create_dir_all(&path) {
-                Ok(_) => {},
-                Err(error) => {
-                    log::warn!("dist worker create dir {:?} failed. {:?}.", &path, error);
-                },
             }
         }
     }
@@ -336,8 +336,8 @@ fn fetch_compile_pdb_path(build_and_compiler_type: std::ffi::OsString, compiler_
 fn start_local_compiler_with_inject(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) {
     
     let command_line: String = compiler_commands.clone().into_iter()
-    .map(|os_string| format!("{} ", os_string.into_string().unwrap()))
-    .collect();
+        .map(|os_string| format!("{} ", os_string.into_string().unwrap()))
+        .collect();
 
     let (status, readbuffer, errorbuffer) = crate::detours::redirect::msvc_detours(
         compiler_path.clone().into_string().unwrap(), 
@@ -366,4 +366,46 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
 
     let elapsed = start.elapsed();
     log::info!("compile file elapsed time: {:?}.", elapsed);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_inject() {
+        println!("msvc test inject");
+
+        //cargo test --package cocrew --lib -- compiler::msvc::tests::test_inject --exact --show-output
+        
+        let win_compile_env = crew::platform::windows::WindowsCompilerEnv::default();
+        let mut compiler_path = std::path::PathBuf::from(win_compile_env.compiler_path);
+        compiler_path = compiler_path.join("Hostx64/x64/cl.exe");
+
+        let mut working_dir = std::ffi::OsString::from("");
+        let dir = std::env::current_dir().unwrap();
+        let dir = dir.to_string_lossy();
+        let index = dir.find("turbobuild");
+        if let Some(index) = index {
+            let path = &dir[0..index];
+            let mut path = std::path::PathBuf::from(path);
+            path.push("turbobuild");
+            path.push("draft");
+
+            working_dir = path.into_os_string();
+        }
+        
+        let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
+        compiler_commands.push(std::ffi::OsString::from("/nologo"));
+        compiler_commands.push(std::ffi::OsString::from("/EHs /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR"));
+
+        for sdk_include in win_compile_env.winkits_includes_path {
+            compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {:#?}"#, sdk_include)));
+        }
+        
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {:#?}"#, win_compile_env.msvc_includes_path)));
+        compiler_commands.push(std::ffi::OsString::from("/Fotest.obj"));
+        compiler_commands.push(std::ffi::OsString::from(r#"/c test.cpp"#));
+
+        start_local_compiler_with_inject(&compiler_path.into_os_string(), &working_dir, &compiler_commands);
+    }
 }
