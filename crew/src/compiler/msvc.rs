@@ -98,7 +98,7 @@ impl MSVC {
                     // dist with preprocessed source
                     let now = std::time::Instant::now();
                     let output = self.request_multi_dist_once_compile(&compiler_input.compiler_path, &compiler_input.compiler_working_dir, &compiler_commands.clone()).await;
-                    println!("requestmulti_dist_sync_once_compile elaspsed time:{:?}", now.elapsed());
+                    log::trace!("requestmulti_dist_sync_once_compile elaspsed time: {:?}", now.elapsed());
                     //let output = request_dist_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
                     default_output.set(output);
                 }
@@ -821,14 +821,14 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
             crate::communicate::distributor::Distributor::compile(addr, path, input, &content).await;
         }
         else {
-            log::info!("precompiled source content is empty. so just transmit command");
+            log::info!("precompiled source result content is empty. so just transmit command");
         }   
     }
     else {
         log::warn!("compiler commands is empty, so do nothing.")
     }
 
-    log::debug!("fetch compiler toolchain and win kits response elapsed: {:?}", now.elapsed());
+    log::debug!("communicate distribute compile elapsed: {:?}", now.elapsed());
 
     return CompilerOutput::default();
 }

@@ -35,7 +35,13 @@ pub fn string_2_lpwstr(param: String) -> core::option::Option<winapi::um::winnt:
         return Some(wchars.as_ptr() as winapi::um::winnt::LPWSTR);
     }
     return None;
-} 
+}
+
+pub fn os_string_2_lpwstr(os_string: std::ffi::OsString) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    let wchars = os_string.encode_wide().chain(Some(0)).collect::<Vec<_>>();
+    return wchars;
+}
 
 pub fn lpstr_2_string(lpstr: *const std::ffi::c_char) -> Result<String, std::str::Utf8Error> {
     unsafe {

@@ -339,7 +339,8 @@ fn start_local_compiler_with_inject(compiler_path: &std::ffi::OsString, working_
         .map(|os_string| format!("{} ", os_string.into_string().unwrap()))
         .collect();
 
-    let (status, readbuffer, errorbuffer) = crate::detours::redirect::msvc_detours(
+    let (status, outputbuffer, errorbuffer) = crate::detours::redirect::msvc_detours(
+
         compiler_path.clone().into_string().unwrap(), 
         command_line, 
         working_dir.clone().into_string().unwrap()
@@ -394,6 +395,8 @@ mod tests {
             working_dir = path.into_os_string();
         }
         
+        println!("draft dir {}", working_dir.to_string_lossy());
+
         let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
         compiler_commands.push(std::ffi::OsString::from("/nologo"));
         compiler_commands.push(std::ffi::OsString::from("/EHs /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR"));

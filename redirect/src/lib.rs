@@ -15,7 +15,7 @@ static mut ENTRYPOINT: *mut std::ffi::c_void = 0 as _;
 
 #[no_mangle]
 unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_reserved: LPVOID) -> BOOL {
-
+    use std::os::windows::ffi::OsStrExt;
 
     if crate::detours::DetourIsHelperProcess() == winapi::shared::minwindef::TRUE {
         println!("DllMain is a helper process");
@@ -27,13 +27,20 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
 
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
-            println!("DLL_PROCESS_ATTACH");
 
             unsafe {
                 println!("message box for process attach");
-                let text = crate::utils::convert::string_2_lpwstr("Debug BreakPoint".to_string());
-                let caption = crate::utils::convert::string_2_lpwstr("Attach Programe".to_string());
-                winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.unwrap(), caption.unwrap(), 0);
+                let text: Vec<u16> = std::ffi::OsStr::new("Debug BreakPoint")
+                    .encode_wide()
+                    .chain(std::iter::once(0))
+                    .collect();
+
+                let caption: Vec<u16> = std::ffi::OsStr::new("Attach Programe")
+                    .encode_wide()
+                    .chain(std::iter::once(0))
+                    .collect();
+
+                winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.as_ptr(), caption.as_ptr(), 0);
             }
 
             //crate::detours::DetourRestoreAfterWithEx(pvData, cbData);
@@ -47,14 +54,12 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
             if ret != winapi::shared::winerror::NO_ERROR as i32 {
                 let error_code = winapi::um::errhandlingapi::GetLastError();
                 println!("DetourTransactionBegin failed, erro code: {}.", error_code);
-        
             }
 
             let ret = crate::detours::DetourUpdateThread(winapi::um::processthreadsapi::GetCurrentThread() as _);
             if ret != winapi::shared::winerror::NO_ERROR as i32 {
                 let error_code = winapi::um::errhandlingapi::GetLastError();
                 println!("DetourUpdateThread failed, erro code: {}.", error_code);
-        
             }
         
             ENTRYPOINT = crate::detours::DetourGetEntryPoint(std::ptr::null_mut());
@@ -68,7 +73,6 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
                 let error_code = winapi::um::errhandlingapi::GetLastError();
                 println!("DetourTransactionCommit: {}.", error_code);
             }
-
         },
         winapi::um::winnt::DLL_THREAD_ATTACH => {
             //println!("DLL_THREAD_ATTACH");
