@@ -201,11 +201,11 @@ impl MSVC {
                 let now = std::time::Instant::now();
     
                 let output_dir = project.replace("/Fo", "").replace("\\\\", "\\");
-                let i_path = std::path::PathBuf::from(compiler_working_dir).join(output_dir);
+                let intermediate = std::path::PathBuf::from(compiler_working_dir).join(output_dir);
 
                 addr = self.sender.lock().unwrap().schedule();
 
-                let  precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, i_path).await;
+                let  precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, intermediate).await;
                 log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
         
                 for file in precompiled_files {
@@ -221,7 +221,7 @@ impl MSVC {
 
                 let precompiled_suorce = crate::compiler::model::PrecompiledSource {
                     contents: None,
-                    path: std::ffi::OsString::new()
+                    path: std::ffi::OsString::new(),
                 };
 
                 let output = self.request_dist_compile_and_wait_result(&addr, &input, &precompiled_suorce).await;
@@ -821,7 +821,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
             crate::communicate::distributor::Distributor::compile(addr, path, input, &content).await;
         }
         else {
-            log::warn!("precompiled source content is empty.");
+            log::info!("precompiled source content is empty. so just transmit command");
         }   
     }
     else {
