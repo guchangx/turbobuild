@@ -177,7 +177,6 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                         else {
                             
                         }
-                        log::debug!("notify message end.");
                     },
                     Err(err) => {
                         log::debug!("notify client request detail error : {:?}", err);
@@ -211,7 +210,8 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                      }
                 }
             }
-            log::debug!("receive notify stream end");
+
+            
         });
 
         let response = tokio_stream::wrappers::ReceiverStream::new(rx);

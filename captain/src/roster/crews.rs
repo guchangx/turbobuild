@@ -51,7 +51,15 @@ impl TaskManager {
     }
 
     pub fn add(&mut self, task: Task) {
-        self.tasks.push(task);
+        if let Some(existing) = self.tasks.iter_mut().find(|t| t.username == task.username && t.devicename == task.devicename) {
+            existing.core = task.core;
+            existing.memory = task.memory;
+            existing.running = task.running;
+            existing.max = task.max;
+            existing.addr = task.addr.clone();
+        } else {
+            self.tasks.push(task.clone());
+        }
     }
 
     pub fn add_from_crew(&mut self, crew: &CrewRegister) {

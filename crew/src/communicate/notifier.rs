@@ -48,6 +48,7 @@ impl NotificationSender {
                                     Ok(response) => {
                                         if response.r#type == notify::Type::Register as i32 {
                                             let message = response.message.clone();
+                                            Self::handle_register_response(tasks.clone(), message.as_str()).await;
                                         }
                                         else if response.r#type == notify::Type::Unregister as i32 {
                                         
@@ -206,7 +207,7 @@ impl NotificationSender {
             let resources: Vec<crate::replica::toolchain::CrewsResource> = serde_json::from_str(message).expect("serde from json failed.");
             Self::update_crew_resource(roster, &resources).await;
             crate::replica::toolchain::Property::check_resource_and_judge_sync(resources).await;
-            //TODO: time-consuming task, should be done in runtime.       
+            //TODO: time-consuming task, should be done in runtime.
         }
         else {
             log::warn!("check resource response is empty.");
@@ -221,7 +222,7 @@ impl NotificationSender {
     }
 
     pub async fn handle_register_response(manager: Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::TasksManager>>>, message: &str) {
-        if message.is_empty() {
+        if !message.is_empty() {
             let tasks: Vec<crate::roster::crews::Task> = serde_json::from_str(message).expect("serde from json failed.");
             if let Some(manager) = manager {
                 manager.lock().unwrap().add(&tasks);

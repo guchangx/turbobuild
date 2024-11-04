@@ -69,9 +69,12 @@ impl SystemInfo {
     
     fn fetch_addr() -> String {
         let networks = sysinfo::Networks::new_with_refreshed_list();
-        for (_, network) in &networks {
-            
-            println!("Ip Networks: {:?}", network.ip_networks());
+        for (name, network) in &networks {
+            for ip in network.ip_networks() {
+                if ip.addr.is_ipv4() {
+                    println!("addr: {} ipv4:{}", name, ip.addr.to_string());
+                }
+            }
         }
         return "".to_string();
     }
@@ -136,9 +139,9 @@ impl SystemInfo {
         
         let used = sys.used_memory() as f32;
         let total = sys.total_memory() as f32;
-        
+        let total_megabytes = (total / 1024.0 / 1024.0 / 1024.0 * 10.0).round() / 10.0;
         let memory_usage = ((used * 100 as f32 / total) * 1000.0).round() / 1000.0;
-        return (total, memory_usage);
+        return (total_megabytes, memory_usage);
     }
 
 }
