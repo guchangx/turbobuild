@@ -41,6 +41,7 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
                     .collect();
 
                 winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.as_ptr(), caption.as_ptr(), 0);
+                //just for attach debug
             }
 
             //crate::detours::DetourRestoreAfterWithEx(pvData, cbData);
@@ -75,7 +76,7 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
             }
         },
         winapi::um::winnt::DLL_THREAD_ATTACH => {
-            //println!("DLL_THREAD_ATTACH");
+            println!("DLL_THREAD_ATTACH");
         },
         winapi::um::winnt::DLL_PROCESS_DETACH => {
             println!("DLL_PROCESS_DETACH");
@@ -86,7 +87,7 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
 
         }
         winapi::um::winnt::DLL_THREAD_DETACH => {
-            //println!("DLL_THREAD_DETACH");
+            println!("DLL_THREAD_DETACH");
         },
         _ => {
             println!("DllMain: unknown reason");
@@ -101,4 +102,6 @@ unsafe fn main() {
     println!("redirect process hooked!");
     let start_redirect: extern "C" fn() = std::mem::transmute(ENTRYPOINT);
     start_redirect();
+    println!("redirect process end!");
+    winapi::um::wincon::FreeConsole();
 }

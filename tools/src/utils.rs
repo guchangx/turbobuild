@@ -2,7 +2,6 @@
 pub fn get_working_path(app: std::string::String) -> std::option::Option<std::string::String> {
 
     let mut dir = std::env::current_exe().unwrap();
-    println!("dir {:?}", dir);
 
     let path = dir.join(app.clone());
     if path.exists()

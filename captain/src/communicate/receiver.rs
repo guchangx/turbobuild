@@ -1,6 +1,8 @@
 
 use std::{error::Error};
 
+use hyper::header::IterMut;
+
 
 #[allow(non_camel_case_types)]
 pub mod notify {
@@ -10,6 +12,7 @@ pub mod notify {
 #[derive(Default, Clone)] 
 pub struct NotificationReceiver {
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
+    broadcast: std::sync::Arc<tokio::sync::Mutex<Vec<tokio::sync::mpsc::Sender<Result<notify::NotifyResponse, tonic::Status>>>>>,
 }
 
 impl NotificationReceiver {
@@ -18,6 +21,7 @@ impl NotificationReceiver {
         
         let receiver = NotificationReceiver {
             common,
+            broadcast: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
         };
         return receiver;
     }
@@ -29,6 +33,7 @@ impl NotificationReceiver {
             log::info!("init captain communicate server {}", addr);
             let receiver = NotificationReceiver {
                 common: self.common.clone(),
+                broadcast: self.broadcast.clone(),
             };
             let server = notify::communicate_server::CommunicateServer::new(receiver);
     
@@ -65,7 +70,10 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
         let common = self.common.upgrade().expect("upgrade common failed");
         
         let (tx, rx) = tokio::sync::mpsc::channel(128);
+        self.broadcast.lock().await.push(tx.clone());
         
+        let broadcast = self.broadcast.clone();
+
         let _ = tokio::spawn(async move {
             let mut stream = request.into_inner();
             
@@ -98,7 +106,19 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 error_code: 0,
                                 error_message: "register success".to_string(),
                             };
-                            let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+
+                            //let _ = tx.send(Ok(reply.clone())).await.expect("tx send failed");
+     
+                            for (index, crew) in broadcast.lock().await.iter_mut().enumerate() {
+                                match crew.send(Ok(reply.clone())).await {
+                                    Ok(_) => {},
+                                    Err(err) => {
+
+                                        log::warn!("broadcast send failed {}, so delete current index.", err);
+                                        broadcast.lock().await.remove(index);             
+                                    },
+                                }
+                            }
                         }
                         else if notify::Type::Unregister as i32 == notification.r#type {
                             log::debug!("unregister request: {:?} {:?}", addr, notification);
@@ -207,11 +227,10 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             }
                         }
                         //TODO: remove hyper error
-                     }
+                    }
                 }
             }
 
-            
         });
 
         let response = tokio_stream::wrappers::ReceiverStream::new(rx);

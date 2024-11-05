@@ -125,30 +125,25 @@ pub unsafe fn create_file_w(
         let path = crate::replace::replace(path.clone());
 
         if !path.is_empty() {
-            let option_fake_path = crate::utils::convert::string_2_lpwstr(path);
-            if let Some(fake_path) = option_fake_path {
+            let fake_path = crate::utils::convert::string_2_lpwstr(path);
                 
-                let handle = create_file_w(
-                    fake_path,
-                    dw_desired_access,
-                    dw_share_mode,
-                    lp_security_attributes,
-                    dw_creation_disposition,
-                    dw_flags_and_attributes,
-                    h_template_file,
-                );
+            let handle = create_file_w(
+                fake_path.as_ptr() as winapi::um::winnt::LPWSTR,
+                dw_desired_access,
+                dw_share_mode,
+                lp_security_attributes,
+                dw_creation_disposition,
+                dw_flags_and_attributes,
+                h_template_file,
+            );
 
-                if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                    let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-                    let error_code = winapi::um::errhandlingapi::GetLastError();
-                    println!("create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
-                }
+            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+                println!("create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
+            }
 
-                return handle;
-            }
-            else {
-                return 0 as HANDLE;
-            }
+            return handle;
         }
         else {
 
@@ -292,29 +287,25 @@ pub unsafe fn kernelbase_create_file_w(
         let path = crate::replace::replace(path);
         if !path.is_empty() {
             
-            let option_fake_path = crate::utils::convert::string_2_lpwstr(path);
-            if let Some(fake_path) = option_fake_path {
-                let handle = create_file_w(
-                    fake_path,
-                    dw_desired_access,
-                    dw_share_mode,
-                    lp_security_attributes,
-                    dw_creation_disposition,
-                    dw_flags_and_attributes,
-                    h_template_file,
-                );
-        
-                if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                    let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-                    let error_code = winapi::um::errhandlingapi::GetLastError();
-                    println!("kernelbase create_file_a failed! error_code: {} {:?}.", error_code, hook_path);
-                }
-        
-                return handle; 
+            let fake_path = crate::utils::convert::string_2_lpwstr(path);
+            
+            let handle = create_file_w(
+                fake_path.as_ptr() as winapi::um::winnt::LPWSTR,
+                dw_desired_access,
+                dw_share_mode,
+                lp_security_attributes,
+                dw_creation_disposition,
+                dw_flags_and_attributes,
+                h_template_file,
+            );
+    
+            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+                println!("kernelbase create_file_a failed! error_code: {} {:?}.", error_code, hook_path);
             }
-            else {
-                return 0 as HANDLE;
-            }
+    
+            return handle; 
         }
         else {
             let handle = create_file_w(

@@ -24,17 +24,14 @@ pub fn lpwstr_2_string(lp_param: winapi::um::winnt::LPCWSTR) -> core::option::Op
    
 }
 
-pub fn string_2_lpwstr(param: String) -> core::option::Option<winapi::um::winnt::LPWSTR> {
+pub fn string_2_lpwstr(param: String) -> Vec<u16> {
     use std::os::windows::prelude::*;
-    if !param.is_empty() {
 
-        let os_string = std::ffi::OsString::from(param);
+    let os_string = std::ffi::OsString::from(param);
 
-        let mut wchars = os_string.encode_wide().collect::<Vec<_>>();
-        wchars.push(0);
-        return Some(wchars.as_ptr() as winapi::um::winnt::LPWSTR);
-    }
-    return None;
+    let mut wchars = os_string.encode_wide().collect::<Vec<_>>();
+    wchars.push(0);
+    return wchars;
 }
 
 pub fn os_string_2_lpwstr(os_string: std::ffi::OsString) -> Vec<u16> {

@@ -333,24 +333,17 @@ fn fetch_compile_pdb_path(build_and_compiler_type: std::ffi::OsString, compiler_
     return (ProgramDataBase::NonePDBPath, false);
 }
 
-fn start_local_compiler_with_inject(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) {
+fn start_local_compiler_with_inject(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) 
+                        -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     
-    let command_line: String = compiler_commands.clone().into_iter()
+    let line: String = compiler_commands.clone().into_iter()
         .map(|os_string| format!("{} ", os_string.into_string().unwrap()))
         .collect();
 
-    let (status, outputbuffer, errorbuffer) = crate::detours::redirect::msvc_detours(
+    let (status, stdout, stderr) = crate::detours::redirect::msvc_detours(compiler_path.clone().into_string().unwrap(), 
+                    line, working_dir.clone().into_string().unwrap());
 
-        compiler_path.clone().into_string().unwrap(), 
-        command_line, 
-        working_dir.clone().into_string().unwrap()
-    );
-    if status == true {
-        log::trace!("detours success");
-    }
-    else {
-        log::warn!("detours failed, {:?}", errorbuffer);
-    }
+    return (status, stdout, stderr);
 }
 
 fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) 
@@ -362,11 +355,11 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
 
     let start = std::time::Instant::now();
     
-    start_local_compiler_with_inject(compiler_path, working_dir, compiler_commands);
-    return (false, std::sync::Arc::new(vec![]), std::sync::Arc::new(vec![]));
-
+    let (status, stdout, stderr) = start_local_compiler_with_inject(compiler_path, working_dir, compiler_commands);
+    
     let elapsed = start.elapsed();
     log::info!("compile file elapsed time: {:?}.", elapsed);
+    return (status, stdout, stderr);
 }
 
 #[cfg(test)]
@@ -409,6 +402,9 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/Fotest.obj"));
         compiler_commands.push(std::ffi::OsString::from(r#"/c test.cpp"#));
 
-        start_local_compiler_with_inject(&compiler_path.into_os_string(), &working_dir, &compiler_commands);
+        let (status, stdout, stderr) = start_local_compiler_with_inject(&compiler_path.into_os_string(), &working_dir, &compiler_commands);
+        assert!(status);
+        println!("compile stdout: {}", String::from_utf8_lossy(&stdout));
+        println!("compile stderr: {}", String::from_utf8_lossy(&stderr));
     }
 }

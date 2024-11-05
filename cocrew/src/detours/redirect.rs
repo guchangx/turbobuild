@@ -4,13 +4,13 @@ use winapi::{shared::minwindef::LPDWORD, um::{errhandlingapi::GetLastError, hand
 use crate::detours::detours::DetourCreateProcessWithDllExW;
 use std::os::windows::{ffi::OsStrExt, io::FromRawHandle};
 
-pub fn msvc_detours(app_path: String, command_line: String, workding_directory: String) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+pub fn msvc_detours(app_path: String, command: String, workding_directory: String) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     println!("msvc detours");
     unsafe {
         //let lpApplicationName = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe";
         let lpApplicationName =  app_path.as_str();
         
-        let lpCommandLine = command_line.as_str();
+        let lpCommandLine = command.as_str();
 
         let bInheritHandles = winapi::shared::minwindef::TRUE;
         let dwCreationFlags = winapi::um::winbase::CREATE_DEFAULT_ERROR_MODE | winapi::um::winbase::CREATE_SUSPENDED;

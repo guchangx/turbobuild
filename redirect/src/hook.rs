@@ -31,6 +31,14 @@ pub unsafe fn init_hook() {
     else {
         println!("find create_file_w in kernelbase module.");
         crate::functions::CREATE_FILE_W_kERNEL_BASE =  kernelbase_create_file_w;
-        crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_W_kERNEL_BASE), crate::functions::kernelbase_create_file_w as _);
+                                                                                    
+        let ret = crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_W_kERNEL_BASE), crate::functions::kernelbase_create_file_w as _);
+        if ret == winapi::shared::winerror::NO_ERROR as i32 {
+            
+        }
+        else {
+            println!("detour attach createfilew failed. {}", ret);
+        }
+
     }
 }
