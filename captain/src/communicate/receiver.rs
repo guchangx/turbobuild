@@ -12,7 +12,7 @@ pub mod notify {
 #[derive(Default, Clone)] 
 pub struct NotificationReceiver {
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
-    broadcast: std::sync::Arc<tokio::sync::Mutex<Vec<tokio::sync::mpsc::Sender<Result<notify::NotifyResponse, tonic::Status>>>>>,
+    broadcaster: std::sync::Arc<tokio::sync::Mutex<Vec<tokio::sync::mpsc::Sender<Result<notify::NotifyResponse, tonic::Status>>>>>,
 }
 
 impl NotificationReceiver {
@@ -21,7 +21,7 @@ impl NotificationReceiver {
         
         let receiver = NotificationReceiver {
             common,
-            broadcast: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            broadcaster: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
         };
         return receiver;
     }
@@ -33,7 +33,7 @@ impl NotificationReceiver {
             log::info!("init captain communicate server {}", addr);
             let receiver = NotificationReceiver {
                 common: self.common.clone(),
-                broadcast: self.broadcast.clone(),
+                broadcaster: self.broadcaster.clone(),
             };
             let server = notify::communicate_server::CommunicateServer::new(receiver);
     
@@ -53,6 +53,13 @@ impl NotificationReceiver {
         });
 
     }
+
+    pub async fn broadcast(&self, response: notify::NotifyResponse) {
+        let mut broadcaster = self.broadcaster.lock().await;
+        broadcaster.retain_mut(|tx| {
+            tx.try_send(Ok(response.clone())).is_ok()
+        });
+    }
 }
 
 type ResponseStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<notify::NotifyResponse, tonic::Status>> + Send>>;
@@ -70,10 +77,9 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
         let common = self.common.upgrade().expect("upgrade common failed");
         
         let (tx, rx) = tokio::sync::mpsc::channel(128);
-        self.broadcast.lock().await.push(tx.clone());
-        
-        let broadcast = self.broadcast.clone();
+        self.broadcaster.lock().await.push(tx.clone());
 
+        let self_ = self.clone();
         let _ = tokio::spawn(async move {
             let mut stream = request.into_inner();
             
@@ -108,17 +114,8 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             };
 
                             //let _ = tx.send(Ok(reply.clone())).await.expect("tx send failed");
-     
-                            for (index, crew) in broadcast.lock().await.iter_mut().enumerate() {
-                                match crew.send(Ok(reply.clone())).await {
-                                    Ok(_) => {},
-                                    Err(err) => {
-
-                                        log::warn!("broadcast send failed {}, so delete current index.", err);
-                                        broadcast.lock().await.remove(index);             
-                                    },
-                                }
-                            }
+                            
+                            self_.broadcast(reply).await;
                         }
                         else if notify::Type::Unregister as i32 == notification.r#type {
                             log::debug!("unregister request: {:?} {:?}", addr, notification);
