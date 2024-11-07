@@ -1229,7 +1229,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_inject() {
-        println!("msvc test inject");
+        println!("run msvc test");
 
         //cargo test --package turbobuild --lib -- compiler::msvc::tests::test_inject --exact --show-output
         let win_compile_env = crate::platform::windows::WindowsCompilerEnv::default();
