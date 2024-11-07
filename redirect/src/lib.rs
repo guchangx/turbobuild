@@ -6,6 +6,7 @@ mod hook;
 mod utils;
 mod replace;
 mod functions;
+mod ntdef;
 
 use winapi::{
     shared::minwindef::{BOOL, DWORD, LPVOID, HINSTANCE}

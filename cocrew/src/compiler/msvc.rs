@@ -367,7 +367,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_inject() {
-        println!("msvc test inject");
+        println!("run msvc test inject");
 
         //cargo test --package cocrew --lib -- compiler::msvc::tests::test_inject --exact --show-output
         
@@ -388,7 +388,7 @@ mod tests {
             working_dir = path.into_os_string();
         }
         
-        println!("draft dir {}", working_dir.to_string_lossy());
+        println!("draft dir: {}", working_dir.to_string_lossy());
 
         let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
         compiler_commands.push(std::ffi::OsString::from("/nologo"));
@@ -402,7 +402,7 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/Fotest.obj"));
         compiler_commands.push(std::ffi::OsString::from(r#"/c test.cpp"#));
 
-        let (status, stdout, stderr) = start_local_compiler_with_inject(&compiler_path.into_os_string(), &working_dir, &compiler_commands);
+        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("D:\\WorkSpace\\TestCode\\WindowsProject1\\x64\\Debug\\WindowsProject1.exe"), &working_dir, &compiler_commands);
         assert!(status);
         println!("compile stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile stderr: {}", String::from_utf8_lossy(&stderr));
