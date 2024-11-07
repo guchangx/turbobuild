@@ -402,7 +402,7 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/Fotest.obj"));
         compiler_commands.push(std::ffi::OsString::from(r#"/c test.cpp"#));
 
-        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("D:\\WorkSpace\\TestCode\\WindowsProject1\\x64\\Debug\\WindowsProject1.exe"), &working_dir, &compiler_commands);
+        let (status, stdout, stderr) = start_local_compiler(&compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands);
         assert!(status);
         println!("compile stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile stderr: {}", String::from_utf8_lossy(&stderr));

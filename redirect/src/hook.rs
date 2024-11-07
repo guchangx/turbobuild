@@ -32,6 +32,10 @@ pub unsafe fn init_hook() {
         println!("find create_file_w in kernelbase module.");
         crate::functions::CREATE_FILE_W_KERNEL_BASE =  kernelbase_create_file_w;
          
+        let kernelBaseModule = winapi::um::libloaderapi::GetModuleHandleA(module);
+        let pCreateFileW = winapi::um::libloaderapi::GetProcAddress(kernelBaseModule, func_create_file_w);
+
+        crate::functions::CREATE_FILE_W_KERNEL_BASE =  pCreateFileW as *mut std::ffi::c_void;
         let ret = crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_W_KERNEL_BASE), crate::functions::kernelbase_create_file_w as _);
         if ret == winapi::shared::winerror::NO_ERROR as i32 {
             
