@@ -13,6 +13,21 @@ use winapi::{
 
 static mut ENTRYPOINT: *mut std::ffi::c_void = 0 as _;
 
+unsafe extern "system" fn custom_exception_handler(
+    exception_info: *mut winapi::um::winnt::EXCEPTION_POINTERS
+) -> i32 {
+    let exception_record = (*exception_info).ExceptionRecord;
+    if !exception_record.is_null() {
+        let code = (*exception_record).ExceptionCode;
+
+        if code == 0x80000003 {  // EXCEPTION_BREAKPOINT
+            println!("Handling DbgBreakPoint exception");
+            return -1; // EXCEPTION_CONTINUE_EXECUTION
+        }
+    }
+    winapi::um::errhandlingapi::UnhandledExceptionFilter(exception_info)
+}
+
 #[no_mangle]
 unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_reserved: LPVOID) -> BOOL {
     use std::os::windows::ffi::OsStrExt;
@@ -27,6 +42,9 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
 
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
+            winapi::um::consoleapi::AllocConsole();
+
+            winapi::um::errhandlingapi::SetUnhandledExceptionFilter(Some(custom_exception_handler));
 
             unsafe {
                 println!("message box for process attach");
