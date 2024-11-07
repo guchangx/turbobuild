@@ -43,6 +43,7 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
 
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
+	        println!("DLL_PROCESS_ATTACH");
             winapi::um::consoleapi::AllocConsole();
 
             winapi::um::errhandlingapi::SetUnhandledExceptionFilter(Some(custom_exception_handler));
@@ -102,7 +103,7 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
             crate::detours::DetourTransactionBegin();
             crate::detours::DetourUpdateThread(winapi::um::processthreadsapi::GetCurrentThread() as _);
            
-            crate::detours::DetourDetach(core::ptr::addr_of_mut!(ENTRYPOINT), main as *mut _);
+            //crate::detours::DetourDetach(core::ptr::addr_of_mut!(ENTRYPOINT), main as *mut _);
              //DetourDetach();
             crate::detours::DetourTransactionCommit();
 

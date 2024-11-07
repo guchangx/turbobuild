@@ -268,7 +268,7 @@ pub unsafe fn kernelbase_create_file_w(
     dw_flags_and_attributes: DWORD,
     h_template_file: HANDLE,
 ) -> HANDLE {
-    return 0 as HANDLE;
+
     println!("hook func kernelbase_create_file_w");
     let option_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
 

@@ -13,7 +13,7 @@ pub unsafe fn init_hook() {
 
     let func_create_file_a = crate::utils::convert::string_2_lpstr("CreateFileA".to_string()).unwrap();
     let kernelbase_create_file_a = crate::detours::DetourFindFunction(module,  func_create_file_a);
-    if kernelbase_create_file_a as usize != 0 {
+    if kernelbase_create_file_a as usize == 0 {
         println!("can not find create_file_a in kernelbase module");
     }
     else {
@@ -31,19 +31,7 @@ pub unsafe fn init_hook() {
     else {
         println!("find create_file_w in kernelbase module.");
         crate::functions::CREATE_FILE_W_KERNEL_BASE =  kernelbase_create_file_w;
-         
-        let kernelBaseModule = winapi::um::libloaderapi::GetModuleHandleA(module);
-        let pCreateFileW = winapi::um::libloaderapi::GetProcAddress(kernelBaseModule, func_create_file_w);
-
-        crate::functions::CREATE_FILE_W_KERNEL_BASE =  pCreateFileW as *mut std::ffi::c_void;
-        let ret = crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_W_KERNEL_BASE), crate::functions::kernelbase_create_file_w as _);
-        if ret == winapi::shared::winerror::NO_ERROR as i32 {
-            
-        }
-        else {
-            println!("detour attach kernelbase_create_file_w failed. error code: {}", ret);
-        }
-        
+        crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_W_KERNEL_BASE), crate::functions::kernelbase_create_file_w as _);
     }
 
     let module = crate::utils::convert::string_2_lpstr("ntdll.dll".to_string()).unwrap();
