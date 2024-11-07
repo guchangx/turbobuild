@@ -64,9 +64,9 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
                 println!("DetourUpdateThread failed, erro code: {}.", error_code);
             }
         
-            ENTRYPOINT = crate::detours::DetourGetEntryPoint(std::ptr::null_mut());
+            //ENTRYPOINT = crate::detours::DetourGetEntryPoint(std::ptr::null_mut());
         
-            crate::detours::DetourAttach(core::ptr::addr_of_mut!(ENTRYPOINT), main as *mut _);
+            //crate::detours::DetourAttach(core::ptr::addr_of_mut!(ENTRYPOINT), main as *mut _);
         
             crate::hook::init_hook();
             
@@ -83,7 +83,9 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
             println!("DLL_PROCESS_DETACH");
             crate::detours::DetourTransactionBegin();
             crate::detours::DetourUpdateThread(winapi::um::processthreadsapi::GetCurrentThread() as _);
-            //DetourDetach();
+           
+            crate::detours::DetourDetach(core::ptr::addr_of_mut!(ENTRYPOINT), main as *mut _);
+             //DetourDetach();
             crate::detours::DetourTransactionCommit();
 
         }
@@ -96,6 +98,7 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
     }
 
     return 1;
+
 }
 
 unsafe fn main() {

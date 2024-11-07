@@ -274,6 +274,11 @@ pub unsafe fn kernelbase_create_file_w(
 
     if let Some(path) = option_path {
 
+        if CREATE_FILE_W_kERNEL_BASE as usize == 0 {
+            println!("can not find kernelbase create_file_w");
+            return winapi::um::handleapi::INVALID_HANDLE_VALUE;
+        }
+
         let create_file_w: extern "C" fn (
             lp_file_name: LPCWSTR,
             dw_desired_access: DWORD,
