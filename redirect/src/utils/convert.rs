@@ -2,7 +2,6 @@
 pub fn lpwstr_2_string(lp_param: winapi::um::winnt::LPCWSTR) -> core::option::Option<std::string::String> {
     use std::os::windows::prelude::*;
 
-
     if !lp_param.is_null() {
         let non_null_wstr_ptr = unsafe { std::ptr::NonNull::new_unchecked(lp_param as *mut _) };
         
@@ -21,7 +20,6 @@ pub fn lpwstr_2_string(lp_param: winapi::um::winnt::LPCWSTR) -> core::option::Op
     {
         return None;
     }
-   
 }
 
 pub fn string_2_lpwstr(param: String) -> Vec<u16> {

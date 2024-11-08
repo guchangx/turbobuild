@@ -1,3 +1,6 @@
+
+static LOGGER: std::sync::Once = std::sync::Once::new();
+
 pub fn init_logger() {
 
     let mut builder = env_logger::Builder::new();
@@ -20,4 +23,10 @@ pub fn init_logger() {
             println!("init logger failed. {:?}", error);
         }
     }
+}
+
+pub fn init_once_logger() {
+    LOGGER.call_once(|| {
+        init_logger();
+    });
 }

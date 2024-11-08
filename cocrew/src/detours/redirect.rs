@@ -4,6 +4,27 @@ use winapi::{shared::minwindef::LPDWORD, um::{errhandlingapi::GetLastError, hand
 use crate::detours::detours::DetourCreateProcessWithDllExW;
 use std::os::windows::{ffi::OsStrExt, io::FromRawHandle};
 
+struct HandleBox {
+    handle: winapi::shared::ntdef::HANDLE,
+}
+ 
+impl HandleBox {
+    pub fn new(h: winapi::shared::ntdef::HANDLE) -> Self {
+        Self { handle: h }
+    }
+ 
+    pub fn get(&self) -> &winapi::shared::ntdef::HANDLE {
+        &self.handle
+    }
+
+    fn clone(&self) -> Self {
+        Self { handle: self.handle.clone() }
+    }
+}
+ 
+unsafe impl Send for HandleBox {}
+unsafe impl Sync for HandleBox {}
+
 pub fn msvc_detours(app_path: String, command: String, workding_directory: String) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     println!("msvc detours");
     unsafe {
@@ -79,50 +100,51 @@ pub fn msvc_detours(app_path: String, command: String, workding_directory: Strin
                 Option::None);
             
 
-            if ret == winapi::shared::minwindef::TRUE
-            {
+            CloseHandle(hStdErrorWrite);
+            CloseHandle(hStdOutputWrite);
+
+            if ret == winapi::shared::minwindef::TRUE {
                 println!("DetourCreateProcessWithDllExW success!");
 
                 let ret = winapi::um::processthreadsapi::ResumeThread(lpProcessInformation.hThread as _);
-                if ret == winapi::shared::minwindef::TRUE as u32
-                {
-                    println!("ResumeThread success!");
-                }
-                else {
+                if ret == winapi::shared::minwindef::FALSE as u32 {
                     let error_code = winapi::um::errhandlingapi::GetLastError();
-                    println!("ResumeThread failed! error_code: {}.", error_code);
+                    println!("ResumeThread failed! error code: {}.", error_code);
                 }
 
-                let mut chTmpStdOutputReadBuffer = vec![0; 512];
-                let mut bytesStdOuputRead: winapi::shared::minwindef::DWORD = 0;
-                let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
-                
+                let hStdOutputReadBox = HandleBox::new(hStdOutputRead);
+                let task = std::thread::spawn(move || {
 
-                let mut stdout = Vec::new();
-                loop {
-                    let bStdOutputRead = winapi::um::fileapi::ReadFile(
-                        hStdOutputRead,
-                        chTmpStdOutputReadBuffer.as_mut_ptr() as *mut _, 
-                        chTmpStdOutputReadBuffer.len() as u32, 
-                        &mut bytesStdOuputRead,
-                        &mut overlapped
-                    );
-                    
-                    if bStdOutputRead == winapi::shared::minwindef::FALSE { 
-                        println!("can't read stdout pipe. error code: {}", winapi::um::errhandlingapi::GetLastError());
-                        break;
+                    let mut chTmpStdOutputReadBuffer = vec![0; 512];
+                    let mut bytesStdOuputRead: winapi::shared::minwindef::DWORD = 0;
+                    let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+    
+                    let mut stdout = Vec::new();
+                    loop {
+                        let bStdOutputRead = winapi::um::fileapi::ReadFile(
+                            hStdOutputReadBox.get().to_owned(),
+                            chTmpStdOutputReadBuffer.as_mut_ptr() as *mut _, 
+                            chTmpStdOutputReadBuffer.len() as u32, 
+                            &mut bytesStdOuputRead,
+                            &mut overlapped
+                        );
+                        
+                        if bStdOutputRead == winapi::shared::minwindef::FALSE || bytesStdOuputRead == 0 {
+                            let error = winapi::um::errhandlingapi::GetLastError();
+                            if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+                                
+                            }
+                            else {
+                                log::error!("can't read stdout pipe. error code: {}", winapi::um::errhandlingapi::GetLastError());
+                            }
+                            break;
+                        }
+    
+                        stdout.extend_from_slice(&chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize]);
                     }
-
-                    stdout.extend_from_slice(&chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize]);
-
-                    if bytesStdOuputRead < chTmpStdOutputReadBuffer.len() as u32 || bytesStdOuputRead == 0 {
-                        break;
-                    }
-                }
-                println!("read cl stdout pipe {:?}", String::from_utf8_lossy(&stdout));
-
-                winapi::um::handleapi::CloseHandle(hStdOutputWrite);
-                winapi::um::handleapi::CloseHandle(hStdOutputRead);
+                    println!("read cl stdout pipe: {:?}", String::from_utf8_lossy(&stdout));
+                    return stdout;
+                });
 
                 let mut chTmpStdErrorReadBuffer = vec![0; 512];
                 let mut bytesStdErrorRead: winapi::shared::minwindef::DWORD = 0;
@@ -139,24 +161,25 @@ pub fn msvc_detours(app_path: String, command: String, workding_directory: Strin
                         &mut overlapped
                     );
                     
-                    if bStdErrorRead == winapi::shared::minwindef::FALSE {
-                        println!("can't read stderr pipe. error code: {}", winapi::um::errhandlingapi::GetLastError());
+                    if bStdErrorRead == winapi::shared::minwindef::FALSE || bytesStdErrorRead == 0 {
+                        let error = winapi::um::errhandlingapi::GetLastError();
+                        if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+
+                        }
+                        else {
+                            log::error!("can't read stderr pipe. error code: {}", winapi::um::errhandlingapi::GetLastError());
+                        }
                         break;
                     }
 
                     stderr.extend_from_slice(&chTmpStdErrorReadBuffer[..bytesStdErrorRead as usize]);
 
-                    if bytesStdErrorRead < chTmpStdErrorReadBuffer.len() as u32  || bytesStdErrorRead == 0 {
-                        break;
-                    }
                 }
                 
-                println!("read cl stderr pipe {:?}", String::from_utf8_lossy(&stderr));
-
-                winapi::um::handleapi::CloseHandle(hStdErrorWrite);
-                winapi::um::handleapi::CloseHandle(hStdErrorRead);
-
                 winapi::um::synchapi::WaitForSingleObject(lpProcessInformation.hProcess as winapi::um::winnt::HANDLE, winapi::um::winbase::INFINITE);
+                let stdout = task.join().unwrap();
+
+                println!("read cl stderr pipe: {:?}", String::from_utf8_lossy(&stderr));
 
                 let mut code: winapi::shared::minwindef::DWORD = 0;
                 winapi::um::processthreadsapi::GetExitCodeProcess(lpProcessInformation.hProcess as winapi::um::winnt::HANDLE, &mut code as *mut winapi::shared::minwindef::DWORD);
@@ -164,15 +187,18 @@ pub fn msvc_detours(app_path: String, command: String, workding_directory: Strin
                 winapi::um::handleapi::CloseHandle(lpProcessInformation.hThread as _);
                 winapi::um::handleapi::CloseHandle(lpProcessInformation.hProcess as _);
 
-                println!("msvc detours end with exit code {}", code);
+                log::info!("msvc detours end with exit code {}", code);
 
                 return (true, std::sync::Arc::new(stdout), std::sync::Arc::new(stderr));
             }
             else {
                 let error_code: u32 = winapi::um::errhandlingapi::GetLastError();
-                println!("DetourCreateProcessWithDllExW failed! error_code: {}.", error_code);
+                log::info!("DetourCreateProcessWithDllExW failed! error code: {}.", error_code);
                 return (true, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
             }
+
+            winapi::um::handleapi::CloseHandle(hStdOutputRead);
+            winapi::um::handleapi::CloseHandle(hStdErrorRead);
         }
         else
         {

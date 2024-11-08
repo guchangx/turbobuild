@@ -362,12 +362,18 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
     return (status, stdout, stderr);
 }
 
+fn _redirect_stdout() {
+    //TODO should receive redirectd.dll rather than stdout
+    //let pipe = winapi::um::namedpipeapi::CreateNamedPipeW();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
     fn test_inject() {
         println!("run msvc test inject");
+        tools::logger::init_once_logger();
 
         //cargo test --package cocrew --lib -- compiler::msvc::tests::test_inject --exact --show-output
         

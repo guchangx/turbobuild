@@ -30,15 +30,12 @@ unsafe extern "system" fn custom_exception_handler(
 }
 
 #[no_mangle]
-unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_reserved: LPVOID) -> BOOL {
+unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserved: LPVOID) -> BOOL {
     use std::os::windows::ffi::OsStrExt;
 
     if crate::detours::DetourIsHelperProcess() == winapi::shared::minwindef::TRUE {
-        println!("DllMain is a helper process");
-        //return true;
-    }
-    else {
-        //println!("DllMain is a target process");
+        println!("target application is a helper process, so do nothing.");
+        return winapi::shared::minwindef::TRUE;
     }
 
     match fdw_reason {
@@ -48,23 +45,22 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
 
             winapi::um::errhandlingapi::SetUnhandledExceptionFilter(Some(custom_exception_handler));
 
-            unsafe {
-                println!("message box for process attach");
-                let text: Vec<u16> = std::ffi::OsStr::new("Debug BreakPoint")
-                    .encode_wide()
-                    .chain(std::iter::once(0))
-                    .collect();
+    
+            println!("message box for process attach");
+            let text: Vec<u16> = std::ffi::OsStr::new("Debug BreakPoint")
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
 
-                let caption: Vec<u16> = std::ffi::OsStr::new("Attach Programe")
-                    .encode_wide()
-                    .chain(std::iter::once(0))
-                    .collect();
+            let caption: Vec<u16> = std::ffi::OsStr::new("Attach Programe")
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
 
-                winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.as_ptr(), caption.as_ptr(), 0);
-                //just for attach debug
-            }
+            winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.as_ptr(), caption.as_ptr(), 0);
+            //just for attach debug
+            
 
-            //crate::detours::DetourRestoreAfterWithEx(pvData, cbData);
             let ret = crate::detours::DetourRestoreAfterWith();
             if ret == winapi::shared::minwindef::FALSE {
                 let error_code = winapi::um::errhandlingapi::GetLastError();
@@ -84,9 +80,9 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
             }
         
             //ENTRYPOINT = crate::detours::DetourGetEntryPoint(std::ptr::null_mut());
-        
             //crate::detours::DetourAttach(core::ptr::addr_of_mut!(ENTRYPOINT), main as *mut _);
-        
+            //hook entry point
+
             crate::hook::init_hook();
             
             let ret = crate::detours::DetourTransactionCommit();
@@ -103,10 +99,11 @@ unsafe extern "stdcall" fn DllMain(hinst_dll: HINSTANCE, fdw_reason: DWORD, lpv_
             crate::detours::DetourTransactionBegin();
             crate::detours::DetourUpdateThread(winapi::um::processthreadsapi::GetCurrentThread() as _);
            
-            //crate::detours::DetourDetach(core::ptr::addr_of_mut!(ENTRYPOINT), main as *mut _);
-             //DetourDetach();
-            crate::detours::DetourTransactionCommit();
+            //DetourDetach();
 
+            //crate::detours::DetourDetach(core::ptr::addr_of_mut!(ENTRYPOINT), main as *mut _);
+            //unhook entry point
+            crate::detours::DetourTransactionCommit();
         }
         winapi::um::winnt::DLL_THREAD_DETACH => {
             println!("DLL_THREAD_DETACH");

@@ -53,28 +53,32 @@ struct ReplaceFile {
     map: std::collections::HashMap<std::string::String, std::string::String>,
 }
 
-pub fn replace(path: std::string::String) -> std::string::String {
+pub fn replace(path: &mut str) -> bool {
 
-    if path.ends_with(".cpp") || path.ends_with(".cxx") || path.ends_with(".c") || path.ends_with(".cc") 
+    if path.ends_with(".dll") || path.ends_with("_PIPE") {
+        return false;
+    }
+    else if path.ends_with(".cpp") || path.ends_with(".cxx") || path.ends_with(".c") || path.ends_with(".cc") 
     || path.ends_with(".i") || path.ends_with(".obj") || path.ends_with(".pdb") {
         if path.ends_with("test.cpp") {
-            return "E:\\TestFuture\\buildturbo\\draft\\fake_test.cpp".to_string();
+            path = "E:\\TestFuture\\buildturbo\\draft\\fake_test.cpp";
         }
         else if path.ends_with(".i") {
             let project = Model::new("".to_string(), path, "".to_string());
             let path = project.fetch_local_replica_project_path();
-            return path.display().to_string();
+             path = display().to_string();
         }
         else if path.contains("GammaRayTool")
         {
-            return path;
+            path;
         }
         else {
             return path;
         }
+        return true;
     }
     else {
-        return "".to_string();
+        return false;
     }
 }
 
@@ -86,11 +90,11 @@ pub fn replace_dir(path: std::string::String) -> std::string::String {
     }
     else if path.contains("GammaRayTool")
     {
-        let project = Model::new("".to_string(), path, "".to_string());
+        let project = Model::new("".to_string(), path.clone(), "".to_string());
         let path = project.fetch_local_replica_project_path();
         return path.display().to_string();
     }
     else {
-        return "".to_string();
+        return path;
     }
 }

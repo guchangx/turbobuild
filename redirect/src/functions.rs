@@ -27,12 +27,11 @@ pub unsafe fn create_file_a(
     h_template_file: HANDLE,
 ) -> HANDLE {
 
-    println!("hook func create_file_a");
+    
     let path = crate::utils::convert::lpstr_2_string(lp_file_name);
   
     if let Ok(path) = path {
-        
-        println!("hook: {}", path);
+        println!("hook func create_file_a path: {}", path);
 
         let create_file_a: extern "C" fn(
             lp_file_name: LPCSTR,
@@ -108,11 +107,10 @@ pub unsafe fn create_file_w(
     h_template_file: HANDLE,
 ) -> HANDLE {
 
-    println!("hook func create_file_w");
     let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-    if let Some(path) = path {
+    if let Some(mut path) = path {
 
-        println!("hook: {}", path);
+        println!("hook func create_file_w path: {}", path);
 
         let create_file_w: extern "C" fn (
             lp_file_name: LPCWSTR,
@@ -124,9 +122,9 @@ pub unsafe fn create_file_w(
             h_template_file: HANDLE,
         ) -> HANDLE = std::mem::transmute(CREATE_FILE_W);
 
-        let path = crate::replace::replace(path.clone());
+        let replace = crate::replace::replace(&mut path);
 
-        if !path.is_empty() {
+        if replace {
             let fake_path = crate::utils::convert::string_2_lpwstr(path);
                 
             let handle = create_file_w(
