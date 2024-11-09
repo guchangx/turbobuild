@@ -44,7 +44,7 @@ pub fn lpstr_2_string(lpstr: *const std::ffi::c_char) -> Result<String, std::str
     }
 }
 
-pub fn string_2_lpstr(string: std::string::String) -> Result<*mut std::ffi::c_char, std::ffi::NulError> {
+pub fn string_2_lpstr(string: std::string::String) -> *mut std::ffi::c_char {
     let c_string = std::ffi::CString::new(string).expect("new CString from string failed.");
-    Ok(c_string.into_raw())
+    return c_string.into_raw();
 }

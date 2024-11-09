@@ -362,9 +362,52 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
     return (status, stdout, stderr);
 }
 
-fn _redirect_stdout() {
-    //TODO should receive redirectd.dll rather than stdout
-    //let pipe = winapi::um::namedpipeapi::CreateNamedPipeW();
+
+fn redirect_stdout_log() {
+
+    use std::os::windows::ffi::OsStrExt;
+    let os_string = std::ffi::OsString::from("\\\\.\\pipe\\redirect_stdout_log_pipe");
+
+    let mut wchars = os_string.encode_wide().collect::<Vec<_>>();
+    wchars.push(0);
+
+    unsafe {
+        let pipe = winapi::um::namedpipeapi::CreateNamedPipeW(wchars.as_ptr(), winapi::um::winbase::PIPE_ACCESS_DUPLEX,  
+        winapi::um::winbase::PIPE_TYPE_MESSAGE | winapi::um::winbase::PIPE_READMODE_MESSAGE |  winapi::um::winbase::PIPE_WAIT, winapi::um::winbase::PIPE_UNLIMITED_INSTANCES,
+        0, 0, 0, std::ptr::null_mut());
+
+        if !pipe.is_null() {
+            let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+            if winapi::um::namedpipeapi::ConnectNamedPipe(pipe, &mut overlapped) == winapi::shared::minwindef::TRUE {
+                let mut buffer = vec![0u8; 512];
+                let mut bytes: winapi::shared::minwindef::DWORD = 0;
+                let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+    
+                loop {
+                    let result = winapi::um::fileapi::ReadFile(
+                        pipe,
+                        buffer.as_mut_ptr() as *mut _,
+                        buffer.len() as u32,
+                        &mut bytes,
+                        &mut overlapped
+                    );
+    
+                    if result == winapi::shared::minwindef::FALSE || bytes == 0 {
+                        let error = winapi::um::errhandlingapi::GetLastError();
+                        if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+                            break;
+                        }
+                        println!("reaf pipe failed, error code: {}", error);
+                        break;
+                    } 
+                    let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
+                    log::info!("redirect output: {:?}", output);
+                }
+            }
+            winapi::um::namedpipeapi::DisconnectNamedPipe(pipe);
+            winapi::um::handleapi::CloseHandle(pipe);            
+        }
+    }
 }
 
 #[cfg(test)]

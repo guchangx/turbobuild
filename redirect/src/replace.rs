@@ -53,7 +53,7 @@ struct ReplaceFile {
     map: std::collections::HashMap<std::string::String, std::string::String>,
 }
 
-pub fn replace(path: &mut str) -> bool {
+pub fn replace(path: &mut String) -> bool {
 
     if path.ends_with(".dll") || path.ends_with("_PIPE") {
         return false;
@@ -61,21 +61,22 @@ pub fn replace(path: &mut str) -> bool {
     else if path.ends_with(".cpp") || path.ends_with(".cxx") || path.ends_with(".c") || path.ends_with(".cc") 
     || path.ends_with(".i") || path.ends_with(".obj") || path.ends_with(".pdb") {
         if path.ends_with("test.cpp") {
-            path = "E:\\TestFuture\\buildturbo\\draft\\fake_test.cpp";
+            *path = String::from("E:\\TestFuture\\turbobuild\\draft\\fake_test.cpp");
+            return true;
         }
         else if path.ends_with(".i") {
-            let project = Model::new("".to_string(), path, "".to_string());
-            let path = project.fetch_local_replica_project_path();
-             path = display().to_string();
+            let project = Model::new("".to_string(), path.to_owned(), "".to_string());
+            let replica = project.fetch_local_replica_project_path();
+            *path = replica.to_string_lossy().to_string();
         }
         else if path.contains("GammaRayTool")
         {
             path;
         }
         else {
-            return path;
+            return false;
         }
-        return true;
+        return false;
     }
     else {
         return false;
@@ -85,7 +86,11 @@ pub fn replace(path: &mut str) -> bool {
 
 pub fn replace_dir(path: std::string::String) -> std::string::String {
 
-    if path.contains("fake_draft") {
+    if path.ends_with(".dll")
+    {
+        return path;
+    }
+    else if path.contains("fake_draft") {
         return path.replace("fake_draft", "draft");
     }
     else if path.contains("GammaRayTool")

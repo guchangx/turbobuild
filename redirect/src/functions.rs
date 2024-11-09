@@ -27,10 +27,9 @@ pub unsafe fn create_file_a(
     h_template_file: HANDLE,
 ) -> HANDLE {
 
-    
     let path = crate::utils::convert::lpstr_2_string(lp_file_name);
   
-    if let Ok(path) = path {
+    if let Ok(mut path) = path {
         println!("hook func create_file_a path: {}", path);
 
         let create_file_a: extern "C" fn(
@@ -43,35 +42,31 @@ pub unsafe fn create_file_a(
             h_template_file: HANDLE,
         ) -> HANDLE = std::mem::transmute(CREATE_FILE_A);
 
-        let path = crate::replace::replace(path);
-        if !path.is_empty() {
-            let result_fake_path = crate::utils::convert::string_2_lpstr(path);
-            if let Ok(fake_path) = result_fake_path {
-                
-                let handle = create_file_a(
-                    fake_path,
-                    dw_desired_access,
-                    dw_share_mode,
-                    lp_security_attributes,
-                    dw_creation_disposition,
-                    dw_flags_and_attributes,
-                    h_template_file,
-                );
+        let replace = crate::replace::replace(&mut path);
+        if replace {
+            let fake_path = crate::utils::convert::string_2_lpstr(path);
 
-                unsafe {
-                    let c_string = std::ffi::CString::from_raw(fake_path);
-                    drop(c_string);
-                }
-                if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                    let error_code = winapi::um::errhandlingapi::GetLastError();
-                    println!("kernelbase create_file_a failed! error_code: {}.", error_code);
-                }
+            let handle = create_file_a(
+                fake_path,
+                dw_desired_access,
+                dw_share_mode,
+                lp_security_attributes,
+                dw_creation_disposition,
+                dw_flags_and_attributes,
+                h_template_file,
+            );
 
-                return handle;
+            {
+                let c_string = std::ffi::CString::from_raw(fake_path);
+                drop(c_string);
             }
-            else {
-                return 0 as HANDLE;
+
+            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+                println!("kernelbase create_file_a failed! error code: {}.", error_code);
             }
+
+            return handle;
         }
         else {
             let handle = create_file_a(
@@ -86,7 +81,7 @@ pub unsafe fn create_file_a(
 
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                println!("create_file_a failed! error_code: {}.", error_code);
+                println!("create_file_a failed! error code: {}.", error_code);
             }
 
             return handle;
@@ -110,7 +105,7 @@ pub unsafe fn create_file_w(
     let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
     if let Some(mut path) = path {
 
-        println!("hook func create_file_w path: {}", path);
+        println!("hook func create_file_w, path: {}", path);
 
         let create_file_w: extern "C" fn (
             lp_file_name: LPCWSTR,
@@ -183,12 +178,11 @@ pub unsafe fn kernelbase_create_file_a(
     h_template_file: HANDLE,
 ) -> HANDLE {
 
-    println!("hook func kernelbase_create_file_a");
     let path = crate::utils::convert::lpstr_2_string(lp_file_name);
   
-    if let Ok(path) = path {
+    if let Ok(mut path) = path {
         
-        println!("hook: {}", path);
+        println!("hook func kernelbase_create_file_a, path: {}", path);
 
         let create_file_a: extern "C" fn(
             lp_file_name: LPCSTR,
@@ -200,37 +194,31 @@ pub unsafe fn kernelbase_create_file_a(
             h_template_file: HANDLE,
         ) -> HANDLE = std::mem::transmute(CREATE_FILE_A_KERNEL_BASE);
 
-        let path = crate::replace::replace(path);
+        let replace = crate::replace::replace(&mut path);
 
-        if !path.is_empty() {
-            let result_fake_path = crate::utils::convert::string_2_lpstr(path);
-            if let Ok(fake_path) = result_fake_path {
-                
-                let handle = create_file_a(
-                    fake_path,
-                    dw_desired_access,
-                    dw_share_mode,
-                    lp_security_attributes,
-                    dw_creation_disposition,
-                    dw_flags_and_attributes,
-                    h_template_file,
-                );
+        if replace {
+            let fake_path = crate::utils::convert::string_2_lpstr(path);
+            let handle = create_file_a(
+                fake_path,
+                dw_desired_access,
+                dw_share_mode,
+                lp_security_attributes,
+                dw_creation_disposition,
+                dw_flags_and_attributes,
+                h_template_file,
+            );
 
-                unsafe {
-                    let c_string = std::ffi::CString::from_raw(fake_path);
-                    drop(c_string);
-                }
-
-                if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                    let error_code = winapi::um::errhandlingapi::GetLastError();
-                    println!("kernelbase create_file_a failed! error_code: {}.", error_code);
-                }
-
-                return handle;
+            {
+                let c_string = std::ffi::CString::from_raw(fake_path);
+                drop(c_string);
             }
-            else {
-                return 0 as HANDLE;
+
+            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+                println!("kernelbase create_file_a failed! error_code: {}.", error_code);
             }
+
+            return handle;
         }
         else {
 
@@ -267,10 +255,9 @@ pub unsafe fn kernelbase_create_file_w(
     h_template_file: HANDLE,
 ) -> HANDLE {
 
-    println!("hook func kernelbase_create_file_w");
     let option_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
 
-    if let Some(path) = option_path {
+    if let Some(mut path) = option_path {
 
         if CREATE_FILE_W_KERNEL_BASE as usize == 0 {
             println!("can not find kernelbase create_file_w");
@@ -287,10 +274,10 @@ pub unsafe fn kernelbase_create_file_w(
             h_template_file: HANDLE,
         ) -> HANDLE = std::mem::transmute(CREATE_FILE_W_KERNEL_BASE);
 
-        println!("hook: {}", path);
+        println!("hook func kernelbase_create_file_w, path: {}", path);
 
-        let path = crate::replace::replace(path);
-        if !path.is_empty() {
+        let replace = crate::replace::replace(&mut path);
+        if replace {
             
             let fake_path = crate::utils::convert::string_2_lpwstr(path);
             
@@ -357,8 +344,7 @@ pub unsafe fn zw_query_directory_file(
         let buffer = (*file_name).Buffer;
         let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
         
-        println!("hook func zw_query_directory_file");
-        println!("hook: {:?}", name);
+        println!("hook func zw_query_directory_file, path: {:?}", name);
     }
 
     let nt_status = zw_query_directory_file(
@@ -401,22 +387,22 @@ pub unsafe fn nt_create_file(
             let buffer = (*object_name).Buffer;
             let length = (*object_name).Length;
             if !buffer.is_null() && length > 0 {
-                println!("hook func nt_create_file");
 
                 let utf16_slice = std::slice::from_raw_parts(buffer, (length / 2) as usize);
                 let os_string = std::ffi::OsString::from_wide(utf16_slice);
                 match os_string.into_string() {
                     Ok(string) => {
-                        println!("object name length {} {:?}", length, string);
+                        //println!("hook func nt_create_file, path {:?}, object name length {}", string, length );
                     },
                     Err(_) => {
                         println!("can't convert osstring into string.");
                     }
                 }
+                // up and down are 2 way to get string from utf16 slice.
 
                 let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
 
-                println!("nt_create_file hook: length {:?} {:?}", length, name);
+                println!("nt_create_file hook: length {:?} path: {:?}", length, name);
                 let fake_path = crate::replace::replace_dir(name);
                 if !fake_path.is_empty() {
                     println!("nt_create_file replace hook: {:?}", fake_path.clone());
@@ -427,7 +413,7 @@ pub unsafe fn nt_create_file(
 
                     let ret = ntapi::ntrtl::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
                     if ret != winapi::shared::ntstatus::STATUS_SUCCESS {
-                        println!("init unicode string failed.");
+                        println!("rtl init unicode string failed.");
                     }
 
                     let mut fake_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
