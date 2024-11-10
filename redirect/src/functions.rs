@@ -30,7 +30,7 @@ pub unsafe fn create_file_a(
     let path = crate::utils::convert::lpstr_2_string(lp_file_name);
   
     if let Ok(mut path) = path {
-        println!("hook func create_file_a path: {}", path);
+        crate::log!(debug, "hook func create_file_a path: {}", path);
 
         let create_file_a: extern "C" fn(
             lp_file_name: LPCSTR,
@@ -63,7 +63,7 @@ pub unsafe fn create_file_a(
 
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                println!("kernelbase create_file_a failed! error code: {}.", error_code);
+                log!(error, "create_file_a failed! error code: {}.", error_code);
             }
 
             return handle;
@@ -81,7 +81,7 @@ pub unsafe fn create_file_a(
 
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                println!("create_file_a failed! error code: {}.", error_code);
+                crate::log!(error, "create_file_a failed! error code: {}.", error_code)
             }
 
             return handle;
@@ -105,7 +105,7 @@ pub unsafe fn create_file_w(
     let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
     if let Some(mut path) = path {
 
-        println!("hook func create_file_w, path: {}", path);
+        crate::log!(debug, "hook func create_file_w, path: {}", path);
 
         let create_file_w: extern "C" fn (
             lp_file_name: LPCWSTR,
@@ -135,7 +135,7 @@ pub unsafe fn create_file_w(
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                println!("create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
+                crate::log!(error, "create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
             }
 
             return handle;
@@ -155,7 +155,7 @@ pub unsafe fn create_file_w(
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                println!("create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
+                crate::log!(error, "create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
             }
 
             return handle;    
@@ -182,7 +182,7 @@ pub unsafe fn kernelbase_create_file_a(
   
     if let Ok(mut path) = path {
         
-        println!("hook func kernelbase_create_file_a, path: {}", path);
+        crate::log!(debug, "hook func kernelbase_create_file_a, path: {}", path);
 
         let create_file_a: extern "C" fn(
             lp_file_name: LPCSTR,
@@ -215,7 +215,7 @@ pub unsafe fn kernelbase_create_file_a(
 
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                println!("kernelbase create_file_a failed! error_code: {}.", error_code);
+                crate::log!(error, "kernelbase create_file_a failed! error_code: {}.", error_code);
             }
 
             return handle;
@@ -234,7 +234,7 @@ pub unsafe fn kernelbase_create_file_a(
 
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                println!("kernelbase create_file_a failed! error_code: {}.", error_code);
+                crate::log!(error, "kernelbase create_file_a failed! error_code: {}.", error_code);
             }
             return handle;    
         }
@@ -260,7 +260,7 @@ pub unsafe fn kernelbase_create_file_w(
     if let Some(mut path) = option_path {
 
         if CREATE_FILE_W_KERNEL_BASE as usize == 0 {
-            println!("can not find kernelbase create_file_w");
+            crate::log!(error, "can not find kernelbase create_file_w");
             return winapi::um::handleapi::INVALID_HANDLE_VALUE;
         }
 
@@ -274,7 +274,7 @@ pub unsafe fn kernelbase_create_file_w(
             h_template_file: HANDLE,
         ) -> HANDLE = std::mem::transmute(CREATE_FILE_W_KERNEL_BASE);
 
-        println!("hook func kernelbase_create_file_w, path: {}", path);
+        crate::log!(debug, "hook func kernelbase_create_file_w, path: {}", path);
 
         let replace = crate::replace::replace(&mut path);
         if replace {
@@ -294,7 +294,7 @@ pub unsafe fn kernelbase_create_file_w(
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                println!("kernelbase create_file_a failed! error_code: {} {:?}.", error_code, hook_path);
+                crate::log!(error, "kernelbase create_file_a failed! error_code: {} {:?}.", error_code, hook_path);
             }
     
             return handle; 
@@ -313,7 +313,7 @@ pub unsafe fn kernelbase_create_file_w(
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                println!("kernelbase create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
+                crate::log!(error, "kernelbase create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
             }
             return handle;   
         }
@@ -344,7 +344,7 @@ pub unsafe fn zw_query_directory_file(
         let buffer = (*file_name).Buffer;
         let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
         
-        println!("hook func zw_query_directory_file, path: {:?}", name);
+        crate::log!(debug, "hook func zw_query_directory_file, path: {:?}", name);
     }
 
     let nt_status = zw_query_directory_file(
@@ -402,10 +402,10 @@ pub unsafe fn nt_create_file(
 
                 let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
 
-                println!("nt_create_file hook: length {:?} path: {:?}", length, name);
+                crate::log!(debug, "nt_create_file hook: length {:?} path: {:?}", length, name);
                 let fake_path = crate::replace::replace_dir(name);
                 if !fake_path.is_empty() {
-                    println!("nt_create_file replace hook: {:?}", fake_path.clone());
+                    crate::log!(debug, "nt_create_file replace hook: {:?}", fake_path.clone());
 
                     let mut object_name: winapi::shared::ntdef::UNICODE_STRING = std::mem::zeroed();
 
@@ -413,7 +413,7 @@ pub unsafe fn nt_create_file(
 
                     let ret = ntapi::ntrtl::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
                     if ret != winapi::shared::ntstatus::STATUS_SUCCESS {
-                        println!("rtl init unicode string failed.");
+                        crate::log!(error, "rtl init unicode string failed.");
                     }
 
                     let mut fake_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
@@ -424,8 +424,8 @@ pub unsafe fn nt_create_file(
 
                     (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
 
-                    println!("nt_create_file re hook: {:?}", crate::utils::convert::lpwstr_2_string((*(*object_attributes).ObjectName).Buffer).unwrap());
-                    println!("nt_create_file re hook 1: {:?}", crate::utils::convert::lpwstr_2_string(object_name_source_wide_char.as_ptr()).unwrap());
+                    crate::log!(debug, "nt_create_file re hook: {:?}", crate::utils::convert::lpwstr_2_string((*(*object_attributes).ObjectName).Buffer).unwrap());
+                    crate::log!(debug, "nt_create_file re hook 1: {:?}", crate::utils::convert::lpwstr_2_string(object_name_source_wide_char.as_ptr()).unwrap());
 
                     let nt_status = zw_create_file(
                         file_handle,
@@ -442,9 +442,8 @@ pub unsafe fn nt_create_file(
                     );
 
                     if nt_status != winapi::shared::ntstatus::STATUS_SUCCESS {
-                        println!("zw_create_file faile. status: {:?}", (*io_status_block).Status);
+                        crate::log!(error, "zw_create_file faile. status: {:?}", (*io_status_block).Status);
                     }
-
                     return nt_status;
                 }
             }

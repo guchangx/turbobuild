@@ -66,14 +66,12 @@ pub fn msvc_detours(app_path: String, command: String, workding_directory: Strin
             };
 
             let ret = winapi::um::namedpipeapi::CreatePipe( &mut hStdOutputRead as winapi::shared::ntdef::PHANDLE, &mut hStdOutputWrite as winapi::shared::ntdef::PHANDLE, &mut pipeAttributes, 0);
-            if winapi::shared::minwindef::FALSE == ret
-            {
+            if winapi::shared::minwindef::FALSE == ret {
                 println!("create output pipe failed.")
             }
 
             let ret = winapi::um::namedpipeapi::CreatePipe(&mut hStdErrorRead as winapi::shared::ntdef::PHANDLE, &mut hStdErrorWrite as winapi::shared::ntdef::PHANDLE, &mut pipeAttributes, 0);
-            if winapi::shared::minwindef::FALSE == ret 
-            {
+            if winapi::shared::minwindef::FALSE == ret {
                 println!("create error pipe failed.")
             }
 
@@ -142,7 +140,6 @@ pub fn msvc_detours(app_path: String, command: String, workding_directory: Strin
     
                         stdout.extend_from_slice(&chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize]);
                     }
-                    println!("read cl stdout pipe: {:?}", String::from_utf8_lossy(&stdout));
                     return stdout;
                 });
 
@@ -178,8 +175,6 @@ pub fn msvc_detours(app_path: String, command: String, workding_directory: Strin
                 
                 winapi::um::synchapi::WaitForSingleObject(lpProcessInformation.hProcess as winapi::um::winnt::HANDLE, winapi::um::winbase::INFINITE);
                 let stdout = task.join().unwrap();
-
-                println!("read cl stderr pipe: {:?}", String::from_utf8_lossy(&stderr));
 
                 let mut code: winapi::shared::minwindef::DWORD = 0;
                 winapi::um::processthreadsapi::GetExitCodeProcess(lpProcessInformation.hProcess as winapi::um::winnt::HANDLE, &mut code as *mut winapi::shared::minwindef::DWORD);

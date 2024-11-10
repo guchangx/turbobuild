@@ -401,11 +401,18 @@ fn redirect_stdout_log() {
                         break;
                     } 
                     let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
-                    log::info!("redirect output: {:?}", output);
+                    //log::info!("redirect: {:?}", output);
+                    println!("redirect: {}", output);
                 }
+            }
+            else {
+                log::debug!("connect named pipe failed.");
             }
             winapi::um::namedpipeapi::DisconnectNamedPipe(pipe);
             winapi::um::handleapi::CloseHandle(pipe);            
+        }
+        else {
+            log::debug!("create named pipe failed.");
         }
     }
 }
@@ -417,6 +424,10 @@ mod tests {
     fn test_inject() {
         println!("run msvc test inject");
         tools::logger::init_once_logger();
+        
+        std::thread::spawn(||{
+            redirect_stdout_log();
+        });
 
         //cargo test --package cocrew --lib -- compiler::msvc::tests::test_inject --exact --show-output
         
