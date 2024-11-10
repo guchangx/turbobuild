@@ -1,6 +1,6 @@
 //TODO use access replace get
 pub fn get_working_path(app: std::string::String) -> std::option::Option<std::string::String> {
-
+    //TODO should be use &str
     let mut dir = std::env::current_exe().unwrap();
 
     let path = dir.join(app.clone());
@@ -16,7 +16,7 @@ pub fn get_working_path(app: std::string::String) -> std::option::Option<std::st
         }
     
         let path = dir.join(app);
-        println!("path: {:?}", path);
+        log::debug!("path: {:?}", path);
         if path.exists() {
             return Some(path.display().to_string());
         }

@@ -53,7 +53,6 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                 winapi::shared::ntdef::NULL);
      
             if !pipe.is_null() {
-                logger::Logger::info(format!("{}:{}:{} init logger done.", module_path!(), file!(), line!()));
                 let handle = tools::ptr::HandleBox::new(pipe);
     
                 loop {
@@ -85,7 +84,6 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                 };
                 winapi::um::namedpipeapi::DisconnectNamedPipe(handle.get().to_owned());
                 winapi::um::handleapi::CloseHandle(handle.get().to_owned());
-                println!("redirect_stdout_log_2_cocrew 111 end");
             }
         }
     });

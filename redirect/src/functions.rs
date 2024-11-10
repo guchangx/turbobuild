@@ -1,13 +1,7 @@
 
 use winapi::{
-    shared::{
-        minwindef::DWORD,
-        ntdef::LPCWSTR,
-    },
-    um::{
-        minwinbase::LPSECURITY_ATTRIBUTES,
-        winnt::{HANDLE, LPCSTR},
-    }
+    shared::{minwindef::DWORD, ntdef::LPCWSTR,},
+    um::{minwinbase::LPSECURITY_ATTRIBUTES, winnt::{HANDLE, LPCSTR},}
 };
 
 pub static mut CREATE_FILE_A: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
@@ -63,7 +57,7 @@ pub unsafe fn create_file_a(
 
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                log!(error, "create_file_a failed! error code: {}.", error_code);
+                crate::log!(error, "create_file_a failed! error code: {}.", error_code);
             }
 
             return handle;
@@ -395,7 +389,7 @@ pub unsafe fn nt_create_file(
                         //println!("hook func nt_create_file, path {:?}, object name length {}", string, length );
                     },
                     Err(_) => {
-                        println!("can't convert osstring into string.");
+                        crate::log!(error,"can't convert osstring into string.");
                     }
                 }
                 // up and down are 2 way to get string from utf16 slice.

@@ -6,6 +6,7 @@ pub struct Model {
 
 impl Model {
     pub fn new(_project_name: String, real_project_path: String, _replica_project_dir: String) -> Self {
+        //E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\kmodelindexproxymapper.cpp
         let replica_project_dir = Self::fetch_local_replica_dir();
         let project_name = "GammaRayTool".to_string();
         Model {
@@ -16,7 +17,8 @@ impl Model {
     }
 
     fn fetch_local_replica_dir() -> String {
-        return r"C:\WorkSpace\MyWork\turbobuild\target\Replica".to_string();
+        let path = tools::utils::get_or_create_working_path("Replica/projet");
+        return path;
     }
 
     pub fn fetch_local_replica_project_path(self) -> std::path::PathBuf {
@@ -58,31 +60,25 @@ pub fn replace(path: &mut String) -> bool {
     if path.ends_with(".dll") || path.ends_with("_PIPE") {
         return false;
     }
-    else if path.ends_with(".cpp") || path.ends_with(".cxx") || path.ends_with(".c") || path.ends_with(".cc") 
-    || path.ends_with(".i") || path.ends_with(".obj") || path.ends_with(".pdb") {
-        if path.ends_with("test.cpp") {
-            *path = String::from("E:\\TestFuture\\turbobuild\\draft\\fake_test.cpp");
-            return true;
-        }
-        else if path.ends_with(".i") {
-            let project = Model::new("".to_string(), path.to_owned(), "".to_string());
-            let replica = project.fetch_local_replica_project_path();
-            *path = replica.to_string_lossy().to_string();
-        }
-        else if path.contains("GammaRayTool")
-        {
-            path;
-        }
-        else {
-            return false;
-        }
+    else if path.ends_with(".cpp") || path.ends_with(".cxx") || path.ends_with(".c") || path.ends_with(".cc") {
         return false;
+    }
+    else if path.ends_with(".obj") {
+        return false;
+    } 
+    else if path.ends_with(".pdb") {
+        return false;
+    }
+    else if path.ends_with(".i") {
+        let project = Model::new("".to_string(), path.to_owned(), "".to_string());
+        let replica = project.fetch_local_replica_project_path();
+        *path = replica.to_string_lossy().to_string();
+        return true;
     }
     else {
         return false;
     }
 }
-
 
 pub fn replace_dir(path: std::string::String) -> std::string::String {
 
