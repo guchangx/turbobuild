@@ -17,10 +17,10 @@ pub fn init_logger() {
 
     match logger {
         Ok(_) => {
-            println!("init logger sucessful");
+            log::info!("init logger sucessful");
         },
         Err(error) => {
-            println!("init logger failed. {:?}", error);
+            log::error!("init logger failed. {:?}", error);
         }
     }
 }

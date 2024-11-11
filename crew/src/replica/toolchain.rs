@@ -157,11 +157,11 @@ impl Property {
                 return versions;
             }
             else {
-                println!("can't find msvc in replica dir. {}", path);
+                log::warn!("can't find msvc in replica dir. {}", path);
             }
         }
         else {
-            println!("can't find replice in target dir.");
+            log::warn!("can't find replice in target dir.");
         }
         return versions;
     } 

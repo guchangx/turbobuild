@@ -87,7 +87,7 @@ pub fn init() {
 
     weak_common.upgrade().unwrap().lock().unwrap().roster = Some(arc_roster);
 
-    println!("crew common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
+    log::debug!("crew common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
     handle.join().expect("run compiler ipc receiver failed");
     
 }

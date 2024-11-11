@@ -24,11 +24,11 @@ impl Receiver {
         
         let listener = std::net::TcpListener::bind(format!("localhost:{}", self.port)).unwrap();
         
-        println!("init ipc socket {}", listener.local_addr().unwrap());
+        log::info!("init ipc socket {}", listener.local_addr().unwrap());
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {
-                    println!("new buildassist connection socket");
+                    log::debug!("new buildassist connection socket");
                     let runtime = self.common.upgrade().unwrap()
                         .lock().unwrap()
                         .pool.clone().unwrap();
@@ -42,7 +42,7 @@ impl Receiver {
                     //can't block current run.
                 },
                 Err(err) => {
-                    println!("Error: {}", err);
+                    log::error!("tcplistener bind error: {}", err);
                 }
             }
         }

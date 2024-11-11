@@ -51,10 +51,8 @@ impl crate::compiler::interface::Compiler for MSVC {
 impl MSVC {
     async fn request_msvc_compile(self, compiler_input: CompilerInput) -> (CompilerOutput, Option<ProcessedResults>) {
 
-        let now = std::time::Instant::now();
-
         let compiler_commands = &self.enrich_compiler_commands(&compiler_input);
-        println!("parse compiler input commmands elaspsed time:{:?}", now.elapsed());
+
         let working_path = std::path::PathBuf::from(&compiler_input.compiler_working_dir);
 
         if !working_path.exists() {
@@ -69,10 +67,10 @@ impl MSVC {
             }
         }
 
-        let _source_file = fetch_compiler_source_file(&compiler_input.build_and_compiler_type,
+        let _source_file = fetch_compile_source_file(&compiler_input.build_and_compiler_type,
             compiler_commands, &compiler_input.compiler_working_dir).unwrap();
 
-        let _object = fetch_compiler_object_file(&compiler_input.build_and_compiler_type,
+        let _object = fetch_compile_object_file(&compiler_input.build_and_compiler_type,
                                     &compiler_commands, &compiler_input.compiler_working_dir);
     
         let exists_source_file_in_command = determine_whether_need_compile(compiler_commands.clone());
@@ -164,8 +162,8 @@ impl MSVC {
         let now = std::time::Instant::now();
         let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, compiler_commands, false);
 
-        let mut err = String::from_utf8_lossy(&stderr);
-        println!("err: {:?}", err);
+        let err = String::from_utf8_lossy(&stderr);
+        println!("compiler status {:?}, err: {:?}", status, err);
 
         if status {
             let mut files: Vec<String> = String::from_utf8_lossy(&stderr).lines().map(|item| item.to_string()).collect();
@@ -173,7 +171,7 @@ impl MSVC {
 
             let mut project = String::from("");
             
-            if let Some(sources) = fetch_compiler_source_file (
+            if let Some(sources) = fetch_compile_source_file (
                 &std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir) {
                 
                 let keys = sources.into_keys().collect::<Vec<String>>();
@@ -188,9 +186,15 @@ impl MSVC {
                 }
             }
 
-            match fetch_compiler_object_file(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir) {
-                GeneratedObject::PathWithObjName(path) => {project = path.to_str().unwrap().to_owned()},
-                GeneratedObject::PathWithoutObjName(path) => {project = path.to_str().unwrap().to_owned()},
+            match fetch_compile_object_file(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir) {
+                GeneratedObject::PathWithObjName(path) => {
+                    log::debug!("fetch compile object files with objname: {:?}", path);
+                    project = path.to_str().unwrap().to_owned()
+                },
+                GeneratedObject::PathWithoutObjName(path) => {
+                    log::debug!("local compile object files: {:?}", path);
+                    project = path.to_str().unwrap().to_owned()
+                },
                 GeneratedObject::NoneObjPath => {log::warn!("can't fetch object file")}
             }
 
@@ -200,12 +204,11 @@ impl MSVC {
             if stdout.is_empty() {
                 let now = std::time::Instant::now();
     
-                let output_dir = project.replace("/Fo", "").replace("\\\\", "\\");
-                let intermediate = std::path::PathBuf::from(compiler_working_dir).join(output_dir);
+                let intermediate = project.replace("/Fo", "").replace("\\\\", "\\");
 
                 addr = self.sender.lock().unwrap().schedule();
 
-                let  precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, intermediate).await;
+                let  precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, std::path::PathBuf::from(intermediate)).await;
                 log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
         
                 for file in precompiled_files {
@@ -353,9 +356,6 @@ impl MSVC {
             
         let precompiled_files = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::ffi::OsString>::new()));
         
-        let options = zip::write::SimpleFileOptions::default()
-                .compression_method(zip::CompressionMethod::Zstd);
-
         let mut source_files = source_files.to_owned();
         let handles = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
@@ -366,46 +366,15 @@ impl MSVC {
                 left = source_files.split_off(32);
             }
 
-            let precompiled_files = precompiled_files.clone();
-
             let project_dir = project_dir.clone();
-
             let addr = addr.to_owned();
             let handles = handles.clone();
 
+            let self_ = self.clone();
             let bulk_handle = self.runtime.spawn(async move {
 
-                let mut cursor = std::io::Cursor::new(Vec::new());
-                let mut zip = zip::ZipWriter::new(&mut cursor);
-                
-                let mut zip_file = project_dir.clone();
-
-                for file in source_files.to_owned() {
-
-                    let dir = project_dir.clone();
-                    
-                    let mut path = dir.join(file);
-                    path.set_extension("i");
-                    zip.start_file(path.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
-                    let file = std::fs::File::open(&path).unwrap();
-                    log::debug!("zip precompiled file: {:?}", path);
-                    let mut file = std::io::BufReader::new(file);
-                    let _ = std::io::copy(&mut file, &mut zip);
-
-                    let mut precompiled_files = precompiled_files.lock().unwrap();
-                    precompiled_files.push(path.clone().into_os_string());
-                }
-
-                let content = zip.finish().unwrap();
-                let file = content.to_owned().into_inner();
-                let content = std::borrow::Cow::from(file);
-                zip_file.set_extension("zip");
-                
-                let handle = tokio::spawn(async move {
-                    let intput = CompilerInput::default();
-                    crate::communicate::distributor::Distributor::compile(&addr, zip_file.as_os_str().into(), &intput, &content).await;
-                });
-                
+                let (handle, precompiled_files_path) = self_.transmit_precompiled_source_file(&addr, project_dir, &source_files.clone()).await;
+                // TODO: join handles may be return precompiled_files_path form current handle
                 handles.lock().unwrap().push(handle);
             });
 
@@ -429,7 +398,47 @@ impl MSVC {
         let precompiled_files = precompiled_files.lock().unwrap();
         return precompiled_files.clone();
     }
+
+    async fn transmit_precompiled_source_file(&self, addr: &str, mut project_dir: std::path::PathBuf, source_files: &Vec<String>)-> (tokio::task::JoinHandle<()>, Vec<std::ffi::OsString>){
+
+        let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Zstd);
+        let mut cursor = std::io::Cursor::new(Vec::new());
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+    
+        let mut precompiled_files_path = std::vec::Vec::<std::ffi::OsString>::new();
+        for file in source_files.to_owned() {
+    
+            let mut path = project_dir.clone().join(file);
+            path.set_extension("i");
+            zip.start_file(path.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
+            let file = std::fs::File::open(&path).unwrap();
+            
+            log::debug!("zip precompiled file: {:?}", path);
+    
+            let mut file = std::io::BufReader::new(file);
+            let _ = std::io::copy(&mut file, &mut zip);
+    
+            precompiled_files_path.push(path.clone().into_os_string());
+        }
+    
+        let content = zip.finish().unwrap();
+        let file = content.to_owned().into_inner();
+        let content = std::borrow::Cow::from(file);
+        project_dir.set_extension("zip");
+        
+        let addr = addr.to_owned();
+        let handle = tokio::spawn(async move {
+            let intput = CompilerInput::default();
+            crate::communicate::distributor::Distributor::compile(&addr, project_dir.as_os_str().into(), &intput, &content).await;
+        });
+    
+        return (handle, precompiled_files_path);
+        
+    } 
+    
 }
+
 
 
 fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
@@ -497,7 +506,7 @@ fn parse_version_from_path(path: &str) -> Option<crate::replica::toolchain::Comp
     });
     
     if let Some(version) = iter.next() {
-        println!("version: {:?}", version);
+        
         let mut cversion = crate::replica::toolchain::CompilerVersion {
             version: version.as_os_str().to_string_lossy().to_string(),
             host: crate::replica::toolchain::Arch::unknown,
@@ -507,19 +516,18 @@ fn parse_version_from_path(path: &str) -> Option<crate::replica::toolchain::Comp
         iter.next();
 
         if let Some(host) = iter.next() {
-            println!("host: {:?}", host);
             let host = host.as_os_str().to_str().unwrap();
             let host = crate::replica::toolchain::Arch::format(host);
             cversion.host = host;
         } 
         
         if let Some(target) = iter.next() {
-            println!("target: {:?}", target);
             let target = target.as_os_str().to_str().unwrap();
             let target = crate::replica::toolchain::Arch::format(target);
             cversion.target = target;
         }
-
+        
+        log::debug!("compiler version: {:?}", cversion);
         return Some(cversion);
     }
     else {
@@ -561,7 +569,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
                     let mut idb: Option<(std::ffi::OsString, Vec<u8>)> = None;
     
                     let mut result_path = std::path::PathBuf::from("");
-                    let object = fetch_compiler_object_file(&build_and_compiler_type, compiler_commands, compiler_working_dir);
+                    let object = fetch_compile_object_file(&build_and_compiler_type, compiler_commands, compiler_working_dir);
                     match object {
                         GeneratedObject::PathWithObjName(path) => {
                             result_path = path;
@@ -1050,7 +1058,7 @@ fn parse_compiler_input_command(compiler_input: CompilerInput, working_compiler_
     }
 }
 
-fn fetch_compiler_source_file(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) 
+fn fetch_compile_source_file(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) 
                                     -> Option<std::collections::HashMap<String, std::path::PathBuf>> {
 
     let working_dir = std::path::PathBuf::from(working_dir);
@@ -1109,7 +1117,7 @@ enum GeneratedObject {
     PathWithoutObjName(std::path::PathBuf),
 }
 
-fn fetch_compiler_object_file(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> GeneratedObject {
+fn fetch_compile_object_file(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> GeneratedObject {
 
     if build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || build_and_compiler_type.to_string_lossy().contains("CMake") 
