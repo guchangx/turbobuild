@@ -15,10 +15,23 @@ pub struct CompileTrRequest {
     pub content: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct IntermediateResult {
+    #[prost(string, tag = "1")]
+    pub file: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", tag = "2")]
+    pub content: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompileTrResponse {
-    #[prost(int32, tag = "1")]
-    pub error_code: i32,
+    #[prost(enumeration = "CompileProgress", tag = "1")]
+    pub progress: i32,
     #[prost(string, tag = "2")]
+    pub info: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "3")]
+    pub results: ::prost::alloc::vec::Vec<IntermediateResult>,
+    #[prost(int32, tag = "4")]
+    pub error_code: i32,
+    #[prost(string, tag = "5")]
     pub error_message: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -55,6 +68,44 @@ pub struct CocrewResource {
     pub error_code: i32,
     #[prost(string, tag = "6")]
     pub error_message: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum CompileProgress {
+    Other = 0,
+    Filetransfer = 1,
+    Compilestart = 2,
+    Compiledone = 3,
+    Startlink = 4,
+    Linkdone = 5,
+}
+impl CompileProgress {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Other => "OTHER",
+            Self::Filetransfer => "FILETRANSFER",
+            Self::Compilestart => "COMPILESTART",
+            Self::Compiledone => "COMPILEDONE",
+            Self::Startlink => "STARTLINK",
+            Self::Linkdone => "LINKDONE",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "OTHER" => Some(Self::Other),
+            "FILETRANSFER" => Some(Self::Filetransfer),
+            "COMPILESTART" => Some(Self::Compilestart),
+            "COMPILEDONE" => Some(Self::Compiledone),
+            "STARTLINK" => Some(Self::Startlink),
+            "LINKDONE" => Some(Self::Linkdone),
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

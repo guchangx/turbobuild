@@ -1,6 +1,8 @@
 
 use std::io::Write;
 
+use winapi::um::winnt::PACCESS_ALLOWED_CALLBACK_ACE;
+
 pub mod package {
     include!("../../proto/pack.rs");
 }
@@ -96,16 +98,40 @@ impl FileReceiver {
                 build_and_compiler_type: std::ffi::OsString::from(request.variety),
             };
 
-            crate::compiler::interface::build(compiler_input);
-            
+            let (output, results) = crate::compiler::interface::build(compiler_input);
+            if output.status {
+                if let Some(results) = results {
 
-            let reply = package::CompileTrResponse {
-                error_code: 0,
-                error_message: "transmit do compile success.".to_string(),
-            };
+                    let intermediate = package::IntermediateResult::default();
 
-            let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+                    for result in results {
+                        if let Some(obj)  = result.obj {
+                            let file = obj.0;
+                            let content = obj.1;
+                        }
+                        else if let Some(idb) = result.idb {
+                            let file = idb.0;
+                            let content = idb.1;
+                        }
+                        else if let Some(pdb) = result.pdb {
+                            let file = pdb.0;
+                            let content = pdb.1;
+                        }
+                    }
 
+                    let reply = package::CompileTrResponse {
+                        progress: package::CompileProgress::Compiledone.into(),
+                        info: "".to_string(),
+                        results: Vec::new(),
+                        error_code: 0,
+                        error_message: "transmit do compile success.".to_string(),
+                    };
+                    let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+                };
+            }
+            else {
+                
+            }
         }
         else if !content.is_empty() {
             let mut file = std::fs::File::create(&file).unwrap();
@@ -118,6 +144,9 @@ impl FileReceiver {
                 }
             }
             let reply = package::CompileTrResponse {
+                progress: package::CompileProgress::Filetransfer.into(),
+                info: "".to_string(),
+                result: None,
                 error_code: 0,
                 error_message: "transmit do save file success.".to_string(),
             };
@@ -126,10 +155,13 @@ impl FileReceiver {
         }
         else {
             let reply = package::CompileTrResponse {
+                progress: package::CompileProgress::Filetransfer.into(),
+                info: "".to_string(),
+                result: None,
                 error_code: 0,
                 error_message: "sync compile success.".to_string(),
             };
-             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+            let _ = tx.send(Ok(reply)).await.expect("tx send failed");
         }
     }
 

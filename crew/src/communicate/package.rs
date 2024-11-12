@@ -125,12 +125,24 @@ impl FileSender {
                     match inner {
                         Ok(response) => {
                             if response.error_code == 0 {
-                                log::debug!("send compiled success: {}", response.error_message);
-                                
+                                log::debug!("send compiled response success: {}", response.error_message);
+
+                                if response.progress == pack::CompileProgress::Filetransfer as i32 {
+                                    
+                                }
+                                else if response.progress == pack::CompileProgress::Compilestart as i32 {
+
+                                }
+                                else if response.progress == pack::CompileProgress::Compiledone as i32 {
+
+                                }
+                                else {
+                                    
+                                }
                             }
                         },
                         Err(err) => {
-   
+                            log::error!("send compiled response failed. {}", err);
                         },
                     }
                 }

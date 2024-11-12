@@ -353,13 +353,10 @@ impl MSVC {
     }
     
     async fn load_and_transmit_precompiled_result(&self, source_files: &Vec<String>, addr: &str, project_dir: std::path::PathBuf) -> Vec<std::ffi::OsString> {
-            
-        let precompiled_files = std::sync::Arc::new(std::sync::Mutex::new(Vec::<std::ffi::OsString>::new()));
         
         let mut source_files = source_files.to_owned();
-        let handles = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
-        let mut bulk_handles = Vec::new();
+        let mut handles = Vec::new();
         loop {
             let mut left = Vec::<String>::new();
             if source_files.len() >= 32 {
@@ -368,17 +365,13 @@ impl MSVC {
 
             let project_dir = project_dir.clone();
             let addr = addr.to_owned();
-            let handles = handles.clone();
 
-            let self_ = self.clone();
             let bulk_handle = self.runtime.spawn(async move {
-
-                let (handle, precompiled_files_path) = self_.transmit_precompiled_source_file(&addr, project_dir, &source_files.clone()).await;
-                // TODO: join handles may be return precompiled_files_path form current handle
-                handles.lock().unwrap().push(handle);
+                let files = transmit_precompiled_source_file(&addr, project_dir, &source_files.clone()).await;
+                return files;
             });
 
-            bulk_handles.push(bulk_handle);
+            handles.push(bulk_handle);
 
             if left.is_empty() {
                 break;
@@ -387,59 +380,50 @@ impl MSVC {
             source_files = left;
         }
 
-        for handle in handles.lock().unwrap().iter_mut() {
-            handle.await.unwrap();
+        let mut precompiled_files = Vec::<std::ffi::OsString>::new();
+        for handle in handles {
+            let mut files = handle.await.unwrap();
+            precompiled_files.append(&mut files);
         }
 
-        for handle in bulk_handles {
-            handle.await.unwrap();
-        }
-
-        let precompiled_files = precompiled_files.lock().unwrap();
-        return precompiled_files.clone();
+        return precompiled_files;
     }
-
-    async fn transmit_precompiled_source_file(&self, addr: &str, mut project_dir: std::path::PathBuf, source_files: &Vec<String>)-> (tokio::task::JoinHandle<()>, Vec<std::ffi::OsString>){
-
-        let options = zip::write::SimpleFileOptions::default()
-        .compression_method(zip::CompressionMethod::Zstd);
-        let mut cursor = std::io::Cursor::new(Vec::new());
-        let mut zip = zip::ZipWriter::new(&mut cursor);
-    
-        let mut precompiled_files_path = std::vec::Vec::<std::ffi::OsString>::new();
-        for file in source_files.to_owned() {
-    
-            let mut path = project_dir.clone().join(file);
-            path.set_extension("i");
-            zip.start_file(path.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
-            let file = std::fs::File::open(&path).unwrap();
-            
-            log::debug!("zip precompiled file: {:?}", path);
-    
-            let mut file = std::io::BufReader::new(file);
-            let _ = std::io::copy(&mut file, &mut zip);
-    
-            precompiled_files_path.push(path.clone().into_os_string());
-        }
-    
-        let content = zip.finish().unwrap();
-        let file = content.to_owned().into_inner();
-        let content = std::borrow::Cow::from(file);
-        project_dir.set_extension("zip");
-        
-        let addr = addr.to_owned();
-        let handle = tokio::spawn(async move {
-            let intput = CompilerInput::default();
-            crate::communicate::distributor::Distributor::compile(&addr, project_dir.as_os_str().into(), &intput, &content).await;
-        });
-    
-        return (handle, precompiled_files_path);
-        
-    } 
     
 }
 
+async fn transmit_precompiled_source_file(addr: &str, mut project_dir: std::path::PathBuf, source_files: &Vec<String>)-> Vec<std::ffi::OsString> {
 
+    let options = zip::write::SimpleFileOptions::default()
+    .compression_method(zip::CompressionMethod::Zstd);
+    let mut cursor = std::io::Cursor::new(Vec::new());
+    let mut zip = zip::ZipWriter::new(&mut cursor);
+
+    let mut precompiled_files_path = std::vec::Vec::<std::ffi::OsString>::new();
+    for file in source_files.to_owned() {
+
+        let mut path = project_dir.clone().join(file);
+        path.set_extension("i");
+        zip.start_file(path.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
+        let file = std::fs::File::open(&path).unwrap();
+        
+        log::debug!("zip precompiled file: {:?}", path);
+
+        let mut file = std::io::BufReader::new(file);
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        precompiled_files_path.push(path.clone().into_os_string());
+    }
+
+    let content = zip.finish().unwrap();
+    let file = content.to_owned().into_inner();
+    let content = std::borrow::Cow::from(file);
+    project_dir.set_extension("zip");
+
+    let intput = CompilerInput::default();
+    crate::communicate::distributor::Distributor::compile(&addr, project_dir.as_os_str().into(), &intput, &content).await;
+    return precompiled_files_path;
+    
+}
 
 fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
         compiler_commands: &Vec<std::ffi::OsString>, by_stdout: bool) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {

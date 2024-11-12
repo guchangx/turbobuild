@@ -8,7 +8,7 @@ pub trait Compiler {
 pub fn build(compiler_input: CompilerInput)
         -> (CompilerOutput, Option<ProcessedResults>) {
             
-    println!("build and compiler type: {:?}", compiler_input.build_and_compiler_type);
+    log::info!("build and compiler type: {:?}", compiler_input.build_and_compiler_type);
     if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
 

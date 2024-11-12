@@ -11,9 +11,26 @@ message CompileTrRequest {
     bytes content = 6;
 }
 
+enum CompileProgress {
+    OTHER = 0;
+    FILETRANSFER = 1;
+    COMPILESTART = 2;
+    COMPILEDONE = 3;
+    STARTLINK = 4;
+    LINKDONE = 5;
+}
+
+message IntermediateResult {
+    string file = 1;
+    bytes content = 2;
+}
+
 message CompileTrResponse {
-    int32 error_code = 1;
-    string error_message = 2;
+    CompileProgress progress = 1;
+    string info = 2;
+    repeated IntermediateResult results = 3;
+    int32 error_code = 4;
+    string error_message = 5;
 }
 
 enum FileType {
