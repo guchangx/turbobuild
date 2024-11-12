@@ -6,12 +6,11 @@ pub struct Property {
 } 
 
 impl Property {
-    pub fn new(_project_name: String, real_project_path: String, _replica_project_dir: String) -> Self {
+    pub fn new(project_name: &str, real_project_path: &str) -> Self {
         let replica_project_dir = Self::fetch_local_replica_dir();
-        let project_name = "GammaRayTool".to_string();
         Property {
-            project_name,
-            real_project_path,
+            project_name: project_name.to_string(),
+            real_project_path: real_project_path.to_string(),
             replica_project_dir,
         }
     }
@@ -29,8 +28,8 @@ impl Property {
     }
 
     pub fn fetch_local_replica_project_path(self) -> std::path::PathBuf {
-        if self.replica_project_dir == "" {
-            return std::path::PathBuf::from(self.real_project_path);
+        if self.replica_project_dir.is_empty() {
+            return std::path::PathBuf::from(format!("{}/{}", self.replica_project_dir, self.project_name));
         }
         else {
             if let Some(point) = self.real_project_path.find(&self.project_name) {
@@ -39,6 +38,7 @@ impl Property {
             }
             else
             {
+                log::warn!("can not find project name {:?} in real project path {}.", self.project_name, self.real_project_path);
                 return std::path::PathBuf::from(self.replica_project_dir).join("project");
             }
         }

@@ -192,7 +192,7 @@ impl MSVC {
                     project = path.to_str().unwrap().to_owned()
                 },
                 GeneratedObject::PathWithoutObjName(path) => {
-                    log::debug!("local compile object files: {:?}", path);
+                    log::debug!("fetch compile object files without objname: {:?}", path);
                     project = path.to_str().unwrap().to_owned()
                 },
                 GeneratedObject::NoneObjPath => {log::warn!("can't fetch object file")}

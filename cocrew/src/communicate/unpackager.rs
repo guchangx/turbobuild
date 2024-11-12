@@ -1,6 +1,7 @@
 
 use std::io::Write;
 
+use crew::replica::project;
 use winapi::um::winnt::PACCESS_ALLOWED_CALLBACK_ACE;
 
 pub mod package {
@@ -98,66 +99,18 @@ impl FileReceiver {
                 build_and_compiler_type: std::ffi::OsString::from(request.variety),
             };
 
-            let (output, results) = crate::compiler::interface::build(compiler_input);
-            if output.status {
-                if let Some(results) = results {
-
-                    let intermediate = package::IntermediateResult::default();
-
-                    for result in results {
-                        if let Some(obj)  = result.obj {
-                            let file = obj.0;
-                            let content = obj.1;
-                        }
-                        else if let Some(idb) = result.idb {
-                            let file = idb.0;
-                            let content = idb.1;
-                        }
-                        else if let Some(pdb) = result.pdb {
-                            let file = pdb.0;
-                            let content = pdb.1;
-                        }
-                    }
-
-                    let reply = package::CompileTrResponse {
-                        progress: package::CompileProgress::Compiledone.into(),
-                        info: "".to_string(),
-                        results: Vec::new(),
-                        error_code: 0,
-                        error_message: "transmit do compile success.".to_string(),
-                    };
-                    let _ = tx.send(Ok(reply)).await.expect("tx send failed");
-                };
-            }
-            else {
-                
-            }
+            let reply = Self::execute(&compiler_input).await;
+            let _ = tx.send(Ok(reply)).await.expect("tx send failed");
         }
         else if !content.is_empty() {
-            let mut file = std::fs::File::create(&file).unwrap();
-            match file.write_all(&content) {
-                Ok(_) => {
-                    log::trace!("transmit file done: {:?}", file);
-                },
-                Err(err) => {
-                    log::error!("transmit file failed. {:?}", err)
-                }
-            }
-            let reply = package::CompileTrResponse {
-                progress: package::CompileProgress::Filetransfer.into(),
-                info: "".to_string(),
-                result: None,
-                error_code: 0,
-                error_message: "transmit do save file success.".to_string(),
-            };
-
+            let reply = Self::storage(&file, &content).await;
             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
         }
         else {
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Filetransfer.into(),
                 info: "".to_string(),
-                result: None,
+                results: Vec::new(),
                 error_code: 0,
                 error_message: "sync compile success.".to_string(),
             };
@@ -165,22 +118,115 @@ impl FileReceiver {
         }
     }
 
-    async fn persistence(path: &str, content: &[u8]) {
+    async fn storage(path: &str, content: &[u8]) -> package::CompileTrResponse {
+                    
+        let project = crew::replica::project::Property::new("GammaRayTool", path);
+        let path = project.fetch_local_replica_project_path();
         
+        
+        if path.extension() == Some(&std::ffi::OsString::from("zip")) {
+            Self::extract(&path.to_str().unwrap(), &content).await;
+        }
+        else {
+            
+            let mut file = std::fs::File::create(&path).unwrap();
+            match file.write_all(&content) {
+                Ok(_) => {
+                    log::trace!("transmit storage file done: {:?}", path);
+        
+                },
+                Err(err) => {
+                    log::error!("transmit storage file failed. {:?}", err)
+                }
+            }
+        }
+        
+        let reply = package::CompileTrResponse {
+            progress: package::CompileProgress::Filetransfer.into(),
+            info: "".to_string(),
+            results: Vec::new(),
+            error_code: 0,
+            error_message: "transmit do save file success.".to_string(),
+        };
+        return reply;
     }
 
     async fn extract(path: &str, content: &[u8]) {
         if path.ends_with(".zip") {
             let cursor = std::io::Cursor::new(content);
             let mut zip = zip::ZipArchive::new(cursor).unwrap();
-            let replica = crew::replica::toolchain::Property::new("".to_string(), path.to_string());
-            let replica_path = replica.access_replica_toolchain_path();
-            zip.extract(replica_path).unwrap();
+            match zip.extract(path) {
+                Ok(_) => {
+                    log::trace!("extract zip file done: {}", path);
+                },
+                Err(err) => {
+                    log::error!("extract zip file failed. {}", err);
+                }
+            }
         }
         else {
             
         }
     }
+    async fn execute(input: &crew::compiler::model::CompilerInput) -> package::CompileTrResponse {
+        let (output, results) = crate::compiler::interface::build(input.to_owned());
+        if output.status {
+            let mut intermediates = Vec::new();
+            if let Some(results) = results {
+                for result in results {
+                    if let Some(obj)  = result.obj {
+                        let file = obj.0;
+                        let content = obj.1;
+                        let intermediate = package::IntermediateResult {
+                            file: file.to_string_lossy().into(),
+                            content: content,
+                        };
+                        intermediates.push(intermediate);
+                    }
+                    else if let Some(idb) = result.idb {
+                        let file = idb.0;
+                        let content = idb.1;
+                        let intermediate = package::IntermediateResult {
+                            file: file.to_string_lossy().into(),
+                            content: content,
+                        };
+                        intermediates.push(intermediate);
+                    }
+                    else if let Some(pdb) = result.pdb {
+                        let file = pdb.0;
+                        let content = pdb.1;
+                        let intermediate = package::IntermediateResult {
+                            file: file.to_string_lossy().into(),
+                            content: content,
+                        };
+                        intermediates.push(intermediate);
+                    }
+                }
+            };
+            
+            let reply = package::CompileTrResponse {
+                progress: package::CompileProgress::Compiledone.into(),
+                info: "".to_string(),
+                results: intermediates,
+                error_code: 0,
+                error_message: "transmit do compile success.".to_string(),
+            };
+            return reply;
+        }
+        else {
+            log::info!("compile filename {:?} output {:?}", output.filename, output.output);
+            
+            let reply = package::CompileTrResponse {
+                progress: package::CompileProgress::Compiledone.into(),
+                info: "".to_string(),
+                results: Vec::new(),
+                error_code: 0,
+                error_message: "transmit do compile success.".to_string(),
+            };
+            return reply;
+        }
+    }
+    
 }
 
 type ResponseStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::CompileTrResponse, tonic::Status>> + Send>>;

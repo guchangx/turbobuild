@@ -69,10 +69,10 @@ impl Property {
         }
     }
 
-    pub fn new(replica_dir: String, original_toolchain_path: String) -> Self {
+    pub fn new(replica_dir: &str, original_toolchain_path: &str) -> Self {
         Property {
-            replica_dir,
-            original_toolchain_path,
+            replica_dir: replica_dir.to_string(),
+            original_toolchain_path: original_toolchain_path.to_string(),
             replica_toolchain_versions: Vec::new(),
         }
     }
