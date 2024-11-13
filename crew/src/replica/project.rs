@@ -34,12 +34,12 @@ impl Property {
         else {
             if let Some(point) = self.real_project_path.find(&self.project_name) {
                 let tail = self.real_project_path[point..].to_string();
-                return std::path::PathBuf::from(self.replica_project_dir).join("project").join(tail);
+                return std::path::PathBuf::from(self.replica_project_dir).join("Project").join(tail);
             }
             else
             {
                 log::warn!("can not find project name {:?} in real project path {}.", self.project_name, self.real_project_path);
-                return std::path::PathBuf::from(self.replica_project_dir).join("project");
+                return std::path::PathBuf::from(self.replica_project_dir).join("Project");
             }
         }
     }

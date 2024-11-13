@@ -332,7 +332,7 @@ impl MSVC {
     async fn request_dist_compile_and_wait_result(&self, addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
     
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
-        
+        log::debug!("compiler version: {:?}", cversion);
         if self.sender.lock().unwrap().check(addr, &cversion) {
                 
             let result = request_dist_compile_with_precompiled_source(addr, &input, &precompiled).await;
@@ -511,7 +511,6 @@ fn parse_version_from_path(path: &str) -> Option<crate::replica::toolchain::Comp
             cversion.target = target;
         }
         
-        log::debug!("compiler version: {:?}", cversion);
         return Some(cversion);
     }
     else {
@@ -654,7 +653,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
             else {
                 log::trace!("exclude source file,maybe warning and error. {:?}", line);
             }
-        }
+         }
     };
     
     let result = CompilerOutput {
@@ -806,18 +805,19 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
 
     let now = std::time::Instant::now();
     let path = precompiled.path.clone();
-    if !input.compiler_commands.is_empty() {
+    if !input.compiler_commands.is_empty() || !precompiled.contents.is_some() {
         if let Some(content) = precompiled.contents.clone() {
+            log::info!("precompiled sourcefile result has content. so just transmit file");
             let content = std::borrow::Cow::from(content);
-    
             crate::communicate::distributor::Distributor::compile(addr, path, input, &content).await;
         }
         else {
-            log::info!("precompiled source result content is empty. so just transmit command");
+            log::info!("precompiled sourcefile result content is empty. so just transmit command"); 
+            crate::communicate::distributor::Distributor::compile(addr, path, input, &std::borrow::Cow::from(Vec::new())).await;
         }   
     }
     else {
-        log::warn!("compiler commands is empty, so do nothing.")
+        log::warn!("compiler commands and context is all empty, so do nothing.")
     }
 
     log::debug!("communicate distribute compile elapsed: {:?}", now.elapsed());

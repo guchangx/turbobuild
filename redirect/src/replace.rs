@@ -35,16 +35,16 @@ impl Model {
                     let nt_dir = format!("\\??\\{}", self.replica_project_dir);
                     println!("nt dir {}", nt_dir);
 
-                    return std::path::PathBuf::from(nt_dir).join("project").join(tail);
+                    return std::path::PathBuf::from(nt_dir).join("Project").join(tail);
                 }
                 else 
                 {
-                    return std::path::PathBuf::from(self.replica_project_dir).join("project").join(tail);
+                    return std::path::PathBuf::from(self.replica_project_dir).join("Project").join(tail);
                 }
             }
             else
             {
-                return std::path::PathBuf::from(self.replica_project_dir).join("project");
+                return std::path::PathBuf::from(self.replica_project_dir).join("Project");
             }
         }
     }

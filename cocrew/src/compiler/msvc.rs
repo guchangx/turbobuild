@@ -223,7 +223,7 @@ fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir
                 compiled_filename.push(std::ffi::OsString::from(line));
             }
             else {
-                log::trace!("exclude source file,maybe warning and error. {:?}", line);
+                log::trace!("exclude source file, maybe warning and error. {:?}", line);
             }
         }
     };
@@ -363,7 +363,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
 }
 
 
-fn redirect_stdout_log() {
+pub fn redirect_stdout_log() {
 
     use std::os::windows::ffi::OsStrExt;
     let os_string = std::ffi::OsString::from("\\\\.\\pipe\\redirect_stdout_log_pipe");

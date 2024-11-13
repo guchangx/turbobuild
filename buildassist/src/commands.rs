@@ -218,6 +218,7 @@ fn parse_commands_by_line(line: &str) -> (String, Vec<std::ffi::OsString>) {
     return (compiler, result_);
 }
 
+/* 
 fn parse_project_name_from_source_path(path: &String) -> std::ffi::OsString {
     let path = std::path::PathBuf::from(path);
     let mut path = path.canonicalize().unwrap();
@@ -255,7 +256,8 @@ fn parse_project_name_from_source_path(path: &String) -> std::ffi::OsString {
         }
     }
 }
-
+*/
+//TODO should fetch object name, but it is not ideal way to do it.
 #[cfg(test)]
 mod tests {
     use super::*;

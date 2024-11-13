@@ -23,33 +23,28 @@ impl FileReceiver {
         return receiver;
     }
 
-    pub fn init(&self) {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(async move {
-            
-            let addr = "0.0.0.0:19302".parse().expect("parse addr failed");
-            log::debug!("init cocrew communicate server {}", addr);
-            let receiver = FileReceiver {
-                common: self.common.clone(),
-            };
-            
-            let server = package::communicate_server::CommunicateServer::new(receiver);
-    
-            let result = tonic::transport::Server::builder()
-                .add_service(server)
-                .serve(addr)
-                .await;
-            
-            match result {
-                Ok(_) => {
-                    log::debug!("run communicate rpc service end");
-                },
-                Err(err) => {
-                    panic!("run communicate rpc service failed: {}", err);
-                }
-            }
-        });
+    pub async fn init(&self) {   
+        let addr = "0.0.0.0:19302".parse().expect("parse addr failed");
+        log::debug!("init cocrew communicate server {}", addr);
+        let receiver = FileReceiver {
+            common: self.common.clone(),
+        };
+        
+        let server = package::communicate_server::CommunicateServer::new(receiver);
 
+        let result = tonic::transport::Server::builder()
+            .add_service(server)
+            .serve(addr)
+            .await;
+        
+        match result {
+            Ok(_) => {
+                log::debug!("run communicate rpc service end");
+            },
+            Err(err) => {
+                panic!("run communicate rpc service failed.addr {:?},  {:?}", addr, err);
+            }
+        }
     }
 
     async fn transmit_file_handle(&self, request: package::FileTrRequest) -> package::FileTrResponse {
@@ -86,7 +81,7 @@ impl FileReceiver {
         let file = request.file;
         let compiler = request.compiler;
 
-        log::trace!("compile handle name: {} {}", file, compiler);
+        log::trace!("compile handle name: {} compiler: {}", file, compiler);
         let commands = request.commands;
         let content = request.content;
 

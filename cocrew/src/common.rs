@@ -24,12 +24,18 @@ pub fn init_common() {
     let receiver = crate::communicate::unpackager::FileReceiver::new(weak_common.clone());
     let receiver_ = receiver.clone();
     
-    let handle = std::thread::spawn(move || {
-        receiver_.init();            
-    });
-
     weak_common.upgrade().unwrap().lock().unwrap().file_receiver = Some(std::sync::Arc::new(std::sync::Mutex::new(receiver)));
-
-    handle.join().unwrap();
+    
     log::info!("common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
+    
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    runtime.spawn(async move {
+        crate::compiler::msvc::redirect_stdout_log();
+    });
+    
+    runtime.block_on(async move {
+        receiver_.init().await;
+    });
+    
+    log::info!("end cocrew");
 }
