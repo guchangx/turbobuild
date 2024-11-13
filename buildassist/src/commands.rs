@@ -97,7 +97,6 @@ fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsStr
                 Some(line) => {
                     
                     let (compiler, commands) = parse_commands_by_line(line.as_str());
-                    //let (compiler, commands) = parse_compiler_commands(line);
                     
                     let path = std::path::PathBuf::from(compiler.clone());
                     let _version = path.into_iter()
@@ -217,6 +216,44 @@ fn parse_commands_by_line(line: &str) -> (String, Vec<std::ffi::OsString>) {
     }
     
     return (compiler, result_);
+}
+
+fn parse_project_name_from_source_path(path: &String) -> std::ffi::OsString {
+    let path = std::path::PathBuf::from(path);
+    let mut path = path.canonicalize().unwrap();
+    //E:\TestFuture\GammaRay\GammaRay Tool\3rdparty\
+    loop {
+        path.pop();
+        let mut has = false;
+
+        path.push("CMakeLists.txt");
+        if path.exists() {
+            has = true;
+        }
+        else {
+            if let Ok(entries) = std::fs::read_dir(path) {
+                for entry in entries {
+                    if let Ok(entry) = entry {
+                        let metadata = entry.metadata().unwrap();
+                        if metadata.is_file() {
+                            if let Some(ext) = entry.path().extension() {
+                                if ext == std::ffi::OsString::from(".sln") {
+                                    has = true;
+                                    break;
+                                }
+                            }                    
+                        }
+                    }
+                }
+            }
+        }
+
+        if has {
+            if let Some(project) = path.components().last() {
+                return project.as_os_str().to_os_string()
+            }
+        }
+    }
 }
 
 #[cfg(test)]

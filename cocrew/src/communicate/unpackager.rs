@@ -123,7 +123,6 @@ impl FileReceiver {
         let project = crew::replica::project::Property::new("GammaRayTool", path);
         let path = project.fetch_local_replica_project_path();
         
-        
         if path.extension() == Some(&std::ffi::OsString::from("zip")) {
             Self::extract(&path.to_str().unwrap(), &content).await;
         }
@@ -153,19 +152,20 @@ impl FileReceiver {
 
     async fn extract(path: &str, content: &[u8]) {
         if path.ends_with(".zip") {
+            let dir = &path[..(path.len() - ".zip".len())];
             let cursor = std::io::Cursor::new(content);
             let mut zip = zip::ZipArchive::new(cursor).unwrap();
-            match zip.extract(path) {
+            match zip.extract(dir) {
                 Ok(_) => {
-                    log::trace!("extract zip file done: {}", path);
+                    log::trace!("extract zip file done: {}", dir);
                 },
                 Err(err) => {
-                    log::error!("extract zip file failed. {}", err);
+                    log::error!("extract zip file failed. {} {}", dir, err);
                 }
             }
         }
         else {
-            
+            log::warn!("extract file do not ends with .zip");
         }
     }
     async fn execute(input: &crew::compiler::model::CompilerInput) -> package::CompileTrResponse {
