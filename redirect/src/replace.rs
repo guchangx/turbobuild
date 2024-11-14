@@ -70,6 +70,7 @@ pub fn replace(path: &mut String) -> bool {
         return false;
     }
     else if path.ends_with(".i") {
+        //"C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\Replica/projet"
         let project = Model::new("".to_string(), path.to_owned(), "".to_string());
         let replica = project.fetch_local_replica_project_path();
         *path = replica.to_string_lossy().to_string();

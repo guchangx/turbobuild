@@ -101,17 +101,17 @@ fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsStr
                     
                     let (project, compiler, commands) = parse_commands_by_line(line.as_str());
                     
-                    let path = std::path::PathBuf::from(compiler.clone());
-                    let _version = path.into_iter()
-                    .filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap() != "cl.exe")
-                    .nth(0)
-                    .unwrap();
-                    
-                    let _arch = path.into_iter()
-                    .filter(|arg| arg.to_str().unwrap().starts_with("x86") || arg.to_str().unwrap().starts_with("x64"))
-                    .nth(0)
-                    .unwrap();
-
+                    if compiler.is_empty() {
+                        let path = std::path::PathBuf::from(compiler.clone());
+                        let _version = path.into_iter()
+                            .filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap() != "cl.exe")
+                            .nth(0)
+                            .unwrap();
+                        let _arch = path.into_iter()
+                            .filter(|arg| arg.to_str().unwrap().starts_with("x86") || arg.to_str().unwrap().starts_with("x64"))
+                            .nth(0)
+                            .unwrap();
+                    }
                     return (project, compiler, Some(commands));
                 },
                 None => {
@@ -126,10 +126,10 @@ fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsStr
 }
 
 fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString>) {
-
+    
     let mut line_ = String::new();
     let mut compiler = String::new();
-    let assist = "AssistClCompilerPath:";
+    let assist = "BuildAssistCompilerPath:";
     if let Some(start) = line.find(assist) {
         let cl = "cl.exe";
         if let Some(end) = line[start..].find(cl) {
@@ -142,22 +142,23 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
         line_.push_str(line);
     }
 
+    let mut line__ = String::new();
     let mut project = String::new();
-    let assist = "AssistClProjectName:";
-    if let Some(start) = line.find(assist) {
-        let cl = "cl.exe";
-        if let Some(end) = line[start..].find(cl) {
-            let project_name = &line[start..(start + end + cl.len() + 1)];
-            line_ = line.replace(project_name, "").to_string();
+    let assist = "BuildAssistProjectName:";
+    if let Some(start) = line_.find(assist) {
+        let delimiter = " ";
+        if let Some(end) = line_[start..].find(delimiter) {
+            let project_name = &line_[start..(start + end + delimiter.len())];
+            line__ = line_.replace(project_name, "").to_string();
             project = project_name.replace(assist, "").trim_end().to_string();
         }
     }
     else {
-        line_.push_str(line);
+        line__.push_str(&line_);
     }
 
     
-    let commands: Vec<_> = line_.split(&[' ', '\u{A0}']).collect();
+    let commands: Vec<_> = line__.split(&[' ', '\u{A0}']).collect();
 
     let mut result = Vec::new();
     let mut iter = commands.iter();
@@ -190,7 +191,7 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
 
     let mut result_ = Vec::new();
     let mut iter = result.iter();
-
+    
     while let Some(item) = iter.next() {
         if item == "/D" || item == "/d" {
             if let Some(next) = iter.next() {

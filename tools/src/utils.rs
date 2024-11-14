@@ -26,6 +26,7 @@ pub fn get_working_path(app: std::string::String) -> std::option::Option<std::st
     }
 }
 
+#[allow(unused_assignments)]
 pub fn get_or_create_working_path(app: &str) -> String {
     let mut dir = std::env::current_exe().unwrap();
     log::info!("current dir {:?}", dir);

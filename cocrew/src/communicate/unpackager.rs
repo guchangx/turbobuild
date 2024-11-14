@@ -130,7 +130,9 @@ impl FileReceiver {
         let project = crew::replica::project::Property::new(if project.is_empty() {"GammaryTool"} else { project }, path);
         let path = project.fetch_local_replica_project_path();
         
-        if path.extension() == Some(&std::ffi::OsString::from("zip")) {
+        log::trace!("replica storage path: {:?}", path);
+
+        if path.extension() == Some(&std::ffi::OsStr::new("zip")) {
             Self::extract(&path.to_str().unwrap(), &content).await;
         }
         else {
@@ -142,7 +144,7 @@ impl FileReceiver {
         
                 },
                 Err(err) => {
-                    log::error!("transmit storage file failed. {:?}", err)
+                    log::error!("transmit storage file failed. {:?} {:?}", path, err)
                 }
             }
         }
