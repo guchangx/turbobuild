@@ -69,9 +69,10 @@ impl Property {
         }
     }
 
-    pub fn new(replica_dir: &str, original_toolchain_path: &str) -> Self {
+    pub fn new(original_toolchain_path: &str) -> Self {
+        let path = Self::access_or_create_replica_dir();
         Property {
-            replica_dir: replica_dir.to_string(),
+            replica_dir: path,
             original_toolchain_path: original_toolchain_path.to_string(),
             replica_toolchain_versions: Vec::new(),
         }
@@ -83,18 +84,46 @@ impl Property {
     }
 
     pub fn access_replica_toolchain_path(&self) -> String {
-        let path = tools::utils::get_or_create_working_path("Replica");
-        let mut path = std::path::PathBuf::from(path);
+        let mut path = std::path::PathBuf::from(&self.replica_dir);
+        path.push("MSVC");
+
+        if let Some(version) = Self::parse_version_from_path(&self.original_toolchain_path) {
+            path.push(version);
+            path.push("bin");
+        }   
+
         if path.exists() && path.is_dir() {
-            path.push("MSVC");
             if path.exists() {
-                
+            
             }
             else {
-                std::fs::create_dir(&path).unwrap();
+                std::fs::create_dir_all(&path).unwrap();
             }
         }
         return path.to_string_lossy().to_string();
+    }
+
+    pub fn parse_version_from_path(path: &str) -> Option<String> {
+        let path = std::path::PathBuf::from(path);
+
+        let mut iter = path.components().skip_while(|&item| {
+                let item = item.as_os_str().to_string_lossy();
+                let vec = item.split('.').collect::<Vec<&str>>();
+                if vec.len() >= 3 {
+                    return false;
+                }
+                else {
+                    return true;                
+                }
+        });
+        
+        if let Some(version) = iter.next() {
+            let version = version.as_os_str().to_string_lossy().to_string();
+            return Some(version);
+        }
+        else {
+            return None;
+        }
     }
 
     pub fn load_replica_toolchain() -> Vec<CompilerVersion> {
@@ -151,7 +180,7 @@ impl Property {
                                     }
                                 }
                             }
-                         }
+                        }
                     }
                 }
                 return versions;
@@ -161,7 +190,7 @@ impl Property {
             }
         }
         else {
-            log::warn!("can't find replice in target dir.");
+            log::warn!("can't find replice in target dir so return emprty cversion.");
         }
         return versions;
     } 

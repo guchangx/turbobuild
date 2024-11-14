@@ -21,6 +21,7 @@ pub struct FileArgs {
 }
 
 pub struct PrecompiledFile<'a> {
+    pub project: String,
     pub file: String,
     pub compiler: String,
     pub working_dir: String,
@@ -108,6 +109,7 @@ impl FileSender {
 
     async fn send_compile(&mut self, compiled: PrecompiledFile<'_>) {
         let request = tonic::Request::new(pack::CompileTrRequest {
+            project: compiled.project,
             file: compiled.file,
             compiler: compiled.compiler,
             working_dir: compiled.working_dir,
@@ -128,7 +130,7 @@ impl FileSender {
                                 log::debug!("send compiled sourcefile response success: {}", response.error_message);
 
                                 if response.progress == pack::CompileProgress::Filetransfer as i32 {
-                                    
+
                                 }
                                 else if response.progress == pack::CompileProgress::Compilestart as i32 {
 

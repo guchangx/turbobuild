@@ -21,7 +21,7 @@ impl Packager {
     }
 
     fn pack_compiler<'a>(dir: &str, _name: &str) -> std::borrow::Cow<'a, [u8]> {
-        let mut path = std::path::PathBuf::from(dir);
+        let path = std::path::PathBuf::from(dir);
 
         let mut cursor = std::io::Cursor::new(Vec::new());
 
@@ -31,35 +31,24 @@ impl Packager {
 
         //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin
 
-        let version = path.components().find_map(|item| {
-            let path = item.as_os_str().to_string_lossy();
-            if path.contains('.') {
-                return Some(path);
-            }
-            else {
-                return None;
-            }
-        }).unwrap();
-        
-
         let cl = path.clone();
-        log::trace!("{:?}", cl);
-        let _ = zip.start_file(format!("{}/Hostx64/x64/cl.exe", version), options.clone()).unwrap();
+        log::trace!("pack {:?}", cl);
+        let _ = zip.start_file(format!("Hostx64/x64/cl.exe"), options.clone()).unwrap();
         let mut file = std::fs::File::open(cl.join("Hostx64/x64/cl.exe")).expect("can't find x64 cl.exe");
         let _ = std::io::copy(&mut file, &mut zip);
 
         let clui = path.clone();
-        log::trace!("{:?}", clui);
+        log::trace!("pack {:?}", clui);
 
-        let _ = zip.start_file(format!("{}/Hostx64/x64/1033/clui.dll", version), options.clone());
+        let _ = zip.start_file(format!("Hostx64/x64/1033/clui.dll"), options.clone());
         let mut file = std::fs::File::open(clui.join("Hostx64/x64/1033/clui.dll")).expect("can't find x64 clui.dll");
         let _ = std::io::copy(&mut file, &mut zip);
 
-        let _ = zip.start_file(format!("{}/Hostx64/x86/cl.exe", version), options.clone()).unwrap();
+        let _ = zip.start_file(format!("Hostx64/x86/cl.exe"), options.clone()).unwrap();
         let mut file = std::fs::File::open(cl.join("Hostx64/x86/cl.exe")).expect("can't find x86 cl.exe");
         let _ = std::io::copy(&mut file, &mut zip);
 
-        let _ = zip.start_file(format!("{}/Hostx64/x86/1033/clui.dll", version), options.clone());
+        let _ = zip.start_file(format!("Hostx64/x86/1033/clui.dll"), options.clone());
         let mut file = std::fs::File::open(clui.join("Hostx64/x86/1033/clui.dll")).expect("can't find x86 clui.dll");
         let _ = std::io::copy(&mut file, &mut zip);
 
@@ -176,8 +165,8 @@ mod tests {
         println!("test pack msvc dir");
         //14.39.33519
         //14.37.32822
-        
-        let content = Packager::pack_compiler(r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.37.32822\bin", "msvc");
+        let env = crate::platform::windows::WindowsCompilerEnv::default();
+        let content = Packager::pack_compiler(env.compiler_path.to_str().unwrap(), "msvc");
         
         let cursor = std::io::Cursor::new(content);
         let zip_archive = zip::ZipArchive::new(cursor).unwrap();

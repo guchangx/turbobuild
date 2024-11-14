@@ -1,4 +1,5 @@
 
+
 #[derive(Default, Clone)]
 pub struct Distributor {
     tasker: std::sync::Arc<std::sync::Mutex::<crate::roster::crews::TasksManager>>,
@@ -33,6 +34,7 @@ impl Distributor {
     pub async fn compile<'a>(addr: &str, file: std::ffi::OsString, input: &crate::compiler::model::CompilerInput, content: &std::borrow::Cow<'a, [u8]>) {
 
         let args = super::package::PrecompiledFile {
+            project: input.project.to_string_lossy().to_string(),
             file: file.to_string_lossy().to_string(),
             compiler: input.compiler_path.to_string_lossy().to_string(),
             working_dir: input.compiler_working_dir.to_string_lossy().to_string(),

@@ -1,7 +1,5 @@
 use sysinfo::RefreshKind;
 
-
-
 #[derive(Default, Clone)]
 pub struct Common {
     pub socket: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::compileripc::socket::Receiver>>>,
@@ -60,6 +58,13 @@ pub fn init() {
     let arc_dist = std::sync::Arc::new(std::sync::Mutex::new(dist));
 
     weak_common.upgrade().unwrap().lock().unwrap().tasks = Some(arc_tasks);
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+
+    let rt = runtime.handle();
+    weak_common.upgrade().unwrap().lock().unwrap().pool = Some(std::sync::Arc::new(rt.clone()));
 
     let socket = crate::compileripc::socket::Receiver::new(weak_common.clone(), arc_dist);
     let socket_ = socket.clone();
@@ -75,15 +80,7 @@ pub fn init() {
     let arc_compiler_env = std::sync::Arc::new(std::sync::Mutex::new(compiler_env));
     weak_common.upgrade().unwrap().lock().unwrap().compiler_env = Some(arc_compiler_env.clone());
     
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-
-    let rt = runtime.handle();
-    runtime.spawn(crate::fingerprint::register::register_fingerprint_to_capation(rt.clone(), weak_common.clone()));
-        
-    weak_common.upgrade().unwrap().lock().unwrap().pool = Some(std::sync::Arc::new(rt.clone()));
+    let _ = runtime.spawn(crate::fingerprint::register::register_fingerprint_to_capation(rt.clone(), weak_common.clone()));
 
     weak_common.upgrade().unwrap().lock().unwrap().roster = Some(arc_roster);
 

@@ -1,5 +1,6 @@
 
 pub struct CompilerInput {
+    pub project: std::ffi::OsString,
     pub compiler_path: std::ffi::OsString,
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
@@ -12,7 +13,7 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
     
     let working_dir = std::env::current_dir().unwrap();
     if commands.len() <= 2  && commands.last().unwrap().to_string_lossy().ends_with(".rsp") {
-        let (mut compiler, commands) = fetch_and_parse_commands_for_msbuild(&mut commands);
+        let (project, mut compiler, commands) = fetch_and_parse_commands_for_msbuild(&mut commands);
         match commands {
             Some(commands) => {
 
@@ -22,6 +23,7 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
                 }
 
                 let input = CompilerInput {
+                    project: std::ffi::OsString::from(project),
                     compiler_path: std::ffi::OsString::from(compiler),
                     compiler_working_dir: std::ffi::OsString::from(working_dir),
                     compiler_commands: commands,
@@ -38,6 +40,7 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
      else {
         let (compiler_path, commands) = fetch_and_parse_commands_for_cmake(&mut commands);
         let input = CompilerInput {
+            project: std::ffi::OsString::from(""),
             compiler_path: compiler_path,
             compiler_working_dir: std::ffi::OsString::from(working_dir),
             compiler_commands: commands,
@@ -88,7 +91,7 @@ fn fetch_and_parse_commands_for_cmake(input_commands: &mut Vec<std::ffi::OsStrin
     return (local_compiler_path, input_commands.clone());
 }
 
-fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsString>) -> (String, Option<Vec<std::ffi::OsString>>) {
+fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsString>) -> (String, String, Option<Vec<std::ffi::OsString>>) {
 
     match input_commands.last() {
         Some(rspfile) => {
@@ -96,7 +99,7 @@ fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsStr
             match fetch_compiler_parameters_from_response_file(rspfile.to_string_lossy().replace("@", "")) {
                 Some(line) => {
                     
-                    let (compiler, commands) = parse_commands_by_line(line.as_str());
+                    let (project, compiler, commands) = parse_commands_by_line(line.as_str());
                     
                     let path = std::path::PathBuf::from(compiler.clone());
                     let _version = path.into_iter()
@@ -109,20 +112,20 @@ fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsStr
                     .nth(0)
                     .unwrap();
 
-                    return (compiler, Some(commands));
+                    return (project, compiler, Some(commands));
                 },
                 None => {
-                    return (String::new(), None);
+                    return (String::new(), String::new(), None);
                 },
             };
         },
         None => {
-            return (String::new(), None);
+            return (String::new(), String::new(), None);
         }
     };
 }
 
-fn parse_commands_by_line(line: &str) -> (String, Vec<std::ffi::OsString>) {
+fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString>) {
 
     let mut line_ = String::new();
     let mut compiler = String::new();
@@ -138,6 +141,21 @@ fn parse_commands_by_line(line: &str) -> (String, Vec<std::ffi::OsString>) {
     else {
         line_.push_str(line);
     }
+
+    let mut project = String::new();
+    let assist = "AssistClProjectName:";
+    if let Some(start) = line.find(assist) {
+        let cl = "cl.exe";
+        if let Some(end) = line[start..].find(cl) {
+            let project_name = &line[start..(start + end + cl.len() + 1)];
+            line_ = line.replace(project_name, "").to_string();
+            project = project_name.replace(assist, "").trim_end().to_string();
+        }
+    }
+    else {
+        line_.push_str(line);
+    }
+
     
     let commands: Vec<_> = line_.split(&[' ', '\u{A0}']).collect();
 
@@ -215,7 +233,7 @@ fn parse_commands_by_line(line: &str) -> (String, Vec<std::ffi::OsString>) {
         }
     }
     
-    return (compiler, result_);
+    return (project, compiler, result_);
 }
 
 /* 
@@ -265,15 +283,15 @@ mod tests {
     //cargo test --package buildassist --tests parse_commands -- --show-output
     fn parse_commands() {
         let line = r#"/c /IE:\TestFuture\GammaRay\GammaRayTool\build_enable\3rdparty\kde /Zi /nologo /W1 /WX- /diagnostics:column /Od /Ob0 /D _WINDLL /D _UNICODE /D UNICODE /D WIN32 /D _WINDOWS /D UNICODE /D _UNICODE /D _USING_V110_SDK71_=1 /D QT_DISABLE_DEPRECATED_BEFORE=0x050500 /D QT_USE_FAST_CONCATENATION /D QT_USE_FAST_OPERATOR_PLUS /D QT_NO_CAST_TO_ASCII /D QT_NO_URL_CAST_FROM_STRING /D QT_NO_DEBUG_OUTPUT /D QT_CORE_LIB /D "CMAKE_INTDIR=\"Debug\"" /D MAKE_KITEMMODELS_LIB /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /Fo"gammaray_kitemmodels.dir\Debug\\" /Fd"gammaray_kitemmodels.dir\Debug\vc143.pdb" /external:W0 /Gd /TP /wd4244 /wd4267 /errorReport:prompt AssistClCompilerPath:C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\cl.exe /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include/QtCore" E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\kmodelindexproxymapper.cpp E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\krecursivefilterproxymodel.cpp"#;
-        let (compiler, commands) = parse_commands_by_line(line);
-        assert!(!compiler.is_empty() && compiler.ends_with("cl.exe"));
+        let (projet, compiler, commands) = parse_commands_by_line(line);
+        assert!(!projet.is_empty() && compiler.ends_with("cl.exe"));
         println!("commands {:?}", commands);
     }
 
     #[test]
     fn parse_commands_include_space_path() {
         let line = r#"/c /I"E:\TestFuture\GammaRay\GammaRay Tool\3rdparty\" /I "E:\TestFuture\GammaRay\GammaRay Tool\3rdparty\" /Zi /nologo /Fo"gammaray kit.dir\Debug\\" /Fd"gammaray kit.dir\Debug\vc143.pdb""#;
-        let (compiler, commands) = parse_commands_by_line(line);
+        let (project, compiler, commands) = parse_commands_by_line(line);
         assert!(compiler.is_empty());
         println!("commands {:?}", commands);
         assert_eq!(commands.len(), 7);
@@ -282,7 +300,7 @@ mod tests {
     #[test]
     fn parse_commands_other() {
         let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /I"D:\Webex\spark-client-framework\." /I"D:\Webex\spark-client-framework\.." /I"D:\Webex\spark-client-framework\thirdparty\nlohmann\include" /Zi /W3 /WX /diagnostics:column /MP /O2 /Ob2 /Os /D _UNICODE /D UNICODE /D WIN32 /D _WINDOWS /D NDEBUG /D TP_FOR_GENERIC=1 /D THREAD_SAFE_EVENTLOOP=1 /D UNICODE /D _UNICODE /D bwc_EXPORTS /D CMAKE_BUILD /D DESKTOP_PLATFORM /D SCF_STATIC_DEFINE /D "CMAKE_INTDIR=\"Release\"" /Gm- /EHsc /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++17 /Fo"BwcCore.dir\Release\\" /Fd"BwcCore.dir\Release\BwcCore.pdb" /external:W3 /Gd /TP /wd4251 /wd4275 /errorReport:prompt /we4700 /we4701 /we6001 /we26494  /Zc:__cplusplus /bigobj /F2000000 "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Source\boss_admin.cpp" "#;
-        let (compiler, commands) = parse_commands_by_line(line);
+        let (project, compiler, commands) = parse_commands_by_line(line);
         assert!(compiler.is_empty());
         println!("commands {:?}", commands);
     }

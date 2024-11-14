@@ -11,9 +11,6 @@ pub struct MSVC {
 
 //TODO common param in func should be move in msvc struct
 use std::{ops::{Index, Add}, io::Read};
-
-use tonic::Streaming;
-
 use crate::compiler::model::{CompilerInput, CompilerOutput, ProcessedResults, PrecompiledSource};
 
 //TODO: rename ProcessedResults to CompileResults
@@ -95,7 +92,7 @@ impl MSVC {
                 if true {
                     // dist with preprocessed source
                     let now = std::time::Instant::now();
-                    let output = self.request_multi_dist_once_compile(&compiler_input.compiler_path, &compiler_input.compiler_working_dir, &compiler_commands.clone()).await;
+                    let output = self.request_multi_dist_once_compile(&compiler_input.project, &compiler_input.compiler_path, &compiler_input.compiler_working_dir, &compiler_commands.clone()).await;
                     log::trace!("requestmulti_dist_sync_once_compile elaspsed time: {:?}", now.elapsed());
                     //let output = request_dist_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
                     default_output.set(output);
@@ -156,7 +153,7 @@ impl MSVC {
         }
     }
 
-    async fn request_multi_dist_once_compile(&self, compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> CompilerOutput {
+    async fn request_multi_dist_once_compile(&self, project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> CompilerOutput {
 
         let mut result = CompilerOutput::default();
         let now = std::time::Instant::now();
@@ -169,7 +166,7 @@ impl MSVC {
             let mut files: Vec<String> = String::from_utf8_lossy(&stderr).lines().map(|item| item.to_string()).collect();
             let mut source_files: Vec<String> = files.clone();
 
-            let mut project = String::from("");
+            let mut object = String::from("");
             
             if let Some(sources) = fetch_compile_source_file (
                 &std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir) {
@@ -189,11 +186,11 @@ impl MSVC {
             match fetch_compile_object_file(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir) {
                 GeneratedObject::PathWithObjName(path) => {
                     log::debug!("fetch compile object files with objname: {:?}", path);
-                    project = path.to_str().unwrap().to_owned()
+                    object = path.to_str().unwrap().to_owned()
                 },
                 GeneratedObject::PathWithoutObjName(path) => {
                     log::debug!("fetch compile object files without objname: {:?}", path);
-                    project = path.to_str().unwrap().to_owned()
+                    object = path.to_str().unwrap().to_owned()
                 },
                 GeneratedObject::NoneObjPath => {log::warn!("can't fetch object file")}
             }
@@ -204,7 +201,7 @@ impl MSVC {
             if stdout.is_empty() {
                 let now = std::time::Instant::now();
     
-                let intermediate = project.replace("/Fo", "").replace("\\\\", "\\");
+                let intermediate = object.replace("/Fo", "").replace("\\\\", "\\");
 
                 addr = self.sender.lock().unwrap().schedule();
 
@@ -216,6 +213,7 @@ impl MSVC {
                 }
 
                 let input = CompilerInput {
+                    project: project.to_owned(),
                     compiler_path: compiler_path.to_owned(),
                     compiler_working_dir: compiler_working_dir.to_owned(),
                     compiler_commands: commands.to_owned(),
@@ -243,7 +241,7 @@ impl MSVC {
             for file in &source_files {
                 
                 let path = std::path::PathBuf::from(file);
-                let extension_i_path = push_project_name_to_precompiled_file_path(&path, project.clone());
+                let extension_i_path = push_project_name_to_precompiled_file_path(&path, object.clone());
                 commands.push(extension_i_path.clone().into_os_string());
                 
                 if let Some(next_file) = source_files.get(index + 1) {
@@ -255,6 +253,7 @@ impl MSVC {
                             let (first, last) = content.split_at(position);
                 
                             let msvc_compile_empty_input = CompilerInput {
+                                project: project.to_owned(),
                                 compiler_path: compiler_path.to_owned(),
                                 compiler_working_dir: std::ffi::OsString::from(""),
                                 compiler_commands: Vec::<std::ffi::OsString>::new(),
@@ -284,6 +283,7 @@ impl MSVC {
                 else {
 
                     let compiler_input = CompilerInput {
+                        project: project.to_owned(),
                         compiler_path: compiler_path.to_owned(),
                         compiler_working_dir: compiler_working_dir.to_owned(),
                         compiler_commands: commands.to_owned(),
@@ -446,19 +446,19 @@ fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working
     return (status, stdout, stderr);
 }
 
-fn push_project_name_to_precompiled_file_path(path: &std::path::PathBuf, project: String) -> std::path::PathBuf
+fn push_project_name_to_precompiled_file_path(path: &std::path::PathBuf, obejct: String) -> std::path::PathBuf
 {
-    if !project.is_empty() && project.contains(".dir") {
-        let index = project.find(".dir").unwrap();
-        let (first, _)= project.split_at(index);
-        let (_, project_name) = first.split_at(3);
+    if !obejct.is_empty() && obejct.contains(".dir") {
+        let index = obejct.find(".dir").unwrap();
+        let (first, _)= obejct.split_at(index);
+        let (_, obejct_name) = first.split_at(3);
         
         let mut path = path.to_owned();
         path.set_extension("i");
         if let Some(precompile_file_name) = path.file_name() {
             if let Some(parent) = path.parent() {
                 let mut path = parent.to_path_buf();
-                path.push(project_name);
+                path.push(obejct_name);
                 path.push(precompile_file_name);
                 return path;
             }
@@ -1264,5 +1264,4 @@ mod tests {
         println!("verson: {:?}", version);
 
     }
-
 }

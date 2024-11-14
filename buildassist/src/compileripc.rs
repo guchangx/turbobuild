@@ -24,7 +24,8 @@ impl SocketClient {
                 let commands: Vec<_> = compiler_input.compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
 
                 let buffer = format!(
-                    r#"{{"compiler_path": {:?}, "compiler_working_dir": {:?}, "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
+                    r#"{{"project": {:?}, "compiler_path": {:?}, "compiler_working_dir": {:?}, "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
+                    compiler_input.project.to_string_lossy(),
                     compiler_input.compiler_path.to_string_lossy(),
                     compiler_input.compiler_working_dir.to_string_lossy(),
                     commands,
@@ -75,12 +76,16 @@ mod tests {
         let commands: Vec<_> = compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
         
         let data = format!(
-            r#"{{"compiler_path": "{}", "compiler_working_dir": "{}", "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
+            r#"{{"project": "{}", "compiler_path": "{}", "compiler_working_dir": "{}", "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
+            std::ffi::OsString::from("draft").to_string_lossy(),
             std::ffi::OsString::from(r#"C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe"#).to_string_lossy(),
             std::ffi::OsString::new().to_string_lossy(),
             commands,
             std::ffi::OsString::new().to_string_lossy()
         );
+        
+        println!("socket data {:?}", data);
+
         let input: serde_json::Value = serde_json::from_str(&data).unwrap();
         assert!(input["compiler_path"].as_str().is_some());
         assert!(input["compiler_working_dir"].as_str().is_some());

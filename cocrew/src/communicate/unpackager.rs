@@ -58,7 +58,15 @@ impl FileReceiver {
         let file_type = request.file_type;
         
         if file_type == package::FileType::Toolchain as i32 {
+            if path.ends_with(".zip") {
+                let project = crew::replica::toolchain::Property::new(&path[..(path.len() - ".zip".len())]);
+                let path = project.access_replica_toolchain_path();
+    
                 Self::extract(&path, &content).await;
+            }
+            else {
+                log::error!("package toolchain is not end with .zip {}", path);
+            }
         }
             
         else if file_type == package::FileType::Kits as i32 {
@@ -78,16 +86,18 @@ impl FileReceiver {
     
     async fn transmit_compile_handle(&self, request: package::CompileTrRequest, tx: tokio::sync::mpsc::Sender<Result<package::CompileTrResponse, tonic::Status>>) {
 
+        let project = request.project;
         let file = request.file;
         let compiler = request.compiler;
 
-        log::trace!("compile handle name: {} compiler: {}", file, compiler);
+        log::trace!("transmit compile handle name: {} compiler: {}", file, compiler);
         let commands = request.commands;
         let content = request.content;
 
         if file.is_empty() {
 
             let compiler_input = crew::compiler::model::CompilerInput {
+                project: std::ffi::OsString::from(project),
                 compiler_path: std::ffi::OsString::from(compiler),
                 compiler_working_dir: std::ffi::OsString::from(request.working_dir),
                 compiler_commands: commands.iter().map(|item| std::ffi::OsString::from(item)).collect(),
@@ -98,8 +108,10 @@ impl FileReceiver {
             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
         }
         else if !content.is_empty() {
-            let reply = Self::storage(&file, &content).await;
+
+            let reply = Self::storage(&project, &file, &content).await;
             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+            
         }
         else {
             let reply = package::CompileTrResponse {
@@ -113,9 +125,9 @@ impl FileReceiver {
         }
     }
 
-    async fn storage(path: &str, content: &[u8]) -> package::CompileTrResponse {
-                    
-        let project = crew::replica::project::Property::new("GammaRayTool", path);
+    async fn storage(project: &str, path: &str, content: &[u8]) -> package::CompileTrResponse {
+
+        let project = crew::replica::project::Property::new(if project.is_empty() {"GammaryTool"} else { project }, path);
         let path = project.fetch_local_replica_project_path();
         
         if path.extension() == Some(&std::ffi::OsString::from("zip")) {
@@ -160,7 +172,17 @@ impl FileReceiver {
             }
         }
         else {
-            log::warn!("extract file do not ends with .zip");
+            let cursor = std::io::Cursor::new(content);
+            let mut zip = zip::ZipArchive::new(cursor).unwrap();
+            log::trace!("extract zip file names {:?}", zip.file_names().collect::<Vec<&str>>());
+            match zip.extract(path) {
+                Ok(_) => {
+                    log::trace!("extract zip file done: {}", path);
+                },
+                Err(err) => {
+                    log::error!("extract zip file failed. {} {}", path, err);
+                }
+            }
         }
     }
     async fn execute(input: &crew::compiler::model::CompilerInput) -> package::CompileTrResponse {
@@ -243,7 +265,7 @@ impl package::communicate_server::Communicate for FileReceiver {
     async fn transmit_compile(&self, request: tonic::Request<package::CompileTrRequest>) -> core::result::Result<tonic::Response<Self::transmit_compileStream>, tonic::Status> {
         
         let rt_compile = request.into_inner();
-        log::debug!("sync request command: {:?} {:?}", rt_compile.compiler, rt_compile.commands);
+        log::debug!("sync request transmit compile: {:?} {:?}", rt_compile.compiler, rt_compile.commands);
         
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let self_ = self.clone();
