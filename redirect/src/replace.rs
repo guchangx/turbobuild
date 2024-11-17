@@ -1,36 +1,58 @@
+
+static MODEL: std::sync::LazyLock<std::sync::Mutex<Model>> = std::sync::LazyLock::new(|| {
+    std::sync::Mutex::new(Model {
+        project_name: "".to_string(),
+        replica_project_dir: "".to_string(),
+    })
+});
+
 pub struct Model {
     project_name: String,
-    real_project_path: String,
     replica_project_dir: String,
 } 
 
 impl Model {
-    pub fn new(_project_name: String, real_project_path: String, _replica_project_dir: String) -> Self {
+    pub fn new(project_name: String) -> Self {
         //E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\kmodelindexproxymapper.cpp
-        let replica_project_dir = Self::fetch_local_replica_dir();
-        let project_name = "GammaRayTool".to_string();
-        Model {
+        let replica_project_dir = Self::fetch_local_replica_project_dir();
+        let mut dir = std::path::PathBuf::from(replica_project_dir);
+        dir.push(&project_name);
+            
+        if dir.exists() {
+            if let Ok(_) = std::fs::create_dir_all(&dir) {
+                return Model {
+                    project_name,
+                    replica_project_dir: dir.to_string_lossy().to_string(),
+                }
+            }
+        }
+        
+        return Model {
             project_name,
-            real_project_path,
-            replica_project_dir,
+            replica_project_dir: "".to_string(),
         }
     }
 
-    fn fetch_local_replica_dir() -> String {
-        let path = tools::utils::get_or_create_working_path("Replica/projet");
-        return path;
-    }
-
-    pub fn fetch_local_replica_project_path(self) -> std::path::PathBuf {
-        if self.replica_project_dir == "" {
-            return std::path::PathBuf::from(self.real_project_path);
+    fn fetch_local_replica_project_dir() -> String {
+        if let Some(replica) = crate::REPLICADIR.lock().unwrap().clone() {
+            let dir = replica + "Projet";
+            return dir;
         }
         else {
-            if let Some(point) = self.real_project_path.find(&self.project_name) {
-                let tail = self.real_project_path[point..].to_string();
-                println!("real project path: {:?}", self.real_project_path);
+            return "".to_string();
+        }
+    }
+    
+    pub fn fetch_local_replica_project_path(&self, origin_file_path: &str) -> std::path::PathBuf {
+        if self.replica_project_dir.is_empty() {
+            return std::path::PathBuf::from("");
+        }
+        else {
+            if let Some(point) = origin_file_path.find(&self.project_name) {
+                let tail = origin_file_path[point..].to_string();
+                println!("real project path: {:?}", origin_file_path);
 
-                if self.real_project_path.contains("\\??\\")
+                if origin_file_path.contains("\\??\\")
                 {
                     let nt_dir = format!("\\??\\{}", self.replica_project_dir);
                     println!("nt dir {}", nt_dir);
@@ -39,24 +61,29 @@ impl Model {
                 }
                 else 
                 {
-                    return std::path::PathBuf::from(self.replica_project_dir).join("Project").join(tail);
+                    return std::path::PathBuf::from(&self.replica_project_dir).join("Project").join(tail);
                 }
             }
             else
             {
-                return std::path::PathBuf::from(self.replica_project_dir).join("Project");
+                return std::path::PathBuf::from(&self.replica_project_dir).join("Project");
             }
         }
     }
 
 }
 
-struct ReplaceFile {
-    map: std::collections::HashMap<std::string::String, std::string::String>,
-}
-
 pub fn replace(path: &mut String) -> bool {
 
+    if path.ends_with("clui.dll") {
+        //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\1033\clui.dll
+        if let Some(index) = path.find("MSVC") {
+            let clui = &path[(index + "MSVC".len())..];
+            let modified = format!(r#"{}{}{}"#, crate::REPLICADIR.lock().unwrap().clone().unwrap(), "MSVC", clui);
+            *path = modified;
+        }
+        return true;
+    }
     if path.ends_with(".dll") || path.ends_with("_PIPE") {
         return false;
     }
@@ -70,10 +97,22 @@ pub fn replace(path: &mut String) -> bool {
         return false;
     }
     else if path.ends_with(".i") {
-        //"C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\Replica/projet"
-        let project = Model::new("".to_string(), path.to_owned(), "".to_string());
-        let replica = project.fetch_local_replica_project_path();
-        *path = replica.to_string_lossy().to_string();
+        match &*crate::PROJECTNAME.lock().unwrap() {
+            Some(project_name) => {
+                if MODEL.lock().unwrap().project_name == project_name.to_string() {
+                    let modified = MODEL.lock().unwrap().fetch_local_replica_project_path(&path);
+                    *path = modified.to_string_lossy().to_string();
+                }
+                else {
+                    let project = Model::new(project_name.clone());    
+                    *MODEL.lock().unwrap() = project;
+                    let modified = MODEL.lock().unwrap().fetch_local_replica_project_path(&path);
+                    *path = modified.to_string_lossy().to_string();
+                }
+            },
+            None => {},
+        }
+        
         return true;
     }
     else {
@@ -86,15 +125,6 @@ pub fn replace_dir(path: std::string::String) -> std::string::String {
     if path.ends_with(".dll")
     {
         return path;
-    }
-    else if path.contains("fake_draft") {
-        return path.replace("fake_draft", "draft");
-    }
-    else if path.contains("GammaRayTool")
-    {
-        let project = Model::new("".to_string(), path.clone(), "".to_string());
-        let path = project.fetch_local_replica_project_path();
-        return path.display().to_string();
     }
     else {
         return path;

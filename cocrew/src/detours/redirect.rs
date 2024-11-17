@@ -25,8 +25,34 @@ impl HandleBox {
 unsafe impl Send for HandleBox {}
 unsafe impl Sync for HandleBox {}
 
-pub fn msvc_detours(app_path: String, command: String, workding_directory: String) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
-    println!("msvc detours");
+pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE, projet: &str) {
+    let arg = format!("project:{}\nreplica:{}\n", projet, tools::utils::access_replica_dir());
+    let mut bytes: winapi::shared::minwindef::DWORD = 0;
+    let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+    let ret = winapi::um::fileapi::WriteFile(
+        handle,
+        arg.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
+        arg.len() as u32,
+        &mut bytes,
+        &mut overlapped
+    );
+
+    if ret == winapi::shared::minwindef::FALSE || bytes == 0 {
+        let error = winapi::um::errhandlingapi::GetLastError();
+        log::error!("write pipe error, failed code: {}", error);
+    }
+    else {
+        //winapi::um::fileapi::FlushFileBuffers(handle);
+        log::trace!("send message by pipe success, len: {}." , bytes)
+    }
+
+    CloseHandle(handle);
+}
+
+pub fn msvc_detours(project: String, app_path: String, command: String, workding_directory: String) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+    //TODO workding_directory should be also use redirect.
+     
+    log::trace!("msvc detours");
     unsafe {
         //let lpApplicationName = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe";
         let lpApplicationName =  app_path.as_str();
@@ -53,33 +79,39 @@ pub fn msvc_detours(app_path: String, command: String, workding_directory: Strin
             let dllPath = std::ffi::CString::new(dllPath).unwrap();
             let dllPath = dllPath.as_ptr();
 
-            let mut hStdOutputRead: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-            let mut hStdOutputWrite: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-
-            let mut hStdErrorRead: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-            let mut hStdErrorWrite: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-
             let mut pipeAttributes = winapi::um::minwinbase::SECURITY_ATTRIBUTES {
                 nLength: std::mem::size_of::<winapi::um::minwinbase::SECURITY_ATTRIBUTES>() as u32,
                 lpSecurityDescriptor: std::ptr::null_mut(),
                 bInheritHandle: winapi::shared::minwindef::TRUE,
             };
 
+            let mut hStdInRead: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
+            let mut hStdInWrite: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
+            let ret = winapi::um::namedpipeapi::CreatePipe(&mut hStdInRead as winapi::shared::ntdef::PHANDLE, &mut hStdInWrite as winapi::shared::ntdef::PHANDLE, &mut pipeAttributes, 0);
+            if winapi::shared::minwindef::FALSE == ret {
+                log::error!("create input pipe failed.")
+            }
+            
+            let mut hStdOutputRead: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
+            let mut hStdOutputWrite: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
             let ret = winapi::um::namedpipeapi::CreatePipe( &mut hStdOutputRead as winapi::shared::ntdef::PHANDLE, &mut hStdOutputWrite as winapi::shared::ntdef::PHANDLE, &mut pipeAttributes, 0);
             if winapi::shared::minwindef::FALSE == ret {
-                println!("create output pipe failed.")
+                log::error!("create output pipe failed.")
             }
 
+            let mut hStdErrorRead: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
+            let mut hStdErrorWrite: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
             let ret = winapi::um::namedpipeapi::CreatePipe(&mut hStdErrorRead as winapi::shared::ntdef::PHANDLE, &mut hStdErrorWrite as winapi::shared::ntdef::PHANDLE, &mut pipeAttributes, 0);
             if winapi::shared::minwindef::FALSE == ret {
-                println!("create error pipe failed.")
+                log::error!("create error pipe failed.")
             }
 
             let lpProcessAttributes = std::ptr::null_mut();
             let lpThreadAttributes = std::ptr::null_mut();
             let mut lpStartupInfo: crate::detours::detours::_STARTUPINFOW = std::mem::MaybeUninit::zeroed().assume_init();
-            lpStartupInfo.hStdError = hStdErrorWrite as *mut std::ffi::c_void;
+            lpStartupInfo.hStdInput = hStdInRead as *mut std::ffi::c_void;            
             lpStartupInfo.hStdOutput = hStdOutputWrite as *mut std::ffi::c_void;
+            lpStartupInfo.hStdError = hStdErrorWrite as *mut std::ffi::c_void;
             lpStartupInfo.dwFlags |=  winapi::um::winbase::STARTF_USESTDHANDLES;
 
             let mut lpProcessInformation: crate::detours::detours::_PROCESS_INFORMATION = std::mem::MaybeUninit::zeroed().assume_init();
@@ -97,17 +129,18 @@ pub fn msvc_detours(app_path: String, command: String, workding_directory: Strin
                 dllPath, 
                 Option::None);
             
-
-            CloseHandle(hStdErrorWrite);
             CloseHandle(hStdOutputWrite);
+            CloseHandle(hStdErrorWrite);
 
             if ret == winapi::shared::minwindef::TRUE {
-                println!("DetourCreateProcessWithDllExW success!");
-
+                log::trace!("DetourCreateProcessWithDllExW success!");
+                
+                pass_object_name_to_redriect(hStdInWrite, &project);
+                
                 let ret = winapi::um::processthreadsapi::ResumeThread(lpProcessInformation.hThread as _);
                 if ret == winapi::shared::minwindef::FALSE as u32 {
                     let error_code = winapi::um::errhandlingapi::GetLastError();
-                    println!("ResumeThread failed! error code: {}.", error_code);
+                    log::error!("ResumeThread failed! error code: {}.", error_code);
                 }
 
                 let hStdOutputReadBox = HandleBox::new(hStdOutputRead);
@@ -142,7 +175,7 @@ pub fn msvc_detours(app_path: String, command: String, workding_directory: Strin
                     }
                     return stdout;
                 });
-
+                
                 let mut chTmpStdErrorReadBuffer = vec![0; 512];
                 let mut bytesStdErrorRead: winapi::shared::minwindef::DWORD = 0;
                 let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
@@ -194,10 +227,11 @@ pub fn msvc_detours(app_path: String, command: String, workding_directory: Strin
 
             winapi::um::handleapi::CloseHandle(hStdOutputRead);
             winapi::um::handleapi::CloseHandle(hStdErrorRead);
+            winapi::um::handleapi::CloseHandle(hStdInRead);
         }
         else
         {
-            println!("can't fetch redirectdll. {:?}", dllPath);
+            log::error!("can't fetch redirectdll. {:?}", dllPath);
             return (true, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
         }
     }

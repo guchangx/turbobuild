@@ -37,7 +37,7 @@ pub fn get_or_create_working_path(app: &str) -> String {
         dir.pop();
         dir.push(app);
         if !dir.exists() {
-            std::fs::create_dir(&dir).unwrap();
+            std::fs::create_dir_all(&dir).unwrap();
         }
         path = dir.to_str().unwrap();
     }
@@ -46,10 +46,22 @@ pub fn get_or_create_working_path(app: &str) -> String {
         dir.push(app);
         
         if !dir.exists() {
-            std::fs::create_dir(&dir).unwrap();
+            std::fs::create_dir_all(&dir).unwrap();
         }
         path = dir.to_str().unwrap();
     }
 
     return path.to_string();
+}
+
+static REPLICADIR: std::sync::Mutex<std::option::Option<String>> = std::sync::Mutex::new(None);
+pub fn access_replica_dir() -> String {
+    if REPLICADIR.lock().unwrap().is_some() {
+        return REPLICADIR.lock().unwrap().clone().unwrap();
+    }
+    else {
+        let dir = get_or_create_working_path("Replica");
+        REPLICADIR.lock().unwrap().replace(dir.clone());
+        return dir;
+    }
 }

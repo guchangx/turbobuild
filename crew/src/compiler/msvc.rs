@@ -195,7 +195,7 @@ impl MSVC {
                 GeneratedObject::NoneObjPath => {log::warn!("can't fetch object file")}
             }
 
-            let mut commands = tidyup_commands_2_precompile(compiler_commands);
+            let mut commands = tidyup_commands_for_precompile(compiler_commands);
             
             let mut addr = String::new();
             if stdout.is_empty() {
@@ -1089,9 +1089,9 @@ fn fetch_compile_source_file(build_and_compiler_type: &std::ffi::OsString, compi
     return None;
 }
 
-fn tidyup_commands_2_precompile(compiler_commands: &Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+fn tidyup_commands_for_precompile(compiler_commands: &Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
     let mut commands = compiler_commands.clone();
-    commands.retain(|item| !item.to_string_lossy().to_lowercase().contains(".cpp") || !item.to_string_lossy().to_lowercase().contains(".c"));
+    commands.retain(|item| !(item.to_string_lossy().to_lowercase().contains(".cpp") || item.to_string_lossy().to_lowercase().contains(".c")));
     return commands;
 }
 
@@ -1263,5 +1263,19 @@ mod tests {
         let version = parse_version_from_path(line);
         println!("verson: {:?}", version);
 
+    }
+
+    #[test]
+    fn test_tidyup_commands_for_precompile() {
+        let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
+        compiler_commands.push(std::ffi::OsString::from("/nologo"));
+        compiler_commands.push(std::ffi::OsString::from("/EHs /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR"));
+        compiler_commands.push(std::ffi::OsString::from(r"C:\test.c"));
+        compiler_commands.push(std::ffi::OsString::from(r"C:\test.CPP"));
+        let commands = tidyup_commands_for_precompile(&compiler_commands);
+        
+        let mut iter = commands.iter().filter(|&item| item.to_string_lossy().contains("test"));
+        println!("tidy up commands {:?}", commands);
+        assert_eq!(iter.next(), None);
     }
 }

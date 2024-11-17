@@ -267,7 +267,7 @@ impl package::communicate_server::Communicate for FileReceiver {
     async fn transmit_compile(&self, request: tonic::Request<package::CompileTrRequest>) -> core::result::Result<tonic::Response<Self::transmit_compileStream>, tonic::Status> {
         
         let rt_compile = request.into_inner();
-        log::debug!("sync request transmit compile: {:?} {:?}", rt_compile.compiler, rt_compile.commands);
+        log::debug!("sync request transmit compile: {:?} \n commands: {:?}", rt_compile.compiler, rt_compile.commands);
         
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let self_ = self.clone();

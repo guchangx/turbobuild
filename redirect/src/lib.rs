@@ -34,6 +34,13 @@ static RUNTIME: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex::<tokio::run
     std::sync::Arc::new(std::sync::Mutex::new(runtime))
 });
 
+static  PROJECTNAME: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std::sync::LazyLock::new(|| {
+    std::sync::Mutex::new(None)
+});
+static  REPLICADIR: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std::sync::LazyLock::new(|| {
+    std::sync::Mutex::new(None)
+});
+
 unsafe fn redirect_stdout_log_2_cocrew() {
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(128);
@@ -89,6 +96,28 @@ unsafe fn redirect_stdout_log_2_cocrew() {
     });
 }
 
+fn read_project_from_std_input() {
+    RUNTIME.lock().unwrap().spawn(
+        async move {
+        let stdin = std::io::stdin();
+        let handle = stdin.lock();
+        
+        for line in handle.lines() {
+            log!(trace, "read project to string: {:?}", line);
+            let arg = line.unwrap();
+            if arg.starts_with("project") {
+                //project:xxxxxxx or project xxxxxx 
+                let (_, name) = arg.split_at("project".len() + 1);
+                *PROJECTNAME.lock().unwrap() = Some(name.to_string());
+            }
+            else if arg.starts_with("replica") {
+                let (_, dir) = arg.split_at("replica".len() + 1);
+                *REPLICADIR.lock().unwrap() = Some(dir.to_string());
+            }
+        }
+    });
+}
+
 #[macro_export]
 macro_rules! log {
     ($level:ident, $($arg:tt)*) => {
@@ -101,6 +130,8 @@ fn uninit_custom_resource() {
         drop(tx);
     }
 }
+
+use std::io::BufRead;
 
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
 #[no_mangle]
@@ -115,10 +146,9 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
 
-            redirect_stdout_log_2_cocrew();
-            
             log!(info, "DLL_PROCESS_ATTACH");
-
+            read_project_from_std_input();
+            redirect_stdout_log_2_cocrew();
             //winapi::um::errhandlingapi::SetUnhandledExceptionFilter(Some(custom_exception_handler));
     
             let text: Vec<u16> = std::ffi::OsStr::new("Debug BreakPoint")
@@ -131,7 +161,7 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
                 .chain(std::iter::once(0))
                 .collect();
 
-            log!(info, "debug message box for process attach");
+            log!(info, "show debug message box for process attach");
 
             winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.as_ptr(), caption.as_ptr(), 0);
             //just for attach debug
@@ -166,7 +196,7 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
                 log!(error, "DetourTransactionCommit failed, error code: {}.", error_code);
             }
 
-            log!(debug, "init process done.")
+            log!(debug, "init hook dll process done.")
         },
         winapi::um::winnt::DLL_THREAD_ATTACH => {
 
@@ -191,7 +221,6 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
     }
 
     return 1;
-
 }
 
 unsafe fn main() {

@@ -81,22 +81,22 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
             }
         }
     }
-
-    let (output, results) = request_local_compile(compiler_input.compiler_path.clone(),
+    
+    let (output, results) = request_local_compile(compiler_input.project.clone(), compiler_input.compiler_path.clone(),
                     compiler_input.compiler_working_dir.clone(), commands,
                     compiler_input.build_and_compiler_type.clone(), true);
 
     return (output, results);
 }
 
-fn request_local_compile(compiler_path: std::ffi::OsString, compiler_working_dir: std::ffi::OsString, 
+fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::ffi::OsString, compiler_working_dir: std::ffi::OsString, 
                                 compiler_commands: Vec<std::ffi::OsString>, build_and_compiler_type: std::ffi::OsString,
                             sync_compile_result: bool) -> (CompilerOutput, Option<ProcessedResults>) {
     use std::io::Read;
     use std::ops::Index;
     
     let now = std::time::Instant::now();
-    let (status, stdout, _stderr) = start_local_compiler(&compiler_path, &compiler_working_dir, &compiler_commands);
+    let (status, stdout, _stderr) = start_local_compiler(&project_name, &compiler_path, &compiler_working_dir, &compiler_commands);
     let compile_output = String::from_utf8_lossy(&stdout);
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
     let mut compiled_results: ProcessedResults = Vec::new();
@@ -333,29 +333,30 @@ fn fetch_compile_pdb_path(build_and_compiler_type: std::ffi::OsString, compiler_
     return (ProgramDataBase::NonePDBPath, false);
 }
 
-fn start_local_compiler_with_inject(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) 
+fn start_local_compiler_with_inject(project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) 
                         -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     
     let line: String = compiler_commands.clone().into_iter()
         .map(|os_string| format!("{} ", os_string.into_string().unwrap()))
         .collect();
 
-    let (status, stdout, stderr) = crate::detours::redirect::msvc_detours(compiler_path.clone().into_string().unwrap(), 
+    let (status, stdout, stderr) = crate::detours::redirect::msvc_detours(project.clone().into_string().unwrap(), compiler_path.clone().into_string().unwrap(), 
                     line, working_dir.clone().into_string().unwrap());
 
     return (status, stdout, stderr);
 }
 
-fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) 
+fn start_local_compiler(project_name: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) 
                     -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
 
+    log::trace!("project name: {:?}", project_name);
     log::trace!("local compile working dir: {:?}", working_dir);
     log::trace!("compiler path: {:?}", compiler_path);
     log::trace!("compile content: {:?}", compiler_commands);
 
     let start = std::time::Instant::now();
     
-    let (status, stdout, stderr) = start_local_compiler_with_inject(compiler_path, working_dir, compiler_commands);
+    let (status, stdout, stderr) = start_local_compiler_with_inject(project_name, compiler_path, working_dir, compiler_commands);
     
     let elapsed = start.elapsed();
     log::info!("compile file elapsed time: {:?}.", elapsed);
@@ -462,7 +463,8 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/Fotest.obj"));
         compiler_commands.push(std::ffi::OsString::from(r#"/c test.cpp"#));
 
-        let (status, stdout, stderr) = start_local_compiler(&compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands);
+        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("draft"), 
+            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands);
         assert!(status);
         println!("compile stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile stderr: {}", String::from_utf8_lossy(&stderr));
