@@ -284,8 +284,8 @@ mod tests {
     //cargo test --package buildassist --tests parse_commands -- --show-output
     fn parse_commands() {
         let line = r#"/c /IE:\TestFuture\GammaRay\GammaRayTool\build_enable\3rdparty\kde /Zi /nologo /W1 /WX- /diagnostics:column /Od /Ob0 /D _WINDLL /D _UNICODE /D UNICODE /D WIN32 /D _WINDOWS /D UNICODE /D _UNICODE /D _USING_V110_SDK71_=1 /D QT_DISABLE_DEPRECATED_BEFORE=0x050500 /D QT_USE_FAST_CONCATENATION /D QT_USE_FAST_OPERATOR_PLUS /D QT_NO_CAST_TO_ASCII /D QT_NO_URL_CAST_FROM_STRING /D QT_NO_DEBUG_OUTPUT /D QT_CORE_LIB /D "CMAKE_INTDIR=\"Debug\"" /D MAKE_KITEMMODELS_LIB /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /Fo"gammaray_kitemmodels.dir\Debug\\" /Fd"gammaray_kitemmodels.dir\Debug\vc143.pdb" /external:W0 /Gd /TP /wd4244 /wd4267 /errorReport:prompt AssistClCompilerPath:C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\cl.exe /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include/QtCore" E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\kmodelindexproxymapper.cpp E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\krecursivefilterproxymodel.cpp"#;
-        let (projet, compiler, commands) = parse_commands_by_line(line);
-        assert!(!projet.is_empty() && compiler.ends_with("cl.exe"));
+        let (project, compiler, commands) = parse_commands_by_line(line);
+        assert!(!project.is_empty() && compiler.ends_with("cl.exe"));
         println!("commands {:?}", commands);
     }
 

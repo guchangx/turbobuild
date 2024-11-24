@@ -34,7 +34,9 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
     });
 
     let compilers = crate::replica::toolchain::Property::load_replica_toolchain();
-        
+    
+    log::debug!("load local replica toolchain: {:?}", compilers);
+
     let resources = crate::replica::toolchain::CrewsResource {
         username: crate::fingerprint::gather::SystemInfo::fetch_username(),
         aliasname: crate::fingerprint::gather::SystemInfo::fetch_aliasname(),
@@ -71,7 +73,7 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
                 }
             }
             
-            tokio::time::sleep(tokio::time::Duration::from_secs(45)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(180)).await;
         }
     });
 

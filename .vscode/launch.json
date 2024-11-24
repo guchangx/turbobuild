@@ -126,7 +126,7 @@
     "compounds": [
         {
             "name": "Both Executables",
-            "configurations": ["cocrew", "crew"]
+            "configurations": ["crew", "cocrew"]
         }
     ],
 }

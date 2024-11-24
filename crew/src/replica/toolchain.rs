@@ -130,13 +130,13 @@ impl Property {
         let mut versions = Vec::new();
 
         if let Some(path) = tools::utils::get_working_path("Replica".to_string()) {
-            let mut replica = std::path::PathBuf::from(path.clone());
-            replica.push("MSVC");
+            let replica = std::path::PathBuf::from(path.clone()).join("MSVC");
         
             if replica.exists() {
                 for version_entry in replica.read_dir().unwrap() {
                     if let Ok(version_entry) = version_entry {
-                         for host_entry in version_entry.path().read_dir().unwrap() {
+
+                         for host_entry in version_entry.path().join("bin").read_dir().unwrap() {
                             if let Ok(host_entry) = host_entry {
                                 for target_entry in host_entry.path().read_dir().unwrap() {
                                     if let Ok(target_entry) = target_entry {   
@@ -199,22 +199,26 @@ impl Property {
     
         let compiler_env = crate::platform::windows::WindowsCompilerEnv::default();
         let bin_dir = compiler_env.compiler_path;
+        let version = compiler_env.msvc_version;
 
         for item in resources {
             let mut exist = false;
             for compiler in item.compiler_versions {
-                if compiler.version == compiler_env.msvc_version {
+                if compiler.version == version {
                     exist = true;
                 }
             }
+
             if !exist {
-                println!("check resource {} not has msvc {}, so sync it. path: {:?}", item.addr, compiler_env.msvc_version, bin_dir.clone());
+                log::warn!("check resource {} not has msvc {}, so sync it. path: {:?}", item.addr, version, bin_dir.clone());
             
+                let version_= version.clone();
                 if let Some(name) = bin_dir.clone().file_name() {
                     if name.to_str() == Some("bin") {
                         let path = bin_dir.clone();
                         tokio::spawn(async move {
                             Self::sync_compiler_toolchain(path.to_str().unwrap(), &item.addr).await;
+                            log::info!("sync compiler toolchain {} to {} finished.", version_, item.addr);
                         });
                     }
                 }

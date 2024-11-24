@@ -10,6 +10,7 @@ pub mod pack {
 #[derive(Clone)]
 pub struct FileSender {
     client: pack::communicate_client::CommunicateClient<tonic::transport::Channel>,
+    host: String,
 }
 
 pub struct CommandArgs {
@@ -63,7 +64,8 @@ impl FileSender {
         let client = pack::communicate_client::CommunicateClient::new(channel);
         
         let sender = FileSender {
-            client
+            client,
+            host: host.to_string(),
         };
         return sender;
     }
@@ -98,11 +100,11 @@ impl FileSender {
             Ok(response) => {
                 let inner = response.into_inner();
                 if inner.error_code == 0 {
-                    println!("send packfile success: {}", inner.error_message);
+                    log::debug!("send to {} packfile success. response: {}", self.host ,inner.error_message);
                 }
             }
             Err(err) => {
-                println!("send file failed {:?}", err);
+                log::error!("send file failed {:?}", err);
             }
         }
     }

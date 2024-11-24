@@ -1,5 +1,5 @@
 
-use std::io::Write;
+use std::{io::Write, os::windows::io::IntoRawSocket};
 
 use crew::replica::project;
 use winapi::um::winnt::PACCESS_ALLOWED_CALLBACK_ACE;
@@ -29,10 +29,11 @@ impl FileReceiver {
         let receiver = FileReceiver {
             common: self.common.clone(),
         };
-        
-        let server = package::communicate_server::CommunicateServer::new(receiver);
 
+        let server = package::communicate_server::CommunicateServer::new(receiver);
+    
         let result = tonic::transport::Server::builder()
+            .tcp_nodelay(true)
             .add_service(server)
             .serve(addr)
             .await;
@@ -90,9 +91,10 @@ impl FileReceiver {
         let file = request.file;
         let compiler = request.compiler;
 
-        log::trace!("transmit compile handle name: {} compiler: {}", file, compiler);
+        
         let commands = request.commands;
         let content = request.content;
+        log::trace!("transmit compile handle project: {}, file: {}, compiler: {}, commands is empty: {}, content size: {}.", project, file, compiler, commands.is_empty(), &content.len());
 
         if file.is_empty() {
 
@@ -127,36 +129,43 @@ impl FileReceiver {
 
     async fn storage(project: &str, path: &str, content: &[u8]) -> package::CompileTrResponse {
 
-        let project = crew::replica::project::Property::new(if project.is_empty() {"GammaryTool"} else { project }, path);
-        let path = project.fetch_local_replica_project_path();
-        
-        log::trace!("replica storage path: {:?}", path);
-
-        if path.extension() == Some(&std::ffi::OsStr::new("zip")) {
-            Self::extract(&path.to_str().unwrap(), &content).await;
-        }
-        else {
-            
-            let mut file = std::fs::File::create(&path).unwrap();
-            match file.write_all(&content) {
-                Ok(_) => {
-                    log::trace!("transmit storage file done: {:?}", path);
-        
-                },
-                Err(err) => {
-                    log::error!("transmit storage file failed. {:?} {:?}", path, err)
-                }
-            }
-        }
-        
-        let reply = package::CompileTrResponse {
+        let mut reply = package::CompileTrResponse {
             progress: package::CompileProgress::Filetransfer.into(),
             info: "".to_string(),
             results: Vec::new(),
             error_code: 0,
             error_message: "transmit do save file success.".to_string(),
         };
-        return reply;
+
+        if project.is_empty() || path.is_empty() {
+            reply.error_message = "project or path param is empty, so do nothing".to_string();
+            log::error!("transmit storage project name or path is empty.");
+        }
+        else {
+            let project = crew::replica::project::Property::new( project, path);
+            let path = project.fetch_local_replica_project_path();
+            
+            log::trace!("replica storage path: {:?}", path);
+    
+            if path.extension() == Some(&std::ffi::OsStr::new("zip")) {
+                Self::extract(&path.to_str().unwrap(), &content).await;
+            }
+            else {
+                
+                let mut file = std::fs::File::create(&path).unwrap();
+                match file.write_all(&content) {
+                    Ok(_) => {
+                        log::trace!("transmit storage file done: {:?}", path);
+            
+                    },
+                    Err(err) => {
+                        log::error!("transmit storage file failed. {:?} {:?}", path, err)
+                    }
+                }
+            }
+        }
+        
+        return reply;   
     }
 
     async fn extract(path: &str, content: &[u8]) {

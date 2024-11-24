@@ -114,6 +114,7 @@ pub unsafe fn create_file_w(
         let replace = crate::replace::replace(&mut path);
 
         if replace {
+            crate::log!(debug, "hook func create_file_w new, path: {}", path);
             let fake_path = crate::utils::convert::string_2_lpwstr(path);
                 
             let handle = create_file_w(
@@ -272,7 +273,7 @@ pub unsafe fn kernelbase_create_file_w(
 
         let replace = crate::replace::replace(&mut path);
         if replace {
-            
+            crate::log!(debug, "hook func kernelbase_create_file_w new, path: {}", path);
             let fake_path = crate::utils::convert::string_2_lpwstr(path);
             
             let handle = create_file_w(
@@ -288,7 +289,7 @@ pub unsafe fn kernelbase_create_file_w(
             if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = winapi::um::errhandlingapi::GetLastError();
-                crate::log!(error, "kernelbase create_file_a failed! error_code: {} {:?}.", error_code, hook_path);
+                crate::log!(error, "kernelbase create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
             }
     
             return handle; 
@@ -394,16 +395,16 @@ pub unsafe fn nt_create_file(
                 }
                 // up and down are 2 way to get string from utf16 slice.
 
-                let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+                let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
 
-                crate::log!(debug, "nt_create_file hook: length {:?} path: {:?}", length, name);
-                let fake_path = crate::replace::replace_dir(name);
-                if !fake_path.is_empty() {
-                    crate::log!(debug, "nt_create_file replace hook: {:?}", fake_path.clone());
+                crate::log!(debug, "nt_create_file hook path: {:?}", name);
+                let replace = crate::replace::replace_dir(&mut name);
+                if replace {
+                    crate::log!(debug, "nt_create_file replace hook: {:?}", name.clone());
 
                     let mut object_name: winapi::shared::ntdef::UNICODE_STRING = std::mem::zeroed();
 
-                    let object_name_source_wide_char = std::ffi::OsString::from(fake_path.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+                    let object_name_source_wide_char = std::ffi::OsString::from(name.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
 
                     let ret = ntapi::ntrtl::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
                     if ret != winapi::shared::ntstatus::STATUS_SUCCESS {
@@ -418,8 +419,8 @@ pub unsafe fn nt_create_file(
 
                     (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
 
-                    crate::log!(debug, "nt_create_file re hook: {:?}", crate::utils::convert::lpwstr_2_string((*(*object_attributes).ObjectName).Buffer).unwrap());
-                    crate::log!(debug, "nt_create_file re hook 1: {:?}", crate::utils::convert::lpwstr_2_string(object_name_source_wide_char.as_ptr()).unwrap());
+                    //crate::log!(debug, "nt_create_file re hook: {:?}", crate::utils::convert::lpwstr_2_string((*(*object_attributes).ObjectName).Buffer).unwrap());
+                    //crate::log!(debug, "nt_create_file re hook: {:?}", crate::utils::convert::lpwstr_2_string(object_name_source_wide_char.as_ptr()).unwrap());
 
                     let nt_status = zw_create_file(
                         file_handle,

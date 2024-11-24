@@ -25,8 +25,8 @@ impl HandleBox {
 unsafe impl Send for HandleBox {}
 unsafe impl Sync for HandleBox {}
 
-pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE, projet: &str) {
-    let arg = format!("project:{}\nreplica:{}\n", projet, tools::utils::access_replica_dir());
+pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE, project: &str) {
+    let arg = format!("project:{}\nreplica:{}\n", project, tools::utils::access_replica_dir());
     let mut bytes: winapi::shared::minwindef::DWORD = 0;
     let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
     let ret = winapi::um::fileapi::WriteFile(
@@ -43,7 +43,7 @@ pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE
     }
     else {
         //winapi::um::fileapi::FlushFileBuffers(handle);
-        log::trace!("send message by pipe success, len: {}." , bytes)
+        log::trace!("send message by pipe {} {:?}", if bytes > 0 {"success."} else {"failed."}, arg);
     }
 
     CloseHandle(handle);

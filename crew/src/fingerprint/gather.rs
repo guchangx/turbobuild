@@ -27,7 +27,8 @@ impl SystemInfo {
         let devicename = SystemInfo::fetch_devicename();
         let aliasname = SystemInfo::fetch_aliasname();
         let role = 0;
-        let addr = SystemInfo::fetch_addr();
+        //let addr = SystemInfo::fetch_addr();
+        let addr = "".to_string();
         let os = SystemInfo::fetch_os_version();
         let (physical_cores, virtual_cores, frequency) = SystemInfo::fetch_cpu_info();
         

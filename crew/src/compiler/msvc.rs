@@ -93,7 +93,7 @@ impl MSVC {
                     // dist with preprocessed source
                     let now = std::time::Instant::now();
                     let output = self.request_multi_dist_once_compile(&compiler_input.project, &compiler_input.compiler_path, &compiler_input.compiler_working_dir, &compiler_commands.clone()).await;
-                    log::trace!("requestmulti_dist_sync_once_compile elaspsed time: {:?}", now.elapsed());
+                    log::trace!("request_multi_dist_sync_once_compile elaspsed time: {:?}", now.elapsed());
                     //let output = request_dist_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
                     default_output.set(output);
                 }
@@ -205,7 +205,7 @@ impl MSVC {
 
                 addr = self.sender.lock().unwrap().schedule();
 
-                let  precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, std::path::PathBuf::from(intermediate)).await;
+                let  precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, project, std::path::PathBuf::from(intermediate)).await;
                 log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
         
                 for file in precompiled_files {
@@ -334,7 +334,6 @@ impl MSVC {
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
         log::debug!("compiler version: {:?}", cversion);
         if self.sender.lock().unwrap().check(addr, &cversion) {
-                
             let result = request_dist_compile_with_precompiled_source(addr, &input, &precompiled).await;
             if result.status {
             
@@ -346,13 +345,13 @@ impl MSVC {
             return result;
         }
         else {
-            log::trace!("dist compile failed, {} no available remote compiler {:?}", addr, cversion);
+            log::error!("dist compile failed. {} no available remote compiler {:?}", addr, cversion);
 
             return CompilerOutput::default();
         }
     }
     
-    async fn load_and_transmit_precompiled_result(&self, source_files: &Vec<String>, addr: &str, project_dir: std::path::PathBuf) -> Vec<std::ffi::OsString> {
+    async fn load_and_transmit_precompiled_result(&self, source_files: &Vec<String>, addr: &str, project_name: &std::ffi::OsString, object: std::path::PathBuf) -> Vec<std::ffi::OsString> {
         
         let mut source_files = source_files.to_owned();
 
@@ -363,11 +362,12 @@ impl MSVC {
                 left = source_files.split_off(32);
             }
 
-            let project_dir = project_dir.clone();
+            let project_name = project_name.clone();
+            let object = object.clone();
             let addr = addr.to_owned();
 
             let bulk_handle = self.runtime.spawn(async move {
-                let files = transmit_precompiled_source_file(&addr, project_dir, &source_files.clone()).await;
+                let files = transmit_precompiled_source_file(&addr, &project_name, object, &source_files.clone()).await;
                 return files;
             });
 
@@ -391,7 +391,7 @@ impl MSVC {
     
 }
 
-async fn transmit_precompiled_source_file(addr: &str, mut project_dir: std::path::PathBuf, source_files: &Vec<String>)-> Vec<std::ffi::OsString> {
+async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::OsString, mut object: std::path::PathBuf, source_files: &Vec<String>)-> Vec<std::ffi::OsString> {
 
     let options = zip::write::SimpleFileOptions::default()
     .compression_method(zip::CompressionMethod::Zstd);
@@ -401,7 +401,7 @@ async fn transmit_precompiled_source_file(addr: &str, mut project_dir: std::path
     let mut precompiled_files_path = std::vec::Vec::<std::ffi::OsString>::new();
     for file in source_files.to_owned() {
 
-        let mut path = project_dir.clone().join(file);
+        let mut path = object.clone().join(file);
         path.set_extension("i");
         zip.start_file(path.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
         let file = std::fs::File::open(&path).unwrap();
@@ -417,10 +417,14 @@ async fn transmit_precompiled_source_file(addr: &str, mut project_dir: std::path
     let content = zip.finish().unwrap();
     let file = content.to_owned().into_inner();
     let content = std::borrow::Cow::from(file);
-    project_dir.set_extension("zip");
+    object.set_extension("zip");
 
-    let intput = CompilerInput::default();
-    crate::communicate::distributor::Distributor::compile(&addr, project_dir.as_os_str().into(), &intput, &content).await;
+    let intput = CompilerInput {
+        project: project_name.into(),
+        ..Default::default()
+    };
+
+    crate::communicate::distributor::Distributor::compile(&addr, object.as_os_str().into(), &intput, &content).await;
     return precompiled_files_path;
     
 }

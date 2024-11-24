@@ -34,12 +34,21 @@ static RUNTIME: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex::<tokio::run
     std::sync::Arc::new(std::sync::Mutex::new(runtime))
 });
 
+/* 
 static  PROJECTNAME: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std::sync::LazyLock::new(|| {
     std::sync::Mutex::new(None)
 });
+*/
+
+static PROJECTNAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/* 
 static  REPLICADIR: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std::sync::LazyLock::new(|| {
     std::sync::Mutex::new(None)
 });
+*/
+
+static REPLICADIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 unsafe fn redirect_stdout_log_2_cocrew() {
 
@@ -103,16 +112,18 @@ fn read_project_from_std_input() {
         let handle = stdin.lock();
         
         for line in handle.lines() {
-            log!(trace, "read project to string: {:?}", line);
+            log!(trace, "read stdin pipe to string: {:?}", line);
             let arg = line.unwrap();
             if arg.starts_with("project") {
                 //project:xxxxxxx or project xxxxxx 
                 let (_, name) = arg.split_at("project".len() + 1);
-                *PROJECTNAME.lock().unwrap() = Some(name.to_string());
+                //*PROJECTNAME.lock().unwrap() = Some(name.to_string());
+                PROJECTNAME.set(name.to_string()).unwrap();
             }
             else if arg.starts_with("replica") {
                 let (_, dir) = arg.split_at("replica".len() + 1);
-                *REPLICADIR.lock().unwrap() = Some(dir.to_string());
+                //*REPLICADIR.lock().unwrap() = Some(dir.to_string());
+                REPLICADIR.set(dir.to_string()).unwrap();
             }
         }
     });

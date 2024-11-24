@@ -1,73 +1,40 @@
 
-static MODEL: std::sync::LazyLock<std::sync::Mutex<Model>> = std::sync::LazyLock::new(|| {
-    std::sync::Mutex::new(Model {
-        project_name: "".to_string(),
-        replica_project_dir: "".to_string(),
-    })
-});
+use crate::log;
 
-pub struct Model {
-    project_name: String,
-    replica_project_dir: String,
-} 
+const PROJECT: &str = "Project";
+
+pub struct Model {} 
 
 impl Model {
-    pub fn new(project_name: String) -> Self {
-        //E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\kmodelindexproxymapper.cpp
-        let replica_project_dir = Self::fetch_local_replica_project_dir();
-        let mut dir = std::path::PathBuf::from(replica_project_dir);
-        dir.push(&project_name);
-            
-        if dir.exists() {
-            if let Ok(_) = std::fs::create_dir_all(&dir) {
-                return Model {
-                    project_name,
-                    replica_project_dir: dir.to_string_lossy().to_string(),
-                }
-            }
-        }
-        
-        return Model {
-            project_name,
-            replica_project_dir: "".to_string(),
-        }
-    }
-
-    fn fetch_local_replica_project_dir() -> String {
-        if let Some(replica) = crate::REPLICADIR.lock().unwrap().clone() {
-            let dir = replica + "Projet";
-            return dir;
-        }
-        else {
-            return "".to_string();
-        }
-    }
     
-    pub fn fetch_local_replica_project_path(&self, origin_file_path: &str) -> std::path::PathBuf {
-        if self.replica_project_dir.is_empty() {
-            return std::path::PathBuf::from("");
+    pub fn fetch_local_replica_project_path(origin_file_path: &str) -> Option<String> {
+        
+        if let Some(replica_dir) = crate::REPLICADIR.get() {
+            if let Some(project_name) = crate::PROJECTNAME.get() {
+                if let Some(point) = origin_file_path.find(project_name) {
+                    let tail = origin_file_path[point..].to_string();
+    
+                    if origin_file_path.contains("\\??\\")
+                    {
+                        let path = format!(r"\??\{}\{}\{}", replica_dir, PROJECT, tail);
+                        return Some(path);
+                    }
+                    else
+                    {
+                        let path = format!(r"{}\{}\{}", replica_dir, PROJECT, tail);
+                        return Some(path);
+                    }
+                }
+                else
+                {
+                    let path = origin_file_path.to_owned();
+                    return Some(path);
+                }
+            }
+            return None;
         }
         else {
-            if let Some(point) = origin_file_path.find(&self.project_name) {
-                let tail = origin_file_path[point..].to_string();
-                println!("real project path: {:?}", origin_file_path);
-
-                if origin_file_path.contains("\\??\\")
-                {
-                    let nt_dir = format!("\\??\\{}", self.replica_project_dir);
-                    println!("nt dir {}", nt_dir);
-
-                    return std::path::PathBuf::from(nt_dir).join("Project").join(tail);
-                }
-                else 
-                {
-                    return std::path::PathBuf::from(&self.replica_project_dir).join("Project").join(tail);
-                }
-            }
-            else
-            {
-                return std::path::PathBuf::from(&self.replica_project_dir).join("Project");
-            }
+            return None;
         }
     }
 
@@ -79,7 +46,7 @@ pub fn replace(path: &mut String) -> bool {
         //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\1033\clui.dll
         if let Some(index) = path.find("MSVC") {
             let clui = &path[(index + "MSVC".len())..];
-            let modified = format!(r#"{}{}{}"#, crate::REPLICADIR.lock().unwrap().clone().unwrap(), "MSVC", clui);
+            let modified = format!(r#"{}\{}{}"#, crate::REPLICADIR.get().unwrap(), "MSVC", clui);
             *path = modified;
         }
         return true;
@@ -97,36 +64,42 @@ pub fn replace(path: &mut String) -> bool {
         return false;
     }
     else if path.ends_with(".i") {
-        match &*crate::PROJECTNAME.lock().unwrap() {
-            Some(project_name) => {
-                if MODEL.lock().unwrap().project_name == project_name.to_string() {
-                    let modified = MODEL.lock().unwrap().fetch_local_replica_project_path(&path);
-                    *path = modified.to_string_lossy().to_string();
-                }
-                else {
-                    let project = Model::new(project_name.clone());    
-                    *MODEL.lock().unwrap() = project;
-                    let modified = MODEL.lock().unwrap().fetch_local_replica_project_path(&path);
-                    *path = modified.to_string_lossy().to_string();
-                }
-            },
-            None => {},
+        let modified = Model::fetch_local_replica_project_path(&path);
+        if let Some(modified) = modified {
+            *path = modified;
+            return true;
+        } else {
+            log!(warn, "project name and replica dir in model are not ready");
+            return false;
         }
-        
-        return true;
     }
     else {
         return false;
     }
 }
 
-pub fn replace_dir(path: std::string::String) -> std::string::String {
+pub fn replace_dir(path: &mut String) -> bool {
 
-    if path.ends_with(".dll")
-    {
-        return path;
+    if path.ends_with("clui.dll") {
+        return false;
     }
+    else if path.contains(r"AppData\Local\Temp\") {
+        return false;
+    }
+    else if path.ends_with(".i") {
+        return false;
+    }
+    else if crate::PROJECTNAME.get().is_some() && path.contains(crate::PROJECTNAME.get().unwrap()) {
+        let modified = Model::fetch_local_replica_project_path(&path);
+        if let Some(modified) = modified {
+            *path = modified;
+            return true;   
+        } else {
+            log!(warn, "project name and replica dir in model are not ready");
+            return false;
+        }
+    } 
     else {
-        return path;
+        return false;
     }
 }

@@ -9,14 +9,11 @@ pub struct Packager {
 impl Packager {
     pub async fn toolchain(&self, path: &str, addr: &str) {
 
-        println!("path: {:?}", path);
-        
-        //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\
         //msvc bin dir
 
         let content = Self::pack_compiler(path, "msvc");
         
-        println!("sync compiler packager size: {} KB", content.len() / 1024);
+        log::info!("sync compiler packager path {}, size: {} KB", path, content.len() / 1024);
         Self::send_package("msvc", path, &content, addr).await;
     }
 
@@ -31,14 +28,14 @@ impl Packager {
 
         //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin
 
+        log::trace!("pack path {:?}", path);
         let cl = path.clone();
-        log::trace!("pack {:?}", cl);
+        
         let _ = zip.start_file(format!("Hostx64/x64/cl.exe"), options.clone()).unwrap();
         let mut file = std::fs::File::open(cl.join("Hostx64/x64/cl.exe")).expect("can't find x64 cl.exe");
         let _ = std::io::copy(&mut file, &mut zip);
 
         let clui = path.clone();
-        log::trace!("pack {:?}", clui);
 
         let _ = zip.start_file(format!("Hostx64/x64/1033/clui.dll"), options.clone());
         let mut file = std::fs::File::open(clui.join("Hostx64/x64/1033/clui.dll")).expect("can't find x64 clui.dll");
