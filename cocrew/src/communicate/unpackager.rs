@@ -1,9 +1,7 @@
 
-use std::{io::Write, os::windows::io::IntoRawSocket};
+use std::io::Write;
 
-use crew::replica::project;
-use winapi::um::winnt::PACCESS_ALLOWED_CALLBACK_ACE;
-
+#[allow(non_camel_case_types)]
 pub mod package {
     include!("../../proto/pack.rs");
 }

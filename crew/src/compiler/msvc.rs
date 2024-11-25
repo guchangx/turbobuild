@@ -133,15 +133,16 @@ impl MSVC {
             let winkits_includes = &env.winkits_includes_path;
     
             for include in winkits_includes {
-                let mut instruct = "/I".to_string();
-                instruct += include.to_str().unwrap();
+                if commands.iter().find(|&item| item.to_string_lossy().contains(&include.to_string_lossy().to_string())).is_none() {
+                    let instruct = format!(r#"/I "{}""#, include.to_string_lossy());
+                    commands.push(std::ffi::OsString::from(instruct));
+                }
+            }
+
+            if commands.iter().find(|&item| item.to_string_lossy().contains(&env.msvc_includes_path.to_string_lossy().to_string())).is_none() {
+                let instruct = format!(r#"/I "{}""#, env.msvc_includes_path.to_string_lossy());
                 commands.push(std::ffi::OsString::from(instruct));
             }
-            let msvc_includes = env.msvc_includes_path.display().to_string();
-        
-            let mut instruct = String::from("/I");
-            instruct += &msvc_includes;
-            commands.push(std::ffi::OsString::from(instruct));
     
             return commands;
         }
