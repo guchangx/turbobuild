@@ -10,14 +10,15 @@ mod it {
             captain::run();
         });
 
-        std::thread::sleep(std::time::Duration::from_millis(1000));
+        std::thread::sleep(std::time::Duration::from_millis(200));
 
         let crew = std::thread::spawn(|| {
             crew::run();
         });
 
-        println!("init crew in crew it");
-
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        
+        println!("send compile socket in integration test");
         socket_send();
 
         captain.join().unwrap();
@@ -50,12 +51,15 @@ mod it {
                 compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
                 compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
                 compiler_commands.push(std::ffi::OsString::from("/GR"));
-        
+                
+                compiler_commands.push(std::ffi::OsString::from("/I"));
+                compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+
                 for sdk_include in env.winkits_includes_path {
-                    compiler_commands.push(std::ffi::OsString::from(format!(r#"/I "{}""#, sdk_include.to_str().unwrap())));
+                    compiler_commands.push(std::ffi::OsString::from("/I"));
+                    compiler_commands.push(std::ffi::OsString::from(format!("{}", sdk_include.to_str().unwrap())));
                 }
 
-                compiler_commands.push(std::ffi::OsString::from(format!(r#"/I "{}"#, env.msvc_includes_path.to_str().unwrap())));
                 compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
 
                 let current_crate_dir = env!("CARGO_MANIFEST_DIR");
@@ -63,6 +67,7 @@ mod it {
                 current_crate_dir.pop();
                 let draft_dir = current_crate_dir.join("draft");
 
+                
                 compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, draft_dir.to_string_lossy())));
                 compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, draft_dir.to_string_lossy())));
 

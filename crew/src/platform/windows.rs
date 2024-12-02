@@ -208,12 +208,7 @@ fn get_local_msvc_include_files_path() -> Option<std::path::PathBuf> {
     match get_local_msvc_path() {
         Some(msvc_path) => {
             let msvc_include_files_path = msvc_path.join("include");
-            if msvc_include_files_path.is_dir() {
-                return Some(msvc_include_files_path);
-            }
-            else {
-                return None;
-            }
+            return Some(msvc_include_files_path);
         },
         None => {
             println!("get_local_msvc_path return none");

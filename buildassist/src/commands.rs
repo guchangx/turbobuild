@@ -202,8 +202,8 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
         else if item.starts_with("/external:I") {
             if item == "/external:I" {
                 if let Some(next) = iter.next() {
-                    let arg = std::ffi::OsString::from(item.to_owned() + " " + next);
-                    result_.push(arg);
+                    result_.push(std::ffi::OsString::from(item));
+                    result_.push(std::ffi::OsString::from(next));
                 }
             }
             else {
@@ -214,8 +214,9 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
 
             if item == "/I" || item == "/i" {
                 if let Some(next) = iter.next() {
-                    let arg = std::ffi::OsString::from(item.to_owned() + " " + next);
-                    result_.push(arg);
+                    //must be occupy two items
+                    result_.push(std::ffi::OsString::from(item));
+                    result_.push(std::ffi::OsString::from(next));
                 }
             }
             else {
