@@ -169,9 +169,10 @@ impl MSVC {
 
             let mut object = String::from("");
             
-            if let Some(sources) = fetch_compile_source_file (
-                &std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir) {
-                
+            let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir);
+            
+            let sources = actions.compile_source_file;
+            if sources.len() >= 1 {
                 let keys = sources.into_keys().collect::<Vec<String>>();
                 files.sort();
 
@@ -182,6 +183,9 @@ impl MSVC {
                 else {
                     log::warn!("preprocessed multiple sources are not same with commands. elapsed time: {:?}.", now.elapsed());
                 }
+            }
+            else {
+                log::debug!("can't parse source file from commands");
             }
 
             match fetch_precompiled_result_file(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir) {
@@ -1101,20 +1105,20 @@ fn fetch_compile_source_file(build_and_compiler_type: &std::ffi::OsString, compi
 
 
 struct CompileAction {
-    precompile_2_stdout: bool,
+    pub precompile_2_stdout: bool,
+    pub compile_source_file: std::collections::HashMap<std::string::String, std::path::PathBuf>,
 }
 
-fn parse_action_from_command(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> CompileAction {
+fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> CompileAction {
 
     let working_dir = std::path::PathBuf::from(working_dir);
 
     let mut precompile_2_stdout = false;
-    
+    let mut sourcefile: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
+
     if build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || build_and_compiler_type.to_string_lossy().contains("CMake")
         || build_and_compiler_type.to_string_lossy().contains("Dist") {
-        let mut sourcefile: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
-            
 
         for command in compiler_commands {
             let command = command.to_string_lossy();
@@ -1124,11 +1128,40 @@ fn parse_action_from_command(build_and_compiler_type: &std::ffi::OsString, compi
             else if command == "/E" {
                 precompile_2_stdout = true;
             }
+            else if command.to_lowercase().contains(".cpp") || command.to_lowercase().contains(".c") {
+                let source = command.replace(r#"""#, "");
+                let mut index = source.rfind(r"\");
+                if index.is_none() {
+                    index = source.rfind(r"/");
+                }
+                match index {
+                    Some(i) => {
+                        let source_file_name = source.clone().split_off(i + 1);
+
+                        let source_path = std::path::PathBuf::from(source.clone());
+                        if source_path.is_absolute() {
+                            sourcefile.insert(source_file_name, source_path);
+                        }
+                        else {
+                            let source_path = working_dir.join(source.clone());
+                            sourcefile.insert(source_file_name, source_path);
+                        }
+                    },
+                    None => {
+                        let absolute_source_path = working_dir.join(source.clone());
+                        sourcefile.insert(source.clone(), absolute_source_path);
+                    }
+                }
+            }
+            else if command.starts_with("/Fo") {
+                
+            }
         }
     }
 
     return CompileAction {
-        precompile_2_stdout: false,
+        precompile_2_stdout,
+        compile_source_file: sourcefile,
     }
 
 }
