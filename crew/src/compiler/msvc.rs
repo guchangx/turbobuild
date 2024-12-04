@@ -402,12 +402,22 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
     let mut precompiled_files_path = std::vec::Vec::<std::ffi::OsString>::new();
     for file in source_files.to_owned() {
 
-        let mut path = object.clone().join(file);
-        path.set_extension("i");
+        let mut path = object.clone();
+        if object.is_dir() {
+            path = object.clone().join(file);
+            path.set_extension("i");
+            
+            log::debug!("zip precompiled file: {:?}", path);
+        }
+        else {
+            path.set_extension("i");
+
+            log::debug!("zip precompiled file: {:?}", path);
+        }
+
         zip.start_file(path.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
+
         let file = std::fs::File::open(&path).unwrap();
-        
-        log::debug!("zip precompiled file: {:?}", path);
 
         let mut file = std::io::BufReader::new(file);
         let _ = std::io::copy(&mut file, &mut zip);
@@ -852,12 +862,11 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                 Ok(output) => {
                     if output.status.success() {
                         let elapsed = start.elapsed();
-                        let mut output_context = String::from_utf8_lossy(&output.stderr);  //filename
-                        if output.stderr.is_empty() {
-                            output_context = String::from_utf8_lossy(&output.stdout); 
-                        }
+                        let output_context = String::from_utf8_lossy(&output.stderr);  //filename
+                        let stderr_context = String::from_utf8_lossy(&output.stdout); 
+        
 
-                        log::trace!("local compile file count {:?} success, compiled elapsed time: {:?}, child thread Id: {:?}", output_context.lines().count(), elapsed, child_id);
+                        log::trace!("compile local file count {:?} success, elapsed time: {:?}, stdout: {:?}, stderr: {:?}", stderr_context.lines().count(), elapsed, output_context, stderr_context);
                         return (true, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
                         //TODO shoud not be used Arc wrap
                     }
