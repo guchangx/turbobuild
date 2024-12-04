@@ -184,16 +184,20 @@ impl MSVC {
                 }
             }
 
-            match fetch_compile_object_file(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir) {
-                GeneratedObject::PathWithObjName(path) => {
+            match fetch_precompiled_result_file(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir) {
+                PrecompiledResult::NonePCResultPath => {log::warn!("can't fetch precompile result file.")},
+                PrecompiledResult::PathWithPCResultName(path) => {
                     log::debug!("fetch compile object files with objname: {:?}", path);
                     object = path.to_str().unwrap().to_owned()
                 },
-                GeneratedObject::PathWithoutObjName(path) => {
+                PrecompiledResult::PathWithoutPCResultName(path) => {
                     log::debug!("fetch compile object files without objname: {:?}", path);
                     object = path.to_str().unwrap().to_owned()
                 },
-                GeneratedObject::NoneObjPath => {log::warn!("can't fetch object file")}
+                PrecompiledResult::PCResultNameWithoutPath(path) => {
+                    log::debug!("fetch compile object files without objname: {:?}", path);
+                    object = path.to_str().unwrap().to_owned()
+                }
             }
 
             let mut commands = tidyup_commands_for_precompile(compiler_commands);
@@ -202,7 +206,7 @@ impl MSVC {
             if stdout.is_empty() {
                 let now = std::time::Instant::now();
     
-                let intermediate = object.replace("/Fo", "").replace("\\\\", "\\");
+                let intermediate = object;
 
                 addr = self.sender.lock().unwrap().schedule();
 
@@ -404,10 +408,10 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
 
         let mut path = object.clone().join(file);
         path.set_extension("i");
+        log::debug!("zip precompiled file: {:?}", path);
+
         zip.start_file(path.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
         let file = std::fs::File::open(&path).unwrap();
-        
-        log::debug!("zip precompiled file: {:?}", path);
 
         let mut file = std::io::BufReader::new(file);
         let _ = std::io::copy(&mut file, &mut zip);
@@ -1095,6 +1099,40 @@ fn fetch_compile_source_file(build_and_compiler_type: &std::ffi::OsString, compi
     return None;
 }
 
+
+struct CompileAction {
+    precompile_2_stdout: bool,
+}
+
+fn parse_action_from_command(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> CompileAction {
+
+    let working_dir = std::path::PathBuf::from(working_dir);
+
+    let mut precompile_2_stdout = false;
+    
+    if build_and_compiler_type.to_string_lossy().contains("MSBuild")
+        || build_and_compiler_type.to_string_lossy().contains("CMake")
+        || build_and_compiler_type.to_string_lossy().contains("Dist") {
+        let mut sourcefile: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
+            
+
+        for command in compiler_commands {
+            let command = command.to_string_lossy();
+            if command == "/P" {
+                precompile_2_stdout = false;
+            }
+            else if command == "/E" {
+                precompile_2_stdout = true;
+            }
+        }
+    }
+
+    return CompileAction {
+        precompile_2_stdout: false,
+    }
+
+}
+
 fn tidyup_commands_for_precompile(compiler_commands: &Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
     let mut commands = compiler_commands.clone();
     commands.retain(|item| !(item.to_string_lossy().to_lowercase().contains(".cpp") || item.to_string_lossy().to_lowercase().contains(".c")));
@@ -1199,6 +1237,55 @@ fn fetch_compile_pdb_path(build_and_compiler_type: std::ffi::OsString, compiler_
         }
     }
     return (ProgramDataBase::NonePDBPath, false);
+}
+
+enum PrecompiledResult {
+    NonePCResultPath,
+    PathWithPCResultName(std::path::PathBuf),
+    PathWithoutPCResultName(std::path::PathBuf),
+    PCResultNameWithoutPath(std::path::PathBuf),
+}
+
+fn fetch_precompiled_result_file(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> PrecompiledResult {
+    if build_and_compiler_type.to_string_lossy().contains("MSBuild")
+        || build_and_compiler_type.to_string_lossy().contains("CMake") 
+        || build_and_compiler_type.to_string_lossy().contains("Dist") {
+        
+        let working_dir = std::path::PathBuf::from(working_dir);
+
+        let precompiled_result_param = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().starts_with("/Fi")).collect::<Vec<_>>();
+
+        match precompiled_result_param.last() {
+            Some(result) => {
+                let result_path = result.to_string_lossy().to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
+                if result_path.ends_with(".i") {
+                    let path = std::path::PathBuf::from(result_path);
+                    if path.has_root() {
+                        return PrecompiledResult::PathWithPCResultName(path);
+                    }
+                    else {
+                        let path = working_dir.join(path);
+                        return PrecompiledResult::PathWithPCResultName(path);
+                    }
+                }
+                else {
+                    let path = std::path::PathBuf::from(result_path);
+                    if path.has_root() {
+                        return PrecompiledResult::PathWithoutPCResultName(path);
+                    }
+                    else {
+                        return PrecompiledResult::PathWithoutPCResultName(working_dir);
+                    }
+                }
+            },
+            None => {
+                println!("NonePCResultPath NonePCResultPath NonePCResultPath");
+                return PrecompiledResult::NonePCResultPath;
+            },
+        }
+        
+    }
+    return PrecompiledResult::NonePCResultPath;
 }
 
 fn exempt_compile_current_source_by_cache(single_source_file: String, compiler_commands: &mut Vec<std::ffi::OsString>) {

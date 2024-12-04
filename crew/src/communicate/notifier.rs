@@ -147,7 +147,7 @@ impl NotificationSender {
                 
             }
             Err(err) => {
-                log::error!("can't connect captain host: {}:50051 error: {:?}", ip, err);
+                log::error!("can't connect captain host: {}:50051, error: {:?}", ip, err);
                 return Err("Err".to_string());
             }
         };

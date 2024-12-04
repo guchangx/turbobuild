@@ -1,6 +1,6 @@
 
 [workspace]
-members = ["redirect", "turbobuild", "buildassist", "captain", "crew", "tools", "cocrew"]
+members = ["redirect", "turbobuild", "buildassist", "captain", "crew", "tools", "cocrew", "it"]
 default-members = ["turbobuild"]
 resolver = "2"
 
