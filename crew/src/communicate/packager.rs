@@ -13,7 +13,7 @@ impl Packager {
 
         let content = Self::pack_compiler(path, "msvc");
         
-        log::info!("sync compiler packager path {}, size: {} KB", path, content.len() / 1024);
+        log::info!("sync compiler packager path: {}, size: {} KB", path, content.len() / 1024);
         Self::send_package("msvc", path, &content, addr).await;
     }
 

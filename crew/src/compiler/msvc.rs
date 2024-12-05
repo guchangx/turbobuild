@@ -10,7 +10,7 @@ pub struct MSVC {
 }
 
 //TODO common param in func should be move in msvc struct
-use std::{io::Read, ops::{Add, Index}, sync::atomic};
+use std::{io::Read, ops::{Add, Index}, str::FromStr, sync::atomic};
 use crate::compiler::model::{CompilerInput, CompilerOutput, ProcessedResults, PrecompiledSource};
 
 //TODO: rename ProcessedResults to CompileResults
@@ -430,7 +430,7 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
             }
             _ => {},
         }
-        
+
         log::debug!("zip precompiled file: {:?}", intermediate);
 
         zip.start_file(intermediate.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
@@ -446,7 +446,14 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
     let content = zip.finish().unwrap();
     let file = content.to_owned().into_inner();
     let content = std::borrow::Cow::from(file);
-    intermediate.set_extension("zip");
+
+    if intermediate.is_file() {
+        intermediate = intermediate.parent().map_or_else(|| std::path::PathBuf::from(""), |parent| parent.to_path_buf());
+        intermediate.set_extension("zip");
+    }   
+    else {
+        intermediate.set_extension("zip");
+    } 
 
     let intput = CompilerInput {
         project: project_name.into(),
@@ -880,8 +887,8 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                 Ok(output) => {
                     if output.status.success() {
                         let elapsed = start.elapsed();
-                        let output_context = String::from_utf8_lossy(&output.stderr);  //filename
-                        let stderr_context = String::from_utf8_lossy(&output.stdout); 
+                        let output_context = String::from_utf8_lossy(&output.stdout);  //filename
+                        let stderr_context = String::from_utf8_lossy(&output.stderr); 
         
 
                         log::trace!("compile local file count {:?} success, elapsed time: {:?}, stdout: {:?}, stderr: {:?}", stderr_context.lines().count(), elapsed, output_context, stderr_context);
@@ -1287,7 +1294,7 @@ fn fetch_compile_object_file(build_and_compiler_type: &std::ffi::OsString, compi
                 return exact_compile_object_file(object.to_string_lossy(), &working_dir);
             },
             None => {
-                println!("NoneObjPath NoneObjPath NoneObjPath");
+                log::debug!("NoneObjPath NoneObjPath NoneObjPath");
                 return GeneratedObject::NoneObjPath;
             },
         }

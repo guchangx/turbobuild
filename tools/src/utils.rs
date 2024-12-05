@@ -11,7 +11,7 @@ pub fn get_working_path(app: std::string::String) -> std::option::Option<std::st
     else
     {
         dir.pop();
-        if dir.ends_with("build") {
+        if dir.ends_with("build") || dir.ends_with("deps"){
             dir.pop();
         }
     
