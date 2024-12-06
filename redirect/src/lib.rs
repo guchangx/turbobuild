@@ -105,7 +105,7 @@ unsafe fn redirect_stdout_log_2_cocrew() {
     });
 }
 
-fn read_project_from_std_input() {
+fn read_project_property_from_stdin() {
     RUNTIME.lock().unwrap().spawn(
         async move {
         let stdin = std::io::stdin();
@@ -156,10 +156,10 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
 
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
-
-            log!(info, "DLL_PROCESS_ATTACH");
-            read_project_from_std_input();
             redirect_stdout_log_2_cocrew();
+            log!(info, "DLL_PROCESS_ATTACH");
+            read_project_property_from_stdin();
+            
             //winapi::um::errhandlingapi::SetUnhandledExceptionFilter(Some(custom_exception_handler));
     
             let text: Vec<u16> = std::ffi::OsStr::new("Debug BreakPoint")

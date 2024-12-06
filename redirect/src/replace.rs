@@ -45,11 +45,18 @@ pub fn replace(path: &mut String) -> bool {
     if path.ends_with("clui.dll") {
         //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\1033\clui.dll
         if let Some(index) = path.find("MSVC") {
-            let clui = &path[(index + "MSVC".len())..];
-            let modified = format!(r#"{}\{}{}"#, crate::REPLICADIR.get().unwrap(), "MSVC", clui);
-            *path = modified;
+            if let Some(replica_dir) = crate::REPLICADIR.get() {
+                let clui = &path[(index + "MSVC".len())..];
+
+                let modified = format!(r#"{}\{}{}"#, replica_dir, "MSVC", clui);
+                *path = modified;
+                return true;
+            }
+            else {
+                return false;
+            }
         }
-        return true;
+        return false;
     }
     if path.ends_with(".dll") || path.ends_with("_PIPE") {
         return false;

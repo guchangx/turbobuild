@@ -88,11 +88,10 @@ impl FileReceiver {
         let project = request.project;
         let file = request.file;
         let compiler = request.compiler;
-
-        
+    
         let commands = request.commands;
         let content = request.content;
-        log::trace!("transmit compile handle project: {}, file: {}, compiler: {}, commands is empty: {}, content size: {}.", project, file, compiler, commands.is_empty(), &content.len());
+        log::trace!("transmit compile handle project: {}, file: {}, compiler: {}, commands is empty: {}, content size: {}KB.", project, file, compiler, commands.is_empty(), &content.len() / 1024 );
 
         if file.is_empty() {
 

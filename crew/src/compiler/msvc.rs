@@ -161,7 +161,6 @@ impl MSVC {
         let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, compiler_commands, false);
 
         let err = String::from_utf8_lossy(&stderr);
-        println!("compiler status {:?}, err: {:?}", status, err);
 
         if status {
             let mut files: Vec<String> = err.lines().map(|item| item.to_string()).collect();
@@ -298,7 +297,7 @@ impl MSVC {
                 //prcompile to file
                 if stdout.is_empty() {
 
-                    result = self.request_dist_compile_from_file(&actions.precompiled_result_file, project, compiler_path, compiler_working_dir, &addr, source_files, compiler_commands).await;
+                    result = self.request_dist_compile_from_file(&actions.precompiled_result_file, project, compiler_path, compiler_working_dir, &addr, source_files, &commands).await;
 
                 }
             }
@@ -901,7 +900,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                             output_context = String::from_utf8_lossy(&output.stderr);
                         }
                         let elapsed = start.elapsed();
-                        log::info!("compile file elapsed time: {:?}. cl error message: {:?}, error code: {:?}.", elapsed, output_context, output.status.code());
+                        log::info!("compile file elapsed time: {:?}. cl error message: {:?}, error code: {:?}. output messaage {:?}", elapsed, output_context, output.status.code(), output_context);
                         return (false, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
                     }
                 },
@@ -1245,7 +1244,10 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
 
 fn tidyup_commands_for_precompile(compiler_commands: &Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
     let mut commands = compiler_commands.clone();
-    commands.retain(|item| !(item.to_string_lossy().to_lowercase().contains(".cpp") || item.to_string_lossy().to_lowercase().contains(".c")));
+    commands.retain(|item| { 
+        let item = item.to_string_lossy().to_lowercase(); 
+        return !((item.ends_with(".cpp") || item.ends_with(".c") || item.starts_with("/p")) || item.starts_with("/fi"))
+    });
     return commands;
 }
 
