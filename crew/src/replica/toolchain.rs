@@ -223,6 +223,9 @@ impl Property {
                     }
                 }
             }
+            else {
+                log::info!("check resource addr: {} has msvc {}, no need to sync.", item.addr, version);
+            }
         }
     }
     

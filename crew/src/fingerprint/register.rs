@@ -26,7 +26,7 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
         }
     }
     else {
-        println!("no -h or /h parameters specified, use local address.");
+        log::info!("no -h or /h parameters specified, use local address.");
     }
 
     rt.spawn(async move {

@@ -344,7 +344,7 @@ impl MSVC {
     async fn request_dist_compile_and_wait_result(&self, addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
     
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
-        log::debug!("compiler version: {:?}", cversion);
+        log::debug!("in commands compiler version: {:?}", cversion);
         if self.sender.lock().unwrap().check(addr, &cversion) {
             let result = request_dist_compile_with_precompiled_source(addr, &input, &precompiled).await;
             if result.status {
@@ -357,7 +357,7 @@ impl MSVC {
             return result;
         }
         else {
-            log::error!("dist compile failed. {} no available remote compiler {:?}", addr, cversion);
+            log::error!("dist compile failed. addr: {} no available remote compiler {:?}", addr, cversion);
 
             return CompilerOutput::default();
         }
@@ -1437,7 +1437,7 @@ mod tests {
     #[test]
 
     fn test_local_compile() {
-        println!("run msvc test");
+        println!("run msvc .cpp file generate obj test");
         tools::logger::init_once_logger();
 
         let env = crate::platform::windows::WindowsCompilerEnv::default();
@@ -1482,41 +1482,52 @@ mod tests {
 
     }
 
-    fn test_inject() {
-        println!("run msvc test");
+    #[test]
+    fn test_local_precompile() {
+        println!("run msvc .cpp file generate .i test");
+        tools::logger::init_once_logger();
 
-        //cargo test --package turbobuild --lib -- compiler::msvc::tests::test_inject --exact --show-output
-        let win_compile_env = crate::platform::windows::WindowsCompilerEnv::default();
-        let mut compiler_path = std::path::PathBuf::from(win_compile_env.compiler_path);
-        compiler_path = compiler_path.join("Hostx64/x64/cl.exe");
+        let env = crate::platform::windows::WindowsCompilerEnv::default();
 
-        let mut working_dir = std::ffi::OsString::from("");
-        let dir = std::env::current_dir().unwrap();
-        let dir = dir.to_string_lossy();
-        let index = dir.find("turbobuild");
-        if let Some(index) = index {
-            let path = &dir[0..index];
-            let mut path = std::path::PathBuf::from(path);
-            path.push("turbobuild");
-            path.push("draft");
-
-            working_dir = path.into_os_string();
-        }
-        
         let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
+        compiler_commands.push(std::ffi::OsString::from("/c"));
+        compiler_commands.push(std::ffi::OsString::from("/P"));
         compiler_commands.push(std::ffi::OsString::from("/nologo"));
-        compiler_commands.push(std::ffi::OsString::from("/EHs /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR"));
-
-        for sdk_include in win_compile_env.winkits_includes_path {
-            compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {:#?}"#, sdk_include)));
-        }
+        compiler_commands.push(std::ffi::OsString::from("/MD"));
+        compiler_commands.push(std::ffi::OsString::from("/GS"));
+        compiler_commands.push(std::ffi::OsString::from("/guard:cf"));
+        compiler_commands.push(std::ffi::OsString::from("/Gy"));
+        compiler_commands.push(std::ffi::OsString::from("/Qpar"));
+        compiler_commands.push(std::ffi::OsString::from("/fp:precise"));
+        compiler_commands.push(std::ffi::OsString::from("/Qspectre"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
+        compiler_commands.push(std::ffi::OsString::from("/GR"));
         
-        compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {:#?}"#, win_compile_env.msvc_includes_path)));
-        compiler_commands.push(std::ffi::OsString::from("/Fotest.obj"));
-        compiler_commands.push(std::ffi::OsString::from(r#"/c test.cpp"#));
+        
+        compiler_commands.push(std::ffi::OsString::from("/I"));
+        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+        
+        for sdk_include in env.winkits_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", sdk_include.to_str().unwrap())));
+        }
 
-        //start_local_compiler_with_inject(&compiler_path.into_os_string(), &working_dir, &compiler_commands);
-        //TODO should be refactor current test code
+        compiler_commands.push(std::ffi::OsString::from("/Filz4.i"));
+
+        let current_crate_dir = env!("CARGO_MANIFEST_DIR");
+        let mut current_crate_dir = std::path::PathBuf::from(current_crate_dir);
+        current_crate_dir.pop();
+        let draft_dir = current_crate_dir.join("draft");
+
+        println!("draft dir: {:?}", draft_dir);
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, draft_dir.to_string_lossy())));
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, draft_dir.to_string_lossy())));
+
+        let mut complier_path = env.compiler_path;
+        complier_path.push(r"Hostx64\x64\cl.exe");
+
+        let _ = request_local_compile(&complier_path.into_os_string(), &draft_dir.into_os_string(), &compiler_commands, std::ffi::OsString::from(""), false);
     }
 
     #[test]

@@ -129,7 +129,7 @@ impl FileSender {
                     match inner {
                         Ok(response) => {
                             if response.error_code == 0 {
-                                log::debug!("send compiled sourcefile response success: {}", response.error_message);
+                                log::debug!("send precompiled sourcefile response success: {}", response.error_message);
 
                                 if response.progress == pack::CompileProgress::Filetransfer as i32 {
 

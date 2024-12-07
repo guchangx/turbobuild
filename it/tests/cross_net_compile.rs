@@ -18,7 +18,7 @@ mod integration_tests {
             crew::run();
         });
 
-        std::thread::sleep(std::time::Duration::from_millis(200));
+        std::thread::sleep(std::time::Duration::from_millis(3000));
         
         println!("send compile socket in integration test");
         socket_send();

@@ -81,9 +81,31 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
             }
         }
     }
+
+    let mut next = false;
+    let mut combine_commands: Vec<std::ffi::OsString> = commands.windows(2).filter_map(|chunk| {
+        if chunk.len() >= 2 {
+            if chunk.starts_with(&vec![std::ffi::OsString::from("/I")]) {
+                next = true;
+                return Some(std::ffi::OsString::from(format!(r#"{} "{}""#, chunk[0].to_string_lossy(), chunk[1].to_string_lossy())));
+            }
+        }
+
+        if next {
+            next = false;
+            return None;
+        }
+        else {
+            return Some(chunk[0].clone());
+        }
+    }).collect();
     
+    if commands.len() / 2 != 0 {
+        combine_commands.push(commands[commands.len() - 1].clone());
+    }
+
     let (output, results) = request_local_compile(compiler_input.project.clone(), compiler_input.compiler_path.clone(),
-                    compiler_input.compiler_working_dir.clone(), commands,
+                    compiler_input.compiler_working_dir.clone(), combine_commands,
                     compiler_input.build_and_compiler_type.clone(), true);
 
     return (output, results);
@@ -340,8 +362,10 @@ fn start_local_compiler_with_inject(project: &std::ffi::OsString, compiler_path:
                         -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     
     let line: String = compiler_commands.clone().into_iter()
-        .map(|os_string| format!("{} ", os_string.into_string().unwrap()))
+        .map(|os_string| format!("{} ", os_string.to_string_lossy()))
         .collect();
+
+    let line =  format!(r#""{}" {}"#, compiler_path.to_string_lossy(), line);
 
     let (status, stdout, stderr) = crate::detours::redirect::msvc_detours(project.clone().into_string().unwrap(), compiler_path.clone().into_string().unwrap(), 
                     line, working_dir.clone().into_string().unwrap());
@@ -425,8 +449,8 @@ pub fn redirect_stdout_log() {
 mod tests {
     use super::*;
     #[test]
-    fn test_inject() {
-        println!("run msvc test inject");
+    fn compile_sourcefile_inject_test() {
+        println!("run msvc .cpp file test inject");
         tools::logger::init_once_logger();
         
         std::thread::spawn(||{
@@ -455,20 +479,91 @@ mod tests {
         println!("draft dir: {}", working_dir.to_string_lossy());
 
         let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
-        compiler_commands.push(std::ffi::OsString::from("/c /nologo /EHs /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR"));
+
+        compiler_commands.push(std::ffi::OsString::from("/c"));
+        compiler_commands.push(std::ffi::OsString::from("/nologo"));
+        compiler_commands.push(std::ffi::OsString::from("/EHs"));
+        compiler_commands.push(std::ffi::OsString::from("/MD"));
+        compiler_commands.push(std::ffi::OsString::from("/GS"));
+        compiler_commands.push(std::ffi::OsString::from("/guard:cf"));
+        compiler_commands.push(std::ffi::OsString::from("/Gy"));
+        compiler_commands.push(std::ffi::OsString::from("/Qpar"));
+        compiler_commands.push(std::ffi::OsString::from("/fp:precise"));
+        compiler_commands.push(std::ffi::OsString::from("/Qspectre"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
+        compiler_commands.push(std::ffi::OsString::from("/GR"));
 
         for sdk_include in win_compile_env.winkits_includes_path {
             compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {:#?}"#, sdk_include)));
         }
         
         compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {:#?}"#, win_compile_env.msvc_includes_path)));
-        compiler_commands.push(std::ffi::OsString::from("/Fotest.obj"));
-        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\fake_test.cpp"#, working_dir.to_string_lossy())));
+        compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
+
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, working_dir.to_string_lossy())));
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, working_dir.to_string_lossy())));
 
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), 
             &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands);
         assert!(status);
         println!("compile stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile stderr: {}", String::from_utf8_lossy(&stderr));
+    }
+
+    #[test]
+    fn compile_preprocessedfile_with_inject() {
+        println!("run msvc .i file test inject");
+        tools::logger::init_once_logger();
+        
+        std::thread::spawn(||{
+            redirect_stdout_log();
+        });
+
+        //cargo test --package cocrew --lib -- compiler::msvc::tests::test_inject --exact --show-output
+        
+        let win_compile_env = crew::platform::windows::WindowsCompilerEnv::default();
+        let mut compiler_path = std::path::PathBuf::from(win_compile_env.compiler_path);
+        compiler_path = compiler_path.join("Hostx64/x64/cl.exe");
+
+        let mut working_dir = std::ffi::OsString::from("");
+        let dir = std::env::current_dir().unwrap();
+        let dir = dir.to_string_lossy();
+        let index = dir.find("turbobuild");
+        if let Some(index) = index {
+            let path = &dir[0..index];
+            let mut path = std::path::PathBuf::from(path);
+            path.push("turbobuild");
+            path.push("draft");
+
+            working_dir = path.into_os_string();
+        }
+        
+        println!("draft dir: {}", working_dir.to_string_lossy());
+
+        let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
+
+        compiler_commands.push(std::ffi::OsString::from("/c"));
+        compiler_commands.push(std::ffi::OsString::from("/nologo"));
+        compiler_commands.push(std::ffi::OsString::from("/EHs"));
+        compiler_commands.push(std::ffi::OsString::from("/MD"));
+        compiler_commands.push(std::ffi::OsString::from("/GS"));
+        compiler_commands.push(std::ffi::OsString::from("/guard:cf"));
+        compiler_commands.push(std::ffi::OsString::from("/Gy"));
+        compiler_commands.push(std::ffi::OsString::from("/Qpar"));
+        compiler_commands.push(std::ffi::OsString::from("/fp:precise"));
+        compiler_commands.push(std::ffi::OsString::from("/Qspectre"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
+        compiler_commands.push(std::ffi::OsString::from("/GR"));
+
+        compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.i"#, working_dir.to_string_lossy())));
+
+        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), 
+            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands);
+        assert!(status);
+        println!("compile .i file stdout: {}", String::from_utf8_lossy(&stdout));
+        println!("compile .i file stderr: {}", String::from_utf8_lossy(&stderr));
     }
 }
