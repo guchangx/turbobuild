@@ -11,7 +11,7 @@ impl Logger {
             }
         }
         else {
-            println!("logger not ready  yet, message: {}", message.into());
+            println!("logger not ready yet, message: {}", message.into());
         }
     }
 

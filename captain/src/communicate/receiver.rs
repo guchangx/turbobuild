@@ -47,7 +47,7 @@ impl NotificationReceiver {
                     log::debug!("run communicate rpc service end");
                 },
                 Err(err) => {
-                    panic!("run communicate rpc service failed: {}", err);
+                    panic!("run communicate rpc service failed: {} addr: {}", err, addr);
                 }
             }
         });

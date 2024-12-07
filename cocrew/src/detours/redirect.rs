@@ -26,26 +26,30 @@ unsafe impl Send for HandleBox {}
 unsafe impl Sync for HandleBox {}
 
 pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE, project: &str) {
-    let arg = format!("project:{}\nreplica:{}\n", project, tools::utils::access_replica_dir());
-    let mut bytes: winapi::shared::minwindef::DWORD = 0;
-    let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
-    let ret = winapi::um::fileapi::WriteFile(
-        handle,
-        arg.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
-        arg.len() as u32,
-        &mut bytes,
-        &mut overlapped
-    );
-
-    if ret == winapi::shared::minwindef::FALSE || bytes == 0 {
-        let error = winapi::um::errhandlingapi::GetLastError();
-        log::error!("write pipe error, failed code: {}", error);
+    if !project.is_empty() {
+        let arg = format!("project:{}\nreplica:{}\n", project, tools::utils::access_replica_dir());
+        let mut bytes: winapi::shared::minwindef::DWORD = 0;
+        let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+        let ret = winapi::um::fileapi::WriteFile(
+            handle,
+            arg.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
+            arg.len() as u32,
+            &mut bytes,
+            &mut overlapped
+        );
+    
+        if ret == winapi::shared::minwindef::FALSE || bytes == 0 {
+            let error = winapi::um::errhandlingapi::GetLastError();
+            log::error!("write pipe error, failed code: {}", error);
+        }
+        else {
+            //winapi::um::fileapi::FlushFileBuffers(handle);
+            log::trace!("send message by pipe {} {:?}", if bytes > 0 {"success."} else {"failed."}, arg);
+        }
     }
     else {
-        //winapi::um::fileapi::FlushFileBuffers(handle);
-        log::trace!("send message by pipe {} {:?}", if bytes > 0 {"success."} else {"failed."}, arg);
+        log::warn!("don't pass project name and project path, use current path and don't redirect.");
     }
-
     CloseHandle(handle);
 }
 

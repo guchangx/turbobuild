@@ -11,7 +11,7 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
     let args = std::env::args().collect::<Vec<String>>();
     let mut captain = String::new();
 
-    let mut iter = args.iter().skip_while(|item| item.starts_with("-h") || item.starts_with("/h"));
+    let mut iter = args.iter().skip_while(|item|!(item.starts_with("-h") || item.starts_with("/h")));
     
     if let Some(_) = iter.next() {
         iter.next();
