@@ -556,6 +556,7 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
         compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
         compiler_commands.push(std::ffi::OsString::from("/GR"));
+        compiler_commands.push(std::ffi::OsString::from("/TC"));
 
         compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
         compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.i"#, working_dir.to_string_lossy())));

@@ -1503,7 +1503,7 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
         compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
         compiler_commands.push(std::ffi::OsString::from("/GR"));
-        
+        compiler_commands.push(std::ffi::OsString::from("/TC"));
         
         compiler_commands.push(std::ffi::OsString::from("/I"));
         compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
@@ -1523,6 +1523,31 @@ mod tests {
         println!("draft dir: {:?}", draft_dir);
         compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, draft_dir.to_string_lossy())));
         compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, draft_dir.to_string_lossy())));
+
+        let mut complier_path = env.compiler_path;
+        complier_path.push(r"Hostx64\x64\cl.exe");
+
+        let _ = request_local_compile(&complier_path.into_os_string(), &draft_dir.into_os_string(), &compiler_commands, std::ffi::OsString::from(""), false);
+    }
+
+    #[test]
+    fn test_local_compile_preprocess_file() {
+        println!("run msvc compile .i file test");
+        tools::logger::init_once_logger();
+        let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
+        compiler_commands.push(std::ffi::OsString::from("/c"));
+        compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
+        compiler_commands.push(std::ffi::OsString::from("/TC"));
+
+        let env = crate::platform::windows::WindowsCompilerEnv::default();
+
+        let current_crate_dir = env!("CARGO_MANIFEST_DIR");
+        let mut current_crate_dir = std::path::PathBuf::from(current_crate_dir);
+        current_crate_dir.pop();
+        let draft_dir = current_crate_dir.join("draft");
+
+        println!("draft dir: {:?}", draft_dir);
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.i"#, draft_dir.to_string_lossy())));
 
         let mut complier_path = env.compiler_path;
         complier_path.push(r"Hostx64\x64\cl.exe");
