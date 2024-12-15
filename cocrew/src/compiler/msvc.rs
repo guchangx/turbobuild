@@ -124,7 +124,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
     let mut compiled_results: ProcessedResults = Vec::new();
     
-    log::trace!("injectd compile status: {}, stderr: {} stdout: {}", status, compile_output, compile_error);
+    log::trace!("injectd compile status: {}, stdout: {} stderr: {}", status, compile_output, compile_error);
 
     if status {
         let output = compile_output.lines();
@@ -150,6 +150,9 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     
                     let mut result_path = std::path::PathBuf::from("");
                     let object = fetch_compiler_object_file(build_and_compiler_type.clone(), compiler_commands.to_owned(), working_path.clone());
+
+                    log::trace!("object: {:#?}", object);
+
                     match object {
                         GeneratedObject::PathWithObjName(path) => {
                             result_path = path;
@@ -163,6 +166,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                             log::warn!("fetch result file path failed.");
                         }
                     };
+                    log::trace!("path: {:?}", result_path);
                     
                     match std::fs::File::open(&result_path) {
                         Ok(file) => {
@@ -173,10 +177,10 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                         },
                         Err(error) => {
                             if error.kind() == std::io::ErrorKind::NotFound {
-                                log::trace!("obj file path is not found.");
+                                log::trace!(".obj file path is not found.");
                             }
                             else {
-                                log::trace!("obj file read failed. {:?}", error);
+                                log::trace!(".obj file read failed. {:?}", error);
                             }
                         }
                     };
@@ -262,6 +266,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     return (result, Some(compiled_results));
 }
 
+#[derive(Debug)]
 enum GeneratedObject {
     NoneObjPath,
     PathWithObjName(std::path::PathBuf),

@@ -1244,10 +1244,19 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
 
 fn tidyup_commands_for_precompile(compiler_commands: &Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
     let mut commands = compiler_commands.clone();
+    let mut specify_sourcefile_type = true;
     commands.retain(|item| { 
-        let item = item.to_string_lossy().to_lowercase(); 
+        let item = item.to_string_lossy().to_lowercase();
+        if item == "/TP" || item == "/TC" || item == "/Tc" || item == "/Tp" {
+            specify_sourcefile_type = false;
+        }
         return !((item.ends_with(".cpp") || item.ends_with(".c") || item.starts_with("/p")) || item.starts_with("/fi"))
     });
+
+    if specify_sourcefile_type {
+        commands.push(std::ffi::OsString::from("/TP"));    
+    }
+
     return commands;
 }
 

@@ -53,6 +53,7 @@ mod integration_tests {
                 compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
                 compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
                 compiler_commands.push(std::ffi::OsString::from("/GR"));
+                compiler_commands.push(std::ffi::OsString::from("/TP"));
                 
                 compiler_commands.push(std::ffi::OsString::from("/I"));
                 compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
@@ -62,7 +63,7 @@ mod integration_tests {
                     compiler_commands.push(std::ffi::OsString::from(format!("{}", sdk_include.to_str().unwrap())));
                 }
 
-                compiler_commands.push(std::ffi::OsString::from("/Filz4.i"));
+                compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
 
                 let current_crate_dir = env!("CARGO_MANIFEST_DIR");
                 let mut current_crate_dir = std::path::PathBuf::from(current_crate_dir);
