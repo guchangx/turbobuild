@@ -406,7 +406,7 @@ impl MSVC {
 async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::OsString, precompiled_result: PrecompiledResult, source_files: &Vec<String>)-> Vec<std::ffi::OsString> {
 
     let options = zip::write::SimpleFileOptions::default()
-    .compression_method(zip::CompressionMethod::Zstd);
+        .compression_method(zip::CompressionMethod::Zstd);
     let mut cursor = std::io::Cursor::new(Vec::new());
     let mut zip = zip::ZipWriter::new(&mut cursor);
 
@@ -432,15 +432,18 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
 
         log::debug!("zip precompiled file: {:?}", intermediate);
 
-        zip.start_file(intermediate.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
+        if let Ok(file) = std::fs::File::open(&intermediate) {
+            zip.start_file(intermediate.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
+            let mut file = std::io::BufReader::new(file);
+            let _ = std::io::copy(&mut file, &mut zip);
 
-        let file = std::fs::File::open(&intermediate).unwrap();
-
-        let mut file = std::io::BufReader::new(file);
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        precompiled_files_path.push(intermediate.clone().into_os_string());
+            precompiled_files_path.push(intermediate.clone().into_os_string());
+        }
+        else {
+            log::error!("precompiled file not found: {:?}", intermediate);   
+        }
     }
+    log::debug!("zip precompiled file elapsed time {:?}", std::time::Instant::now().elapsed());
 
     let content = zip.finish().unwrap();
     let file = content.to_owned().into_inner();
@@ -460,6 +463,7 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
     };
 
     crate::communicate::distributor::Distributor::compile(&addr, intermediate.as_os_str().into(), &intput, &content).await;
+    log::debug!("transmit precompiled source file to remote server elapsed time {:?}", std::time::Instant::now().elapsed());
     return precompiled_files_path;
     
 }
@@ -476,7 +480,7 @@ fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working
     else {
         commands.insert(0, std::ffi::OsString::from(r"/P"));
         if let Some(arg) = compiler_commands.iter().find(|arg| arg.to_string_lossy().starts_with("/Fo")) {
-            let path = arg.to_string_lossy().replace("/Fo", "/Fi").replace("\\\\", "\\");
+            let path = arg.to_string_lossy().replace("/Fo", "/Fi").replace("obj", "i").replace("\\\\", "\\");
             commands.insert(1, std::ffi::OsString::from(path));
         }
     }
@@ -1219,13 +1223,12 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
         match precompiled_result_file {
             PrecompiledResult::NonePCResultPath => {
                 match object_file {
-                    GeneratedObject::PathWithObjName(path) => {
-                        precompiled_result_file = PrecompiledResult::PathWithoutPCResultName(path);
-                    },
-                    GeneratedObject::PathWithoutObjName(mut path) => {
+                    GeneratedObject::PathWithObjName(mut path) => {
                         path.set_extension("i");
-
                         precompiled_result_file = PrecompiledResult::PathWithPCResultName(path);
+                    },
+                    GeneratedObject::PathWithoutObjName(path) => {
+                        precompiled_result_file = PrecompiledResult::PathWithoutPCResultName(path);
                     },
                     _ => {}
                 }

@@ -115,8 +115,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                                 compiler_commands: Vec<std::ffi::OsString>, build_and_compiler_type: std::ffi::OsString,
                             sync_compile_result: bool) -> (CompilerOutput, Option<ProcessedResults>) {
     use std::io::Read;
-    use std::ops::Index;
-    
+
     let now = std::time::Instant::now();
     let (status, stdout, stderr) = start_local_compiler(&project_name, &compiler_path, &compiler_working_dir, &compiler_commands);
     let compile_output = String::from_utf8_lossy(&stdout);
@@ -124,23 +123,20 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
     let mut compiled_results: ProcessedResults = Vec::new();
     
-    log::trace!("injectd compile status: {}, stdout: {} stderr: {}", status, compile_output, compile_error);
+    log::trace!("injectd compile status: {}, stdout: {:?} stderr: {:?}", status, compile_output, compile_error);
 
     if status {
-        let output = compile_output.lines();
 
-        let mut last = output.clone().last();
-        let lines:Vec<&str> = output.clone().collect();
-        if let Some(index) = lines.iter().rposition(|&arg| arg.ends_with(".i")) {
-            let &arg = lines.index(index);
-            last = Some(arg);
-        }
-        log::trace!("last compiled source file: {:?}", last);
+        let lines:Vec<&str> = compile_output.lines().collect();
+
         log::debug!("local compile file count: {:?}, elapsed: {:?}.", lines.len(), now.elapsed());
-        let working_path = std::path::PathBuf::from(compiler_working_dir.to_owned());
-        let (pdb_path, _one_pdb )= fetch_compile_pdb_path(build_and_compiler_type.clone(), compiler_commands.to_owned(), working_path.clone());
-        let pdb_path = std::rc::Rc::new(pdb_path);
-        for line in output {
+
+        let actions = parse_action_from_commands(&build_and_compiler_type, &compiler_commands, &compiler_working_dir);
+
+        let generated_object = actions.generated_object;
+        let program_database = actions.program_database;
+
+        for line in &lines {
             let line = line.replace(r#"""#, "");
             if line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".i") {
                 if sync_compile_result {
@@ -148,32 +144,34 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                     let mut pdb: Option<(std::ffi::OsString, Vec<u8>)> = None;
                     let mut idb: Option<(std::ffi::OsString, Vec<u8>)> = None;
     
-                    let mut result_path = std::path::PathBuf::from("");
-                    let object = fetch_compiler_object_file(build_and_compiler_type.clone(), compiler_commands.to_owned(), working_path.clone());
+                    let mut result = std::path::PathBuf::from("");
+                    let object = generated_object.clone();
 
-                    log::trace!("object: {:#?}", object);
+                    log::trace!("generated object: {:#?}", object);
 
+                    
                     match object {
                         GeneratedObject::PathWithObjName(path) => {
-                            result_path = path;
+                            result = path;
                         },
                         GeneratedObject::PathWithoutObjName(dir) => {
-                            let path = dir.join(&line);
-                            result_path = path;
-                            result_path.set_extension("obj");
+                            let mut path = dir.join(&line);
+                            path.set_extension("obj");
+                            result = path;
                         },
                         _ => {
-                            log::warn!("fetch result file path failed.");
+                            log::warn!("fetch result obj file path failed.");
                         }
                     };
-                    log::trace!("path: {:?}", result_path);
+
+                    log::trace!("compile result generated object path: {:?}", result);
                     
-                    match std::fs::File::open(&result_path) {
+                    match std::fs::File::open(&result) {
                         Ok(file) => {
                             let mut contents = Vec::new();
                             let mut file = std::io::BufReader::new(file);
                             let _ = file.read_to_end(&mut contents).unwrap();
-                            obj = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
+                            obj = Some((std::ffi::OsString::from(result.to_str().unwrap()), contents));
                         },
                         Err(error) => {
                             if error.kind() == std::io::ErrorKind::NotFound {
@@ -185,59 +183,61 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                         }
                     };
     
-                    result_path.clear();
+                    result.clear();
 
-                    if last == Some(&line)
-                    {
-                        let pdb_path = pdb_path.clone();
-                        match &*pdb_path {
+                    if lines.last() == Some(&line.as_str()) {
+                       
+                        match &program_database {
                             ProgramDataBase::PathWithPDBName(path) => {
-                                result_path = path.clone();
+                                result = path.clone();
                             },
                             ProgramDataBase::PathWithoutPDBName(dir) => {
-                                result_path = dir.join(&line);
-                                result_path.set_extension("pdb");
-                                log::trace!("generate program database path without obj name, {:?}", result_path);
+                                result = dir.join(&line);
+                                result.set_extension("pdb");
                             },
                             _ => {
-                                log::warn!("fetch result file path failed.");
+                                log::warn!("fetch result pdb file path failed.");
                             }
                         };
+
+                        log::trace!("compile result program database path {:?}", result);
                         
-                        match std::fs::File::open(&result_path) {
-                            Ok(file) => {
-                                let mut contents = Vec::new();
-                                let mut file = std::io::BufReader::new(file);
-                                let _ = file.read_to_end(&mut contents).unwrap();
-                                pdb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
-                            },
-                            Err(error) => {
-                                if error.kind() == std::io::ErrorKind::NotFound {
-                                    log::trace!(".pdb file path is not found.");
-                                }
-                                else {
-                                    log::warn!(".pdb file read failed. {:?}", error);
+                        if result.exists() {
+                            match std::fs::File::open(&result) {
+                                Ok(file) => {
+                                    let mut contents = Vec::new();
+                                    let mut file = std::io::BufReader::new(file);
+                                    let _ = file.read_to_end(&mut contents).unwrap();
+                                    pdb = Some((std::ffi::OsString::from(result.to_str().unwrap()), contents));
+                                },
+                                Err(error) => {
+                                    if error.kind() == std::io::ErrorKind::NotFound {
+                                        log::trace!(".pdb file path is not found.");
+                                    }
+                                    else {
+                                        log::warn!(".pdb file read failed. {:?}", error);
+                                    }
                                 }
                             }
-                        }
 
-                        result_path.set_extension("idb");
-                        match std::fs::File::open(&result_path) {
-                            Ok(file) => {
-                                let mut contents = Vec::new();
-                                let mut file = std::io::BufReader::new(file);
-                                let _ = file.read_to_end(&mut contents).unwrap();
-                                idb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
-                            },
-                            Err(error) => {
-                                if error.kind() == std::io::ErrorKind::NotFound {
-                                    log::trace!(".idb file path is not found.");
-                                }
-                                else {
-                                    log::warn!(".idb file read failed. {:?}", error);
-                                }
-                            },
-                        }
+                            result.set_extension("idb");
+                            match std::fs::File::open(&result) {
+                                Ok(file) => {
+                                    let mut contents = Vec::new();
+                                    let mut file = std::io::BufReader::new(file);
+                                    let _ = file.read_to_end(&mut contents).unwrap();
+                                    idb = Some((std::ffi::OsString::from(result.to_str().unwrap()), contents));
+                                },
+                                Err(error) => {
+                                    if error.kind() == std::io::ErrorKind::NotFound {
+                                        log::trace!(".idb file path is not found.");
+                                    }
+                                    else {
+                                        log::warn!(".idb file read failed. {:?}", error);
+                                    }
+                                },
+                            }
+                        } 
                     }
 
                     let processed_result = ProcessedResult {
@@ -266,101 +266,104 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     return (result, Some(compiled_results));
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum GeneratedObject {
     NoneObjPath,
     PathWithObjName(std::path::PathBuf),
     PathWithoutObjName(std::path::PathBuf),
 }
 
-fn fetch_compiler_object_file(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) -> GeneratedObject {
+fn exact_compiler_object_file(mut arg: std::borrow::Cow<str>, working_dir: &std::path::PathBuf) -> GeneratedObject {
 
-    if build_and_compiler_type.to_string_lossy().contains("MSBuild")
-        || build_and_compiler_type.to_string_lossy().contains("CMake") 
-        || build_and_compiler_type.to_string_lossy().contains("Dist") {
-
-        let object_param = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().starts_with("/Fo")).collect::<Vec<_>>();
-
-        match object_param.last() {
-            Some(object) => {
-                let object_path = object.to_string_lossy().to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
-                if object_path.ends_with(".obj") {
-                    let path = std::path::PathBuf::from(object_path);
-                    if path.has_root() {
-                        return GeneratedObject::PathWithObjName(path);
-                    }
-                    else {
-                        let path = working_dir.join(path);
-                        return GeneratedObject::PathWithObjName(path);
-                    }
-                }
-                else {
-                    let path = std::path::PathBuf::from(object_path);
-                    if path.has_root() {
-                        return GeneratedObject::PathWithoutObjName(path);
-                    }
-                    else {
-                        let path = working_dir.join(path);
-                        return GeneratedObject::PathWithoutObjName(path);
-                    }
-                }
-            },
-            None => {
-                println!("NoneObjPath NoneObjPath NoneObjPath");
-                return GeneratedObject::NoneObjPath;
-            },
+    let object = arg.to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
+    if object.ends_with(".obj") {
+        let path = std::path::PathBuf::from(object);
+        if path.has_root() {
+            return GeneratedObject::PathWithObjName(path);
         }
-        
+        else {
+            let path = working_dir.join(path);
+            return GeneratedObject::PathWithObjName(path);
+        }
     }
-    return GeneratedObject::NoneObjPath;
+    else {
+        let path = std::path::PathBuf::from(&object);
+        if path.has_root() {
+            return GeneratedObject::PathWithoutObjName(path);
+        }
+        else {
+            let mut path = working_dir.join(path);
+            path.push(object);
+            return GeneratedObject::PathWithoutObjName(path);
+        }
+    }
 }
 
+#[derive(Debug, Clone)]
 enum ProgramDataBase {
     NonePDBPath,
     PathWithPDBName(std::path::PathBuf),
     PathWithoutPDBName(std::path::PathBuf),
 }
 
-fn fetch_compile_pdb_path(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: std::path::PathBuf) -> (ProgramDataBase, bool) {
+fn exact_compile_pdb_path(mut arg: std::borrow::Cow<str>, working_dir: &std::path::PathBuf) -> ProgramDataBase {
+
+        
+    //"/FdD:\\TrainSpace\\json\\Build\\tests\\abi\\diag\\Debug\\abi_compat_diag_on.pdb"
+
+    let pdb_path = arg.to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
+    let one_pdb = pdb_path.contains(r"\vc14");
+    if pdb_path.ends_with(".pdb") {
+        let path = std::path::PathBuf::from(pdb_path);
+        if path.has_root() {
+            return ProgramDataBase::PathWithPDBName(path);
+        }
+        else {
+            let path = working_dir.join(path);
+            return ProgramDataBase::PathWithPDBName(path);
+        }
+    }
+    else {
+        let path = std::path::PathBuf::from(pdb_path);
+        if path.has_root() {
+            return ProgramDataBase::PathWithoutPDBName(path);
+        }
+        else {
+            let path = working_dir.join(path);
+            return ProgramDataBase::PathWithoutPDBName(path);
+        }
+    }
+}
+
+struct CompileAction {
+    pub program_database: ProgramDataBase,
+    pub generated_object: GeneratedObject,
+}
+
+fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> CompileAction {
+    
+    let mut pdb = ProgramDataBase::NonePDBPath;
+    let mut obj = GeneratedObject::NoneObjPath;
+    let working_dir = std::path::PathBuf::from(working_dir);
+
     if build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || build_and_compiler_type.to_string_lossy().contains("CMake") 
         || build_and_compiler_type.to_string_lossy().contains("Dist") {
 
-        let pdb_param = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().starts_with("/Fd")).collect::<Vec<_>>();
-        
-        //"/FdD:\\TrainSpace\\json\\Build\\tests\\abi\\diag\\Debug\\abi_compat_diag_on.pdb"
-        match pdb_param.last() {
-            Some(pdb) => {
-                let pdb_path = pdb.to_string_lossy().to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
-                let one_pdb = pdb_path.contains(r"\vc14");
-                if pdb_path.ends_with(".pdb") {
-                    let path = std::path::PathBuf::from(pdb_path);
-                    if path.has_root() {
-                        return (ProgramDataBase::PathWithPDBName(path), one_pdb);
-                    }
-                    else {
-                        let path = working_dir.join(path);
-                        return (ProgramDataBase::PathWithPDBName(path), one_pdb);
-                    }
-                }
-                else {
-                    let path = std::path::PathBuf::from(pdb_path);
-                    if path.has_root() {
-                        return (ProgramDataBase::PathWithoutPDBName(path), false);
-                    }
-                    else {
-                        let path = working_dir.join(path);
-                        return (ProgramDataBase::PathWithoutPDBName(path), false);
-                    }
-                }
-            },
-            None => {
-                println!("do not fetch program database.");
-                return (ProgramDataBase::NonePDBPath, false);
-            },
+        for command in compiler_commands {
+            let command = command.to_string_lossy();
+            if command.starts_with("/Fd") {
+                pdb = exact_compile_pdb_path(command, &working_dir);
+            }
+            else if command.starts_with("/Fo") {
+                obj = exact_compiler_object_file(command, &working_dir);
+            } 
         }
     }
-    return (ProgramDataBase::NonePDBPath, false);
+    else {
+        
+    }
+    return CompileAction { program_database: pdb, generated_object: obj };;
 }
 
 fn start_local_compiler_with_inject(project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) 
