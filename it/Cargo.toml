@@ -12,3 +12,4 @@ documentation.workspace = true
 [dev-dependencies]
 captain = { path = "../captain" }
 crew = {path = "../crew"}
+cocrew = {path = "../cocrew"}

@@ -14,6 +14,10 @@ mod integration_tests {
 
         std::thread::sleep(std::time::Duration::from_millis(200));
 
+        let cocrew = std::thread::spawn(|| {
+            cocrew::run();
+        });
+
         let crew = std::thread::spawn(|| {
             crew::run();
         });
@@ -24,6 +28,7 @@ mod integration_tests {
         socket_send();
 
         captain.join().unwrap();
+        cocrew.join().unwrap();
         crew.join().unwrap();
     }
 
@@ -54,7 +59,7 @@ mod integration_tests {
                 compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
                 compiler_commands.push(std::ffi::OsString::from("/GR"));
                 compiler_commands.push(std::ffi::OsString::from("/TP"));
-                
+                compiler_commands.push(std::ffi::OsString::from("/Zi"));
                 compiler_commands.push(std::ffi::OsString::from("/I"));
                 compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
 
@@ -63,6 +68,7 @@ mod integration_tests {
                     compiler_commands.push(std::ffi::OsString::from(format!("{}", sdk_include.to_str().unwrap())));
                 }
 
+                //compiler_commands.push(std::ffi::OsString::from("/Fdlz4.pdb"));
                 compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
 
                 let current_crate_dir = env!("CARGO_MANIFEST_DIR");

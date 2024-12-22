@@ -1,5 +1,5 @@
 
-use crew::compiler::model::{CompilerInput, CompilerOutput, ProcessedResult, ProcessedResults};
+use crew::{compiler::model::{CompilerInput, CompilerOutput, ProcessedResult, ProcessedResults}, replica::project};
 
 pub struct MSVC {
     pub version: String,
@@ -131,7 +131,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
 
         log::debug!("local compile file count: {:?}, elapsed: {:?}.", lines.len(), now.elapsed());
 
-        let actions = parse_action_from_commands(&build_and_compiler_type, &compiler_commands, &compiler_working_dir);
+        let actions = parse_action_from_commands(&project_name, &build_and_compiler_type, &compiler_commands, &compiler_working_dir);
 
         let generated_object = actions.generated_object;
         let program_database = actions.program_database;
@@ -148,7 +148,6 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                     let object = generated_object.clone();
 
                     log::trace!("generated object: {:#?}", object);
-
                     
                     match object {
                         GeneratedObject::PathWithObjName(path) => {
@@ -266,29 +265,52 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     return (result, Some(compiled_results));
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum GeneratedObject {
     NoneObjPath,
     PathWithObjName(std::path::PathBuf),
     PathWithoutObjName(std::path::PathBuf),
 }
 
-fn exact_compiler_object_file(mut arg: std::borrow::Cow<str>, working_dir: &std::path::PathBuf) -> GeneratedObject {
+fn exact_compiler_object_file(project: std::borrow::Cow<str>, mut arg: std::borrow::Cow<str>, working_dir: &std::path::PathBuf) -> GeneratedObject {
+
+    let replica = tools::utils::access_replica_dir();
+    let replica = std::path::PathBuf::from(replica);
+
+    let split = |pdb: std::path::PathBuf, project: std::borrow::Cow<str>| {
+        if project.is_empty() {
+            return pdb;
+        }
+        else {
+        
+            let components = pdb.components().collect::<Vec<_>>();
+            if let Some(index) = components.iter().position(|item| item.as_os_str().to_string_lossy() == project) {
+                let result: std::path::PathBuf = components[index + 1..].iter().collect();
+                let path = replica.join("Project").join(project.into_owned()).join(result);
+                return path;
+            }
+            else {
+                return pdb;
+            }            
+        }
+    };
 
     let object = arg.to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
     if object.ends_with(".obj") {
         let path = std::path::PathBuf::from(object);
         if path.has_root() {
+            let path = split(path, project);
             return GeneratedObject::PathWithObjName(path);
         }
         else {
-            let path = working_dir.join(path);
+            let path = replica.join("Project").join(project.into_owned()).join(path);
             return GeneratedObject::PathWithObjName(path);
         }
     }
     else {
         let path = std::path::PathBuf::from(&object);
         if path.has_root() {
+            let path = split(path, project);
             return GeneratedObject::PathWithoutObjName(path);
         }
         else {
@@ -299,37 +321,59 @@ fn exact_compiler_object_file(mut arg: std::borrow::Cow<str>, working_dir: &std:
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 enum ProgramDataBase {
     NonePDBPath,
     PathWithPDBName(std::path::PathBuf),
     PathWithoutPDBName(std::path::PathBuf),
 }
 
-fn exact_compile_pdb_path(mut arg: std::borrow::Cow<str>, working_dir: &std::path::PathBuf) -> ProgramDataBase {
+fn exact_compile_pdb_path(project: std::borrow::Cow<str>, mut arg: std::borrow::Cow<str>, working_dir: &std::path::PathBuf) -> ProgramDataBase {
 
         
     //"/FdD:\\TrainSpace\\json\\Build\\tests\\abi\\diag\\Debug\\abi_compat_diag_on.pdb"
 
-    let pdb_path = arg.to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
-    let one_pdb = pdb_path.contains(r"\vc14");
-    if pdb_path.ends_with(".pdb") {
-        let path = std::path::PathBuf::from(pdb_path);
+    let replica = tools::utils::access_replica_dir();
+    let replica = std::path::PathBuf::from(replica);
+
+    let split = |pdb: std::path::PathBuf, project: std::borrow::Cow<str>| {
+        if project.is_empty() {
+            return pdb;
+        }
+        else {
+            let components = pdb.components().collect::<Vec<_>>();
+            if let Some(index) = components.iter().position(|item| item.as_os_str().to_string_lossy() == project) {
+                let result: std::path::PathBuf = components[index + 1..].iter().collect();
+                let path = replica.join("Project").join(project.into_owned()).join(result);
+                return path;
+            }
+            else {
+                return pdb;
+            }            
+        }
+    };
+
+    let pdb = arg.to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
+    let one = pdb.contains(r"\vc14");
+    if pdb.ends_with(".pdb") {
+        let path = std::path::PathBuf::from(pdb);
         if path.has_root() {
+            let path = split(path, project);
             return ProgramDataBase::PathWithPDBName(path);
         }
         else {
-            let path = working_dir.join(path);
+            let path = replica.join("Project").join(project.into_owned()).join(path);
             return ProgramDataBase::PathWithPDBName(path);
         }
     }
     else {
-        let path = std::path::PathBuf::from(pdb_path);
+        let path = std::path::PathBuf::from(pdb);
         if path.has_root() {
+            let path = split(path, project);
             return ProgramDataBase::PathWithoutPDBName(path);
         }
         else {
-            let path = working_dir.join(path);
+            let path = replica.join(path);
             return ProgramDataBase::PathWithoutPDBName(path);
         }
     }
@@ -340,7 +384,7 @@ struct CompileAction {
     pub generated_object: GeneratedObject,
 }
 
-fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> CompileAction {
+fn parse_action_from_commands(project_name: &std::ffi::OsString, build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> CompileAction {
     
     let mut pdb = ProgramDataBase::NonePDBPath;
     let mut obj = GeneratedObject::NoneObjPath;
@@ -349,21 +393,31 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
     if build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || build_and_compiler_type.to_string_lossy().contains("CMake") 
         || build_and_compiler_type.to_string_lossy().contains("Dist") {
-
+        
+        let mut default_pdb = false;
         for command in compiler_commands {
             let command = command.to_string_lossy();
             if command.starts_with("/Fd") {
-                pdb = exact_compile_pdb_path(command, &working_dir);
+                pdb = exact_compile_pdb_path(project_name.to_string_lossy(), command, &working_dir);
+            }
+            else if command.starts_with("/Zi") {
+                default_pdb = true;
             }
             else if command.starts_with("/Fo") {
-                obj = exact_compiler_object_file(command, &working_dir);
+                obj = exact_compiler_object_file(project_name.to_string_lossy(), command, &working_dir);
             } 
+        }
+
+        if pdb == ProgramDataBase::NonePDBPath && default_pdb {
+            let replica = tools::utils::access_replica_dir();
+            let replica = std::path::PathBuf::from(replica);
+            pdb = ProgramDataBase::PathWithPDBName(replica.join("Project").join(project_name).join("vc140.pdb"));
         }
     }
     else {
         
     }
-    return CompileAction { program_database: pdb, generated_object: obj };;
+    return CompileAction { program_database: pdb, generated_object: obj };
 }
 
 fn start_local_compiler_with_inject(project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) 
