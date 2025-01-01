@@ -221,7 +221,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
 
                 log::info!("msvc detours end with exit code {}", code);
 
-                return (true, std::sync::Arc::new(stdout), std::sync::Arc::new(stderr));
+                return (if code == 0 {true} else {false}, std::sync::Arc::new(stdout), std::sync::Arc::new(stderr));
             }
             else {
                 let error_code: u32 = winapi::um::errhandlingapi::GetLastError();

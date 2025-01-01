@@ -10,7 +10,7 @@ pub struct MSVC {
 }
 
 //TODO common param in func should be move in msvc struct
-use std::{io::Read, ops::{Add, Index}, str::FromStr, sync::atomic};
+use std::{io::Read, ops::{Add, Index}};
 use crate::compiler::model::{CompilerInput, CompilerOutput, ProcessedResults, PrecompiledSource};
 
 //TODO: rename ProcessedResults to CompileResults
@@ -158,7 +158,8 @@ impl MSVC {
 
         let mut result = CompilerOutput::default();
         let now = std::time::Instant::now();
-        let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, compiler_commands, false);
+
+        let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, &self.merge_sdk_includes_into_commands(compiler_commands), false);
 
         let err = String::from_utf8_lossy(&stderr);
 
@@ -401,6 +402,16 @@ impl MSVC {
         return precompiled_files;
     }
     
+    fn merge_sdk_includes_into_commands(&self, compiler_commands: &Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
+        let mut commands = compiler_commands.clone();
+        for path in &self.work_env.winkits_includes_path {
+            commands.push(std::ffi::OsString::from("/I"));
+            commands.push(std::ffi::OsString::from(format!("{}", path.to_string_lossy())));
+        }
+        commands.push(std::ffi::OsString::from("/I"));
+        commands.push(std::ffi::OsString::from(format!("{}", self.work_env.msvc_includes_path.to_string_lossy())));
+        return commands;
+    }
 }
 
 async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::OsString, precompiled_result: PrecompiledResult, source_files: &Vec<String>)-> Vec<std::ffi::OsString> {
