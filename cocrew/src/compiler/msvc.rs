@@ -314,8 +314,8 @@ fn exact_compiler_object_file(project: std::borrow::Cow<str>, mut arg: std::borr
             return GeneratedObject::PathWithoutObjName(path);
         }
         else {
-            let mut path = working_dir.join(path);
-            path.push(object);
+            let path = working_dir.join(path);
+            let path = split(path, project);
             return GeneratedObject::PathWithoutObjName(path);
         }
     }
@@ -374,6 +374,7 @@ fn exact_compile_pdb_path(project: std::borrow::Cow<str>, mut arg: std::borrow::
         }
         else {
             let path = replica.join(path);
+            let path = split(path, project);
             return ProgramDataBase::PathWithoutPDBName(path);
         }
     }
@@ -519,7 +520,7 @@ mod tests {
             redirect_stdout_log();
         });
 
-        //cargo test --package cocrew --lib -- compiler::msvc::tests::test_inject --exact --show-output
+        //cargo test --package cocrew --lib -- compiler::msvc::tests::compile_sourcefile_inject_test --exact --show-output
         
         let win_compile_env = crew::platform::windows::WindowsCompilerEnv::default();
         let mut compiler_path = std::path::PathBuf::from(win_compile_env.compiler_path);
@@ -582,7 +583,7 @@ mod tests {
             redirect_stdout_log();
         });
 
-        //cargo test --package cocrew --lib -- compiler::msvc::tests::test_inject --exact --show-output
+        //cargo test --package cocrew --lib -- compiler::msvc::tests::compile_preprocessedfile_with_inject --exact --show-output
         
         let win_compile_env = crew::platform::windows::WindowsCompilerEnv::default();
         let mut compiler_path = std::path::PathBuf::from(win_compile_env.compiler_path);

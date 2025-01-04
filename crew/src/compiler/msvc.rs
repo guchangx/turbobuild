@@ -48,7 +48,7 @@ impl crate::compiler::interface::Compiler for MSVC {
 impl MSVC {
     async fn request_msvc_compile(self, compiler_input: CompilerInput) -> (CompilerOutput, Option<ProcessedResults>) {
 
-        let compiler_commands = &self.enrich_compiler_commands(&compiler_input);
+        let compiler_commands = &compiler_input.compiler_commands;
 
         let working_path = std::path::PathBuf::from(&compiler_input.compiler_working_dir);
 
@@ -124,24 +124,23 @@ impl MSVC {
         }
     }
 
-    fn enrich_compiler_commands(&self, compiler_input: &CompilerInput) -> Vec<std::ffi::OsString> {
+    fn _enrich_compiler_commands(&self, compiler_input: &CompilerInput) -> Vec<std::ffi::OsString> {
 
         let mut commands = compiler_input.compiler_commands.clone();
     
         if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild") {
             let env =  &self.work_env;
-            let winkits_includes = &env.winkits_includes_path;
     
-            for include in winkits_includes {
+            for include in &env.winkits_includes_path {
                 if commands.iter().find(|&item| item.to_string_lossy().contains(&include.to_string_lossy().to_string())).is_none() {
-                    let instruct = format!(r#"/I "{}""#, include.to_string_lossy());
-                    commands.push(std::ffi::OsString::from(instruct));
+                    commands.push(std::ffi::OsString::from("/I"));
+                    commands.push(std::ffi::OsString::from(format!("{}", include.to_string_lossy())));
                 }
             }
 
             if commands.iter().find(|&item| item.to_string_lossy().contains(&env.msvc_includes_path.to_string_lossy().to_string())).is_none() {
-                let instruct = format!(r#"/I "{}""#, env.msvc_includes_path.to_string_lossy());
-                commands.push(std::ffi::OsString::from(instruct));
+                commands.push(std::ffi::OsString::from("/I"));
+                commands.push(std::ffi::OsString::from(format!("{}", self.work_env.msvc_includes_path.to_string_lossy())));
             }
     
             return commands;
@@ -159,7 +158,8 @@ impl MSVC {
         let mut result = CompilerOutput::default();
         let now = std::time::Instant::now();
 
-        let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, &self.merge_sdk_includes_into_commands(compiler_commands), false);
+        //&self.enrich_compiler_commands(&compiler_input);
+        let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, &self.merge_sdk_includes_into_commands(&compiler_commands), false);
 
         let err = String::from_utf8_lossy(&stderr);
 
@@ -1257,18 +1257,29 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
 }
 
 fn tidyup_commands_for_precompile(compiler_commands: &Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
-    let mut commands = compiler_commands.clone();
+
     let mut specify_sourcefile_type = true;
-    commands.retain(|item| { 
+
+    let mut cxx = false;
+    let mut c = false;
+    let mut commands: Vec<_> = compiler_commands.into_iter().filter(|&item| {
         let item = item.to_string_lossy().to_lowercase();
         if item == "/TP" || item == "/TC" || item == "/Tc" || item == "/Tp" {
             specify_sourcefile_type = false;
         }
-        return !((item.ends_with(".cpp") || item.ends_with(".c") || item.starts_with("/p")) || item.starts_with("/fi"))
-    });
 
-    if specify_sourcefile_type {
-        commands.push(std::ffi::OsString::from("/TP"));    
+        cxx = item.ends_with(".cpp") || item.ends_with(".cxx");
+        c = item.ends_with(".c");
+
+        return !((cxx || c || item.starts_with("/p")) || item.starts_with("/fi")) 
+    }).map(|item| item.to_owned()).collect();
+
+    if cxx && c {
+        log::warn!("cxx/cpp file and c file cannot be specified at the same time");
+    }
+
+    if specify_sourcefile_type {       
+        commands.push(std::ffi::OsString::from(if cxx {"/TP"} else {"/TC"}));
     }
 
     return commands;
