@@ -1,3 +1,6 @@
+use std::{io::Write, result};
+
+
 use pack::CheckResource;
 use tokio_stream::StreamExt;
 use winapi::shared::{evntrace, winerror::NOERROR};
@@ -51,6 +54,28 @@ pub enum SenderType<'a> {
     CheckResource,
 } 
 
+pub struct CommandRecv {
+    pub status: bool,
+    pub message: String,
+}
+
+pub struct ArchiveRecv {
+    pub status: bool,
+    pub message: String,
+}
+
+pub struct CompileRecv {
+    pub status: bool,
+    pub message: String,
+}
+
+pub enum ReceiverType {
+    Command(CommandRecv),
+    Archive(ArchiveRecv),
+    Compile(CompileRecv),
+    None,
+}
+
 impl FileSender {
     pub fn new(addr: &str) -> Self {
         let mut host = "localhost"; 
@@ -70,19 +95,36 @@ impl FileSender {
         return sender;
     }
     
-    pub async fn send<'a>(&mut self, sender_type: SenderType<'a>) {
+    pub async fn send<'a>(&mut self, sender_type: SenderType<'a>) -> ReceiverType {
         
         match sender_type {
             SenderType::Command(_args) => {
-                
+                let result = CommandRecv {
+                    status: true,
+                    message: "".to_string(),
+                };
+                return ReceiverType::Command(result);
             },
             SenderType::Archive(args) => {
                 self.send_file(args).await;
+                let result = ArchiveRecv {
+                    status: false,
+                    message: "".to_string(),
+                };
+                return ReceiverType::Archive(result);
             },
             SenderType::Compile(args) => {
                 self.send_compile(args).await;
+
+                let result = CompileRecv {
+                    status: true,
+                    message: "".to_string(),
+                };
+                return ReceiverType::Compile(result);
             },
-            _ => {}
+            _ => {
+                return ReceiverType::None;
+            }
         }
     }
     
@@ -138,11 +180,18 @@ impl FileSender {
 
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
+                                   log::info!("response info: {:?}", response.info);
+                                   //TODO should use async runtime
+                                   
+                                   self.save_compile_result(&response.results).await;
 
                                 }
                                 else {
                                     
                                 }
+                            }
+                            else {
+                                log::warn!("send precompiled sourcefile response failure: {}", response.error_message);
                             }
                         },
                         Err(err) => {
@@ -153,6 +202,23 @@ impl FileSender {
             }
             Err(err) => {
                 log::warn!("send compiled failed {:?}", err);
+            }
+        }
+    }
+
+    async fn save_compile_result(&mut self, results: &Vec<crate::communicate::package::pack::IntermediateResult>) {
+        for result in results {
+            log::debug!("save compile result: {:?}", result.file);
+
+            match std::fs::OpenOptions::new().read(true).write(true).create(true).open(&result.file) {
+                Ok(file) => {
+                    let mut writer = std::io::BufWriter::new(file);
+                    writer.write_all(&result.content).unwrap();
+                    writer.flush().unwrap();
+                },
+                Err(err) => {
+                    log::error!("create file failed: {}, path: {}", err, result.file);
+                }
             }
         }
     }

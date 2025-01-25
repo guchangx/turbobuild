@@ -16,6 +16,7 @@ impl crate::compiler::interface::Compiler for MSVC {
 
 fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) -> (CompilerOutput, Option<ProcessedResults>) {
 
+    /*
     if !compiler_input.compiler_working_dir.is_empty() {
         let path = std::path::PathBuf::from(&compiler_input.compiler_working_dir);
         if !path.exists() {
@@ -27,10 +28,12 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
             }
         }
     }
+    */
 
     //replace .cpp/.c to .i
     let commands = compiler_input.compiler_commands.clone();
-
+    
+    /* 
     let obj_file:Vec<std::ffi::OsString> = commands.clone().into_iter().filter(|value| value.to_string_lossy().starts_with("/Fo")).collect();
     if !obj_file.is_empty() {
         let mut obj_file_path = obj_file.first().unwrap().to_string_lossy().to_string();
@@ -81,6 +84,7 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
             }
         }
     }
+    */
 
     let mut next = false;
     let mut combine_commands: Vec<std::ffi::OsString> = commands.windows(2).filter_map(|chunk| {
@@ -129,7 +133,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
 
         let lines:Vec<&str> = compile_output.lines().collect();
 
-        log::debug!("local compile file count: {:?}, elapsed: {:?}.", lines.len(), now.elapsed());
+        log::debug!("local compile file count: {:?} success, elapsed: {:?}.", lines.len(), now.elapsed());
 
         let actions = parse_action_from_commands(&project_name, &build_and_compiler_type, &compiler_commands, &compiler_working_dir);
 
@@ -146,8 +150,6 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     
                     let mut result = std::path::PathBuf::from("");
                     let object = generated_object.clone();
-
-                    log::trace!("generated object: {:#?}", object);
                     
                     match object {
                         GeneratedObject::PathWithObjName(path) => {
@@ -170,7 +172,10 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                             let mut contents = Vec::new();
                             let mut file = std::io::BufReader::new(file);
                             let _ = file.read_to_end(&mut contents).unwrap();
-                            obj = Some((std::ffi::OsString::from(result.to_str().unwrap()), contents));
+
+                            let origin = repair_original_path(&project_name, &compiler_working_dir, &result);        
+
+                            obj = Some((origin, contents));
                         },
                         Err(error) => {
                             if error.kind() == std::io::ErrorKind::NotFound {
@@ -207,7 +212,8 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                                     let mut contents = Vec::new();
                                     let mut file = std::io::BufReader::new(file);
                                     let _ = file.read_to_end(&mut contents).unwrap();
-                                    pdb = Some((std::ffi::OsString::from(result.to_str().unwrap()), contents));
+                                    let origin = repair_original_path(&project_name, &compiler_working_dir, &result);        
+                                    pdb = Some((origin, contents));
                                 },
                                 Err(error) => {
                                     if error.kind() == std::io::ErrorKind::NotFound {
@@ -225,7 +231,8 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                                     let mut contents = Vec::new();
                                     let mut file = std::io::BufReader::new(file);
                                     let _ = file.read_to_end(&mut contents).unwrap();
-                                    idb = Some((std::ffi::OsString::from(result.to_str().unwrap()), contents));
+                                    let origin = repair_original_path(&project_name, &compiler_working_dir, &result);     
+                                    idb = Some((origin, contents));
                                 },
                                 Err(error) => {
                                     if error.kind() == std::io::ErrorKind::NotFound {
@@ -354,7 +361,7 @@ fn exact_compile_pdb_path(project: std::borrow::Cow<str>, mut arg: std::borrow::
     };
 
     let pdb = arg.to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
-    let one = pdb.contains(r"\vc14");
+    let _one = pdb.contains(r"\vc14");
     if pdb.ends_with(".pdb") {
         let path = std::path::PathBuf::from(pdb);
         if path.has_root() {
@@ -506,6 +513,34 @@ pub fn redirect_stdout_log() {
             log::debug!("create named pipe failed.");
         }
     }
+}
+
+fn repair_original_path(project: &std::ffi::OsString, working_dir: &std::ffi::OsString, path: &std::path::PathBuf) -> std::ffi::OsString {
+
+    //E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\common"
+    //d:\\turbobuild\\target\\debug\\Replica\\Project\\GammaRayTool\\build_enable\\common\\gammaray_common.dir\\Debug\\lz4.obj"
+    let components = path.components().collect::<Vec<_>>();
+    
+    if let Some(index) = components.iter().position(|item| item.as_os_str().to_string_lossy() == project.to_string_lossy()) {
+        let result: std::path::PathBuf = components[index + 1..].iter().collect();
+        
+        let base = std::path::PathBuf::from(working_dir);
+
+        let base = base.components().collect::<Vec<_>>();
+        if let Some(index) = base.iter().position(|item| item.as_os_str().to_string_lossy() == project.to_string_lossy()) {
+            let base = base[..index + 1].iter().collect::<std::path::PathBuf>();
+            
+            let path = base.join(result);
+            return path.as_os_str().to_owned();
+        }
+        else {
+            let path = path.join(result);
+            return path.as_os_str().to_owned();
+        }
+    }
+    else {
+        return path.as_os_str().to_owned();
+    }            
 }
 
 #[cfg(test)]

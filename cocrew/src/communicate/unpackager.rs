@@ -24,6 +24,13 @@ impl FileReceiver {
     pub async fn init(&self) {   
         let addr = "0.0.0.0:19302".parse().expect("parse addr failed");
         log::debug!("init cocrew communicate server {}", addr);
+
+        let socket = tokio::net::TcpSocket::new_v4().unwrap();
+        socket.set_reuseaddr(true).unwrap();
+
+        socket.bind(addr).unwrap();
+        let listener = socket.listen(1024).unwrap();
+
         let receiver = FileReceiver {
             common: self.common.clone(),
         };
@@ -33,7 +40,8 @@ impl FileReceiver {
         let result = tonic::transport::Server::builder()
             .tcp_nodelay(true)
             .add_service(server)
-            .serve(addr)
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            //.serve(addr)
             .await;
         
         match result {
@@ -41,7 +49,7 @@ impl FileReceiver {
                 log::debug!("run communicate rpc service end");
             },
             Err(err) => {
-                panic!("run communicate rpc service failed.addr {:?},  {:?}", addr, err);
+                panic!("run communicate rpc service failed. addr {:?},  {:?}", addr, err);
             }
         }
     }
@@ -196,9 +204,12 @@ impl FileReceiver {
     async fn execute(input: &crew::compiler::model::CompilerInput) -> package::CompileTrResponse {
         let (output, results) = crate::compiler::interface::build(input.to_owned());
         if output.status {
+            log::info!("compile successed filename {:?} output {:?}", output.filename, output.output);
             let mut intermediates = Vec::new();
             if let Some(results) = results {
                 for result in results {
+                    let source = result.source_file;
+      
                     if let Some(obj)  = result.obj {
                         let file = obj.0;
                         let content = obj.1;
@@ -231,7 +242,7 @@ impl FileReceiver {
             
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compiledone.into(),
-                info: "".to_string(),
+                info: output.filename.iter().map(|item| item.to_string_lossy()).collect(),
                 results: intermediates,
                 error_code: 0,
                 error_message: "transmit do compile success.".to_string(),
@@ -239,14 +250,14 @@ impl FileReceiver {
             return reply;
         }
         else {
-            log::info!("compile filename {:?} output {:?}", output.filename, output.output);
+            log::info!("compile failed filename {:?} output {:?}", output.filename, output.output);
             
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compiledone.into(),
-                info: "".to_string(),
+                info: output.output.to_string_lossy().to_string(),
                 results: Vec::new(),
                 error_code: 0,
-                error_message: "transmit do compile success.".to_string(),
+                error_message: "transmit do compile failed.".to_string(),
             };
             return reply;
         }
