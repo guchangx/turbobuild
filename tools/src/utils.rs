@@ -65,3 +65,28 @@ pub fn access_replica_dir() -> String {
         return dir;
     }
 }
+
+
+pub fn get_winapi_error_message(error: u32) -> String {
+    use std::os::windows::ffi::OsStringExt;
+    unsafe {
+        let mut buffer = vec![0u16; 256];
+        let size =  winapi::um::winbase::FormatMessageW(
+            winapi::um::winbase::FORMAT_MESSAGE_FROM_SYSTEM,
+            std::ptr::null_mut(),
+            error,
+            0,
+            buffer.as_mut_ptr(),
+            buffer.len() as u32,
+            std::ptr::null_mut(),
+        );
+        if size != 0 {
+            std::ffi::OsString::from_wide(&buffer[..size as usize])
+            .to_string_lossy()
+            .into_owned()
+        }
+        else {
+            "".to_string()
+        }
+    }
+}

@@ -14,6 +14,11 @@ impl Common {
     }
 }
 
+pub static RUNTIME: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex::<tokio::runtime::Runtime>>> = std::sync::LazyLock::new(|| {
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    std::sync::Arc::new(std::sync::Mutex::new(runtime))
+});
+
 pub fn init_common() {
     log::info!("init cocrew");
 
@@ -28,12 +33,13 @@ pub fn init_common() {
     
     log::info!("common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
     
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
-    runtime.spawn(async move {
+
+    RUNTIME.lock().unwrap().spawn(async move {
+        log::info!("start redirect_stdout_log_2_cocrew");
         crate::compiler::msvc::redirect_stdout_log();
     });
     
-    runtime.block_on(async move {
+    RUNTIME.lock().unwrap().block_on(async move {
         receiver_.init().await;
     });
     

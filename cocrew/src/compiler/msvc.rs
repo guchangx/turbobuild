@@ -132,6 +132,8 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     if status {
 
         let lines:Vec<&str> = compile_output.lines().collect();
+        
+        let (lines, _warning) = filter_compiler_warning_message(lines);
 
         log::debug!("local compile file count: {:?} success, elapsed: {:?}.", lines.len(), now.elapsed());
 
@@ -277,6 +279,11 @@ enum GeneratedObject {
     NoneObjPath,
     PathWithObjName(std::path::PathBuf),
     PathWithoutObjName(std::path::PathBuf),
+}
+
+fn filter_compiler_warning_message(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
+    let (files, warning):(Vec<_>, Vec<_>) = lines.into_iter().partition(|item| item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c"));
+    return (files, warning);
 }
 
 fn exact_compiler_object_file(project: std::borrow::Cow<str>, mut arg: std::borrow::Cow<str>, working_dir: &std::path::PathBuf) -> GeneratedObject {
@@ -462,6 +469,8 @@ fn start_local_compiler(project_name: &std::ffi::OsString, compiler_path: &std::
 
 
 pub fn redirect_stdout_log() {
+    use tokio::io::AsyncWriteExt;
+    log::info!("redirect stdout log loop thread start.");
 
     use std::os::windows::ffi::OsStrExt;
     let os_string = std::ffi::OsString::from("\\\\.\\pipe\\redirect_stdout_log_pipe");
@@ -469,50 +478,77 @@ pub fn redirect_stdout_log() {
     let mut wchars = os_string.encode_wide().collect::<Vec<_>>();
     wchars.push(0);
 
-    unsafe {
-        let pipe = winapi::um::namedpipeapi::CreateNamedPipeW(wchars.as_ptr(), winapi::um::winbase::PIPE_ACCESS_DUPLEX,  
-        winapi::um::winbase::PIPE_TYPE_MESSAGE | winapi::um::winbase::PIPE_READMODE_MESSAGE |  winapi::um::winbase::PIPE_WAIT, winapi::um::winbase::PIPE_UNLIMITED_INSTANCES,
-        0, 0, 0, std::ptr::null_mut());
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_io().build().unwrap();
 
-        if !pipe.is_null() {
-            let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
-            if winapi::um::namedpipeapi::ConnectNamedPipe(pipe, &mut overlapped) == winapi::shared::minwindef::TRUE {
-                let mut buffer = vec![0u8; 512];
-                let mut bytes: winapi::shared::minwindef::DWORD = 0;
-                let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
-    
-                loop {
-                    let result = winapi::um::fileapi::ReadFile(
-                        pipe,
-                        buffer.as_mut_ptr() as *mut _,
-                        buffer.len() as u32,
-                        &mut bytes,
-                        &mut overlapped
-                    );
-    
-                    if result == winapi::shared::minwindef::FALSE || bytes == 0 {
-                        let error = winapi::um::errhandlingapi::GetLastError();
-                        if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
-                            break;
+    let mut count  = 0;
+    unsafe { loop {
+
+        let pipe = winapi::um::namedpipeapi::CreateNamedPipeW(wchars.as_ptr(), winapi::um::winbase::PIPE_ACCESS_INBOUND,  
+        winapi::um::winbase::PIPE_TYPE_MESSAGE | winapi::um::winbase::PIPE_READMODE_MESSAGE |  winapi::um::winbase::PIPE_WAIT,
+        winapi::um::winbase::PIPE_UNLIMITED_INSTANCES,
+        0, 0, 0, std::ptr::null_mut());
+        
+        if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
+            log::info!("redirect stdout log create new named pipe success. count: {}.", count);
+            count += 1;
+            if winapi::um::namedpipeapi::ConnectNamedPipe(pipe, std::ptr::null_mut()) == winapi::shared::minwindef::TRUE {
+                log::info!("redirect stdout log be connected named pipe.");
+
+                let handle = tools::ptr::HandleBox::new(pipe);
+                let _ = runtime.spawn(async move {
+                //let _ = std::thread::spawn(move || {
+
+                    log::info!("redirect stdout log read named pipe message task start.");
+                    let mut buffer = vec![0u8; 512];
+                    let mut bytes: winapi::shared::minwindef::DWORD = 0;
+        
+                    loop {
+                        let result = winapi::um::fileapi::ReadFile(
+                            handle.get().to_owned(),
+                            buffer.as_mut_ptr() as *mut _,
+                            buffer.len() as u32,
+                            &mut bytes,
+                            std::ptr::null_mut()
+                        );
+        
+                        if result == winapi::shared::minwindef::FALSE || bytes == 0 {
+                            let error = winapi::um::errhandlingapi::GetLastError();
+                            log::warn!("reaf pipe failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+
+                            if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+                                break;
+                            }
+                            else {
+                                break;
+                            }
                         }
-                        println!("reaf pipe failed, error code: {}", error);
-                        break;
-                    } 
-                    let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
-                    //log::info!("redirect: {:?}", output);
-                    println!("redirect: {}", output);
-                }
+                        let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
+                        //log::info!("redirect: {:?}", output);
+                        //println!("redirect: {}", output);
+                        tokio::io::stdout().write_all(format!("redirect: {}\n", output).as_bytes()).await.expect("Failed to write to stdout");
+                    }
+                    winapi::um::namedpipeapi::DisconnectNamedPipe(handle.get().to_owned());
+                    winapi::um::handleapi::CloseHandle(handle.get().to_owned());
+                    log::warn!("redirect stdout log read named pipe message task exit.");
+                });
             }
             else {
-                log::debug!("connect named pipe failed.");
+                let error = winapi::um::errhandlingapi::GetLastError();
+                log::debug!("connect named pipe failed. error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+
+                if error == winapi::shared::winerror::ERROR_NO_DATA {
+    
+                }
+                else {
+        
+                }
+                winapi::um::handleapi::CloseHandle(pipe);
             }
-            winapi::um::namedpipeapi::DisconnectNamedPipe(pipe);
-            winapi::um::handleapi::CloseHandle(pipe);            
         }
         else {
             log::debug!("create named pipe failed.");
         }
-    }
+    }}
 }
 
 fn repair_original_path(project: &std::ffi::OsString, working_dir: &std::ffi::OsString, path: &std::path::PathBuf) -> std::ffi::OsString {
@@ -545,6 +581,7 @@ fn repair_original_path(project: &std::ffi::OsString, working_dir: &std::ffi::Os
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
     #[test]
     fn compile_sourcefile_inject_test() {
@@ -664,5 +701,101 @@ mod tests {
         assert!(status);
         println!("compile .i file stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile .i file stderr: {}", String::from_utf8_lossy(&stderr));
+    }
+    
+    unsafe fn named_pipe_send_message_test() {
+        use std::os::windows::ffi::OsStrExt;
+        let id = std::thread::current().id();
+        println!("run named pipe send message test, thread {:?}", id);
+
+        let name = std::ffi::OsString::from("\\\\.\\pipe\\redirect_stdout_log_pipe");
+        let name = name.encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+
+  
+                if winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 500) == winapi::shared::minwindef::TRUE {
+                   println!("wait named pipe success");
+                }
+                else {
+                   println!("wait named pipe failed");
+                }
+
+    
+        if true {
+            let pipe = winapi::um::fileapi::CreateFileW(name.as_ptr(), 
+                winapi::um::winnt::GENERIC_WRITE, 
+                0,
+                std::ptr::null_mut(), 
+                winapi::um::fileapi::OPEN_EXISTING, 
+                winapi::um::winnt::FILE_ATTRIBUTE_NORMAL, 
+                winapi::shared::ntdef::NULL
+            );
+     
+            if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                let handle = tools::ptr::HandleBox::new(pipe);
+
+                for i in 0..20 {
+                    let message = String::from(format!("test pipe {} thread: {:?} ...", i, id));
+                    let mut bytes: winapi::shared::minwindef::DWORD = 0;
+                    let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+                    let result = winapi::um::fileapi::WriteFile(
+                        handle.get().to_owned(),
+                        message.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
+                        message.len() as u32,
+                        &mut bytes,
+                        &mut overlapped
+                    );
+    
+                    if result == winapi::shared::minwindef::FALSE || bytes == 0 {
+                        let error = winapi::um::errhandlingapi::GetLastError();
+                        if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+                            break;
+                        }
+                        println!("write pipe error, failed code: {} message: {}", error, tools::utils::get_winapi_error_message(error));
+                        break;
+                    }
+                };
+
+                winapi::um::fileapi::FlushFileBuffers(handle.get().to_owned());
+                winapi::um::handleapi::CloseHandle(handle.get().to_owned()); 
+            }
+            else {
+                let error = winapi::um::errhandlingapi::GetLastError();
+                println!("create pipe failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+            }
+        }
+    }
+
+    //cargo test --package cocrew --lib -- compiler::msvc::tests::named_pipe_receive_message_test --exact --show-output --nocapture
+    #[test]
+    fn named_pipe_receive_message_test() {
+        println!("run named_pipe_receive_message_test start.");
+        tools::logger::init_once_logger();
+
+        let _handle = std::thread::spawn(||{
+            redirect_stdout_log();
+        });
+
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        
+        let mut handles = Vec::new();
+        for _i in 0..10 {
+            
+            std::thread::sleep(std::time::Duration::from_millis(100)); //root issue.
+            let handle = std::thread::spawn(||{
+                unsafe {
+                    named_pipe_send_message_test();
+                }
+            });
+            //handle.join().unwrap();
+            //std::thread::sleep(std::time::Duration::from_millis(1000));
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            handle.join().unwrap();    
+        }
+        println!("run named_pipe_receive_message_test send message done.");
+
+        //_handle.join().unwrap();
     }
 }

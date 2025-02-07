@@ -416,6 +416,7 @@ impl MSVC {
 
 async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::OsString, precompiled_result: PrecompiledResult, source_files: &Vec<String>)-> Vec<std::ffi::OsString> {
 
+    let now = std::time::Instant::now();
     let options = zip::write::SimpleFileOptions::default()
         .compression_method(zip::CompressionMethod::Zstd);
     let mut cursor = std::io::Cursor::new(Vec::new());
@@ -454,7 +455,7 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
             log::error!("precompiled file not found: {:?}", intermediate);   
         }
     }
-    log::debug!("zip precompiled file elapsed time {:?}", std::time::Instant::now().elapsed());
+    log::debug!("zip precompiled file elapsed time {:?}", now.elapsed());
 
     let content = zip.finish().unwrap();
     let file = content.to_owned().into_inner();

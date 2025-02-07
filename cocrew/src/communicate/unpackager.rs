@@ -39,7 +39,7 @@ impl FileReceiver {
     
         let result = tonic::transport::Server::builder()
             .tcp_nodelay(true)
-            .add_service(server)
+            .add_service(server.max_decoding_message_size(1024 *1024 *60))
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             //.serve(addr)
             .await;
@@ -250,7 +250,7 @@ impl FileReceiver {
             return reply;
         }
         else {
-            log::info!("compile failed filename {:?} output {:?}", output.filename, output.output);
+            log::info!("compile failed. filename {:?} output {:?}", output.filename, output.output);
             
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compiledone.into(),

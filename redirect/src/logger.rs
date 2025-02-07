@@ -3,10 +3,11 @@ pub struct Logger;
 impl Logger {
     pub fn log(message: impl Into<String>) {
         if let Some(tx) = crate::LOGGER.lock().unwrap().as_ref() {
-            match tx.try_send(message.into()) {
+            let message = message.into();
+            match tx.try_send(message.clone()) {
                 Ok(_) => {},
                 Err(e) => {
-                    println!("logger send message failed: {}", e);
+                    println!("logger send message failed: {}, message: {:?}", e, message);
                 }
             }
         }

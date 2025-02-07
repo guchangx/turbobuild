@@ -60,15 +60,15 @@ unsafe fn redirect_stdout_log_2_cocrew() {
         let name = std::ffi::OsString::from("\\\\.\\pipe\\redirect_stdout_log_pipe");
         let name = name.encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
     
-        if  winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 0) == winapi::shared::minwindef::TRUE {
-            
+        if  winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 100) == winapi::shared::minwindef::TRUE {
             let pipe = winapi::um::fileapi::CreateFileW(name.as_ptr(), 
-                winapi::um::winnt::GENERIC_READ | winapi::um::winnt::GENERIC_WRITE, 0,
-                std::ptr::null_mut(),  winapi::um::fileapi::OPEN_EXISTING, 
+                winapi::um::winnt::GENERIC_WRITE, 0,
+                std::ptr::null_mut(),  
+                winapi::um::fileapi::OPEN_EXISTING, 
                 winapi::um::winnt::FILE_ATTRIBUTE_NORMAL, 
                 winapi::shared::ntdef::NULL);
      
-            if !pipe.is_null() {
+            if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let handle = tools::ptr::HandleBox::new(pipe);
     
                 loop {
@@ -77,13 +77,12 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                         Some(message) => {
 
                             let mut bytes: winapi::shared::minwindef::DWORD = 0;
-                            let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
                             let result = winapi::um::fileapi::WriteFile(
                                 handle.get().to_owned(),
                                 message.as_bytes().as_ptr() as *const std::ffi::c_void,
                                 message.len() as u32,
                                 &mut bytes,
-                                &mut overlapped
+                                std::ptr::null_mut()
                             );
             
                             if result == winapi::shared::minwindef::FALSE || bytes == 0 {
@@ -91,9 +90,10 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                                 if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
                                     break;
                                 }
-                                println!("write pipe error, failed code: {}", error);
+                                println!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
                                 break;
                             }
+                            unsafe { winapi::um::fileapi::FlushFileBuffers(handle.get().to_owned()) };
                         },
                         None => break,
                     }
@@ -101,6 +101,10 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                 winapi::um::namedpipeapi::DisconnectNamedPipe(handle.get().to_owned());
                 winapi::um::handleapi::CloseHandle(handle.get().to_owned());
             }
+        }
+        else {
+            let error = winapi::um::errhandlingapi::GetLastError();
+            println!("WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
         }
     });
 }
@@ -162,20 +166,20 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
             
             //winapi::um::errhandlingapi::SetUnhandledExceptionFilter(Some(custom_exception_handler));
     
-            let text: Vec<u16> = std::ffi::OsStr::new("Debug BreakPoint")
+            let _text: Vec<u16> = std::ffi::OsStr::new("Debug BreakPoint")
                 .encode_wide()
                 .chain(std::iter::once(0))
                 .collect();
 
-            let caption: Vec<u16> = std::ffi::OsStr::new("Attach Programe")
+            let _caption: Vec<u16> = std::ffi::OsStr::new("Attach Programe")
                 .encode_wide()
                 .chain(std::iter::once(0))
                 .collect();
 
             log!(info, "show debug message box for process attach");
-
-            winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.as_ptr(), caption.as_ptr(), 0);
+            
             //just for attach debug
+            //winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.as_ptr(), caption.as_ptr(), 0);
 
             let ret = crate::detours::DetourRestoreAfterWith();
             if ret == winapi::shared::minwindef::FALSE {
