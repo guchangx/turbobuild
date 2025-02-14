@@ -2,6 +2,7 @@
 use sysinfo::System;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
+
 pub struct SystemInfo {
     pub username: String,
     pub devicename: String,
@@ -187,7 +188,7 @@ pub struct Resource {
 
 impl Resource {
     pub fn new() -> Self {
-        
+        #![allow(unused)]
         let username = SystemInfo::fetch_username();
         let aliasname = SystemInfo::fetch_aliasname();
         let addr = "".to_string();
