@@ -162,7 +162,7 @@ impl FileSender {
             content: compiled.content.to_vec(),
         });
 
-        let response = self.to_owned().client.transmit_compile(request).await;
+        let response = self.to_owned().client.transmit_task(request).await;
 
         match response {
             Ok(response) => {

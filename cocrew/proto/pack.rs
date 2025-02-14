@@ -155,17 +155,17 @@ pub mod communicate_server {
             &self,
             request: tonic::Request<super::FileTrRequest>,
         ) -> std::result::Result<tonic::Response<super::FileTrResponse>, tonic::Status>;
-        /// Server streaming response type for the transmit_compile method.
-        type transmit_compileStream: tonic::codegen::tokio_stream::Stream<
+        /// Server streaming response type for the transmit_task method.
+        type transmit_taskStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::CompileTrResponse, tonic::Status>,
             >
             + std::marker::Send
             + 'static;
-        async fn transmit_compile(
+        async fn transmit_task(
             &self,
             request: tonic::Request<super::CompileTrRequest>,
         ) -> std::result::Result<
-            tonic::Response<Self::transmit_compileStream>,
+            tonic::Response<Self::transmit_taskStream>,
             tonic::Status,
         >;
     }
@@ -290,15 +290,15 @@ pub mod communicate_server {
                     };
                     Box::pin(fut)
                 }
-                "/pack.communicate/transmit_compile" => {
+                "/pack.communicate/transmit_task" => {
                     #[allow(non_camel_case_types)]
-                    struct transmit_compileSvc<T: Communicate>(pub Arc<T>);
+                    struct transmit_taskSvc<T: Communicate>(pub Arc<T>);
                     impl<
                         T: Communicate,
                     > tonic::server::ServerStreamingService<super::CompileTrRequest>
-                    for transmit_compileSvc<T> {
+                    for transmit_taskSvc<T> {
                         type Response = super::CompileTrResponse;
-                        type ResponseStream = T::transmit_compileStream;
+                        type ResponseStream = T::transmit_taskStream;
                         type Future = BoxFuture<
                             tonic::Response<Self::ResponseStream>,
                             tonic::Status,
@@ -309,7 +309,7 @@ pub mod communicate_server {
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as Communicate>::transmit_compile(&inner, request).await
+                                <T as Communicate>::transmit_task(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -320,7 +320,7 @@ pub mod communicate_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = transmit_compileSvc(inner);
+                        let method = transmit_taskSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

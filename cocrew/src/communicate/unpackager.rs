@@ -91,7 +91,7 @@ impl FileReceiver {
         return reply;
     }
     
-    async fn transmit_compile_handle(&self, request: package::CompileTrRequest, tx: tokio::sync::mpsc::Sender<Result<package::CompileTrResponse, tonic::Status>>) {
+    async fn transmit_task_handle(&self, request: package::CompileTrRequest, tx: tokio::sync::mpsc::Sender<Result<package::CompileTrResponse, tonic::Status>>) {
 
         let project = request.project;
         let file = request.file;
@@ -280,8 +280,8 @@ impl package::communicate_server::Communicate for FileReceiver {
         Ok(tonic::Response::new(reply))
     }
     
-    type transmit_compileStream = ResponseStream;
-    async fn transmit_compile(&self, request: tonic::Request<package::CompileTrRequest>) -> core::result::Result<tonic::Response<Self::transmit_compileStream>, tonic::Status> {
+    type transmit_taskStream = ResponseStream;
+    async fn transmit_task(&self, request: tonic::Request<package::CompileTrRequest>) -> core::result::Result<tonic::Response<Self::transmit_taskStream>, tonic::Status> {
         
         let rt_compile = request.into_inner();
         log::debug!("sync request transmit compile: {:?} \n commands: {:?}", rt_compile.compiler, rt_compile.commands);
@@ -289,7 +289,7 @@ impl package::communicate_server::Communicate for FileReceiver {
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let self_ = self.clone();
         let _ = tokio::task::spawn(async move {
-            self_.transmit_compile_handle(rt_compile, tx).await;
+            self_.transmit_task_handle(rt_compile, tx).await;
         }).await;
 
         let response = tokio_stream::wrappers::ReceiverStream::new(rx);

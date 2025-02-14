@@ -250,7 +250,7 @@ pub mod communicate_client {
                 .insert(GrpcMethod::new("pack.communicate", "transmit_file"));
             self.inner.unary(req, path, codec).await
         }
-        pub async fn transmit_compile(
+        pub async fn transmit_task(
             &mut self,
             request: impl tonic::IntoRequest<super::CompileTrRequest>,
         ) -> std::result::Result<
@@ -267,11 +267,11 @@ pub mod communicate_client {
                 })?;
             let codec = tonic::codec::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/pack.communicate/transmit_compile",
+                "/pack.communicate/transmit_task",
             );
             let mut req = request.into_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("pack.communicate", "transmit_compile"));
+                .insert(GrpcMethod::new("pack.communicate", "transmit_task"));
             self.inner.server_streaming(req, path, codec).await
         }
     }
