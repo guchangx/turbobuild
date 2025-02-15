@@ -1,8 +1,5 @@
 
-use std::{error::Error};
-
-use hyper::header::IterMut;
-
+use std::error::Error;
 
 #[allow(non_camel_case_types)]
 pub mod notify {

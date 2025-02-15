@@ -806,8 +806,8 @@ fn request_dist_compile_with_source_and_include(working_param: &crate::platform:
     let winsdk_path = working_param.winkits_includes_path.first().unwrap();
 
     let mut dist_msvc_compiler_path: std::ffi::OsString = std::ffi::OsString::from("");
-    let mut dist_msvc_include_path: std::ffi::OsString = std::ffi::OsString::from("");
-    let mut win_kits_include_dir: std::ffi::OsString = std::ffi::OsString::from("");
+    let dist_msvc_include_path: std::ffi::OsString = std::ffi::OsString::from("");
+    let win_kits_include_dir: std::ffi::OsString = std::ffi::OsString::from("");
 
     //(dist_msvc_compiler_path, dist_msvc_include_path, win_kits_include_dir) = sender.dist_kits_and_tool_pre_sync(winsdk_path, compiler_dir.to_str().unwrap());
 

@@ -1,9 +1,5 @@
-use std::{io::Write, result};
-
-
-use pack::CheckResource;
+use std::io::Write;
 use tokio_stream::StreamExt;
-use winapi::shared::{evntrace, winerror::NOERROR};
 
 
 pub mod pack {
@@ -162,7 +158,7 @@ impl FileSender {
             content: compiled.content.to_vec(),
         });
 
-        let response = self.to_owned().client.transmit_compile(request).await;
+        let response = self.to_owned().client.transmit_task(request).await;
 
         match response {
             Ok(response) => {

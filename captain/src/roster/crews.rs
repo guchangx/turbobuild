@@ -156,7 +156,7 @@ impl ConstitutionList {
         }
     }
     
-    pub fn keepalive(&self, crew: CrewConstitution) {
+    pub fn keepalive(&self, _crew: CrewConstitution) {
         
     }
 }
