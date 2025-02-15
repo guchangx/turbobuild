@@ -10,7 +10,7 @@ pub struct MSVC {
 }
 
 //TODO common param in func should be move in msvc struct
-use std::{io::Read, ops::{Add, Index}};
+use std::{io::Read, ops::{Add, Index}, sync::Arc};
 use crate::compiler::model::{CompilerInput, CompilerOutput, ProcessedResults, PrecompiledSource};
 
 //TODO: rename ProcessedResults to CompileResults
@@ -347,19 +347,17 @@ impl MSVC {
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
         log::debug!("in commands compiler version: {:?}", cversion);
         if self.sender.lock().unwrap().check(addr, &cversion) {
-            let result = request_dist_compile_with_precompiled_source(addr, &input, &precompiled).await;
-            if result.status {
+            let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled).await;
+            if output.status {
             
             }
             else {
-                log::trace!("request remote compile and sync back failed: {:?}", result);
-                
+                log::trace!("request remote compile and sync back failed: {:?}", output);
             }
-            return result;
+            return output;
         }
         else {
             log::error!("dist compile failed. addr: {} no available remote compiler {:?}", addr, cversion);
-
             return CompilerOutput::default();
         }
     }
@@ -858,17 +856,41 @@ fn request_dist_compile_with_source_and_include(working_param: &crate::platform:
 
 async fn request_dist_compile_with_precompiled_source(addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
 
+    let mut output = CompilerOutput::default();
+
     let now = std::time::Instant::now();
     let path = precompiled.path.clone();
     if !input.compiler_commands.is_empty() || !precompiled.contents.is_some() {
         if let Some(content) = precompiled.contents.clone() {
             log::info!("precompiled sourcefile result has content. so just transmit file");
             let content = std::borrow::Cow::from(content);
-            crate::communicate::distributor::Distributor::compile(addr, path, input, &content).await;
+            let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &content).await;
+            match receiver {
+                crate::communicate::package::ReceiverType::Archive(recv) => {
+                    output.status = recv.status;
+                },
+                _ => {
+                    log::error!("communicate compile error.");
+                }   
+            }
         }
         else {
             log::info!("precompiled sourcefile result content is empty. so just transmit command"); 
-            crate::communicate::distributor::Distributor::compile(addr, path, input, &std::borrow::Cow::from(Vec::new())).await;
+            let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &std::borrow::Cow::from(Vec::new())).await;
+            match receiver {
+                crate::communicate::package::ReceiverType::Compile(recv) => {
+                    if recv.status {
+                        output.status = true;
+                    }
+                    else
+                    {
+                        output.status = false;
+                    }
+                }
+                _ => {
+                    log::error!("communicate compile error.");
+                }
+            }
         }   
     }
     else {
@@ -877,7 +899,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
 
     log::debug!("communicate distribute compile elapsed: {:?}", now.elapsed());
 
-    return CompilerOutput::default();
+    return output;
 }
 
 fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {

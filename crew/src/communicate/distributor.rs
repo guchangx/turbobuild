@@ -31,7 +31,7 @@ impl Distributor {
         return "".to_string();
     }
     
-    pub async fn compile<'a>(addr: &str, file: std::ffi::OsString, input: &crate::compiler::model::CompilerInput, content: &std::borrow::Cow<'a, [u8]>) {
+    pub async fn compile<'a>(addr: &str, file: std::ffi::OsString, input: &crate::compiler::model::CompilerInput, content: &std::borrow::Cow<'a, [u8]>) -> crate::communicate::package::ReceiverType {
 
         let args = super::package::PrecompiledFile {
             project: input.project.to_string_lossy().to_string(),
@@ -47,7 +47,8 @@ impl Distributor {
         
         let args = super::package::SenderType::Compile(args);
         
-        sender.send(args).await;
+        let result = sender.send(args).await;
+        return result;
     }
 
     pub fn schedule(&self) -> String {

@@ -179,7 +179,7 @@ impl FileSender {
                                    log::info!("response info: {:?}", response.info);
                                    //TODO should use async runtime
                                    
-                                   self.save_compile_result(&response.results).await;
+                                   self.save_compile_output(&response.results).await;
 
                                 }
                                 else {
@@ -202,7 +202,7 @@ impl FileSender {
         }
     }
 
-    async fn save_compile_result(&mut self, results: &Vec<crate::communicate::package::pack::IntermediateResult>) {
+    async fn save_compile_output(&mut self, results: &Vec<crate::communicate::package::pack::IntermediateResult>) {
         for result in results {
             log::debug!("save compile result: {:?}", result.file);
 

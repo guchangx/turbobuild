@@ -235,7 +235,7 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
         },
     }
 
-    return 1;
+    return winapi::shared::minwindef::TRUE;
 }
 
 unsafe fn main() {
