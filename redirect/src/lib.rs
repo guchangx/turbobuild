@@ -8,9 +8,6 @@ mod functions;
 mod ntdef;
 mod logger;
 
-
-static mut ENTRYPOINT: *mut std::ffi::c_void = 0 as _;
-
 unsafe extern "system" fn custom_exception_handler(
     exception_info: *mut winapi::um::winnt::EXCEPTION_POINTERS
 ) -> i32 {
@@ -79,7 +76,7 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                             let mut bytes: winapi::shared::minwindef::DWORD = 0;
                             let result = winapi::um::fileapi::WriteFile(
                                 handle.get().to_owned(),
-                                message.as_bytes().as_ptr() as *const std::ffi::c_void,
+                                message.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
                                 message.len() as u32,
                                 &mut bytes,
                                 std::ptr::null_mut()
@@ -151,8 +148,7 @@ use std::io::BufRead;
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
 #[no_mangle]
 unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserved: LPVOID) -> BOOL {
-    use std::os::windows::ffi::OsStrExt;
-
+    
     if crate::detours::DetourIsHelperProcess() == winapi::shared::minwindef::TRUE {
         //println!("target application is a helper process, so do nothing.");
         return winapi::shared::minwindef::TRUE;
@@ -165,7 +161,8 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
             read_project_property_from_stdin();
             
             //winapi::um::errhandlingapi::SetUnhandledExceptionFilter(Some(custom_exception_handler));
-    
+            /* 
+            use std::os::windows::ffi::OsStrExt;
             let _text: Vec<u16> = std::ffi::OsStr::new("Debug BreakPoint")
                 .encode_wide()
                 .chain(std::iter::once(0))
@@ -180,6 +177,7 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
             
             //just for attach debug
             //winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.as_ptr(), caption.as_ptr(), 0);
+            */
 
             let ret = crate::detours::DetourRestoreAfterWith();
             if ret == winapi::shared::minwindef::FALSE {
@@ -236,13 +234,4 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
     }
 
     return winapi::shared::minwindef::TRUE;
-}
-
-unsafe fn main() {
-    winapi::um::consoleapi::AllocConsole();
-    println!("redirect process hooked!");
-    let start_redirect: extern "C" fn() = std::mem::transmute(ENTRYPOINT);
-    start_redirect();
-    println!("redirect process end!");
-    winapi::um::wincon::FreeConsole();
 }
