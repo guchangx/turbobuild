@@ -195,7 +195,7 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
     while let Some(item) = iter.next() {
         if item == "/D" || item == "/d" {
             if let Some(next) = iter.next() {
-                let arg = std::ffi::OsString::from(item.to_owned() + " " + next);
+                let arg = std::ffi::OsString::from(item.to_owned() + next);
                 result_.push(arg);
             }
         }

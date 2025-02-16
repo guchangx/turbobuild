@@ -82,7 +82,9 @@ impl FileSender {
         let channel = tonic::transport::Endpoint::from_shared(std::format!("http://{}:19302", host)).unwrap()
             .connect_lazy();
 
-        let client = pack::communicate_client::CommunicateClient::new(channel);
+        let client = pack::communicate_client::CommunicateClient::new(channel)
+            .max_decoding_message_size(1024 * 1024 *60)
+            .max_encoding_message_size(1024 * 1024 *60);
         
         let sender = FileSender {
             client,
@@ -187,17 +189,19 @@ impl FileSender {
                                 }
                             }
                             else {
-                                log::warn!("send precompiled sourcefile response failure: {}", response.error_message);
+                                log::warn!("send precompiled sourcefile reveice response failed. {}", response.error_message);
                             }
                         },
                         Err(err) => {
-                            log::error!("send compiled response failed. {}", err);
+                            log::error!("send precompiled sourcefile receive response failed. {}", err);
+                            break;
                         },
                     }
                 }
+                log::info!("send precompiled sourcefile receive response done.");
             }
             Err(err) => {
-                log::warn!("send compiled failed {:?}", err);
+                log::warn!("send precompiled sourcefile failed {:?}", err);
             }
         }
     }

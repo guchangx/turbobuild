@@ -133,7 +133,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
 
         let lines:Vec<&str> = compile_output.lines().collect();
         
-        let (lines, _warning) = filter_compiler_warning_message(lines);
+        let (lines, _warning) = filter_compiler_warning_and_message(lines);
 
         log::debug!("local compile file count: {:?} success, elapsed: {:?}.", lines.len(), now.elapsed());
 
@@ -281,7 +281,7 @@ enum GeneratedObject {
     PathWithoutObjName(std::path::PathBuf),
 }
 
-fn filter_compiler_warning_message(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
+fn filter_compiler_warning_and_message(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
     let (files, warning):(Vec<_>, Vec<_>) = lines.into_iter().partition(|item| item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c"));
     return (files, warning);
 }

@@ -583,20 +583,22 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
     let mut compiled_results: ProcessedResults = Vec::new();
 
     if status {
-        let output = compile_output.lines();
+        let lines = compile_output.lines().collect();
 
-        let mut last = output.clone().last();
-        let lines:Vec<&str> = output.clone().collect();
-        if let Some(index) = lines.iter().rposition(|&arg| arg.ends_with(".i")) {
-            let &arg = lines.index(index);
+        let (files, wraning_or_message) = filter_compiler_warning_and_message(lines);
+
+        let mut last = files.clone().last().cloned();
+
+        if let Some(index) = files.iter().rposition(|&arg| arg.ends_with(".i")) {
+            let &arg = files.index(index);
             last = Some(arg);
         }
         log::trace!("last compiled source file: {:?}", last);
-        log::debug!("local compile file count: {:?}, elapsed: {:?}.", lines.len(), now.elapsed());
+        log::debug!("local compile file count: {:?}, elapsed: {:?}.", files.len(), now.elapsed());
 
         let (pdb_path, _one_pdb )= fetch_compile_pdb_path(build_and_compiler_type.clone(), compiler_commands.to_owned(), compiler_working_dir);
         let pdb_path = std::rc::Rc::new(pdb_path);
-        for line in output {
+        for line in files {
             let line = line.replace(r#"""#, "");
             if line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".i") {
                 if sync_compile_result {
@@ -691,7 +693,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
                             },
                         }
                     }
-
+                    //TODO: should be add warning or error or other message.
                     let processed_result = crate::compiler::model::ProcessedResult {
                         source_file: std::ffi::OsString::from(&line),
                         obj: obj,
@@ -925,10 +927,12 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                     if output.status.success() {
                         let elapsed = start.elapsed();
                         let output_context = String::from_utf8_lossy(&output.stdout);  //filename
-                        let stderr_context = String::from_utf8_lossy(&output.stderr); 
-        
+                        let lines:Vec<&str> = output_context.lines().collect();
+                        let (files, wraning_or_message) = filter_compiler_warning_and_message(lines);
 
-                        log::trace!("compile local file count {:?} success, elapsed time: {:?}, stdout: {:?}, stderr: {:?}", stderr_context.lines().count(), elapsed, output_context, stderr_context);
+                        let stderr_context = String::from_utf8_lossy(&output.stderr); 
+                        
+                        log::trace!("compile local file count {:?} success, elapsed time: {:?}, file: {:?}, print: {:?}, stderr: {:?}", files.len(), elapsed, files, wraning_or_message, stderr_context);
                         return (true, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
                         //TODO shoud not be used Arc wrap
                     }
@@ -1167,6 +1171,10 @@ fn fetch_compile_source_file(build_and_compiler_type: &std::ffi::OsString, compi
 }
 
 
+fn filter_compiler_warning_and_message(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
+    let (files, warning):(Vec<_>, Vec<_>) = lines.into_iter().partition(|item| item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c"));
+    return (files, warning);
+}
 
 struct CompileAction {
     pub precompile_2_stdout: bool,
@@ -1512,7 +1520,9 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
         compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
         compiler_commands.push(std::ffi::OsString::from("/GR"));
-        
+        compiler_commands.push(std::ffi::OsString::from("/D"));
+        compiler_commands.push(std::ffi::OsString::from("TEST_DEFINE"));
+        compiler_commands.push(std::ffi::OsString::from("/DTEST_DEFINE_NEW"));
         
         compiler_commands.push(std::ffi::OsString::from("/I"));
         compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
