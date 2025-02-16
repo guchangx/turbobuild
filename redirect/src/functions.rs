@@ -11,6 +11,27 @@ pub static mut CREATE_FILE_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std:
 pub static mut ZW_QUERY_DIRECTORY_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut NT_CREATE_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 
+
+const PIPE_PREFIX_CONTENT: &[u16] = &['\\' as u16, '\\' as u16, '.' as u16, '\\' as u16, 'p' as u16, 'i' as u16, 'p' as u16, 'e' as u16];
+//const PIPE_PREFIX: Vec<u8> = [23644, 11868, 23598, 11868, 26992, 28777, 25968, 23653];
+
+pub unsafe fn start_with_pipe(lp_file_name: *const u16) -> bool {
+    if lp_file_name.is_null() {
+        return false;
+    } 
+    else {
+        let len = PIPE_PREFIX_CONTENT.len() as isize;
+        for i in 0..len {
+            let uchar = *lp_file_name.offset(i as isize);
+            let pipe = PIPE_PREFIX_CONTENT[i as usize];
+            if uchar != PIPE_PREFIX_CONTENT[i as usize] && uchar == 0 {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
 pub unsafe fn create_file_a(
     lp_file_name: LPCSTR,
     dw_desired_access: DWORD,
@@ -95,6 +116,19 @@ pub unsafe fn create_file_w(
     dw_flags_and_attributes: DWORD,
     h_template_file: HANDLE,
 ) -> HANDLE {
+
+    if start_with_pipe(lp_file_name) {
+        let handle = create_file_w(
+            lp_file_name,
+            dw_desired_access,
+            dw_share_mode,
+            lp_security_attributes,
+            dw_creation_disposition,
+            dw_flags_and_attributes,
+            h_template_file,
+        );
+        return handle;
+    }
 
     let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
     if let Some(mut path) = path {
@@ -459,4 +493,30 @@ pub unsafe fn nt_create_file(
         ea_length
     );
     return nt_status;
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+    #[test]
+    fn start_with_pipe_test() {
+        let pipe = std::ffi::CString::new(r"\\.\2pipe\test").unwrap();
+        unsafe {
+            let result = start_with_pipe(pipe.as_ptr() as *const u16);
+            assert_eq!(result, true);
+        }
+
+        let pipe = std::ffi::CString::new(r"\\.\test").unwrap();
+        unsafe {
+            let result = start_with_pipe(pipe.as_ptr() as *const u16);
+            assert_eq!(result, false);
+        }
+
+        let pipe = std::ffi::CString::new(r"").unwrap();
+        unsafe {
+            let result = start_with_pipe(pipe.as_ptr() as *const u16);
+            assert_eq!(result, false);
+        }
+    }
 }
