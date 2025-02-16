@@ -245,6 +245,9 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                                     }
                                 },
                             }
+                        }
+                        else {
+                            log::warn!("pdb file is not found, path: {:?}.", result);
                         } 
                     }
 

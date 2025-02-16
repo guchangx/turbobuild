@@ -208,7 +208,7 @@ impl FileReceiver {
             let mut intermediates = Vec::new();
             if let Some(results) = results {
                 for result in results {
-                    let source = result.source_file;
+                    let _source = result.source_file;
       
                     if let Some(obj)  = result.obj {
                         let file = obj.0;
@@ -219,7 +219,8 @@ impl FileReceiver {
                         };
                         intermediates.push(intermediate);
                     }
-                    else if let Some(idb) = result.idb {
+
+                    if let Some(idb) = result.idb {
                         let file = idb.0;
                         let content = idb.1;
                         let intermediate = package::IntermediateResult {
@@ -228,7 +229,7 @@ impl FileReceiver {
                         };
                         intermediates.push(intermediate);
                     }
-                    else if let Some(pdb) = result.pdb {
+                    if let Some(pdb) = result.pdb {
                         let file = pdb.0;
                         let content = pdb.1;
                         let intermediate = package::IntermediateResult {

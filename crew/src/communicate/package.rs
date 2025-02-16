@@ -85,7 +85,7 @@ impl FileSender {
         let client = pack::communicate_client::CommunicateClient::new(channel)
             .max_decoding_message_size(1024 * 1024 *60)
             .max_encoding_message_size(1024 * 1024 *60);
-        
+
         let sender = FileSender {
             client,
             host: host.to_string(),
