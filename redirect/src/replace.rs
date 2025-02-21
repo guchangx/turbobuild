@@ -96,6 +96,9 @@ pub fn replace_dir(path: &mut String) -> bool {
     else if path.ends_with(".i") {
         return false;
     }
+    else if path.starts_with("\\??\\pipe\\") {
+        return false;
+    }
     else if crate::PROJECTNAME.get().is_some() && path.contains(crate::PROJECTNAME.get().unwrap()) {
         let modified = Model::fetch_local_replica_project_path(&path);
         if let Some(modified) = modified {

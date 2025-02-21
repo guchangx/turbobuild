@@ -12,19 +12,17 @@ pub static mut ZW_QUERY_DIRECTORY_FILE: *mut std::ffi::c_void = 0 as *mut std::f
 pub static mut NT_CREATE_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 
 
-const PIPE_PREFIX_CONTENT: &[u16] = &['\\' as u16, '\\' as u16, '.' as u16, '\\' as u16, 'p' as u16, 'i' as u16, 'p' as u16, 'e' as u16];
-//const PIPE_PREFIX: Vec<u8> = [23644, 11868, 23598, 11868, 26992, 28777, 25968, 23653];
+const PIPE_PREFIX_CONTENT_W: &[u16] = &['\\' as u16, '\\' as u16, '.' as u16, '\\' as u16, 'p' as u16, 'i' as u16, 'p' as u16, 'e' as u16, '\\' as u16];  //\\.\\pipe\\ or \\??\\pipe\\
 
-pub unsafe fn start_with_pipe(lp_file_name: *const u16) -> bool {
+pub unsafe fn start_with_pipe_w(lp_file_name: *const u16) -> bool {
     if lp_file_name.is_null() {
         return false;
     } 
     else {
-        let len = PIPE_PREFIX_CONTENT.len() as isize;
+        let len = PIPE_PREFIX_CONTENT_W.len() as isize;
         for i in 0..len {
             let uchar = *lp_file_name.offset(i as isize);
-            let pipe = PIPE_PREFIX_CONTENT[i as usize];
-            if uchar != PIPE_PREFIX_CONTENT[i as usize] && uchar == 0 {
+            if uchar != PIPE_PREFIX_CONTENT_W[i as usize] && uchar == 0 {
                 return false;
             }
         }
@@ -116,9 +114,19 @@ pub unsafe fn create_file_w(
     dw_flags_and_attributes: DWORD,
     h_template_file: HANDLE,
 ) -> HANDLE {
+    
+    if start_with_pipe_w(lp_file_name) {
+        let create_file_w_inner: extern "C" fn (
+            lp_file_name: LPCWSTR,
+            dw_desired_access: DWORD,
+            dw_share_mode: DWORD,
+            lp_security_attributes: LPSECURITY_ATTRIBUTES,
+            dw_creation_disposition: DWORD,
+            dw_flags_and_attributes: DWORD,
+            h_template_file: HANDLE,
+        ) -> HANDLE = std::mem::transmute(CREATE_FILE_W);
 
-    if start_with_pipe(lp_file_name) {
-        let handle = create_file_w(
+        let handle = create_file_w_inner(
             lp_file_name,
             dw_desired_access,
             dw_share_mode,
@@ -283,7 +291,30 @@ pub unsafe fn kernelbase_create_file_w(
     dw_flags_and_attributes: DWORD,
     h_template_file: HANDLE,
 ) -> HANDLE {
+    
+    if start_with_pipe_w(lp_file_name) {
+        let create_file_w_inner: extern "C" fn (
+            lp_file_name: LPCWSTR,
+            dw_desired_access: DWORD,
+            dw_share_mode: DWORD,
+            lp_security_attributes: LPSECURITY_ATTRIBUTES,
+            dw_creation_disposition: DWORD,
+            dw_flags_and_attributes: DWORD,
+            h_template_file: HANDLE,
+        ) -> HANDLE = std::mem::transmute(CREATE_FILE_W_KERNEL_BASE);
 
+        let handle = create_file_w_inner(
+            lp_file_name,
+            dw_desired_access,
+            dw_share_mode,
+            lp_security_attributes,
+            dw_creation_disposition,
+            dw_flags_and_attributes,
+            h_template_file,
+        );
+        return handle;
+    }
+    
     let option_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
 
     if let Some(mut path) = option_path {
@@ -420,7 +451,7 @@ pub unsafe fn nt_create_file(
                 let utf16_slice = std::slice::from_raw_parts(buffer, (length / 2) as usize);
                 let os_string = std::ffi::OsString::from_wide(utf16_slice);
                 match os_string.into_string() {
-                    Ok(string) => {
+                    Ok(_string) => {
                         //println!("hook func nt_create_file, path {:?}, object name length {}", string, length );
                     },
                     Err(_) => {
@@ -497,25 +528,46 @@ pub unsafe fn nt_create_file(
 
 #[cfg(test)]
 mod tests {
-
+    use std::os::windows::ffi::OsStrExt;
     use super::*;
     #[test]
     fn start_with_pipe_test() {
-        let pipe = std::ffi::CString::new(r"\\.\2pipe\test").unwrap();
+     
+        let mut pipe: Vec<u16> = std::ffi::OsStr::new("\\\\.\\pipe\\").encode_wide().collect();
+        pipe.push(0); 
         unsafe {
-            let result = start_with_pipe(pipe.as_ptr() as *const u16);
+            let new = std::time::Instant::now();
+            let result = start_with_pipe_w(pipe.as_ptr());
+            println!("start_with_pipe func elapsed time: {:?}", new.elapsed());
             assert_eq!(result, true);
         }
 
-        let pipe = std::ffi::CString::new(r"\\.\test").unwrap();
+        let mut pipe: Vec<u16> = std::ffi::OsStr::new("\\\\.\\pipe\\pipename").encode_wide().collect();
+        pipe.push(0); 
         unsafe {
-            let result = start_with_pipe(pipe.as_ptr() as *const u16);
+            let result = start_with_pipe_w(pipe.as_ptr());
+            assert_eq!(result, true);
+        }
+
+
+        let mut pipe: Vec<u16> = std::ffi::OsStr::new(r"\\.\test").encode_wide().collect();
+        pipe.push(0);
+        unsafe {
+            let result = start_with_pipe_w(pipe.as_ptr() as *const u16);
+            assert_eq!(result, false);
+        }
+        
+        let mut pipe: Vec<u16> = std::ffi::OsStr::new(r"\.\pipe").encode_wide().collect();
+        pipe.push(0);
+        unsafe {
+            let result = start_with_pipe_w(pipe.as_ptr() as *const u16);
             assert_eq!(result, false);
         }
 
+
         let pipe = std::ffi::CString::new(r"").unwrap();
         unsafe {
-            let result = start_with_pipe(pipe.as_ptr() as *const u16);
+            let result = start_with_pipe_w(pipe.as_ptr() as *const u16);
             assert_eq!(result, false);
         }
     }

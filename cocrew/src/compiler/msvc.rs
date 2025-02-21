@@ -587,8 +587,8 @@ mod tests {
 
     use super::*;
     #[test]
-    fn compile_sourcefile_inject_test() {
-        println!("run msvc .cpp file test inject");
+    fn compile_sourcefile_with_inject_test() {
+        println!("run msvc .c file compile test with inject");
         tools::logger::init_once_logger();
         
         std::thread::spawn(||{
@@ -650,8 +650,8 @@ mod tests {
     }
 
     #[test]
-    fn compile_preprocessedfile_with_inject() {
-        println!("run msvc .i file test inject");
+    fn compile_preprocessed_file_with_inject_test() {
+        println!("run msvc .i file compile test with inject");
         tools::logger::init_once_logger();
         
         std::thread::spawn(||{
