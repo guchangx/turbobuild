@@ -1,5 +1,7 @@
 
 use crew::{compiler::model::{CompilerInput, CompilerOutput, ProcessedResult, ProcessedResults}, replica::project};
+use tokio::time::error::Elapsed;
+use winapi::shared::winerror::MILEFFECTSERR_UNKNOWNPROPERTY;
 
 pub struct MSVC {
     pub version: String,
@@ -206,7 +208,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                             }
                         };
 
-                        log::trace!("compile result program database path {:?}", result);
+                        log::trace!("compile result program database path: {:?}", result);
                         
                         if result.exists() {
                             match std::fs::File::open(&result) {
@@ -219,7 +221,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                                 },
                                 Err(error) => {
                                     if error.kind() == std::io::ErrorKind::NotFound {
-                                        log::trace!(".pdb file path is not found.");
+                                        log::warn!(".pdb file path is not found. path: {:?}", result);
                                     }
                                     else {
                                         log::warn!(".pdb file read failed. {:?}", error);
@@ -238,7 +240,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                                 },
                                 Err(error) => {
                                     if error.kind() == std::io::ErrorKind::NotFound {
-                                        log::trace!(".idb file path is not found.");
+                                        log::warn!(".idb file path is not found.");
                                     }
                                     else {
                                         log::warn!(".idb file read failed. {:?}", error);
@@ -347,9 +349,6 @@ enum ProgramDataBase {
 
 fn exact_compile_pdb_path(project: std::borrow::Cow<str>, mut arg: std::borrow::Cow<str>, working_dir: &std::path::PathBuf) -> ProgramDataBase {
 
-        
-    //"/FdD:\\TrainSpace\\json\\Build\\tests\\abi\\diag\\Debug\\abi_compat_diag_on.pdb"
-
     let replica = tools::utils::access_replica_dir();
     let replica = std::path::PathBuf::from(replica);
 
@@ -375,23 +374,26 @@ fn exact_compile_pdb_path(project: std::borrow::Cow<str>, mut arg: std::borrow::
     if pdb.ends_with(".pdb") {
         let path = std::path::PathBuf::from(pdb);
         if path.has_root() {
-            let path = split(path, project);
+            let path = split(path, project.clone());
+            let path = replica.join("Project").join(project.into_owned()).join(path);
             return ProgramDataBase::PathWithPDBName(path);
         }
         else {
-            let path = replica.join("Project").join(project.into_owned()).join(path);
+            let middle = split(working_dir.to_owned(), project.clone());
+            let path = replica.join("Project").join(project.into_owned()).join(middle).join(path);
             return ProgramDataBase::PathWithPDBName(path);
         }
     }
     else {
         let path = std::path::PathBuf::from(pdb);
         if path.has_root() {
-            let path = split(path, project);
+            let path = split(path, project.clone());
+            let path = replica.join("Project").join(project.into_owned()).join(path);
             return ProgramDataBase::PathWithoutPDBName(path);
         }
         else {
-            let path = replica.join(path);
-            let path = split(path, project);
+            let middle = split(working_dir.to_owned(), project.clone());
+            let path = replica.join("Project").join(project.into_owned()).join(middle).join(path);
             return ProgramDataBase::PathWithoutPDBName(path);
         }
     }

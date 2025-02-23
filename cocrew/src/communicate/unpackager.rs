@@ -204,7 +204,7 @@ impl FileReceiver {
     async fn execute(input: &crew::compiler::model::CompilerInput) -> package::CompileTrResponse {
         let (output, results) = crate::compiler::interface::build(input.to_owned());
         if output.status {
-            log::info!("compile successed filename {:?} status {:?}", output.filename, true);
+            log::info!("compile successed filename: {:?}", output.filename);
             let mut intermediates = Vec::new();
             if let Some(results) = results {
                 for result in results {
@@ -236,6 +236,7 @@ impl FileReceiver {
                             file: file.to_string_lossy().into(),
                             content: content,
                         };
+                        println!("have have pdb {:?}", file);
                         intermediates.push(intermediate);
                     }
                 }
