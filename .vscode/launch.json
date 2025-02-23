@@ -130,7 +130,7 @@
         },
         {
             "name": "Both Crew Executables",
-            "configurations": ["crew", "cocrew"]
+            "configurations": ["cocrew", "crew"],
         }
     ],
 }
