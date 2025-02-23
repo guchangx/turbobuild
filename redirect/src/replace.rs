@@ -96,7 +96,7 @@ pub fn replace_dir(path: &mut String) -> bool {
     else if path.ends_with(".i") {
         return false;
     }
-    else if path.starts_with("\\??\\pipe\\") {
+    else if path.starts_with(r"\\??\\pipe\\") {
         return false;
     }
     else if crate::PROJECTNAME.get().is_some() && path.contains(crate::PROJECTNAME.get().unwrap()) {

@@ -3,7 +3,6 @@ static LOGGER: std::sync::Once = std::sync::Once::new();
 
 pub fn init_logger(module: &str) {
     use std::io::Write;
-    
     let mut builder = env_logger::Builder::new();
     let logger = builder
     .format(|buf, record| {
@@ -23,7 +22,7 @@ pub fn init_logger(module: &str) {
     //.filter(Some("captain"), log::LevelFilter::Trace)
     //.filter(Some("crew"), log::LevelFilter::Trace)
     //.filter(Some("cocrew"), log::LevelFilter::Trace)
-    .filter(Some(module), log::LevelFilter::Trace)
+    .filter_module(module, log::LevelFilter::Trace)
     .target(env_logger::Target::Stdout)
     .try_init();
 
