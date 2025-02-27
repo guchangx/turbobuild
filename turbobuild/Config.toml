@@ -1,5 +1,0 @@
-#ConfigurationInfo
-coordinator_addr = '127.0.0.1'
-local_addr = '192.168.0.106'
-workers_addr = ['192.168.0.106']
-redis_addr = '10.224.201.61'

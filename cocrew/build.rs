@@ -24,8 +24,15 @@ fn main()  {
         Err(e) => println!("cocrew compile pack proto file error: {}", e),
     }
 
-    
-    println!("cargo:rerun-if-changed=./3dparty/detours/include/detours.h");
-    println!("cargo:rustc-link-search=native=./turbobuild/3dparty/detours/lib.X64");
-    println!("cargo:rustc-link-lib=static=detours");
+    if std::path::Path::new("./3dparty/detours/lib.X64/detours.lib").exists()
+    {
+        println!("cargo:note=cocrew 3dparty detours found.");
+        println!("cargo:rerun-if-changed=./3dparty/detours/include/detours.h");
+        println!("cargo:rustc-link-search=native=./cocrew/3dparty/detours/lib.X64");
+        println!("cargo:rustc-link-lib=static=detours");
+    }
+    else {
+        println!("cargo:warning=cocrew 3dparty detours not found.");
+    }
+
 }
