@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package notify;
+
+enum Type {
+    UNKNOWN = 0;
+    REGISTER = 1;
+    UNREGISTER = 2;
+    CHECKRESOURCE = 3;
+    KEEPALIVE = 4;
+    DATA = 5;
+}
+
+message NotifyRequest {
+    Type type = 1;
+    string message = 2;
+}
+
+message NotifyResponse {
+    Type type = 1;
+    string message = 2;
+    int32 error_code = 3;
+    string error_message = 4;
+}
+
+enum Arch {
+    ARM = 0;
+    ARM64 = 1;
+    X64 = 2;
+    X86 = 3;
+}
+
+message ToolVersion {
+    string version = 1;
+    Arch host = 2;
+    Arch target = 3;    
+}
+
+message CrewsResource {
+    string username = 1; 
+    string aliasname = 2;
+    string devicename = 3;
+    string addr = 4;
+    repeated ToolVersion tool_versions = 5;
+}
+
+message CheckCrewsResourceRequest {
+    string username = 1; 
+    string aliasname = 2;
+    string addr = 3;
+}
+
+message CheckCrewsResourceResponse {
+    repeated CrewsResource resources = 1;
+    int32 error_code = 2;
+    string error_message = 3;
+}
+
+message ReportCrewsResourceRequest {
+    repeated CrewsResource resources = 1;
+}
+
+message ReportCrewsResourceResponse {
+    repeated CrewsResource resources = 1;
+    int32 error_code = 2;
+    string error_message = 3;
+}
+
+service communicate {
+  rpc notify (stream NotifyRequest) returns (stream NotifyResponse) {}
+  
+  rpc report_crews_resource(ReportCrewsResourceRequest) returns (ReportCrewsResourceResponse) {}
+  rpc cancel_crews_resource(ReportCrewsResourceRequest) returns (ReportCrewsResourceResponse) {}
+  rpc check_crews_resource(CheckCrewsResourceRequest) returns (CheckCrewsResourceResponse) {}
+}

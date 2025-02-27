@@ -7,7 +7,7 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'turbobuild'",
+            "name": "Debug 'turbobuild'",
             "cargo": {
                 "args": [
                     "build",
@@ -16,6 +16,60 @@
                 ],
                 "filter": {
                     "name": "turbobuild",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "captain",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=captain",
+                    "--package=captain"
+                ],
+                "filter": {
+                    "name": "captain",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "crew",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=crew",
+                    "--package=crew"
+                ],
+                "filter": {
+                    "name": "crew",
+                    "kind": "bin"
+                }
+            },
+            "args": [],
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "cocrew",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=cocrew",
+                    "--package=cocrew"
+                ],
+                "filter": {
+                    "name": "cocrew",
                     "kind": "bin"
                 }
             },
@@ -72,7 +126,11 @@
     "compounds": [
         {
             "name": "Both Executables",
-            "configurations": ["Debug unit tests in executable 'turbobuild'", "Attach to 'redirect.dll'"]
+            "configurations": ["cocrew", "crew", "captain"]
+        },
+        {
+            "name": "Both Crew Executables",
+            "configurations": ["cocrew", "crew"],
         }
     ],
 }

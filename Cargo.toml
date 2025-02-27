@@ -1,13 +1,16 @@
 
 [workspace]
-members = ["redirect", "turbobuild", "buildassist"]
+members = ["redirect", "turbobuild", "buildassist", "captain", "crew", "tools", "cocrew", "it"]
 default-members = ["turbobuild"]
 resolver = "2"
 
 
 [workspace.package]
-version = "25.8.0"
+version = "24.8.0"
 edition = "2021"
 authors = ["Chang Gu"]
 description = "build project increase tool."
-documentation = "https://github.com/"
+documentation = "https://github.com/GuBuChang"
+
+
+[profile.release]

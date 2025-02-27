@@ -29,7 +29,7 @@ async fn get_teamworker_info() -> axum::extract::Json<serde_json::Value>
 async fn request_compile(axum::extract::Json(compile_input): axum::extract::Json<crate::compiler::compiler::CompileInput>, 
         working_parameters: crate::turbobuild::WorkingParameters, thread_pool: tokio::runtime::Handle, 
         grade: std::sync::Arc<std::sync::Mutex<utils::grade::LocalGrade>>) -> axum::extract::Json<serde_json::Value> {
-    log::trace!("local request compile");
+    log::trace!("local request compile"); 
     let output = crate::compiler::compiler::request_compile(working_parameters, compile_input, &thread_pool, grade).await;
     let output = axum::extract::Json(serde_json::json!(output.0));
 
@@ -43,7 +43,7 @@ async fn dist_request_compile(axum::extract::Json(compile_input): axum::extract:
     log::trace!("dist request compile");
     let output: (crate::compiler::compiler::CompileOutput, Option<Vec<crate::compiler::compiler::ProcessedResult>>) = crate::compiler::compiler::dist_request_compile(working_parameters, compile_input, &thread_pool, grade).await;
     return axum::extract::Json(serde_json::json!(output));
-}
+} 
 
 async fn remote_request_compile(multipart: axum::extract::multipart::Multipart, working_parameters: crate::turbobuild::WorkingParameters, 
                                 thread_pool: tokio::runtime::Handle,

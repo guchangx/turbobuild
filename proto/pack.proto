@@ -1,0 +1,71 @@
+syntax = "proto3";
+
+package pack;
+
+message CompileTrRequest {
+    string project = 1;
+    string file = 2;
+    string compiler = 3;
+    string working_dir = 4;
+    string variety = 5;
+    repeated string commands = 6;
+    bytes content = 7;
+}
+
+enum CompileProgress {
+    OTHER = 0;
+    FILETRANSFER = 1;
+    COMPILESTART = 2;
+    COMPILEDONE = 3;
+    STARTLINK = 4;
+    LINKDONE = 5;
+}
+
+message IntermediateResult {
+    string file = 1;
+    bytes content = 2;
+}
+
+message CompileTrResponse {
+    CompileProgress progress = 1;
+    string info = 2;
+    repeated IntermediateResult results = 3;
+    int32 error_code = 4;
+    string error_message = 5;
+}
+
+enum FileType {
+    UNKNOWN = 0;
+    TOOLCHAIN = 1;
+    KITS= 2;
+}
+
+message FileTrRequest {
+    FileType file_type = 1;
+    string name = 2;
+    string path = 3;
+    bytes content = 4;
+}
+
+message FileTrResponse {
+    int32 error_code = 1;
+    string error_message = 2;
+}
+
+message CheckResource {
+
+}
+
+message CocrewResource {
+    string compiler_path = 1;
+    repeated string winkits_includes_path = 2;
+    string msvc_includes_path = 3;
+    string msvc_version = 4;
+    int32 error_code = 5;
+    string error_message = 6;
+}
+
+service communicate {
+    rpc transmit_file(FileTrRequest) returns (FileTrResponse) {}
+    rpc transmit_task(CompileTrRequest) returns (stream CompileTrResponse) {}
+}

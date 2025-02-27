@@ -1,0 +1,15 @@
+[package]
+name = "it"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+
+
+[dependencies]
+
+[dev-dependencies]
+captain = { path = "../captain" }
+crew = {path = "../crew"}
+cocrew = {path = "../cocrew"}

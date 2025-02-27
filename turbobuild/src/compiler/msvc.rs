@@ -604,6 +604,10 @@ async fn load_precompiled_result_file_from_disk_by_zip(network: &crate::network:
             let content = std::borrow::Cow::from(content.get_ref());
             zip_file.set_extension("zip");
             let handle = network.dist_zip_async("dist/syncfile", "precompiledsourcefile", zip_file.to_str().unwrap(), &content);
+            
+            log::debug!("request precompiled source file from disk, size: {:?}M.", buffer.len() as f32 / 1024.0 / 1024.0);
+            
+            
             return handle;
         });
 
