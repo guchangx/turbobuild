@@ -1,5 +1,5 @@
 
-use crew::{compiler::model::{CompilerInput, CompilerOutput, ProcessedResult, ProcessedResults}, replica::project};
+use crew::{compiler::model::{CompilerInput, CompilerOutput, CompiledResult, CompiledResults}, replica::project};
 use tokio::time::error::Elapsed;
 use winapi::shared::winerror::MILEFFECTSERR_UNKNOWNPROPERTY;
 
@@ -9,14 +9,14 @@ pub struct MSVC {
 
 impl crate::compiler::interface::Compiler for MSVC {
 
-    fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<ProcessedResults>) {
+    fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
         
         let output = request_local_compile_by_preprocessed_source(&compiler_input);
         return output;
     }
 }
 
-fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) -> (CompilerOutput, Option<ProcessedResults>) {
+fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
 
     /*
     if !compiler_input.compiler_working_dir.is_empty() {
@@ -119,7 +119,7 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
 
 fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::ffi::OsString, compiler_working_dir: std::ffi::OsString, 
                                 compiler_commands: Vec<std::ffi::OsString>, build_and_compiler_type: std::ffi::OsString,
-                            sync_compile_result: bool) -> (CompilerOutput, Option<ProcessedResults>) {
+                            sync_compile_result: bool) -> (CompilerOutput, Option<CompiledResults>) {
     use std::io::Read;
 
     let now = std::time::Instant::now();
@@ -127,7 +127,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     let compile_output = String::from_utf8_lossy(&stdout);
     let compile_error = String::from_utf8_lossy(&stderr);
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
-    let mut compiled_results: ProcessedResults = Vec::new();
+    let mut compiled_results: CompiledResults = Vec::new();
     
     log::trace!("injectd compile status: {}, stdout: {:?} stderr: {:?}", status, compile_output, compile_error);
 
@@ -253,7 +253,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                         } 
                     }
 
-                    let processed_result = ProcessedResult {
+                    let processed_result = CompiledResult {
                         source_file: std::ffi::OsString::from(&line),
                         obj: obj,
                         pdb: pdb,

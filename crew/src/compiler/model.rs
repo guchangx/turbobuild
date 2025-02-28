@@ -52,11 +52,11 @@ impl CompilerOutput {
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-pub struct ProcessedResult {
+pub struct CompiledResult {
     pub source_file: std::ffi::OsString,
     pub obj: Option<(std::ffi::OsString, Vec<u8>)>,
     pub pdb: Option<(std::ffi::OsString, Vec<u8>)>,
     pub idb: Option<(std::ffi::OsString, Vec<u8>)>,
 }
 
-pub type ProcessedResults = Vec<ProcessedResult>;
+pub type CompiledResults = Vec<CompiledResult>;

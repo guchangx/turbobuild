@@ -1,14 +1,14 @@
 
-use crate::compiler::model::{CompilerInput, CompilerOutput, ProcessedResults};
+use crate::compiler::model::{CompilerInput, CompilerOutput, CompiledResults};
 
 pub trait Compiler {
-    fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<ProcessedResults>);
+    fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>);
 }
 
 // local request compile
 pub async fn request_compile(compiler_input: CompilerInput, runtime: std::sync::Arc<tokio::runtime::Handle>, env: Option<crate::platform::windows::WindowsCompilerEnv>,
                             distor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) 
-                            -> (CompilerOutput, Option<ProcessedResults>) {
+                            -> (CompilerOutput, Option<CompiledResults>) {
                     
     if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake") {

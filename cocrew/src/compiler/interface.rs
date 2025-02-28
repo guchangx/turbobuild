@@ -1,12 +1,12 @@
 
-use crew::compiler::model::{CompilerInput, CompilerOutput, ProcessedResults};
+use crew::compiler::model::{CompilerInput, CompilerOutput, CompiledResults};
 
 pub trait Compiler {
-    fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<ProcessedResults>);
+    fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>);
 }
 
 pub fn build(compiler_input: CompilerInput)
-        -> (CompilerOutput, Option<ProcessedResults>) {
+        -> (CompilerOutput, Option<CompiledResults>) {
             
     log::info!("build and compiler type: {:?}", compiler_input.build_and_compiler_type);
     if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")

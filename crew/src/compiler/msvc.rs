@@ -10,13 +10,11 @@ pub struct MSVC {
 }
 
 //TODO common param in func should be move in msvc struct
-use std::{io::Read, ops::{Add, Index}, sync::Arc};
-use crate::compiler::model::{CompilerInput, CompilerOutput, ProcessedResults, PrecompiledSource};
-
-//TODO: rename ProcessedResults to CompileResults
+use std::{io::Read, ops::{Add, Index}};
+use crate::compiler::model::{CompilerInput, CompilerOutput, CompiledResults, PrecompiledSource};
 
 impl crate::compiler::interface::Compiler for MSVC {
-    fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<ProcessedResults>) {
+    fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
 
         let (tx, mut rx) = tokio::sync::oneshot::channel();
 
@@ -46,7 +44,7 @@ impl crate::compiler::interface::Compiler for MSVC {
 }
 
 impl MSVC {
-    async fn request_msvc_compile(self, compiler_input: CompilerInput) -> (CompilerOutput, Option<ProcessedResults>) {
+    async fn request_msvc_compile(self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
 
         let compiler_commands = &compiler_input.compiler_commands;
 
@@ -75,7 +73,7 @@ impl MSVC {
         if exists_source_file_in_command {
 
             let mut default_output = CompilerOutput::default();
-            let mut default_results = Vec::<crate::compiler::model::ProcessedResult>::new();
+            let mut default_results = Vec::<crate::compiler::model::CompiledResult>::new();
 
             //TODO add expression to determine use local build or dist build
             
@@ -575,12 +573,12 @@ fn parse_version_from_path(path: &str) -> Option<crate::replica::toolchain::Comp
 
 fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
                                 compiler_commands: &Vec<std::ffi::OsString>, build_and_compiler_type: std::ffi::OsString,
-                            sync_compile_result: bool) -> (CompilerOutput, Option<ProcessedResults>) {
+                            sync_compile_result: bool) -> (CompilerOutput, Option<CompiledResults>) {
     let now = std::time::Instant::now();
     let (status, stdout, _stderr) = start_local_compiler(&compiler_path, &compiler_working_dir, &compiler_commands);
     let compile_output = String::from_utf8_lossy(&stdout);
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
-    let mut compiled_results: ProcessedResults = Vec::new();
+    let mut compiled_results: CompiledResults = Vec::new();
 
     if status {
         let lines = compile_output.lines().collect();
@@ -694,7 +692,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
                         }
                     }
                     //TODO: should be add warning or error or other message.
-                    let processed_result = crate::compiler::model::ProcessedResult {
+                    let processed_result = crate::compiler::model::CompiledResult {
                         source_file: std::ffi::OsString::from(&line),
                         obj: obj,
                         pdb: pdb,
@@ -720,7 +718,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
     return (result, Some(compiled_results));
 }
 
-fn request_local_compile_by_preprocessed_source(msvc_compile_input: &CompilerInput, _pool: std::sync::Arc<tokio::runtime::Handle>) -> (CompilerOutput, Option<ProcessedResults>) {
+fn request_local_compile_by_preprocessed_source(msvc_compile_input: &CompilerInput, _pool: std::sync::Arc<tokio::runtime::Handle>) -> (CompilerOutput, Option<CompiledResults>) {
 
     //replace .cpp/.c to .i
     let commands = msvc_compile_input.compiler_commands.clone();
