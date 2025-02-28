@@ -69,7 +69,7 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
                     
                 },
                 Err(err) => {
-                    println!("send notification error: {:?}", err);
+                    log::warn!("send notification error: {:#?}", err);
                 }
             }
             
