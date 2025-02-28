@@ -10,6 +10,7 @@ pub mod pack {
 pub struct FileSender {
     client: pack::communicate_client::CommunicateClient<tonic::transport::Channel>,
     host: String,
+    runtime: Option<std::sync::Arc<tokio::runtime::Handle>>,
 }
 
 pub struct CommandArgs {
@@ -73,7 +74,7 @@ pub enum ReceiverType {
 }
 
 impl FileSender {
-    pub fn new(addr: &str) -> Self {
+    pub fn new(addr: &str, runtime: Option<&std::sync::Arc<tokio::runtime::Handle>>) -> Self {
         let mut host = "localhost"; 
         if !addr.is_empty() {
             host = addr;
@@ -89,7 +90,9 @@ impl FileSender {
         let sender = FileSender {
             client,
             host: host.to_string(),
+            runtime: runtime.cloned(),
         };
+
         return sender;
     }
     
@@ -179,10 +182,10 @@ impl FileSender {
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
                                    log::info!("response info: {:?}", response.info);
-                                   //TODO should use async runtime
-                                   
-                                   self.save_compile_output(&response.results).await;
-
+                                    let mut myself = self.clone();
+                                    self.runtime.clone().unwrap().spawn(async move {
+                                        myself.save_compile_output(&response.results).await;
+                                    });
                                 }
                                 else {
                                     

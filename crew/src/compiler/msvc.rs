@@ -345,7 +345,8 @@ impl MSVC {
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
         log::debug!("in commands compiler version: {:?}", cversion);
         if self.sender.lock().unwrap().check(addr, &cversion) {
-            let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled).await;
+            
+            let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled, &self.runtime).await;
             if output.status {
             
             }
@@ -374,9 +375,9 @@ impl MSVC {
             let project_name = project_name.clone();
             let object = precompiled_result.clone();
             let addr = addr.to_owned();
-
+            let runtime = self.runtime.clone();
             let bulk_handle = self.runtime.spawn(async move {
-                let files = transmit_precompiled_source_file(&addr, &project_name, object, &source_files.clone()).await;
+                let files = transmit_precompiled_source_file(&addr, &project_name, object, &source_files.clone(), &runtime).await;
                 return files;
             });
 
@@ -410,7 +411,7 @@ impl MSVC {
     }
 }
 
-async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::OsString, precompiled_result: PrecompiledResult, source_files: &Vec<String>)-> Vec<std::ffi::OsString> {
+async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::OsString, precompiled_result: PrecompiledResult, source_files: &Vec<String>, runtime: &std::sync::Arc<tokio::runtime::Handle>)-> Vec<std::ffi::OsString> {
 
     let now = std::time::Instant::now();
     let options = zip::write::SimpleFileOptions::default()
@@ -470,7 +471,7 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
         ..Default::default()
     };
 
-    crate::communicate::distributor::Distributor::compile(&addr, intermediate.as_os_str().into(), &intput, &content).await;
+    crate::communicate::distributor::Distributor::compile(&addr, intermediate.as_os_str().into(), &intput, &content, runtime).await;
     log::debug!("transmit precompiled source file to remote server elapsed time {:?}", std::time::Instant::now().elapsed());
     return precompiled_files_path;
     
@@ -854,7 +855,7 @@ fn request_dist_compile_with_source_and_include(working_param: &crate::platform:
     return CompilerOutput::default();
 }
 
-async fn request_dist_compile_with_precompiled_source(addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
+async fn request_dist_compile_with_precompiled_source(addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> CompilerOutput {
 
     let mut output = CompilerOutput::default();
 
@@ -864,7 +865,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
         if let Some(content) = precompiled.contents.clone() {
             log::info!("precompiled sourcefile result has content. so just transmit file");
             let content = std::borrow::Cow::from(content);
-            let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &content).await;
+            let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &content, runtime).await;
             match receiver {
                 crate::communicate::package::ReceiverType::Archive(recv) => {
                     output.status = recv.status;
@@ -876,7 +877,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
         }
         else {
             log::info!("precompiled sourcefile result content is empty. so just transmit command"); 
-            let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &std::borrow::Cow::from(Vec::new())).await;
+            let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &std::borrow::Cow::from(Vec::new()), runtime).await;
             match receiver {
                 crate::communicate::package::ReceiverType::Compile(recv) => {
                     if recv.status {

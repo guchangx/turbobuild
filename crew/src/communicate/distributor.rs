@@ -15,8 +15,8 @@ impl Distributor {
         }
     }
     
-    pub async fn sync<'a>(addr: &str, path: &str, content: &std::borrow::Cow<'a, [u8]>) -> String {
-        let mut sender = super::package::FileSender::new(addr);
+    pub async fn sync<'a>(addr: &str, path: &str, content: &std::borrow::Cow<'a, [u8]>, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> String {
+        let mut sender = super::package::FileSender::new(addr, Some(runtime));
         
         let file = super::package::ArchiveArgs {
             file_type: super::package::FileType::ToolChain,
@@ -31,7 +31,8 @@ impl Distributor {
         return "".to_string();
     }
     
-    pub async fn compile<'a>(addr: &str, file: std::ffi::OsString, input: &crate::compiler::model::CompilerInput, content: &std::borrow::Cow<'a, [u8]>) -> crate::communicate::package::ReceiverType {
+    pub async fn compile<'a>(addr: &str, file: std::ffi::OsString, input: &crate::compiler::model::CompilerInput, content: &std::borrow::Cow<'a, [u8]>,
+        runtime: &std::sync::Arc<tokio::runtime::Handle>) -> crate::communicate::package::ReceiverType {
 
         let args = super::package::PrecompiledFile {
             project: input.project.to_string_lossy().to_string(),
@@ -39,11 +40,11 @@ impl Distributor {
             compiler: input.compiler_path.to_string_lossy().to_string(),
             working_dir: input.compiler_working_dir.to_string_lossy().to_string(),
             variety: input.build_and_compiler_type.to_string_lossy().to_string(),
-            commands: input.compiler_commands.iter().map(|item| item.clone().into_string().unwrap()).collect(),
+            commands: input.compiler_commands.iter().map(|item: &std::ffi::OsString| item.clone().into_string().unwrap()).collect(),
             content: content.clone(),
         };
 
-        let mut sender = super::package::FileSender::new(addr);
+        let mut sender = super::package::FileSender::new(addr, Some(runtime));
         
         let args = super::package::SenderType::Compile(args);
         

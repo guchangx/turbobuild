@@ -122,7 +122,7 @@ impl Packager {
 
         let path = filename.to_owned() + ".zip";
 
-        let mut sender = crate::communicate::package::FileSender::new(addr);
+        let mut sender = crate::communicate::package::FileSender::new(addr, None);
         let args = crate::communicate::package::ArchiveArgs {
             file_type: crate::communicate::package::FileType::ToolChain,
             name: name.to_owned(),
@@ -139,7 +139,8 @@ impl Packager {
     }
 
     pub async fn file<'a>(&self, path: &str, content: &std::borrow::Cow<'a, [u8]>, addr: &str) {
-        let mut sender = crate::communicate::package::FileSender::new(addr);
+
+        let mut sender = crate::communicate::package::FileSender::new(addr, None);
 
         let args = crate::communicate::package::ArchiveArgs {
             file_type: crate::communicate::package::FileType::Unknown,
@@ -151,6 +152,7 @@ impl Packager {
         let args = crate::communicate::package::SenderType::Archive(args);
         sender.send(args).await;
     }
+
 }
 
 #[cfg(test)]
