@@ -24,11 +24,10 @@ impl Common {
     }
 }
 
-pub fn init() {
-    
+pub fn run_cocrew() {
     log::debug!("init crew");
 
-    let sysinfo = sysinfo::System::new_with_specifics(RefreshKind::new().with_processes(sysinfo::ProcessRefreshKind::everything()),);
+    let sysinfo = sysinfo::System::new_with_specifics(RefreshKind::new().with_processes(sysinfo::ProcessRefreshKind::everything()));
     
     let process = sysinfo.processes_by_name("cocrew".as_ref());
     if process.count() >= 1 {
@@ -43,6 +42,10 @@ pub fn init() {
             }
         }
     }
+}
+
+pub fn init() {
+    run_cocrew();
     
     let common = Common::new();
     let common = std::sync::Arc::new(std::sync::Mutex::new(common));

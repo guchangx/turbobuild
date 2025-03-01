@@ -147,7 +147,7 @@ impl FileSender {
                 }
             }
             Err(err) => {
-                log::error!("send file failed {:?}", err);
+                log::error!("send file to {}:19302, failed: {:?}", self.host, err);
             }
         }
     }

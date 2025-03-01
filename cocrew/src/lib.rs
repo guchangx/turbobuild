@@ -1,5 +1,5 @@
-mod communicate;
-mod common;
+pub mod communicate;
+pub mod common;
 mod compiler;
 mod detours;
 

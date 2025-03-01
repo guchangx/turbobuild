@@ -48,7 +48,7 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
     let info = serde_json::to_string(&resources).unwrap();
 
     let res = crate::communicate::notifier::NotificationType::Resource(info);
-    
+    //channel send
     sender_.send(res).await.expect("send local replica resource failed.");
 
     let mut fingerprint = crate::fingerprint::gather::SystemInfo::new();

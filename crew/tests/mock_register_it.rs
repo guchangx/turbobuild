@@ -17,7 +17,7 @@ fn mock_register_fingerprint_to_capation() {
     
     let roster = crew::roster::crews::ResourceList::new();
     let arc_roster = std::sync::Arc::new(std::sync::Mutex::new(roster));
-    weak_common.upgrade().unwrap().lock().unwrap().roster = Some(arc_roster);
+    weak_common.upgrade().unwrap().lock().unwrap().roster = Some(arc_roster.clone());
 
     for i in 0..3 {
         let runtime = rt.handle().clone();
@@ -25,7 +25,7 @@ fn mock_register_fingerprint_to_capation() {
         let handle = rt.spawn(async move {
             println!("register_fingerprint_to_capation time {}", i);
             crew::fingerprint::register::register_fingerprint_to_capation(runtime.clone(), weak_common).await;
-            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+            tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
         });
         handles.push(handle);
     }
@@ -35,6 +35,9 @@ fn mock_register_fingerprint_to_capation() {
             handle.await.unwrap();
         }
     });
+    
+    let rosters = arc_roster.lock().unwrap().all();
+    assert!(rosters.len() == 3);
 
     println!("mock register fingerprint to capation end.");
 }

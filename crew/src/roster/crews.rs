@@ -68,6 +68,11 @@ impl ResourceList {
     pub fn choose() {
         
     }
+
+    pub fn all(&self) -> Vec<crate::replica::toolchain::CrewsResource> {
+        let crews = self.crews.clone();
+        return crews;
+    }
     
 }
 
