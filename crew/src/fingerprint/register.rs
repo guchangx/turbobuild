@@ -33,19 +33,10 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
         let _ = notify.register(receiver, &captain).await;
     });
 
-    let compilers = crate::replica::toolchain::Property::load_replica_toolchain();
-    
-    log::debug!("load local replica toolchain: {:?}", compilers);
-
-    let resources = crate::replica::toolchain::CrewsResource {
-        username: crate::fingerprint::gather::SystemInfo::fetch_username(),
-        aliasname: crate::fingerprint::gather::SystemInfo::fetch_aliasname(),
-        devicename: crate::fingerprint::gather::SystemInfo::fetch_devicename(),
-        addr: "".to_string(),
-        compiler_versions: compilers
-    };
-    
+    let resources = fetch_resource();
     let info = serde_json::to_string(&resources).unwrap();
+
+    log::info!("info: {:?}", info);
 
     let res = crate::communicate::notifier::NotificationType::Resource(info);
     //channel send
@@ -53,7 +44,7 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
 
     let mut fingerprint = crate::fingerprint::gather::SystemInfo::new();
 
-    rt.spawn(async move {
+    let handle = rt.spawn(async move {
         loop {
     
             let (cpu_usage, memory_used) = crate::fingerprint::gather::SystemInfo::fetch_cpu_and_memory_usage();
@@ -76,5 +67,36 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
             tokio::time::sleep(tokio::time::Duration::from_secs(180)).await;
         }
     });
+    //handle.await.unwrap();
+}
 
+#[cfg(not(feature = "fake"))]
+pub fn fetch_resource() -> crate::replica::toolchain::CrewsResource {
+    let compilers = crate::replica::toolchain::Property::load_replica_toolchain();
+    log::debug!("load local replica toolchain: {:?}", compilers);
+    let resources = crate::replica::toolchain::CrewsResource {
+        username: crate::fingerprint::gather::SystemInfo::fetch_username(),
+        aliasname: crate::fingerprint::gather::SystemInfo::fetch_aliasname(),
+        devicename: crate::fingerprint::gather::SystemInfo::fetch_devicename(),
+        addr: "".to_string(),
+        compiler_versions: compilers
+    };
+    return resources;
+}
+
+#[cfg(feature = "fake")]
+pub fn fetch_resource() -> crate::replica::toolchain::CrewsResource {
+    let compilers = crate::replica::toolchain::Property::load_replica_toolchain();
+    log::debug!("load local replica toolchain: {:?}", compilers);
+    let username = std::env::var("MOCK_USERNAME").unwrap_or_else(|_| "user".to_string());
+    let aliasname = std::env::var("MOCK_ALIASNAME").unwrap_or_else(|_| "alias".to_string());
+    let devicename = std::env::var("MOCK_DEVICENAME").unwrap_or_else(|_| "device".to_string());
+    let resources = crate::replica::toolchain::CrewsResource {
+        username: username,
+        aliasname: aliasname,
+        devicename: devicename,
+        addr: "".to_string(),
+        compiler_versions: compilers
+    };
+    return resources;
 }

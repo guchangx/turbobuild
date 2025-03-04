@@ -224,7 +224,6 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                     }
                 }
             }
-
         });
 
         let response = tokio_stream::wrappers::ReceiverStream::new(rx);

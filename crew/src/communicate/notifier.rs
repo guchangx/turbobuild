@@ -80,8 +80,7 @@ impl NotificationSender {
                     }
                 }
                 
-                let register = crate::fingerprint::gather::RegisterInfo::new();
-                let register = serde_json::to_string(&register).unwrap();
+                let register = self.gather_fingerprint();
                 
                 let request = notify::NotifyRequest {
                     r#type: notify::Type::Register as i32,
@@ -131,12 +130,11 @@ impl NotificationSender {
                     }
                 }
                 
-                let register_info = crate::fingerprint::gather::RegisterInfo::new();
-                let info = serde_json::to_string(&register_info).unwrap();
+                let unregister_info = self.gather_fingerprint();
                 
                 let request = notify::NotifyRequest {
                     r#type: notify::Type::Unregister as i32,
-                    message: info,
+                    message: unregister_info,
                 };
             
                 if let Err(err) = tx.send(request).await {
@@ -229,5 +227,26 @@ impl NotificationSender {
             }
         }
     }
+    #[cfg(not(feature = "fake"))]
+    pub fn gather_fingerprint(&self) -> String {
+        let register_info = crate::fingerprint::gather::RegisterInfo::new();
+        let register = serde_json::to_string(&register_info).unwrap();
+        return register;
+    }
 
- }
+    #[cfg(feature = "fake")]
+    pub fn gather_fingerprint(&self) -> String {
+        let username = std::env::var("MOCK_USERNAME").unwrap_or_else(|_| "user".to_string());
+        let devicename = std::env::var("MOCK_DEVICENAME").unwrap_or_else(|_| "device".to_string());
+        let register_info = crate::fingerprint::gather::RegisterInfo {
+            username: username,
+            devicename: devicename,
+            addr: "".to_string(),
+            passcode: "".to_string(),
+            core: 8,
+            memory: 31.7,
+        };
+        let register = serde_json::to_string(&register_info).unwrap();
+        return register;
+    }
+}

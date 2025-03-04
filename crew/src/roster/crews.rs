@@ -98,6 +98,7 @@ impl TasksManager {
             tasks: Vec::new(),
         }
     }
+    
     pub fn add(&mut self, tasks: &Vec<Task>) {
         for task in tasks {
             if let Some(existing) = self.tasks.iter_mut().find(|t| t.username == task.username && t.devicename == task.devicename) {
@@ -130,9 +131,16 @@ impl TasksManager {
             task.running -= 1;
         }
     }
+
     pub fn remove(&mut self, username: &str, devicename: &str) {
         self.tasks.retain(|item| !(item.username == username && item.devicename == devicename));
     }
+
+    pub fn all(&self) -> Vec<Task> {
+        let tasks = self.tasks.clone();
+        return tasks;
+    }
+
 }
 
 #[cfg(test)]
