@@ -26,21 +26,29 @@ impl Common {
 
 pub fn run_cocrew() {
     log::debug!("init crew");
-
-    let sysinfo = sysinfo::System::new_with_specifics(RefreshKind::new().with_processes(sysinfo::ProcessRefreshKind::everything()));
     
-    let process = sysinfo.processes_by_name("cocrew".as_ref());
-    if process.count() >= 1 {
-        println!("cocrew already running.");
+    let args = std::env::args().collect::<Vec<String>>();
+
+    let mut iter = args.iter().skip_while(|item|!(item.starts_with("-noco") || item.starts_with("/noco")));
+    
+    if iter.next().is_some() {
+        log::debug!("use nocorew, don't run cocrew in local.");
     }
     else {
-
-        match std::process::Command::new("cocrew").spawn() {
-            Ok(_) => {},
-            Err(err) => {
-                log::error!("can't run cocrew error: {}", err);
-            }
+        let sysinfo = sysinfo::System::new_with_specifics(RefreshKind::new().with_processes(sysinfo::ProcessRefreshKind::everything()));
+        
+        let process = sysinfo.processes_by_name("cocrew".as_ref());
+        if process.count() >= 1 {
+            println!("cocrew already running.");
         }
+        else {
+            match std::process::Command::new("cocrew").spawn() {
+                Ok(_) => {},
+                Err(err) => {
+                    log::error!("can't run cocrew error: {}", err);
+                }
+            }
+        }   
     }
 }
 
