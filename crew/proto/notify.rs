@@ -5,6 +5,8 @@ pub struct NotifyRequest {
     pub r#type: i32,
     #[prost(string, tag = "2")]
     pub message: ::prost::alloc::string::String,
+    #[prost(uint64, tag = "3")]
+    pub sequence: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct NotifyResponse {
@@ -12,9 +14,11 @@ pub struct NotifyResponse {
     pub r#type: i32,
     #[prost(string, tag = "2")]
     pub message: ::prost::alloc::string::String,
-    #[prost(int32, tag = "3")]
+    #[prost(uint64, tag = "3")]
+    pub sequence: u64,
+    #[prost(int32, tag = "4")]
     pub error_code: i32,
-    #[prost(string, tag = "4")]
+    #[prost(string, tag = "5")]
     pub error_message: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

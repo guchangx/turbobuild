@@ -1,3 +1,5 @@
+use std::ops::Add;
+
 
 #[allow(non_camel_case_types)]
 pub mod notify {
@@ -82,21 +84,27 @@ impl NotificationSender {
                 
                 let register = self.gather_fingerprint();
                 
+   
+                let sequence = std::sync::atomic::AtomicU64::new(0);
+
                 let request = notify::NotifyRequest {
                     r#type: notify::Type::Register as i32,
                     message: register,
+                    sequence: sequence.load(std::sync::atomic::Ordering::Relaxed),
                 };
             
                 if let Err(err) = tx.send(request).await {
                     log::error!("notify register error: {:?}", err);
                 };
-        
+
                 while let Some(notification_type) = receiver.recv().await {
                     match  notification_type {
                         NotificationType::Resource(message) => {
+                            sequence.store(1, std::sync::atomic::Ordering::Relaxed);
                             let request  = notify::NotifyRequest {
                                 r#type: notify::Type::Checkresource as i32,
                                 message: message,
+                                sequence: sequence.load(std::sync::atomic::Ordering::Relaxed),
                             };
                             
                             if tx.is_closed() {
@@ -110,10 +118,11 @@ impl NotificationSender {
                             }
                         },
                         NotificationType::Constitution(message) => {
-                        
+                            sequence.store(1, std::sync::atomic::Ordering::Relaxed);
                             let request = notify::NotifyRequest {
                                 r#type: notify::Type::Keepalive as i32,
                                 message: message,
+                                sequence: sequence.load(std::sync::atomic::Ordering::Relaxed),
                             };
                             
                             if tx.is_closed() {
@@ -130,11 +139,12 @@ impl NotificationSender {
                     }
                 }
                 
-                let unregister_info = self.gather_fingerprint();
-                
+                let unregister = self.gather_fingerprint();
+                sequence.store(1, std::sync::atomic::Ordering::Relaxed);
                 let request = notify::NotifyRequest {
                     r#type: notify::Type::Unregister as i32,
-                    message: unregister_info,
+                    message: unregister,
+                    sequence: sequence.load(std::sync::atomic::Ordering::Relaxed),
                 };
             
                 if let Err(err) = tx.send(request).await {

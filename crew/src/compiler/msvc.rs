@@ -240,7 +240,7 @@ impl MSVC {
                                 let self_ = self.clone();
     
                                 let handle = self.runtime.spawn_blocking( move || {
-                                    let _ = self_.request_dist_compile_and_wait_result(&addr__,
+                                    let _ = self_.request_dist_compile_from_stdout(&addr__,
                                         &msvc_compile_empty_input, &precompiled_suorce);
                                 });
                                 
@@ -273,7 +273,7 @@ impl MSVC {
                         let addr__ = addr_.clone();
                         
                         let output = self.runtime.block_on(async move {
-                            let output = self.request_dist_compile_and_wait_result(&addr__, &compiler_input, &precompiled_suorce).await;
+                            let output = self.request_dist_compile_from_stdout(&addr__, &compiler_input, &precompiled_suorce).await;
                             return output;
                         });
                         
@@ -331,16 +331,12 @@ impl MSVC {
             path: std::ffi::OsString::new(),
         };
 
-        let output = self.request_dist_compile_and_wait_result(&addr, &input, &precompiled_suorce).await;
+        let output = self.request_dist_compile_from_stdout(&addr, &input, &precompiled_suorce).await;
         log::debug!("request dist compile without precompiled source files elapsed time {:?}", now.elapsed());
         return output;
     }
 
-    async fn request_dist_compile_from_stdout() {
-
-    }
-
-    async fn request_dist_compile_and_wait_result(&self, addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
+    async fn request_dist_compile_from_stdout(&self, addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
     
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
         log::debug!("in commands compiler version: {:?}", cversion);
@@ -920,7 +916,6 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
     
     match child {
         Ok(child) => {
-            let child_id = child.id();
             match child.wait_with_output() {
                 Ok(output) => {
                     if output.status.success() {

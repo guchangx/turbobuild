@@ -7,4 +7,4 @@
 
 2. 运行
    1.先启动captain.exe
-   2.再启动crew.exe， crew.exe 启动之后会自动启动cocrew.exe
+   2.再启动crew.exe， crew.exe 启动之后会默认启动cocrew.exe，如果仅仅想运行crew.exe, 则需要手动传参给noco 

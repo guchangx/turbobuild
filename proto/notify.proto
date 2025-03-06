@@ -14,13 +14,15 @@ enum Type {
 message NotifyRequest {
     Type type = 1;
     string message = 2;
+    uint64 sequence = 3;
 }
 
 message NotifyResponse {
     Type type = 1;
     string message = 2;
-    int32 error_code = 3;
-    string error_message = 4;
+    uint64 sequence = 3;
+    int32 error_code = 4;
+    string error_message = 5;
 }
 
 enum Arch {

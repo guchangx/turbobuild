@@ -106,6 +106,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             let reply = notify::NotifyResponse {
                                 r#type: notify::Type::Register as i32,
                                 message: tasks,
+                                sequence: notification.sequence,
                                 error_code: 0,
                                 error_message: "register success".to_string(),
                             };
@@ -131,6 +132,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             let reply = notify::NotifyResponse {
                                 r#type: notify::Type::Unregister as i32,
                                 message: "unregister success".to_string(),
+                                sequence: notification.sequence,
                                 error_code: 0,
                                 error_message: "unregister success".to_string(),
                             };
@@ -161,6 +163,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             let reply = notify::NotifyResponse {
                                 r#type: notify::Type::Checkresource as i32,
                                 message: message,
+                                sequence: notification.sequence,
                                 error_code: 0,
                                 error_message: "checkresource success".to_string(),
                             };
@@ -183,6 +186,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             let reply = notify::NotifyResponse {
                                 r#type: notify::Type::Keepalive as i32,
                                 message: "keepalive success".to_string(),
+                                sequence: notification.sequence,
                                 error_code: 0,
                                 error_message: "keepalive success".to_string(),
                             };
