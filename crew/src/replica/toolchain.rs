@@ -79,7 +79,7 @@ impl Property {
     }
 
     fn access_or_create_replica_dir() -> String {
-        let path = tools::utils::get_or_create_working_path("Replica");
+        let path = tools::utils::access_or_create_working_path("Replica");
         return path;
     }
 
@@ -129,7 +129,7 @@ impl Property {
     pub fn load_replica_toolchain() -> Vec<CompilerVersion> {
         let mut versions = Vec::new();
 
-        if let Some(path) = tools::utils::get_working_path("Replica".to_string()) {
+        if let Some(path) = tools::utils::access_working_path("Replica") {
             let replica = std::path::PathBuf::from(path.clone()).join("MSVC");
         
             if replica.exists() {

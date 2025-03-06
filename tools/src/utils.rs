@@ -1,9 +1,8 @@
-//TODO use access replace get
-pub fn get_working_path(app: std::string::String) -> std::option::Option<std::string::String> {
-    //TODO should be use &str
+
+pub fn access_working_path(app: &str) -> std::option::Option<std::string::String> {
     let mut dir = std::env::current_exe().unwrap();
 
-    let path = dir.join(app.clone());
+    let path = dir.join(app);
     if path.exists()
     {
         return Some(path.display().to_string());
@@ -27,7 +26,7 @@ pub fn get_working_path(app: std::string::String) -> std::option::Option<std::st
 }
 
 #[allow(unused_assignments)]
-pub fn get_or_create_working_path(app: &str) -> String {
+pub fn access_or_create_working_path(app: &str) -> String {
     let mut dir = std::env::current_exe().unwrap();
     log::info!("current dir {:?}", dir);
     
@@ -60,7 +59,7 @@ pub fn access_replica_dir() -> String {
         return REPLICADIR.lock().unwrap().clone().unwrap();
     }
     else {
-        let dir = get_or_create_working_path("Replica");
+        let dir = access_or_create_working_path("Replica");
         REPLICADIR.lock().unwrap().replace(dir.clone());
         return dir;
     }
