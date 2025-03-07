@@ -103,6 +103,13 @@ impl FileReceiver {
 
         if file.is_empty() {
 
+            let project_ = project.clone();
+            let commands_ = commands.clone();
+
+            crate::common::RUNTIME.lock().unwrap().spawn(async {
+                Self::check_dir_exists(project_, commands_).await;
+            });
+
             let compiler_input = crew::compiler::model::CompilerInput {
                 project: std::ffi::OsString::from(project),
                 compiler_path: std::ffi::OsString::from(compiler),
@@ -262,6 +269,52 @@ impl FileReceiver {
                 error_message: "transmit do compile failed.".to_string(),
             };
             return reply;
+        }
+    }
+
+    async fn check_dir_exists(project: String, commands: Vec<String>) {
+
+        let path = commands.iter().find(|&item| item.starts_with("/Fd")).map(|item| item.clone());
+        match path {
+            Some(mut path) => {
+                let pdb = path.split_off(3);
+                let pdb = std::path::PathBuf::from(pdb);
+                if pdb.has_root() && !pdb.is_absolute() {
+                    log::info!("should check dir exist, {:?}", pdb);
+                    if pdb.exists() {
+
+                    }
+                    else {
+                        
+                        let replica = tools::utils::access_replica_dir();
+                        let replica = std::path::PathBuf::from(replica);
+
+                        let split = |pdb: std::path::PathBuf, project: String| {
+                            if project.is_empty() {
+                                return pdb;
+                            }
+                            else {
+
+                                let components = pdb.components().collect::<Vec<_>>();
+                                if let Some(index) = components.iter().position(|item| item.as_os_str().to_string_lossy() == project) {
+                                    let result: std::path::PathBuf = components[index + 1..].iter().collect();
+                                    let path = replica.join("Project").join(project).join(result);
+                                    return path;
+                                }
+                                else {
+                                    return pdb;
+                                }            
+                            }
+                        };
+                        
+                        let path = split(pdb, project.clone());
+                        let path = replica.join("Project").join(project).join(path);
+                        log::info!("check dir not exist, so need create dir: {:?}", path);
+                        let _ = std::fs::create_dir(path);
+                    }
+                }
+            },
+            None => {},
         }
     }
     
