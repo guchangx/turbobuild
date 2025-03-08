@@ -103,12 +103,7 @@ impl FileReceiver {
 
         if file.is_empty() {
 
-            let project_ = project.clone();
-            let commands_ = commands.clone();
-
-            crate::common::RUNTIME.lock().unwrap().spawn(async {
-                Self::check_dir_exists(project_, commands_).await;
-            });
+            Self::check_dir_exists(&project, &commands).await;
 
             let compiler_input = crew::compiler::model::CompilerInput {
                 project: std::ffi::OsString::from(project),
@@ -120,7 +115,7 @@ impl FileReceiver {
 
             let reply = Self::execute(&compiler_input).await;
             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
-        }
+        } 
         else if !content.is_empty() {
 
             let reply = Self::storage(&project, &file, &content).await;
@@ -243,7 +238,6 @@ impl FileReceiver {
                             file: file.to_string_lossy().into(),
                             content: content,
                         };
-                        println!("have have pdb {:?}", file);
                         intermediates.push(intermediate);
                     }
                 }
@@ -272,8 +266,7 @@ impl FileReceiver {
         }
     }
 
-    pub async fn check_dir_exists(project: String, commands: Vec<String>) {
-
+    pub async fn check_dir_exists(project: &String, commands: &Vec<String>) {
         let path = commands.iter().find(|&item| item.starts_with("/Fd")).map(|item| item.clone());
         match path {
             Some(mut path) => {
@@ -283,13 +276,13 @@ impl FileReceiver {
                         
                     let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
 
-                    let split = |pdb: std::path::PathBuf, project: String| {
+                    let split = |pdb: std::path::PathBuf, project: &String| {
                         if project.is_empty() {
                             return pdb;
                         }
                         else {
                             let components = pdb.components().collect::<Vec<_>>();
-                            if let Some(index) = components.iter().position(|item| item.as_os_str().to_string_lossy() == project) {
+                            if let Some(index) = components.iter().position(|item| item.as_os_str().to_str().unwrap() == project) {
                                 let result: std::path::PathBuf = components[index + 1..].iter().collect();
                                 let path = replica.join("Project").join(project).join(result);
                                 let path = path.parent().unwrap().to_owned();
@@ -301,7 +294,7 @@ impl FileReceiver {
                         }
                     };
                     
-                    let path = split(pdb, project.clone());
+                    let path = split(pdb, project);
                     let path = replica.join("Project").join(project).join(path);
                     if !path.exists() {
                         log::info!("check dir not exist, so need create dir: {:?}", path);
@@ -353,9 +346,14 @@ mod tests {
     fn check_dir_exists_test() {
         let commands = vec!["/FdD:\\WorkSpace\\turbobuild\\target\\debug\\test.pdb".to_string()];
 
-        crate::common::RUNTIME.lock().unwrap().spawn(async move {
+        let handle = {
+            let rt =  crate::common::RUNTIME.lock().unwrap();
+            rt.handle().clone()
+        };
+
+        handle.spawn(async move {
             println!("run check_dir_exists test in runtime.");
-            crate::communicate::unpackager::FileReceiver::check_dir_exists("test_dir".to_string(), commands).await;
+            crate::communicate::unpackager::FileReceiver::check_dir_exists(&"test_dir".to_string(), &commands).await;
         });
     }
 }

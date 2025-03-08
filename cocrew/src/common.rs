@@ -33,15 +33,19 @@ pub fn init_common() {
     
     log::info!("common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
     
+    let handle = {
+        let rt = RUNTIME.lock().unwrap();
+        rt.handle().clone()
+    };
 
-    RUNTIME.lock().unwrap().spawn(async move {
+    handle.spawn(async move {
         log::info!("start redirect_stdout_log_2_cocrew");
         crate::compiler::msvc::redirect_stdout_log();
     });
     
-    RUNTIME.lock().unwrap().block_on(async move {
+    handle.block_on(async move {
         receiver_.init().await;
     });
-    
+
     log::info!("end cocrew");
 }
