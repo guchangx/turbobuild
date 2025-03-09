@@ -162,26 +162,19 @@ impl MSVC {
         let err = String::from_utf8_lossy(&stderr);
 
         if status {
-            let mut files: Vec<String> = err.lines().map(|item| item.to_string()).collect();
+            let files: Vec<&str> = err.lines().collect();
 
             let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir);
-            
-            let source_files: Vec<String> = files.clone();
 
             let sources = actions.compile_source_file;
-            if sources.len() >= 1 {
-                let keys = sources.into_keys().collect::<Vec<String>>();
-                files.sort();
 
-                if keys == files {
-                    log::debug!("local preprocessed multiple sources, count: {:?}. elapsed time: {:?}.", files.len(), now.elapsed());
-                }
-                else {
-                    log::warn!("preprocessed multiple sources are not same with commands. elapsed time: {:?}.", now.elapsed());
-                }
+            if sources.len() == files.len() {
+                log::debug!("local preprocessed multiple sources, count: {:?}. elapsed time: {:?}.", files.len(), now.elapsed());
             }
-            else {
-                log::warn!("can't parse source file from commands.");
+            else
+            {
+                log::warn!("preprocessed multiple sources are different with commands. elapsed time: {:?}.", now.elapsed());
+                log::warn!("commands sources keys: {:?}, files: {:?}", sources.keys(), files);
             }
 
             let mut commands = tidyup_commands_for_precompile(compiler_commands);
@@ -190,29 +183,29 @@ impl MSVC {
             
             if actions.precompile_2_stdout {
                 let mut content = String::from_utf8_lossy(&stdout);
-                //TODO should not convrt to String
+                //TODO should not convrt to String, mybe operate stdout direct.
     
                 let mut index = 0;
                 let mut handles = Vec::new();
     
                 let addr_ = addr.clone();
 
-                for file in &source_files {
+                for file in &files {
                     
-                    let mut precompiled_result_path = std::path::PathBuf::from(file);
+                    let mut precompiled_result_path = std::ffi::OsString::from(file);
                     match actions.precompiled_result_file.clone() {
                         PrecompiledResult::PathWithPCResultName(path) => {
-                            precompiled_result_path = std::path::PathBuf::from(path.to_owned().clone());
+                            precompiled_result_path = path.into_os_string();
                         },
                         PrecompiledResult::PathWithoutPCResultName(path) => {
-                            let path = std::path::PathBuf::from(path).join(file);
-                            precompiled_result_path = path;
+                            let path = path.join(file);
+                            precompiled_result_path = path.into_os_string();
                         },
                         _ => {},
                     }
-                    commands.push(precompiled_result_path.clone().into_os_string());
+                    commands.push(precompiled_result_path.clone());
                     
-                    if let Some(next_file) = source_files.get(index + 1) {
+                    if let Some(next_file) = files.get(index + 1) {
                         //#line 1 "D:\\TrainSpace\\json\\tests\\abi\\main.cpp"
                         let line = format!(r#"#line 1 "{}""#, next_file).replace(r"\", r"\\");
                         if let Some(position) = content.find(&line) {
@@ -230,10 +223,10 @@ impl MSVC {
     
                                 let precompiled_suorce = PrecompiledSource {
                                     contents: Some(first.as_bytes().to_vec()),
-                                    path: std::ffi::OsString::from(&precompiled_result_path)
+                                    path: precompiled_result_path.clone()
                                 };
     
-                                log::debug!("sync precompiled source file {:?}. size: {:.2?}M.", precompiled_result_path.file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
+                                log::debug!("sync precompiled source file: {:?}. size: {:.2?}M.", std::path::PathBuf::from(precompiled_result_path).file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
                                 content = last.to_string().into();
     
                                 let addr__ = addr_.clone();
@@ -245,6 +238,10 @@ impl MSVC {
                                 });
                                 
                                 handles.push(handle);
+                            }
+                            else {
+                                log::warn!("posite source file line in precompile source stdout failed.");
+                                break;
                             }
                         }
                     }
@@ -277,7 +274,7 @@ impl MSVC {
                             return output;
                         });
                         
-                        log::debug!("request {:?} dist compile with precompiled source size: {:?}M, response elapsed: {:?}.", precompiled_result_path.file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0, now.elapsed());
+                        log::debug!("request {:?} dist compile with precompiled source size: {:?}M, response elapsed: {:?}.", std::path::PathBuf::from(precompiled_result_path).file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0, now.elapsed());
                 
                         let mut file = output.filename;
                         result.filename.append(&mut file);
@@ -293,11 +290,13 @@ impl MSVC {
  
             }
             else {
-                //prcompile to file
+                //prcompile to file on disk
+                log::info!("precompile to files, so dist from disk.");
                 if stdout.is_empty() {
-
-                    result = self.request_dist_compile_from_file(&actions.precompiled_result_file, project, compiler_path, compiler_working_dir, &addr, source_files, &commands).await;
-
+                    result = self.request_dist_compile_from_file(&actions.precompiled_result_file, project, compiler_path, compiler_working_dir, &addr, files.iter().map(|&item| item.to_string()).collect(), &commands).await;
+                }
+                else {
+                    log::warn!("precompile to files with error or warning output.");
                 }
             }
         }
@@ -312,7 +311,7 @@ impl MSVC {
         let now = std::time::Instant::now();
 
         let  precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, project, &precompiled_result).await;
-        log::debug!("dist sync precompiled source files. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
+        log::debug!("dist sync precompiled source from file. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
         let mut commands = compiler_commands.clone();
         for file in precompiled_files {
             commands.push(file);
