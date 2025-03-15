@@ -16,6 +16,8 @@ pub enum NotificationType {
     Constitution(String),
 }
 
+static PORT:i32 = 18912;
+
 impl NotificationSender {
 
     pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>) ->Self {
@@ -32,7 +34,7 @@ impl NotificationSender {
             ip.clone_from(&addr);
         }
         
-        match notify::communicate_client::CommunicateClient::connect(format!("http://{}:50051", ip)).await {
+        match notify::communicate_client::CommunicateClient::connect(format!("http://{}:{}", ip, PORT)).await {
             Ok(mut client) => {
                 let (tx, rx) = tokio::sync::mpsc::channel(128);
                 let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
@@ -155,7 +157,7 @@ impl NotificationSender {
                 
             }
             Err(err) => {
-                log::error!("can't connect captain host: {}:50051, error: {:?}", ip, err);
+                log::error!("can't connect captain host: {}:{}, error: {:?}", ip, PORT, err);
                 return Err("Err".to_string());
             }
         };
@@ -163,7 +165,7 @@ impl NotificationSender {
 
     pub async fn report_resource(&self, resources: Vec<notify::CrewsResource>) {
     
-        let mut client = notify::communicate_client::CommunicateClient::connect("http://localhost:50051").await.unwrap();
+        let mut client = notify::communicate_client::CommunicateClient::connect(format!("http://localhost:{}", PORT)).await.unwrap();
        
        let request = notify::ReportCrewsResourceRequest {
             resources
@@ -182,7 +184,7 @@ impl NotificationSender {
     }
 
     pub async fn check_crews_resource(&self, resource: notify::CrewsResource) -> Vec<notify::CrewsResource> {
-        let mut client = notify::communicate_client::CommunicateClient::connect("http://localhost:50051").await.unwrap();
+        let mut client = notify::communicate_client::CommunicateClient::connect(format!("http://localhost:{}", PORT)).await.unwrap();
 
         let request = notify::CheckCrewsResourceRequest {
             username: resource.username,

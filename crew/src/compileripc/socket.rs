@@ -13,7 +13,7 @@ pub struct Receiver {
 impl Receiver {
     pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>, distributor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) -> Self {
         return Self {
-            port: 9301,
+            port: 22403,
             common,
             distributor,
             work_env: crate::platform::windows::WindowsCompilerEnv::default()
@@ -22,9 +22,10 @@ impl Receiver {
     
     pub fn init(&self) {
         
-        let listener = std::net::TcpListener::bind(format!("localhost:{}", self.port)).unwrap();
-        
-        log::info!("init ipc socket {}", listener.local_addr().unwrap());
+        let addr = format!("localhost:{}", self.port);
+        log::debug!("init ipc socket {}", addr);
+        let listener = std::net::TcpListener::bind(addr).unwrap();
+
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {

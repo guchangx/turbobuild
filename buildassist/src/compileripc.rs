@@ -17,7 +17,8 @@ impl SocketClient {
     }
 
     pub fn request_compile(&self, compiler_input: crate::commands::CompilerInput) {
-        match std::net::TcpStream::connect("localhost:9301") {
+        let addr = "localhost:22403";
+        match std::net::TcpStream::connect(addr) {
             Ok(mut stream) => {
                 println!("connect to turbobuild server success.");
                 
@@ -59,7 +60,7 @@ impl SocketClient {
                 let kind = err.kind();
                 let message = err.to_string();
                 
-                println!("buildassist failed: {:?}, {}", kind, message);
+                println!("buildassist connect {} failed: {:?}, {}", addr, kind, message);
             },
         }
     }

@@ -166,8 +166,14 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
     while let Some(&item) = iter.next() {
         if item.contains('"') {
             let count = item.matches('"').collect::<Vec<&str>>().len();
-            if count % 2 == 0 {
-                result.push(item.to_owned());
+            if count & 1 == 0 {
+                if item.starts_with("\"") {
+                    let arg = item.replace('\"', "");
+                    result.push(arg);
+                }
+                else {
+                    result.push(item.to_owned());    
+                }
             }
             else {
                 let mut command = String::new();
@@ -298,6 +304,16 @@ mod tests {
         println!("commands {:?}", commands);
         assert_eq!(commands.len(), 7);
     }
+
+    #[test]
+    fn parse_commands_path_with_double_qoutation() {
+        let line = r#"/c /I"E:\TestFuture\GammaRay\GammaRay Tool\3rdparty\" /I "E:\TestFuture\GammaRay\GammaRay Tool\3rdparty\" /Zi /nologo "E:\TestFuture\GammaRay\GammaRayTool\build_enable\launcher\win-injector\gammaray_wininjector_autogen\mocs_compilation_Debug.cpp""#;
+        let (_project, compiler, commands) = parse_commands_by_line(line);
+        assert!(compiler.is_empty());
+        println!("commands {:?}", commands);
+        assert_eq!(commands.len(), 7);
+    }
+
 
     #[test]
     fn parse_commands_other() {

@@ -36,7 +36,7 @@ mod integration_tests {
         use std::io::Write;
         use std::io::Read;
     
-        match std::net::TcpStream::connect("localhost:9301") {
+        match std::net::TcpStream::connect("localhost:22403") {
             Ok(mut stream) => {
     
                 let env = crew::platform::windows::WindowsCompilerEnv::default();

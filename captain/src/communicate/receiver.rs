@@ -26,7 +26,7 @@ impl NotificationReceiver {
     pub fn init(&self) {     
         let runtime = tokio::runtime::Runtime::new().unwrap();
         runtime.block_on(async move {
-            let addr = "0.0.0.0:50051".parse().expect("parse addr failed");
+            let addr = "0.0.0.0:18912".parse().expect("parse addr failed");
             log::info!("init captain communicate server {}", addr);
             let receiver = NotificationReceiver {
                 common: self.common.clone(),
