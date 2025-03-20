@@ -16,28 +16,22 @@ use crate::compiler::model::{CompilerInput, CompilerOutput, CompiledResults, Pre
 impl crate::compiler::interface::Compiler for MSVC {
     fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
 
-        let (tx, mut rx) = tokio::sync::oneshot::channel();
-
-        let runtime = self.runtime.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
         
         let self_ = self.clone();
 
-        let _ = self.runtime.spawn_blocking(move || {
-            let output = runtime.block_on(async move {
-                let output = self_.request_msvc_compile(compiler_input).await;
-                return output;
-            });
+        let _ = self.runtime.spawn(async move {
+            let output = self_.request_msvc_compile(compiler_input).await;
             let _ = tx.send(output);
         });
 
-        loop {
-            match rx.try_recv() {
-                Ok(output) => return output,
-                Err(err) => {
-                    if err ==  tokio::sync::oneshot::error::TryRecvError::Empty {
-                        std::thread::sleep(std::time::Duration::from_millis(1000));
-                    }
-                }
+        match rx.blocking_recv() {
+            Ok(output) => { 
+                return output;
+            },
+            Err(err) => {
+                log::error!("request compile result form channel failed. {:?}", err);
+                return (CompilerOutput::default(), None);
             }
         }
     }
