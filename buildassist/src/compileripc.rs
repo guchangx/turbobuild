@@ -44,7 +44,6 @@ impl SocketClient {
                         Ok(size) => {
                             data = data + std::str::from_utf8(&buffer[0..size]).unwrap();
                             if size < buffer.len() {
-                                
                                 println!("read form turbobuild: {}", data);
                                 break;
                             }

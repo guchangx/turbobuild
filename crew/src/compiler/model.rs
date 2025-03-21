@@ -40,7 +40,7 @@ pub struct PrecompiledSource {
 pub struct CompilerOutput {
     pub filename: Vec<std::ffi::OsString>,
     pub status: bool,
-    pub output: std::ffi::OsString,
+    pub output: Vec<std::ffi::OsString>,
 }
 
 impl CompilerOutput {

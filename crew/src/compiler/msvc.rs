@@ -10,7 +10,7 @@ pub struct MSVC {
 }
 
 //TODO common param in func should be move in msvc struct
-use std::{io::Read, ops::{Add, Index}};
+use std::{io::{BufRead, Read}, ops::{Add, Index}, os::windows::io::FromRawHandle};
 use crate::compiler::model::{CompilerInput, CompilerOutput, CompiledResults, PrecompiledSource};
 
 impl crate::compiler::interface::Compiler for MSVC {
@@ -110,7 +110,7 @@ impl MSVC {
             let result = CompilerOutput {
                 filename: compiled_filename,
                 status: false,
-                output: std::ffi::OsString::from("don't need compile anything."),
+                output: vec![std::ffi::OsString::from("don't need compile anything.")],
             };
             return (result, None);
         }
@@ -271,8 +271,9 @@ impl MSVC {
                         log::debug!("request {:?} dist compile with precompiled source size: {:?}M, response elapsed: {:?}.", std::path::PathBuf::from(precompiled_result_path).file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0, now.elapsed());
                 
                         let mut file = output.filename;
+                        let mut out = output.output;
                         result.filename.append(&mut file);
-                        result.output = std::ffi::OsString::from(output.output.to_str().unwrap());
+                        result.output.append(&mut out);
                         result.status = output.status;
     
                         break;
@@ -295,7 +296,13 @@ impl MSVC {
             }
         }
         else {
+            let output_context = String::from_utf8_lossy(&stdout);
+            let lines:Vec<&str> = output_context.lines().collect();
+            let (files, warning_or_error) = filter_compiler_warning_and_message(lines);
 
+            result.status = false;
+            result.filename = files.iter().map(|item| std::ffi::OsString::from(item)).collect();
+            result.output = warning_or_error.iter().map(|item| std::ffi::OsString::from(item)).collect();
         }
         return result;
     }
@@ -573,7 +580,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
     if status {
         let lines = compile_output.lines().collect();
 
-        let (files, wraning_or_message) = filter_compiler_warning_and_message(lines);
+        let (files, _wraning_or_message) = filter_compiler_warning_and_message(lines);
 
         let mut last = files.clone().last().cloned();
 
@@ -696,13 +703,16 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
             else {
                 log::trace!("exclude source file,maybe warning and error. {:?}", line);
             }
-         }
-    };
+        }
+    }
+    else {
+        
+    }
     
     let result = CompilerOutput {
         filename: compiled_filename,
         status: status,
-        output: std::ffi::OsString::from(compile_output.to_string()),
+        output: vec![std::ffi::OsString::from(compile_output.to_string())],
     };
 
     return (result, Some(compiled_results));
@@ -899,6 +909,8 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
     log::trace!("compiler path: {:?}", compiler_path);
     log::trace!("compiler commands: {:?}", compiler_commands);
 
+
+    
     let start = std::time::Instant::now();
     let child = std::process::Command::new(compiler_path)
                             .current_dir(working_dir)
@@ -909,27 +921,38 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
     
     match child {
         Ok(child) => {
+
+            /* 
+            let stdout = child.stdout.take().unwrap();
+            let mut lines = std::io::BufReader::new(stdout).lines();
+
+            while let Some(line) = lines.next() {
+                println!("Received: {:?}", line);
+            }
+            */
             match child.wait_with_output() {
                 Ok(output) => {
                     if output.status.success() {
                         let elapsed = start.elapsed();
                         let output_context = String::from_utf8_lossy(&output.stdout);  //filename
                         let lines:Vec<&str> = output_context.lines().collect();
-                        let (files, wraning_or_message) = filter_compiler_warning_and_message(lines);
+                        let (files, warning_or_message) = filter_compiler_warning_and_message(lines);
 
                         let stderr_context = String::from_utf8_lossy(&output.stderr); 
                         
-                        log::trace!("compile local file count {:?} success, elapsed time: {:?}, file: {:?}, print: {:?}, stderr: {:?}", files.len(), elapsed, files, wraning_or_message, stderr_context);
+                        log::trace!("compile local file count {:?} success, elapsed time: {:?}, file: {:?}, warning: {:?}, stderr: {:?}", files.len(), elapsed, files, warning_or_message, stderr_context);
                         return (true, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
                         //TODO shoud not be used Arc wrap
                     }
                     else {
-                        let mut output_context = String::from_utf8_lossy(&output.stdout);
-                        if output.stdout.is_empty() {
-                            output_context = String::from_utf8_lossy(&output.stderr);
-                        }
+                        let output_context = String::from_utf8_lossy(&output.stdout);  //filename
+                        let lines:Vec<&str> = output_context.lines().collect();
+                        let (files, error_or_message) = filter_compiler_warning_and_message(lines);
+
+                        let stderr_context = String::from_utf8_lossy(&output.stderr);
+
                         let elapsed = start.elapsed();
-                        log::info!("compile file elapsed time: {:?}. cl error message: {:?}, error code: {:?}. output messaage {:?}", elapsed, output_context, output.status.code(), output_context);
+                        log::info!("compile file count {:?} failure, elapsed time: {:?}. file: {:?}, error: {:?}, error code: {:?}, tderr:  {:?}", files.len(), elapsed, files, error_or_message, output.status.code(), stderr_context);
                         return (false, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
                     }
                 },
@@ -1485,6 +1508,8 @@ fn determine_whether_need_compile(compiler_commands: Vec<std::ffi::OsString>) ->
 
 #[cfg(test)]
 mod tests {
+    use winapi::um::subauth::USER_SMARTCARD_REQUIRED;
+
     use super::*;
     #[test]
 
@@ -1528,6 +1553,104 @@ mod tests {
 
         compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, draft_dir.to_string_lossy())));
         compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, draft_dir.to_string_lossy())));
+
+        let mut complier_path = env.compiler_path;
+        complier_path.push(r"Hostx64\x64\cl.exe");
+
+        let _ = request_local_compile(&complier_path.into_os_string(), &draft_dir.into_os_string(), &compiler_commands, std::ffi::OsString::from(""), false);
+
+    }
+
+    #[test]
+    fn test_local_compile_warning() {
+        println!("run msvc .cpp file generate obj with warning test");
+        tools::logger::init_once_logger();
+
+        let env = crate::platform::windows::WindowsCompilerEnv::default();
+
+        let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
+        compiler_commands.push(std::ffi::OsString::from("/c"));
+        compiler_commands.push(std::ffi::OsString::from("/nologo"));
+        compiler_commands.push(std::ffi::OsString::from("/MD"));
+        compiler_commands.push(std::ffi::OsString::from("/GS"));
+        compiler_commands.push(std::ffi::OsString::from("/guard:cf"));
+        compiler_commands.push(std::ffi::OsString::from("/Gy"));
+        compiler_commands.push(std::ffi::OsString::from("/Qpar"));
+        compiler_commands.push(std::ffi::OsString::from("/fp:precise"));
+        compiler_commands.push(std::ffi::OsString::from("/Qspectre"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
+        compiler_commands.push(std::ffi::OsString::from("/GR"));
+        compiler_commands.push(std::ffi::OsString::from("/D"));
+        compiler_commands.push(std::ffi::OsString::from("/W4"));
+        compiler_commands.push(std::ffi::OsString::from("/DTEST_DEFINE_NEW"));
+        
+        compiler_commands.push(std::ffi::OsString::from("/I"));
+        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+        
+        for sdk_include in env.winkits_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", sdk_include.to_str().unwrap())));
+        }
+
+        compiler_commands.push(std::ffi::OsString::from("/Fowarning.obj"));
+
+        let current_crate_dir = env!("CARGO_MANIFEST_DIR");
+        let mut current_crate_dir = std::path::PathBuf::from(current_crate_dir);
+        current_crate_dir.pop();
+        let draft_dir = current_crate_dir.join("draft");
+
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, draft_dir.to_string_lossy())));
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\warning.cpp"#, draft_dir.to_string_lossy())));
+
+        let mut complier_path = env.compiler_path;
+        complier_path.push(r"Hostx64\x64\cl.exe");
+
+        let _ = request_local_compile(&complier_path.into_os_string(), &draft_dir.into_os_string(), &compiler_commands, std::ffi::OsString::from(""), false);
+
+    }
+
+    #[test]
+    fn test_local_compile_error() {
+        println!("run msvc .cpp file generate obj with error test");
+        tools::logger::init_once_logger();
+
+        let env = crate::platform::windows::WindowsCompilerEnv::default();
+
+        let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
+        compiler_commands.push(std::ffi::OsString::from("/c"));
+        compiler_commands.push(std::ffi::OsString::from("/nologo"));
+        compiler_commands.push(std::ffi::OsString::from("/MD"));
+        compiler_commands.push(std::ffi::OsString::from("/GS"));
+        compiler_commands.push(std::ffi::OsString::from("/guard:cf"));
+        compiler_commands.push(std::ffi::OsString::from("/Gy"));
+        compiler_commands.push(std::ffi::OsString::from("/Qpar"));
+        compiler_commands.push(std::ffi::OsString::from("/fp:precise"));
+        compiler_commands.push(std::ffi::OsString::from("/Qspectre"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
+        compiler_commands.push(std::ffi::OsString::from("/GR"));
+        compiler_commands.push(std::ffi::OsString::from("/D"));
+        compiler_commands.push(std::ffi::OsString::from("/W4"));
+        compiler_commands.push(std::ffi::OsString::from("/DTEST_DEFINE_NEW"));
+        
+        compiler_commands.push(std::ffi::OsString::from("/I"));
+        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+        
+        for sdk_include in env.winkits_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", sdk_include.to_str().unwrap())));
+        }
+
+        compiler_commands.push(std::ffi::OsString::from("/Foerror.obj"));
+
+        let current_crate_dir = env!("CARGO_MANIFEST_DIR");
+        let mut current_crate_dir = std::path::PathBuf::from(current_crate_dir);
+        current_crate_dir.pop();
+        let draft_dir = current_crate_dir.join("draft");
+
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, draft_dir.to_string_lossy())));
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\error.cpp"#, draft_dir.to_string_lossy())));
 
         let mut complier_path = env.compiler_path;
         complier_path.push(r"Hostx64\x64\cl.exe");
@@ -1584,6 +1707,53 @@ mod tests {
         let _ = request_local_compile(&complier_path.into_os_string(), &draft_dir.into_os_string(), &compiler_commands, std::ffi::OsString::from(""), false);
     }
 
+    #[test]
+    fn test_local_precompile_by_stdout() {
+        println!("run msvc .cpp file generate .i by stdout test");
+        tools::logger::init_once_logger();
+
+        let env = crate::platform::windows::WindowsCompilerEnv::default();
+
+        let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
+        compiler_commands.push(std::ffi::OsString::from("/c"));
+        compiler_commands.push(std::ffi::OsString::from("/E")); //stdout
+        compiler_commands.push(std::ffi::OsString::from("/nologo"));
+        compiler_commands.push(std::ffi::OsString::from("/MD"));
+        compiler_commands.push(std::ffi::OsString::from("/GS"));
+        compiler_commands.push(std::ffi::OsString::from("/guard:cf"));
+        compiler_commands.push(std::ffi::OsString::from("/Gy"));
+        compiler_commands.push(std::ffi::OsString::from("/Qpar"));
+        compiler_commands.push(std::ffi::OsString::from("/fp:precise"));
+        compiler_commands.push(std::ffi::OsString::from("/Qspectre"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
+        compiler_commands.push(std::ffi::OsString::from("/GR"));
+        compiler_commands.push(std::ffi::OsString::from("/TC"));
+        
+        compiler_commands.push(std::ffi::OsString::from("/I"));
+        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+        
+        for sdk_include in env.winkits_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", sdk_include.to_str().unwrap())));
+        }
+
+        //compiler_commands.push(std::ffi::OsString::from("/Filz4.i")); don't need
+
+        let current_crate_dir = env!("CARGO_MANIFEST_DIR");
+        let mut current_crate_dir = std::path::PathBuf::from(current_crate_dir);
+        current_crate_dir.pop();
+        let draft_dir = current_crate_dir.join("draft");
+
+        println!("draft dir: {:?}", draft_dir);
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, draft_dir.to_string_lossy())));
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, draft_dir.to_string_lossy())));
+
+        let mut complier_path = env.compiler_path;
+        complier_path.push(r"Hostx64\x64\cl.exe");
+
+        let _ = request_local_compile(&complier_path.into_os_string(), &draft_dir.into_os_string(), &compiler_commands, std::ffi::OsString::from(""), false);
+    }
     #[test]
     fn test_local_compile_preprocess_file() {
         println!("run msvc compile .i file test");

@@ -257,7 +257,7 @@ impl FileReceiver {
             
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compiledone.into(),
-                info: output.output.to_string_lossy().to_string(),
+                info: output.output.join(&std::ffi::OsString::from(r"\r\n")).to_string_lossy().to_string(),
                 results: Vec::new(),
                 error_code: 0,
                 error_message: "transmit do compile failed.".to_string(),

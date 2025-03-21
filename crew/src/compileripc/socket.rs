@@ -2,6 +2,8 @@
 use std::io::Read;
 use std::io::Write;
 
+use winapi::um::cfgmgr32::ResType_Connection;
+
 #[derive(Default, Clone)]
 pub struct Receiver {
     port: u16,
@@ -75,8 +77,24 @@ impl Receiver {
                             build_and_compiler_type: std::ffi::OsString::from(r#type),
                         };
 
-                        crate::compiler::interface::request_compile(input, runtime.clone(), if work_env.winkits_includes_path.is_empty() {Some(work_env)} else { None }, distor).await;                        
-                        stream.write_all(b"done").unwrap();
+                        let result = crate::compiler::interface::request_compile(input, runtime.clone(), if work_env.winkits_includes_path.is_empty() {Some(work_env)} else { None }, distor).await;  
+                        if result.0.status {
+                            for file in result.0.filename {
+                                stream.write_all(file.as_encoded_bytes()).unwrap();
+                            }
+                            for out in result.0.output {
+                                stream.write_all(out.as_encoded_bytes()).unwrap();
+                            }
+                        }   
+                        else {
+                            for file in result.0.filename {
+                                stream.write_all(file.as_encoded_bytes()).unwrap();
+                            }
+                            for out in result.0.output {
+                                stream.write_all(out.as_encoded_bytes()).unwrap();
+                            }
+                        }                   
+
                         break;
                     }
                 },

@@ -1,7 +1,6 @@
 
 use crew::{compiler::model::{CompilerInput, CompilerOutput, CompiledResult, CompiledResults}, replica::project};
 use tokio::time::error::Elapsed;
-use winapi::shared::winerror::MILEFFECTSERR_UNKNOWNPROPERTY;
 
 pub struct MSVC {
     pub version: String,
@@ -273,7 +272,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     let result = CompilerOutput {
         filename: compiled_filename,
         status: status,
-        output: std::ffi::OsString::from(compile_output.to_string()),
+        output: vec![std::ffi::OsString::from(compile_output.to_string())],
     };
 
     return (result, Some(compiled_results));
