@@ -93,8 +93,10 @@ impl Receiver {
                             for out in result.0.output {
                                 stream.write_all(out.as_encoded_bytes()).unwrap();
                             }
-                        }                   
-
+                        }
+                        log::info!("request compile done. from: {:?}", stream.peer_addr().unwrap());
+                        let _ = stream.flush();
+                        let _ =  stream.shutdown(std::net::Shutdown::Both);         
                         break;
                     }
                 },

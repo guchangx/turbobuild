@@ -1,9 +1,4 @@
 use std::io::{Read, Write};
-struct CompilerOutput {
-    compiled_filename: Vec<std::ffi::OsString>,
-    compile_status: bool,
-    compile_output: std::ffi::OsString,
-}
 
 pub struct SocketClient {
 }
@@ -42,13 +37,17 @@ impl SocketClient {
                 loop {
                     match stream.read(&mut buffer) {
                         Ok(size) => {
-                            data = data + std::str::from_utf8(&buffer[0..size]).unwrap();
-                            if size < buffer.len() {
-                                println!("read form turbobuild: {}", data);
+                            if size == 0 {
+                                println!("read form turbobuild done.");
                                 break;
+                            }
+                            else if size < buffer.len() {
+                                data = data + std::str::from_utf8(&buffer[0..size]).unwrap();
+                                println!("read form turbobuild: {}", data);
                             }
                         },
                         Err(err) => {
+
                             println!("read from turbobuild server failed. {:?}", err);
                             break;
                         }

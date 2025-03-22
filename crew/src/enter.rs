@@ -71,6 +71,11 @@ pub fn init() {
     weak_common.upgrade().unwrap().lock().unwrap().tasks = Some(arc_tasks);
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
+        .thread_name_fn(|| {
+            static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            format!("crew-worker-{}", id)
+        })
         .build()
         .unwrap();
 

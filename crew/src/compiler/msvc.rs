@@ -10,27 +10,31 @@ pub struct MSVC {
 }
 
 //TODO common param in func should be move in msvc struct
-use std::{io::{BufRead, Read}, ops::{Add, Index}, os::windows::io::FromRawHandle};
+use std::{io::Read, ops::{Add, Index}};
 use crate::compiler::model::{CompilerInput, CompilerOutput, CompiledResults, PrecompiledSource};
 
 impl crate::compiler::interface::Compiler for MSVC {
     fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
 
-        let (tx, rx) = tokio::sync::oneshot::channel();
         
         let self_ = self.clone();
 
-        let _ = self.runtime.spawn(async move {
+        let handle = self.runtime.spawn(async move {
             let output = self_.request_msvc_compile(compiler_input).await;
-            let _ = tx.send(output);
+            return output;
         });
-
-        match rx.blocking_recv() {
-            Ok(output) => { 
+        
+        let output = tokio::task::block_in_place(||{
+            let output = self.runtime.block_on(handle);
+            return output;
+        });
+        
+        match output {
+            Ok(output) => {
                 return output;
             },
             Err(err) => {
-                log::error!("request compile result form channel failed. {:?}", err);
+                log::error!("request compile failed. {:?}", err);
                 return (CompilerOutput::default(), None);
             }
         }
@@ -485,7 +489,7 @@ fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working
     else {
         commands.insert(0, std::ffi::OsString::from(r"/P"));
         if let Some(arg) = compiler_commands.iter().find(|arg| arg.to_string_lossy().starts_with("/Fo")) {
-            let path = arg.to_string_lossy().replace("/Fo", "/Fi").replace("obj", "i").replace("\\\\", "\\");
+            let path = arg.to_string_lossy().replace("/Fo", "/Fi").replace(".obj", ".i").replace("\\\\", "\\");
             commands.insert(1, std::ffi::OsString::from(path));
         }
     }
