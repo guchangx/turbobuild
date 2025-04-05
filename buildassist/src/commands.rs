@@ -216,7 +216,7 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
                 result_.push(std::ffi::OsString::from(item));
             }
         }
-        else if item.starts_with("/i") || item.starts_with("/I") {
+        else if item.starts_with("/I") || item.starts_with("/i") {
 
             if item == "/I" || item == "/i" {
                 if let Some(next) = iter.next() {
@@ -226,7 +226,11 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
                 }
             }
             else {
-                result_.push(std::ffi::OsString::from(item));
+
+                let (left, right) = item.split_at("/I".len());
+
+                result_.push(std::ffi::OsString::from(left));
+                result_.push(std::ffi::OsString::from(right.trim_matches('"')));
             }
         }
         else if item.starts_with("/Fo") || item.starts_with("/Fd") {
@@ -290,7 +294,7 @@ mod tests {
     #[test]
     //cargo test --package buildassist --tests parse_commands -- --show-output
     fn parse_commands() {
-        let line = r#"/c /IE:\TestFuture\GammaRay\GammaRayTool\build_enable\3rdparty\kde /Zi /nologo /W1 /WX- /diagnostics:column /Od /Ob0 /D _WINDLL /D _UNICODE /D UNICODE /D WIN32 /D _WINDOWS /D UNICODE /D _UNICODE /D _USING_V110_SDK71_=1 /D QT_DISABLE_DEPRECATED_BEFORE=0x050500 /D QT_USE_FAST_CONCATENATION /D QT_USE_FAST_OPERATOR_PLUS /D QT_NO_CAST_TO_ASCII /D QT_NO_URL_CAST_FROM_STRING /D QT_NO_DEBUG_OUTPUT /D QT_CORE_LIB /D "CMAKE_INTDIR=\"Debug\"" /D MAKE_KITEMMODELS_LIB /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /Fo"gammaray_kitemmodels.dir\Debug\\" /Fd"gammaray_kitemmodels.dir\Debug\vc143.pdb" /external:W0 /Gd /TP /wd4244 /wd4267 /errorReport:prompt AssistClCompilerPath:C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\cl.exe /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include/QtCore" E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\kmodelindexproxymapper.cpp E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\krecursivefilterproxymodel.cpp"#;
+        let line = r#"/c /IE:\TestFuture\GammaRay\GammaRayTool\build_enable\3rdparty\kde /Zi /nologo /W1 /WX- /diagnostics:column /Od /Ob0 /D _WINDLL /D UNICODE /D WIN32 /D UNICODE /D QT_CORE_LIB /D "CMAKE_INTDIR=\"Debug\"" /D MAKE_KITEMMODELS_LIB /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /Fo"gammaray_kitemmodels.dir\Debug\\" /Fd"gammaray_kitemmodels.dir\Debug\vc143.pdb" /external:W0 /Gd /TP /wd4244 /errorReport:prompt BuildAssistCompilerPath:C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\cl.exe BuildAssistProjectName:GammaRay /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include/QtCore" E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\kmodelindexproxymapper.cpp E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\krecursivefilterproxymodel.cpp"#;
         let (project, compiler, commands) = parse_commands_by_line(line);
         assert!(!project.is_empty() && compiler.ends_with("cl.exe"));
         println!("commands {:?}", commands);
@@ -302,7 +306,7 @@ mod tests {
         let (_project, compiler, commands) = parse_commands_by_line(line);
         assert!(compiler.is_empty());
         println!("commands {:?}", commands);
-        assert_eq!(commands.len(), 7);
+        assert_eq!(commands.len(), 9);
     }
 
     #[test]
@@ -311,13 +315,13 @@ mod tests {
         let (_project, compiler, commands) = parse_commands_by_line(line);
         assert!(compiler.is_empty());
         println!("commands {:?}", commands);
-        assert_eq!(commands.len(), 7);
+        assert_eq!(commands.len(), 8);
     }
 
 
     #[test]
     fn parse_commands_other() {
-        let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /I"D:\Webex\spark-client-framework\." /I"D:\Webex\spark-client-framework\.." /I"D:\Webex\spark-client-framework\thirdparty\nlohmann\include" /Zi /W3 /WX /diagnostics:column /MP /O2 /Ob2 /Os /D _UNICODE /D UNICODE /D WIN32 /D _WINDOWS /D NDEBUG /D TP_FOR_GENERIC=1 /D THREAD_SAFE_EVENTLOOP=1 /D UNICODE /D _UNICODE /D bwc_EXPORTS /D CMAKE_BUILD /D DESKTOP_PLATFORM /D SCF_STATIC_DEFINE /D "CMAKE_INTDIR=\"Release\"" /Gm- /EHsc /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++17 /Fo"BwcCore.dir\Release\\" /Fd"BwcCore.dir\Release\BwcCore.pdb" /external:W3 /Gd /TP /wd4251 /wd4275 /errorReport:prompt /we4700 /we4701 /we6001 /we26494  /Zc:__cplusplus /bigobj /F2000000 "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Source\boss_admin.cpp" "#;
+        let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /I"D:\Webex\spark-client-framework\." /I"D:\Webex\spark-client-framework\.." /I"D:\Webex\spark-client-framework\thirdparty\nlohmann\include" /Zi /W3 /WX /diagnostics:column /MP /O2 /Ob2 /Os /D UNICODE /D WIN32 /D NDEBUG /D _UNICODE /D bwc_EXPORTS /D CMAKE_BUILD /D "CMAKE_INTDIR=\"Release\"" /Gm- /EHsc /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++17 /Fo"BwcCore.dir\Release\\" /Fd"BwcCore.dir\Release\BwcCore.pdb" /external:W3 /Gd /TP /errorReport:prompt /we4700 /Zc:__cplusplus /bigobj /F2000000 "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Source\boss_admin.cpp" "#;
         let (_project, compiler, commands) = parse_commands_by_line(line);
         assert!(compiler.is_empty());
         println!("commands {:?}", commands);
@@ -325,7 +329,7 @@ mod tests {
 
     #[test]
     fn parse_commands_with_external_args() {
-        let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /I"D:\Webex\spark-client-framework\." /I"D:\Webex\spark-client-framework\.." /I"D:\Webex\spark-client-framework\thirdparty\nlohmann\include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/./mkspecs/win32-msvc" /Zi /W3 /WX /diagnostics:column /MP /O2 /Ob2 /Os /D _UNICODE /D UNICODE /D WIN32 /D _WINDOWS /D NDEBUG /D TP_FOR_GENERIC=1 /D THREAD_SAFE_EVENTLOOP=1 /D UNICODE /D _UNICODE /D bwc_EXPORTS /D CMAKE_BUILD /D DESKTOP_PLATFORM /D SCF_STATIC_DEFINE /D "CMAKE_INTDIR=\"Release\"" /Gm- /EHsc /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++17 /Fo"BwcCore.dir\Release\\" /Fd"BwcCore.dir\Release\BwcCore.pdb" /external:W3 /Gd /TP /wd4251 /wd4275 /errorReport:prompt /we4700 /we4701 /we6001 /we26494  /Zc:__cplusplus /bigobj /F2000000 "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Source\boss_admin.cpp" "#;
+        let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /I"D:\Webex\spark-client-framework\." /I"D:\Webex\spark-client-framework\.." /I"D:\Webex\spark-client-framework\thirdparty\nlohmann\include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/./mkspecs/win32-msvc" /Zi /W3 /WX /diagnostics:column /MP /O2 /Ob2 /Os /D UNICODE /D WIN32 /D NDEBUG /D "CMAKE_INTDIR=\"Release\"" /Gm- /EHsc /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++17 /Fo"BwcCore.dir\Release\\" /Fd"BwcCore.dir\Release\BwcCore.pdb" /external:W3 /Gd /TP /wd4251 /errorReport:prompt /we4700  /Zc:__cplusplus /bigobj /F2000000 "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Source\boss_admin.cpp" "#;
         let (_project, compiler, commands) = parse_commands_by_line(line);
         assert!(compiler.is_empty());
         println!("commands {:#?}", commands);

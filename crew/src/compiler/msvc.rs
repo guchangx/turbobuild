@@ -300,7 +300,7 @@ impl MSVC {
             }
         }
         else {
-            let output_context = String::from_utf8_lossy(&stdout);
+            let output_context = String::from_utf8_lossy(&stderr);
             let lines:Vec<&str> = output_context.lines().collect();
             let (files, warning_or_error) = filter_compiler_warning_and_message(lines);
 
@@ -912,8 +912,6 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
     log::trace!("local compile working dir: {:?}", working_dir);
     log::trace!("compiler path: {:?}", compiler_path);
     log::trace!("compiler commands: {:?}", compiler_commands);
-
-
     
     let start = std::time::Instant::now();
     let child = std::process::Command::new(compiler_path)
@@ -956,7 +954,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                         let stderr_context = String::from_utf8_lossy(&output.stderr);
 
                         let elapsed = start.elapsed();
-                        log::info!("compile file count {:?} failure, elapsed time: {:?}. file: {:?}, error: {:?}, error code: {:?}, tderr:  {:?}", files.len(), elapsed, files, error_or_message, output.status.code(), stderr_context);
+                        log::info!("compile file count {:?} failure, elapsed time: {:?}. file: {:?}, error: {:?}, error code: {:?}, stderr:  {:?}", files.len(), elapsed, files, error_or_message, output.status.code(), stderr_context);
                         return (false, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
                     }
                 },
