@@ -11,12 +11,15 @@ impl SocketClient {
         }
     }
 
-    pub fn request_compile(&self, compiler_input: crate::commands::CompilerInput) {
-        let addr = "localhost:22403";
-        match std::net::TcpStream::connect(addr) {
+    pub fn request_compile(&self, compiler_input: crate::commands::CompilerInput) -> Result<i32, ()> {
+
+        let process_id = std::process::id();
+        let thread_id = std::thread::current().id();
+        
+        let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 22403);
+        
+        match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(2)) {
             Ok(mut stream) => {
-                println!("connect to turbobuild server success.");
-                
                 let commands: Vec<_> = compiler_input.compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
 
                 let buffer = format!(
@@ -27,40 +30,40 @@ impl SocketClient {
                     commands,
                     compiler_input.build_and_compiler_type.to_string_lossy()
                 );
-                
-                println!("send to turbobuild: {}", buffer);
+
+                println!("send to turbobuild: {}, task id: {}-{:?}", buffer, process_id, thread_id);
 
                 stream.write(buffer.as_bytes()).unwrap();
                 stream.flush().unwrap();
 
-                let mut data = String::new();
+
                 let mut buffer = [0 as u8; 128];
                 stream.set_read_timeout(Some(std::time::Duration::from_secs(120))).unwrap();
                 loop {
                     match stream.read(&mut buffer) {
                         Ok(size) => {
                             if size == 0 {
-                                println!("read form turbobuild done.");
+                                println!("read form turbobuild done. task id: {}-{:?}", process_id, thread_id);
                                 break;
                             }
                             else if size < buffer.len() {
-                                data = data + std::str::from_utf8(&buffer[0..size]).unwrap();
+                                let data = std::str::from_utf8(&buffer[0..size]).unwrap();
                                 println!("read form turbobuild: {}", data);
                             }
                         },
                         Err(err) => {
-
-                            println!("read from turbobuild server failed. {:?}", err);
+                            println!("read from turbobuild server failed: {:?}. task id: {}-{:?}", err, process_id, thread_id);
                             break;
                         }
                     }
                 }
+                return Ok(0);
             },
             Err(err) => {
                 let kind = err.kind();
                 let message = err.to_string();
-                
-                println!("buildassist connect {} failed: {:?}, {}", addr, kind, message);
+                println!("buildassist connect {} failed: {:?}, {}. task id: {}-{:?}", addr, kind, message, process_id, thread_id);
+                return Err(());
             },
         }
     }

@@ -1,21 +1,40 @@
 mod commands;
 mod compileripc;
 
-fn main() {
-    fetch_and_dist_compiler_commands();
+fn main() -> std::process::ExitCode {
+
+    match fetch_and_dist_compiler_commands() {
+        Ok(_) => {
+            return std::process::ExitCode::SUCCESS;
+        },
+        Err(_) => {
+           return std::process::ExitCode::FAILURE;
+        },
+    }
 }
 
-fn fetch_and_dist_compiler_commands() {
+fn fetch_and_dist_compiler_commands() -> std::result::Result<(), ()> {
     let start = std::time::Instant::now();
+    
+    let mut result = Ok(());
     let commands = commands::fetch_compiler_commands();
     match commands {
         Some(commands) => {
             let client = compileripc::SocketClient::new();
-            client.request_compile(commands);
+            match client.request_compile(commands) {
+                Ok(_) => {
+                   result = Ok(());
+                },
+                Err(_) => {
+                    result = Err(());
+                },
+            }
         },
         None => {
-            println!("fetch compiler commands failed.");
+            println!("buildassist fetch compiler commands failed.");
+            result = Err(());
         },
     }
-    println!("compile elapsed: {:?}.", start.elapsed());
+    println!("buildassist compile elapsed: {:?}.", start.elapsed());
+    return result;
 }
