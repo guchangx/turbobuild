@@ -1,4 +1,5 @@
 use std::io::{Read, Write};
+use std::net::ToSocketAddrs;
 
 pub struct SocketClient {
 }
@@ -16,7 +17,7 @@ impl SocketClient {
         let process_id = std::process::id();
         let thread_id = std::thread::current().id();
         
-        let addr = std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 22403);
+        let addr = "localhost:22403".to_socket_addrs().unwrap().next().unwrap();
         
         match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(2)) {
             Ok(mut stream) => {
