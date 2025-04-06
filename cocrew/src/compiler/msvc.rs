@@ -1,6 +1,5 @@
 
 use crew::{compiler::model::{CompilerInput, CompilerOutput, CompiledResult, CompiledResults}, replica::project};
-use tokio::time::error::Elapsed;
 
 pub struct MSVC {
     pub version: String,
@@ -494,15 +493,15 @@ pub fn redirect_stdout_log() {
         
         if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
             log::info!("redirect stdout log create new named pipe success. count: {}.", count);
-            count += 1;
+            
             if winapi::um::namedpipeapi::ConnectNamedPipe(pipe, std::ptr::null_mut()) == winapi::shared::minwindef::TRUE {
-                log::info!("redirect stdout log be connected named pipe.");
+                log::info!("redirect stdout log be connected named pipe. count: {}", count);
 
                 let handle = tools::ptr::HandleBox::new(pipe);
                 let _ = runtime.spawn(async move {
                 //let _ = std::thread::spawn(move || {
 
-                    log::info!("redirect stdout log read named pipe message task start.");
+                    log::info!("redirect stdout log read named pipe message task start. count: {}", count);
                     let mut buffer = vec![0u8; 512];
                     let mut bytes: winapi::shared::minwindef::DWORD = 0;
         
@@ -533,12 +532,12 @@ pub fn redirect_stdout_log() {
                     }
                     winapi::um::namedpipeapi::DisconnectNamedPipe(handle.get().to_owned());
                     winapi::um::handleapi::CloseHandle(handle.get().to_owned());
-                    log::warn!("redirect stdout log read named pipe message task exit.");
+                    log::warn!("redirect stdout log read named pipe message task exit. count: {}", count);
                 });
             }
             else {
                 let error = winapi::um::errhandlingapi::GetLastError();
-                log::debug!("connect named pipe failed. error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                log::debug!("connect named pipe failed. error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
 
                 if error == winapi::shared::winerror::ERROR_NO_DATA {
     
@@ -550,8 +549,9 @@ pub fn redirect_stdout_log() {
             }
         }
         else {
-            log::debug!("create named pipe failed.");
+            log::debug!("create named pipe failed. count: {}.", count);
         }
+        count += 1;
     }}
 }
 

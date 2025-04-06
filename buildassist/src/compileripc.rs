@@ -31,9 +31,11 @@ impl SocketClient {
                 println!("send to turbobuild: {}", buffer);
 
                 stream.write(buffer.as_bytes()).unwrap();
+                stream.flush().unwrap();
 
                 let mut data = String::new();
                 let mut buffer = [0 as u8; 128];
+                stream.set_read_timeout(Some(std::time::Duration::from_secs(120))).unwrap();
                 loop {
                     match stream.read(&mut buffer) {
                         Ok(size) => {

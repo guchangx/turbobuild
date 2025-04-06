@@ -2,8 +2,6 @@
 use std::io::Read;
 use std::io::Write;
 
-use winapi::um::cfgmgr32::ResType_Connection;
-
 #[derive(Default, Clone)]
 pub struct Receiver {
     port: u16,
@@ -26,6 +24,8 @@ impl Receiver {
         
         let addr = format!("localhost:{}", self.port);
         log::debug!("init ipc socket {}", addr);
+
+        //tokio::net::TcpListener::bind(addr.clone()).await.unwrap();
         let listener = std::net::TcpListener::bind(addr).unwrap();
 
         for stream in listener.incoming() {
@@ -39,9 +39,12 @@ impl Receiver {
                     let distributor = self.distributor.clone();
                     let runtime_ = runtime.clone();
                     let env = self.work_env.clone();
-                    let _ = runtime.spawn(async {
-                        Self::handle_ipc_stream(stream, runtime_, env, distributor).await;
+
+                    let _ = runtime.spawn_blocking( move || {
+                        let runtime__ = runtime_.clone();
+                        let _ = runtime_.block_on(async { Self::handle_ipc_stream(stream, runtime__, env, distributor).await; });
                     });
+ 
                     //can't block current run.
                 },
                 Err(err) => {
