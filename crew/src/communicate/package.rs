@@ -181,7 +181,7 @@ impl FileSender {
 
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
-                                   log::info!("response info: {:?}", response.info);
+                                   log::info!("compiled file: {:?}", response.info);
                                     let mut myself = self.clone();
                                     self.runtime.clone().unwrap().spawn(async move {
                                         myself.save_compile_output(&response.results).await;
