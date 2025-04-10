@@ -115,12 +115,7 @@ impl FileSender {
                 return ReceiverType::Archive(result);
             },
             SenderType::Compile(args) => {
-                self.send_compile(args).await;
-
-                let result = CompileRecv {
-                    status: true,
-                    message: "".to_string(),
-                };
+                let result = self.send_compile(args).await;
                 return ReceiverType::Compile(result);
             },
             _ => {
@@ -152,7 +147,7 @@ impl FileSender {
         }
     }
 
-    async fn send_compile(&mut self, compiled: PrecompiledFile<'_>) {
+    async fn send_compile(&mut self, compiled: PrecompiledFile<'_>) -> CompileRecv {
         let request = tonic::Request::new(pack::CompileTrRequest {
             project: compiled.project,
             file: compiled.file,
@@ -164,6 +159,11 @@ impl FileSender {
         });
 
         let response = self.to_owned().client.transmit_task(request).await;
+
+        let mut recv = CompileRecv {
+            status: false,
+            message: "".to_string(),
+        };
 
         match response {
             Ok(response) => {
@@ -181,7 +181,15 @@ impl FileSender {
 
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
-                                   log::info!("compiled file: {:?}", response.info);
+                                    log::info!("compiled file: {:?}", response.info);
+                                    if response.error_code == 0 {
+                                        recv.status = true;
+                                    }
+                                    else {
+                                        recv.status = false;
+                                    }
+                                    recv.message = response.info;
+
                                     let mut myself = self.clone();
                                     self.runtime.clone().unwrap().spawn(async move {
                                         myself.save_compile_output(&response.results).await;
@@ -207,6 +215,7 @@ impl FileSender {
                 log::warn!("send precompiled sourcefile failed {:?}", err);
             }
         }
+        return recv;
     }
 
     async fn save_compile_output(&mut self, results: &Vec<crate::communicate::package::pack::IntermediateResult>) {

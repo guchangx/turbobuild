@@ -16,7 +16,6 @@ use crate::compiler::model::{CompilerInput, CompilerOutput, CompiledResults, Pre
 impl crate::compiler::interface::Compiler for MSVC {
     fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
 
-        
         let self_ = self.clone();
 
         let handle = self.runtime.spawn(async move {
@@ -42,6 +41,8 @@ impl crate::compiler::interface::Compiler for MSVC {
 }
 
 impl MSVC {
+
+    //TODO shoud be move to Option<CompiledResults>
     async fn request_msvc_compile(self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
 
         let compiler_commands = &compiler_input.compiler_commands;
@@ -315,7 +316,7 @@ impl MSVC {
         -> CompilerOutput {
         let now = std::time::Instant::now();
 
-        let  precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, project, &precompiled_result).await;
+        let precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, project, &precompiled_result).await;
         log::debug!("dist sync precompiled source from file. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
         let mut commands = compiler_commands.clone();
         for file in precompiled_files {
@@ -336,7 +337,7 @@ impl MSVC {
         };
 
         let output = self.request_dist_compile_from_stdout(&addr, &input, &precompiled_suorce).await;
-        log::debug!("request dist compile without precompiled source files elapsed time {:?}", now.elapsed());
+        log::debug!("request dist compile with precompiled source files elapsed time {:?}", now.elapsed());
         return output;
     }
 
@@ -471,10 +472,12 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
         ..Default::default()
     };
 
-    crate::communicate::distributor::Distributor::compile(&addr, intermediate.as_os_str().into(), &intput, &content, runtime).await;
+    let _ = crate::communicate::distributor::Distributor::compile(&addr, intermediate.as_os_str().into(), &intput, &content, runtime).await;
+
+
+
     log::debug!("transmit precompiled source file to remote server elapsed time {:?}", std::time::Instant::now().elapsed());
     return precompiled_files_path;
-    
 }
 
 fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
@@ -885,10 +888,14 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
                 crate::communicate::package::ReceiverType::Compile(recv) => {
                     if recv.status {
                         output.status = true;
+                        let lines: Vec<std::ffi::OsString> = recv.message.lines().map(|item|std::ffi::OsString::from(item)).collect();
+                        output.filename = lines;
                     }
                     else
                     {
                         output.status = false;
+                        let lines: Vec<std::ffi::OsString> = recv.message.lines().map(|item|std::ffi::OsString::from(item)).collect();
+                        output.output = lines;
                     }
                 }
                 _ => {

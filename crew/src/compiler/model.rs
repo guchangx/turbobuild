@@ -38,9 +38,9 @@ pub struct PrecompiledSource {
 }
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
 pub struct CompilerOutput {
-    pub filename: Vec<std::ffi::OsString>,
+    pub filename: Vec<std::ffi::OsString>,  //success
     pub status: bool,
-    pub output: Vec<std::ffi::OsString>,
+    pub output: Vec<std::ffi::OsString>,   // error
 }
 
 impl CompilerOutput {
