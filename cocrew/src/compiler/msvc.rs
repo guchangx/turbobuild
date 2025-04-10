@@ -125,6 +125,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     let compile_output = String::from_utf8_lossy(&stdout);
     let compile_error = String::from_utf8_lossy(&stderr);
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
+    let mut compiled_output: Vec<std::ffi::OsString> = Vec::new();
     let mut compiled_results: CompiledResults = Vec::new();
     
     log::trace!("injectd compile status: {}, stdout: {:?} stderr: {:?}", status, compile_output, compile_error);
@@ -133,7 +134,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
 
         let lines:Vec<&str> = compile_output.lines().collect();
         
-        let (lines, _warning) = filter_compiler_warning_and_message(lines);
+        let (lines, _warning) = filter_compiler_warning(lines);
 
         log::debug!("local compile file count: {:?} success, elapsed: {:?}.", lines.len(), now.elapsed());
 
@@ -266,12 +267,18 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                 log::trace!("exclude source file, maybe warning and error. {:?}", line);
             }
         }
-    };
+    }
+    else {
+        let lines:Vec<&str> = compile_output.lines().collect();
+        let (lines, errors) = filter_compiler_error(lines);
+        compiled_filename = lines.iter().map(|item| std::ffi::OsString::from(item)).collect();
+        compiled_output = errors.iter().map(|item| std::ffi::OsString::from(item)).collect();
+    }
     
     let result = CompilerOutput {
         filename: compiled_filename,
         status: status,
-        output: vec![std::ffi::OsString::from(compile_output.to_string())],
+        output: compiled_output,
     };
 
     return (result, Some(compiled_results));
@@ -284,11 +291,33 @@ enum GeneratedObject {
     PathWithoutObjName(std::path::PathBuf),
 }
 
-fn filter_compiler_warning_and_message(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
+fn filter_compiler_warning(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
     let (files, warning):(Vec<_>, Vec<_>) = lines.into_iter().partition(|item| item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c"));
     return (files, warning);
 }
 
+fn filter_compiler_error(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
+    let mut files = Vec::new();
+    let mut error = Vec::new();
+
+    let mut iter = lines.iter().peekable();
+
+    while let Some(&item) = iter.next() {
+        if item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") {
+            if let Some(next) = iter.peek() {
+                if next.contains(": error ") {
+                   continue;
+                }
+            }
+            files.push(item);
+        }
+        else {
+            error.push(item);
+        }
+    }
+
+    return (files, error);
+}
 fn exact_compiler_object_file(project: std::borrow::Cow<str>, mut arg: std::borrow::Cow<str>, working_dir: &std::path::PathBuf) -> GeneratedObject {
 
     let replica = tools::utils::access_replica_dir();

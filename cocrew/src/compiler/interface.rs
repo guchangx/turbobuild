@@ -6,7 +6,7 @@ pub trait Compiler {
 }
 
 //TODO should to rename build
-pub fn build(compiler_input: CompilerInput)
+pub fn cocrew_build(compiler_input: CompilerInput)
         -> (CompilerOutput, Option<CompiledResults>) {
             
     log::info!("build and compiler type: {:?}", compiler_input.build_and_compiler_type);

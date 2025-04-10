@@ -204,7 +204,7 @@ impl FileReceiver {
         }
     }
     async fn execute(input: &crew::compiler::model::CompilerInput) -> package::CompileTrResponse {
-        let (output, results) = crate::compiler::interface::build(input.to_owned());
+        let (output, results) = crate::compiler::interface::cocrew_build(input.to_owned());
         if output.status {
             log::info!("compile all successed. filename: {:?}", output.filename);
             let mut intermediates = Vec::new();
@@ -253,7 +253,7 @@ impl FileReceiver {
             return reply;
         }
         else {
-            log::info!("compile failed. filename: {:?} status {:?}", output.filename, false);
+            log::info!("compile failed. filename: {:?} output: {:?}", output.filename, output.output);
             
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compiledone.into(),
