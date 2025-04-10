@@ -1,5 +1,5 @@
 
-use crew::{compiler::model::{CompilerInput, CompilerOutput, CompiledResult, CompiledResults}, replica::project};
+use crew::compiler::model::{CompilerInput, CompilerOutput, CompiledResult, CompiledResults};
 
 pub struct MSVC {
     pub version: String,

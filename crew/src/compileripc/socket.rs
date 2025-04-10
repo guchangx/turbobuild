@@ -81,19 +81,19 @@ impl Receiver {
                         };
 
                         let result = crate::compiler::interface::request_compile(input, runtime.clone(), if work_env.winkits_includes_path.is_empty() {Some(work_env)} else { None }, distor).await;  
-                        if result.0.status {
-                            for file in result.0.filename {
+                        if result.status {
+                            for file in result.filename {
                                 stream.write_all(file.as_encoded_bytes()).unwrap();
                             }
-                            for out in result.0.output {
+                            for out in result.output {
                                 stream.write_all(out.as_encoded_bytes()).unwrap();
                             }
                         }   
                         else {
-                            for file in result.0.filename {
+                            for file in result.filename {
                                 stream.write_all(file.as_encoded_bytes()).unwrap();
                             }
-                            for out in result.0.output {
+                            for out in result.output {
                                 stream.write_all(out.as_encoded_bytes()).unwrap();
                             }
                         }

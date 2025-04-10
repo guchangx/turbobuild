@@ -14,7 +14,7 @@ use std::{io::Read, ops::{Add, Index}};
 use crate::compiler::model::{CompilerInput, CompilerOutput, CompiledResults, PrecompiledSource};
 
 impl crate::compiler::interface::Compiler for MSVC {
-    fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
+    fn request_compile(&self, compiler_input: CompilerInput) -> CompilerOutput {
 
         let self_ = self.clone();
 
@@ -34,7 +34,7 @@ impl crate::compiler::interface::Compiler for MSVC {
             },
             Err(err) => {
                 log::error!("request compile failed. {:?}", err);
-                return (CompilerOutput::default(), None);
+                return CompilerOutput::default();
             }
         }
     }
@@ -42,8 +42,7 @@ impl crate::compiler::interface::Compiler for MSVC {
 
 impl MSVC {
 
-    //TODO shoud be move to Option<CompiledResults>
-    async fn request_msvc_compile(self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
+    async fn request_msvc_compile(self, compiler_input: CompilerInput) -> CompilerOutput {
 
         let compiler_commands = &compiler_input.compiler_commands;
 
@@ -71,19 +70,15 @@ impl MSVC {
         
         if exists_source_file_in_command {
 
-            let mut default_output = CompilerOutput::default();
-            let mut default_results = Vec::<crate::compiler::model::CompiledResult>::new();
+            let mut compiler_output = CompilerOutput::default();
 
             //TODO add expression to determine use local build or dist build
             
             if false {
-                let (output, results) = request_local_compile(&compiler_input.compiler_path, &compiler_input.compiler_working_dir,
+                let (output, _) = request_local_compile(&compiler_input.compiler_path, &compiler_input.compiler_working_dir,
                                                             compiler_commands, compiler_input.build_and_compiler_type,
                                                             false);
-                default_output.set(output);
-                if let Some(results) =  results {
-                    default_results = results;
-                }
+                compiler_output.set(output);
             }
             else {
                 if true {
@@ -92,32 +87,26 @@ impl MSVC {
                     let output = self.request_multi_dist_once_compile(&compiler_input.project, &compiler_input.compiler_path, &compiler_input.compiler_working_dir, &compiler_commands.clone()).await;
                     log::trace!("request_multi_dist_sync_once_compile elaspsed time: {:?}", now.elapsed());
                     //let output = request_dist_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
-                    default_output.set(output);
+                    compiler_output.set(output);
                 }
                 else {
                     //dist with source file and include file
                     let output = request_dist_compile_with_source_and_include(&self.work_env, &compiler_input);
-                    default_output.set(output);
+                    compiler_output.set(output);
                 }
             }
             
             //TODO cache the result to redis or cloud
 
-            if default_results.is_empty() {
-                return (default_output, None);
-            }
-            else {
-                return (default_output, Some(default_results))
-            }        
+            return compiler_output;
         }
         else {
-            let compiled_filename: Vec<std::ffi::OsString> = Vec::new();
             let result = CompilerOutput {
-                filename: compiled_filename,
+                filename: Vec::new(),
                 status: false,
                 output: vec![std::ffi::OsString::from("don't need compile anything.")],
             };
-            return (result, None);
+            return result;
         }
     }
 
