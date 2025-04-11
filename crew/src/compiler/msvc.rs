@@ -68,9 +68,9 @@ impl MSVC {
     
         let exists_source_file_in_command = determine_whether_need_compile(compiler_commands.clone());
         
-        if exists_source_file_in_command {
+        let mut compiler_output = CompilerOutput::default();
 
-            let mut compiler_output = CompilerOutput::default();
+        if exists_source_file_in_command {
 
             //TODO add expression to determine use local build or dist build
             
@@ -101,12 +101,7 @@ impl MSVC {
             return compiler_output;
         }
         else {
-            let result = CompilerOutput {
-                filename: Vec::new(),
-                status: false,
-                output: vec![std::ffi::OsString::from("don't need compile anything.")],
-            };
-            return result;
+            return compiler_output;
         }
     }
 
@@ -141,7 +136,7 @@ impl MSVC {
 
     async fn request_multi_dist_once_compile(&self, project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> CompilerOutput {
 
-        let mut result = CompilerOutput::default();
+        let mut output = CompilerOutput::default();
         let now = std::time::Instant::now();
 
         //&self.enrich_compiler_commands(&compiler_input);
@@ -149,7 +144,7 @@ impl MSVC {
 
         let err = String::from_utf8_lossy(&stderr);
 
-        if status {
+        if status == 0 {
             let files: Vec<&str> = err.lines().collect();
 
             let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir);
@@ -257,19 +252,16 @@ impl MSVC {
                         let now = std::time::Instant::now();
                         let addr__ = addr_.clone();
                         
-                        let output = self.runtime.block_on(async move {
+                        let cooutput = self.runtime.block_on(async move {
                             let output = self.request_dist_compile_from_stdout(&addr__, &compiler_input, &precompiled_suorce).await;
                             return output;
                         });
                         
                         log::debug!("request {:?} dist compile with precompiled source size: {:?}M, response elapsed: {:?}.", std::path::PathBuf::from(precompiled_result_path).file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0, now.elapsed());
                 
-                        let mut file = output.filename;
-                        let mut out = output.output;
-                        result.filename.append(&mut file);
-                        result.output.append(&mut out);
-                        result.status = output.status;
-    
+                        output.status = cooutput.status;
+                        output.out = cooutput.out;
+                        output.err = cooutput.err;
                         break;
                     }
                     index = index.add(1);
@@ -282,7 +274,7 @@ impl MSVC {
                 //prcompile to file on disk
                 log::info!("precompile to files, so dist from disk.");
                 if stdout.is_empty() {
-                    result = self.request_dist_compile_from_file(&actions.precompiled_result_file, project, compiler_path, compiler_working_dir, &addr, files.iter().map(|&item| item.to_string()).collect(), &commands).await;
+                    output = self.request_dist_compile_from_file(&actions.precompiled_result_file, project, compiler_path, compiler_working_dir, &addr, files.iter().map(|&item| item.to_string()).collect(), &commands).await;
                 }
                 else {
                     log::warn!("precompile to files with error or warning output.");
@@ -291,14 +283,14 @@ impl MSVC {
         }
         else {
             let output_context = String::from_utf8_lossy(&stderr);
-            let lines:Vec<&str> = output_context.lines().collect();
+            let lines: Vec<&str> = output_context.lines().collect();
             let (files, warning_or_error) = filter_compiler_warning_and_message(lines);
-
-            result.status = false;
-            result.filename = files.iter().map(|item| std::ffi::OsString::from(item)).collect();
-            result.output = warning_or_error.iter().map(|item| std::ffi::OsString::from(item)).collect();
+            log::info!("precompile to files with error or warning output. files: {:?}, warning_or_error: {:?}", files, warning_or_error);
+            output.status = status;
+            output.out = stdout;
+            output.err = stderr;
         }
-        return result;
+        return output;
     }
 
     async fn request_dist_compile_from_file(&self, precompiled_result: &PrecompiledResult, project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, addr: &str, source_files: Vec<String>, compiler_commands: &Vec<std::ffi::OsString>) 
@@ -337,7 +329,7 @@ impl MSVC {
         if self.sender.lock().unwrap().check(addr, &cversion) {
             
             let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled, &self.runtime).await;
-            if output.status {
+            if output.status == 0 {
             
             }
             else {
@@ -470,7 +462,7 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
 }
 
 fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
-        compiler_commands: &Vec<std::ffi::OsString>, by_stdout: bool) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+        compiler_commands: &Vec<std::ffi::OsString>, by_stdout: bool) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     
     let mut commands = compiler_commands.to_owned();
     if by_stdout {
@@ -568,12 +560,12 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
                                 compiler_commands: &Vec<std::ffi::OsString>, build_and_compiler_type: std::ffi::OsString,
                             sync_compile_result: bool) -> (CompilerOutput, Option<CompiledResults>) {
     let now = std::time::Instant::now();
-    let (status, stdout, _stderr) = start_local_compiler(&compiler_path, &compiler_working_dir, &compiler_commands);
+    let (status, stdout, stderr) = start_local_compiler(&compiler_path, &compiler_working_dir, &compiler_commands);
     let compile_output = String::from_utf8_lossy(&stdout);
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
     let mut compiled_results: CompiledResults = Vec::new();
 
-    if status {
+    if status == 0 {
         let lines = compile_output.lines().collect();
 
         let (files, _wraning_or_message) = filter_compiler_warning_and_message(lines);
@@ -705,13 +697,13 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
         
     }
     
-    let result = CompilerOutput {
-        filename: compiled_filename,
+    let output = CompilerOutput {
         status: status,
-        output: vec![std::ffi::OsString::from(compile_output.to_string())],
+        out: stdout,
+        err: stderr,
     };
 
-    return (result, Some(compiled_results));
+    return (output, Some(compiled_results));
 }
 
 fn request_local_compile_by_preprocessed_source(msvc_compile_input: &CompilerInput, _pool: std::sync::Arc<tokio::runtime::Handle>) -> (CompilerOutput, Option<CompiledResults>) {
@@ -863,7 +855,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
             let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &content, runtime).await;
             match receiver {
                 crate::communicate::package::ReceiverType::Archive(recv) => {
-                    output.status = recv.status;
+                    output.status = recv.status as u32;
                 },
                 _ => {
                     log::error!("communicate compile error.");
@@ -875,17 +867,9 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
             let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &std::borrow::Cow::from(Vec::new()), runtime).await;
             match receiver {
                 crate::communicate::package::ReceiverType::Compile(recv) => {
-                    if recv.status {
-                        output.status = true;
-                        let lines: Vec<std::ffi::OsString> = recv.message.lines().map(|item|std::ffi::OsString::from(item)).collect();
-                        output.filename = lines;
-                    }
-                    else
-                    {
-                        output.status = false;
-                        let lines: Vec<std::ffi::OsString> = recv.message.lines().map(|item|std::ffi::OsString::from(item)).collect();
-                        output.output = lines;
-                    }
+                    output.status = recv.status;
+                    output.out = std::sync::Arc::new(recv.out);
+                    output.err = std::sync::Arc::new(recv.err);
                 }
                 _ => {
                     log::error!("communicate compile error.");
@@ -902,7 +886,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
     return output;
 }
 
-fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     use std::process::Stdio;
 
     log::trace!("local compile working dir: {:?}", working_dir);
@@ -939,7 +923,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                         let stderr_context = String::from_utf8_lossy(&output.stderr); 
                         
                         log::trace!("compile local file count {:?} success, elapsed time: {:?}, file: {:?}, warning: {:?}, stderr: {:?}", files.len(), elapsed, files, warning_or_message, stderr_context);
-                        return (true, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
+                        return (output.status.code().expect("process exit code unwrap failed.") as u32, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
                         //TODO shoud not be used Arc wrap
                     }
                     else {
@@ -951,22 +935,25 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
 
                         let elapsed = start.elapsed();
                         log::info!("compile file count {:?} failure, elapsed time: {:?}. file: {:?}, error: {:?}, error code: {:?}, stderr:  {:?}", files.len(), elapsed, files, error_or_message, output.status.code(), stderr_context);
-                        return (false, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
+
+                        return (output.status.code().expect("process exit code unwrap failed.") as u32, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
                     }
                 },
                 Err(error) => {
                     log::warn!("compile child wait output error: {:?}", error);
                     let mut error_description = String::from("compile child wait output error: ");
                     error_description.push_str(error.to_string().as_str());
-                    return (false, std::sync::Arc::new(error_description.into_bytes()), std::sync::Arc::new(vec![]));
+
+                    return (1001, std::sync::Arc::new(error_description.into_bytes()), std::sync::Arc::new(vec![]));
                 },
             }
         },
         Err(error) => {
+            
             println!("spawn compile child process error: {:?}", error);
             let mut error_description = String::from("spawn compile child process error: ");
             error_description.push_str(error.to_string().as_str());
-            return (false, std::sync::Arc::new(error_description.into_bytes()), std::sync::Arc::new(vec![]));
+            return (1002, std::sync::Arc::new(error_description.into_bytes()), std::sync::Arc::new(vec![]));
         }
     }
 }
@@ -1506,7 +1493,6 @@ fn determine_whether_need_compile(compiler_commands: Vec<std::ffi::OsString>) ->
 
 #[cfg(test)]
 mod tests {
-    use winapi::um::subauth::USER_SMARTCARD_REQUIRED;
 
     use super::*;
     #[test]

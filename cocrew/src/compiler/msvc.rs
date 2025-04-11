@@ -130,7 +130,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     
     log::trace!("injectd compile status: {}, stdout: {:?} stderr: {:?}", status, compile_output, compile_error);
 
-    if status {
+    if status == 0 {
 
         let lines:Vec<&str> = compile_output.lines().collect();
         
@@ -273,12 +273,13 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
         let (lines, errors) = filter_compiler_error(lines);
         compiled_filename = lines.iter().map(|item| std::ffi::OsString::from(item)).collect();
         compiled_output = errors.iter().map(|item| std::ffi::OsString::from(item)).collect();
+        log::warn!("compile result: filename: {:?}, errors: {:?}", compiled_filename, compiled_output);
     }
     
     let result = CompilerOutput {
-        filename: compiled_filename,
         status: status,
-        output: compiled_output,
+        out: stdout,
+        err: stderr,
     };
 
     return (result, Some(compiled_results));
@@ -468,7 +469,7 @@ fn parse_action_from_commands(project_name: &std::ffi::OsString, build_and_compi
 }
 
 fn start_local_compiler_with_inject(project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) 
-                        -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+                        -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     
     let line: String = compiler_commands.clone().into_iter()
         .map(|os_string| format!("{} ", os_string.to_string_lossy()))
@@ -483,7 +484,7 @@ fn start_local_compiler_with_inject(project: &std::ffi::OsString, compiler_path:
 }
 
 fn start_local_compiler(project_name: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) 
-                    -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+                    -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
 
     log::trace!("project name: {:?}", project_name);
     log::trace!("local compile working dir: {:?}", working_dir);
@@ -498,7 +499,6 @@ fn start_local_compiler(project_name: &std::ffi::OsString, compiler_path: &std::
     log::info!("compile file with inject elapsed time: {:?}.", elapsed);
     return (status, stdout, stderr);
 }
-
 
 pub fn redirect_stdout_log() {
     use tokio::io::AsyncWriteExt;
@@ -674,7 +674,7 @@ mod tests {
 
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), 
             &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands);
-        assert!(status);
+        assert!(status == 0);
         println!("compile stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile stderr: {}", String::from_utf8_lossy(&stderr));
     }
@@ -731,7 +731,7 @@ mod tests {
 
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), 
             &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands);
-        assert!(status);
+        assert!(status == 0);
         println!("compile .i file stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile .i file stderr: {}", String::from_utf8_lossy(&stderr));
     }

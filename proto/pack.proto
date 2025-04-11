@@ -28,10 +28,11 @@ message IntermediateResult {
 
 message CompileTrResponse {
     CompileProgress progress = 1;
-    string info = 2;
-    repeated IntermediateResult results = 3;
-    int32 error_code = 4;
-    string error_message = 5;
+    bytes out = 2;
+    bytes err = 3;
+    repeated IntermediateResult results = 4;
+    uint32 status = 5;
+    string tips = 6;
 }
 
 enum FileType {

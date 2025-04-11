@@ -1,4 +1,5 @@
 
+use std::io::BufRead;
 use std::io::Read;
 use std::io::Write;
 
@@ -81,23 +82,15 @@ impl Receiver {
                         };
 
                         let result = crate::compiler::interface::request_compile(input, runtime.clone(), if work_env.winkits_includes_path.is_empty() {Some(work_env)} else { None }, distor).await;  
-                        if result.status {
-                            for file in result.filename {
-                                stream.write_all(file.as_encoded_bytes()).unwrap();
-                            }
-                            for out in result.output {
-                                stream.write_all(out.as_encoded_bytes()).unwrap();
-                            }
-                        }   
-                        else {
-                            for file in result.filename {
-                                stream.write_all(file.as_encoded_bytes()).unwrap();
-                            }
-                            for out in result.output {
-                                stream.write_all(out.as_encoded_bytes()).unwrap();
-                            }
-                        }
-                        log::info!("request compile done. from: {:?}", stream.peer_addr().unwrap());
+                        result.out.lines().for_each(|line| {
+                            stream.write_all(line.unwrap().as_bytes()).unwrap();
+                        });
+
+                        result.err.lines().for_each(|line| {
+                            stream.write_all(line.unwrap().as_bytes()).unwrap();
+                        });
+             
+                        log::info!("assistbuild request compile done. from: {:?}", stream.peer_addr().unwrap());
                         let _ = stream.flush();
                         let _ =  stream.shutdown(std::net::Shutdown::Both);         
                         break;

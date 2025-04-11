@@ -5,7 +5,6 @@ pub trait Compiler {
     fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>);
 }
 
-//TODO should to rename build
 pub fn cocrew_build(compiler_input: CompilerInput)
         -> (CompilerOutput, Option<CompiledResults>) {
             

@@ -27,14 +27,16 @@ pub struct IntermediateResult {
 pub struct CompileTrResponse {
     #[prost(enumeration = "CompileProgress", tag = "1")]
     pub progress: i32,
-    #[prost(string, tag = "2")]
-    pub info: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag = "3")]
+    #[prost(bytes = "vec", tag = "2")]
+    pub out: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "vec", tag = "3")]
+    pub err: ::prost::alloc::vec::Vec<u8>,
+    #[prost(message, repeated, tag = "4")]
     pub results: ::prost::alloc::vec::Vec<IntermediateResult>,
-    #[prost(int32, tag = "4")]
-    pub error_code: i32,
-    #[prost(string, tag = "5")]
-    pub error_message: ::prost::alloc::string::String,
+    #[prost(uint32, tag = "5")]
+    pub status: u32,
+    #[prost(string, tag = "6")]
+    pub tips: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FileTrRequest {

@@ -125,10 +125,11 @@ impl FileReceiver {
         else {
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Filetransfer.into(),
-                info: "".to_string(),
+                out: Vec::new(),
+                err: Vec::new(),
                 results: Vec::new(),
-                error_code: 0,
-                error_message: "sync compile success.".to_string(),
+                status: 0,
+                tips: "sync compile success.".to_string(),
             };
             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
         }
@@ -138,14 +139,15 @@ impl FileReceiver {
 
         let mut reply = package::CompileTrResponse {
             progress: package::CompileProgress::Filetransfer.into(),
-            info: "".to_string(),
+            out: Vec::new(),
+            err: Vec::new(),
             results: Vec::new(),
-            error_code: 0,
-            error_message: "transmit do save file success.".to_string(),
+            status: 0,
+            tips: "transmit do save file success.".to_string(),
         };
 
         if project.is_empty() || path.is_empty() {
-            reply.error_message = "project or path param is empty, so do nothing".to_string();
+            reply.tips = "project or path param is empty, so do nothing".to_string();
             log::error!("transmit storage project name or path is empty.");
         }
         else {
@@ -205,8 +207,7 @@ impl FileReceiver {
     }
     async fn execute(input: &crew::compiler::model::CompilerInput) -> package::CompileTrResponse {
         let (output, results) = crate::compiler::interface::cocrew_build(input.to_owned());
-        if output.status {
-            log::info!("compile all successed. filename: {:?}", output.filename);
+        if output.status == 0 {
             let mut intermediates = Vec::new();
             if let Some(results) = results {
                 for result in results {
@@ -245,22 +246,22 @@ impl FileReceiver {
             
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compiledone.into(),
-                info: output.filename.iter().map(|item| item.to_string_lossy()).collect(),
+                out: output.out.to_vec(),
+                err: output.err.to_vec(),
                 results: intermediates,
-                error_code: 0,
-                error_message: "transmit do compile success.".to_string(),
+                status: output.status,
+                tips: "transmit do compile success.".to_string(),
             };
             return reply;
         }
-        else {
-            log::info!("compile failed. filename: {:?} output: {:?}", output.filename, output.output);
-            
+        else {  
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compiledone.into(),
-                info: output.output.join(&std::ffi::OsString::from(r"\r\n")).to_string_lossy().to_string(),
+                out: output.out.to_vec(),
+                err: output.err.to_vec(),
                 results: Vec::new(),
-                error_code: 1,
-                error_message: "transmit do compile failed.".to_string(),
+                status: 1,
+                tips: "transmit do compile failed.".to_string(),
             };
             return reply;
         }

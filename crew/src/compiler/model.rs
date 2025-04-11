@@ -36,18 +36,18 @@ pub struct PrecompiledSource {
     pub contents: Option<Vec<u8>>,
     pub path: std::ffi::OsString, 
 }
-#[derive(serde::Deserialize, serde::Serialize, Debug, Clone, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct CompilerOutput {
-    pub filename: Vec<std::ffi::OsString>,  //success
-    pub status: bool,
-    pub output: Vec<std::ffi::OsString>,   // error
+    pub status: u32,
+    pub out: std::sync::Arc<Vec<u8>>, 
+    pub err: std::sync::Arc<Vec<u8>>, 
 }
 
 impl CompilerOutput {
     pub fn set(&mut self, value: Self) {
-        self.filename = value.filename;
         self.status = value.status;
-        self.output = value.output;
+        self.out = value.out;
+        self.err = value.err;
     }
 }
 

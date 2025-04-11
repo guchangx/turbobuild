@@ -62,8 +62,9 @@ pub struct ArchiveRecv {
 }
 
 pub struct CompileRecv {
-    pub status: bool,
-    pub message: String,
+    pub status: u32,
+    pub out: Vec<u8>,
+    pub err: Vec<u8>
 }
 
 pub enum ReceiverType {
@@ -107,7 +108,7 @@ impl FileSender {
                 return ReceiverType::Command(result);
             },
             SenderType::Archive(args) => {
-                self.send_file(args).await;
+                self.dist_file(args).await;
                 let result = ArchiveRecv {
                     status: false,
                     message: "".to_string(),
@@ -115,7 +116,7 @@ impl FileSender {
                 return ReceiverType::Archive(result);
             },
             SenderType::Compile(args) => {
-                let result = self.send_compile(args).await;
+                let result = self.dist_compile(args).await;
                 return ReceiverType::Compile(result);
             },
             _ => {
@@ -124,7 +125,7 @@ impl FileSender {
         }
     }
     
-    async fn send_file(&mut self, args: ArchiveArgs<'_>) {
+    async fn dist_file(&mut self, args: ArchiveArgs<'_>) {
 
         let request = tonic::Request::new(pack::FileTrRequest {
             file_type: args.file_type as i32,
@@ -147,7 +148,8 @@ impl FileSender {
         }
     }
 
-    async fn send_compile(&mut self, compiled: PrecompiledFile<'_>) -> CompileRecv {
+    //TODO should think split dist compiler command or ziped precompilre sourcefile.
+    async fn dist_compile(&mut self, compiled: PrecompiledFile<'_>) -> CompileRecv {
         let request = tonic::Request::new(pack::CompileTrRequest {
             project: compiled.project,
             file: compiled.file,
@@ -161,8 +163,9 @@ impl FileSender {
         let response = self.to_owned().client.transmit_task(request).await;
 
         let mut recv = CompileRecv {
-            status: false,
-            message: "".to_string(),
+            status: 0,
+            out: Vec::new(),
+            err: Vec::new(),
         };
 
         match response {
@@ -171,9 +174,7 @@ impl FileSender {
                 while let Some(inner) = stream.next().await {
                     match inner {
                         Ok(response) => {
-                            if response.error_code == 0 {
-                                log::debug!("send precompiled sourcefile response success: {}", response.error_message);
-
+                            if response.status == 0 {
                                 if response.progress == pack::CompileProgress::Filetransfer as i32 {
 
                                 }
@@ -181,14 +182,11 @@ impl FileSender {
 
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
-                                    log::info!("compiled file: {:?}", response.info);
-                                    if response.error_code == 0 {
-                                        recv.status = true;
-                                    }
-                                    else {
-                                        recv.status = false;
-                                    }
-                                    recv.message = response.info;
+                                    log::debug!("precompiled sourcefile done response: {}", response.tips);
+
+                                    recv.status = response.status;
+                                    recv.out = response.out;
+                                    recv.err = response.err;
 
                                     let mut myself = self.clone();
                                     self.runtime.clone().unwrap().spawn(async move {
@@ -200,7 +198,7 @@ impl FileSender {
                                 }
                             }
                             else {
-                                log::warn!("send precompiled sourcefile reveice response failed. {}", response.error_message);
+                                log::warn!("send precompiled sourcefile reveice response failed. {}", response.tips);
                             }
                         },
                         Err(err) => {

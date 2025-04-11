@@ -1,4 +1,5 @@
 
+use tokio::sync::mpsc::error;
 use winapi::{shared::minwindef::LPDWORD, um::{errhandlingapi::GetLastError, handleapi::CloseHandle, processthreadsapi::CreateProcessW}};
 
 use crate::detours::detours::DetourCreateProcessWithDllExW;
@@ -53,7 +54,7 @@ pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE
     CloseHandle(handle);
 }
 
-pub fn msvc_detours(project: String, app_path: String, command: String, workding_directory: String) -> (bool, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+pub fn msvc_detours(project: String, app_path: String, command: String, workding_directory: String) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     //TODO workding_directory should be also use redirect.
      
     log::trace!("msvc detours");
@@ -76,7 +77,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
         let lpCurrentDirectory = std::ffi::OsStr::new(&workding_directory);
         let currentDirectoryWideChars: Vec<u16> = lpCurrentDirectory.encode_wide().chain(std::iter::once(0)).collect();
         
-        
+        //TODO performance issue when build time frequently call this function.
         let dllPath = tools::utils::access_working_path("redirect64.dll");
         if let Some(dllPath) = dllPath {
 
@@ -221,12 +222,12 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
 
                 log::info!("msvc detours end with exit code {}", code);
 
-                return (if code == 0 {true} else {false}, std::sync::Arc::new(stdout), std::sync::Arc::new(stderr));
+                return (code, std::sync::Arc::new(stdout), std::sync::Arc::new(stderr));
             }
             else {
-                let error_code: u32 = winapi::um::errhandlingapi::GetLastError();
-                log::info!("DetourCreateProcessWithDllExW failed! error code: {}.", error_code);
-                return (true, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
+                let code = winapi::um::errhandlingapi::GetLastError();
+                log::info!("DetourCreateProcessWithDllExW failed! error code: {}.", code);
+                return (code, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
             }
 
             winapi::um::handleapi::CloseHandle(hStdOutputRead);
@@ -236,7 +237,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
         else
         {
             log::error!("can't fetch redirectdll. {:?}", dllPath);
-            return (true, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
+            return (1, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
         }
     }
 }
