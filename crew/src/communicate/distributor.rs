@@ -16,7 +16,7 @@ impl Distributor {
     }
     
     pub async fn sync<'a>(addr: &str, path: &str, content: &std::borrow::Cow<'a, [u8]>, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> String {
-        let mut sender = super::package::FileSender::new(addr, Some(runtime));
+        let mut sender = super::package::Sender::new(addr, Some(runtime));
         
         let file = super::package::ArchiveArgs {
             file_type: super::package::FileType::ToolChain,
@@ -26,7 +26,7 @@ impl Distributor {
         };
         
         let file = super::package::SenderType::Archive(file);
-        sender.send(file).await;
+        sender.dist(file).await;
         
         return "".to_string();
     }
@@ -44,11 +44,11 @@ impl Distributor {
             content: content.clone(),
         };
 
-        let mut sender = super::package::FileSender::new(addr, Some(runtime));
+        let mut sender = super::package::Sender::new(addr, Some(runtime));
         
         let args = super::package::SenderType::Compile(args);
         
-        let result = sender.send(args).await;
+        let result = sender.dist(args).await;
         return result;
     }
 

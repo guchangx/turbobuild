@@ -1792,8 +1792,6 @@ mod tests {
         commands.push(std::ffi::OsString::from("echo"));
         commands.push(std::ffi::OsString::from("/nologo"));
         commands.push(std::ffi::OsString::from(r#"CMAKE_INTDIR="Release""#));
-        commands.push(std::ffi::OsString::from(r"C:\test.c"));
-        commands.push(std::ffi::OsString::from(r"C:\test.CPP"));
 
         let mut process = std::process::Command::new("cmd");
         for item in commands {
@@ -1804,7 +1802,13 @@ mod tests {
         let stdout_str = String::from_utf8_lossy(&output.stdout);
         println!("stdout: {}", stdout_str);
 
-        let out = std::process::Command::new("cmd").arg("/C").arg("echo").arg("/nologo").arg(r#"CMAKE_INTDIR="Release""#).arg(r"C:\test.c").arg(r"C:\test.CPP").output().expect("failed to execute process");
+        let mut commands: Vec<&str> = Vec::new();
+        commands.push("/C");
+        commands.push("echo");
+        commands.push("/nologo");
+        commands.push(r#"CMAKE_INTDIR="Release""#);
+
+        let out = std::process::Command::new("cmd").args(commands).output().expect("failed to execute process");
         let stdout_str = String::from_utf8_lossy(&out.stdout);
         println!("stdout: {}", stdout_str);
     }

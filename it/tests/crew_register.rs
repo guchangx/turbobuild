@@ -12,10 +12,10 @@ mod integration_tests {
         let common = std::sync::Arc::new(std::sync::Mutex::new(common));
         let weak_common = std::sync::Arc::downgrade(&common);
 
-        let receiver = cocrew::communicate::unpackager::FileReceiver::new(weak_common.clone());
+        let receiver = cocrew::communicate::unpackager::Receiver::new(weak_common.clone());
         let receiver_ = receiver.clone();
         
-        weak_common.upgrade().unwrap().lock().unwrap().file_receiver = Some(std::sync::Arc::new(std::sync::Mutex::new(receiver)));
+        weak_common.upgrade().unwrap().lock().unwrap().receiver = Some(std::sync::Arc::new(std::sync::Mutex::new(receiver)));
 
         let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
         rt.spawn(async move {
@@ -69,11 +69,10 @@ mod integration_tests {
         let common = std::sync::Arc::new(std::sync::Mutex::new(common));
         let weak_common = std::sync::Arc::downgrade(&common);
 
-        let receiver = cocrew::communicate::unpackager::FileReceiver::
-        new(weak_common.clone());
+        let receiver = cocrew::communicate::unpackager::Receiver::new(weak_common.clone());
         let receiver_ = receiver.clone();
         
-        weak_common.upgrade().unwrap().lock().unwrap().file_receiver = Some(std::sync::Arc::new(std::sync::Mutex::new(receiver)));
+        weak_common.upgrade().unwrap().lock().unwrap().receiver = Some(std::sync::Arc::new(std::sync::Mutex::new(receiver)));
 
         let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
         rt.spawn(async move {

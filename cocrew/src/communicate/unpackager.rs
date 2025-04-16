@@ -7,21 +7,21 @@ pub mod package {
 }
 
 #[derive(Default, Clone)] 
-pub struct FileReceiver {
+pub struct Receiver {
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
 }
 
-impl FileReceiver {
+impl Receiver {
     
     pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>) -> Self {
         
-        let receiver = FileReceiver {
+        let receiver = Receiver {
             common,
         };
         return receiver;
     }
 
-    pub async fn init(&self) {   
+    pub async fn init(&self) {
         let addr = "0.0.0.0:19302".parse().expect("parse addr failed");
         log::debug!("init cocrew communicate server {}", addr);
 
@@ -31,7 +31,7 @@ impl FileReceiver {
         socket.bind(addr).unwrap();
         let listener = socket.listen(1024).unwrap();
 
-        let receiver = FileReceiver {
+        let receiver = Receiver {
             common: self.common.clone(),
         };
 
@@ -313,7 +313,7 @@ type ResponseStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<p
 
 
 #[tonic::async_trait]
-impl package::communicate_server::Communicate for FileReceiver {
+impl package::communicate_server::Communicate for Receiver {
     async fn transmit_file(&self, request: tonic::Request<package::FileTrRequest>) -> core::result::Result<tonic::Response<package::FileTrResponse>, tonic::Status> {
         log::debug!("sync request transmit file.");
         
@@ -354,7 +354,7 @@ mod tests {
 
         handle.spawn(async move {
             println!("run check_dir_exists test in runtime.");
-            crate::communicate::unpackager::FileReceiver::check_dir_exists(&"test_dir".to_string(), &commands).await;
+            crate::communicate::unpackager::Receiver::check_dir_exists(&"test_dir".to_string(), &commands).await;
         });
     }
 }
