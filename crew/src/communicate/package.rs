@@ -7,7 +7,7 @@ pub mod pack {
 }
 
 #[derive(Clone)]
-pub struct FileSender {
+pub struct Sender {
     client: pack::communicate_client::CommunicateClient<tonic::transport::Channel>,
     host: String,
     runtime: Option<std::sync::Arc<tokio::runtime::Handle>>,
@@ -74,7 +74,7 @@ pub enum ReceiverType {
     None,
 }
 
-impl FileSender {
+impl Sender {
     pub fn new(addr: &str, runtime: Option<&std::sync::Arc<tokio::runtime::Handle>>) -> Self {
         let mut host = "localhost"; 
         if !addr.is_empty() {
@@ -88,7 +88,7 @@ impl FileSender {
             .max_decoding_message_size(1024 * 1024 *60)
             .max_encoding_message_size(1024 * 1024 *60);
 
-        let sender = FileSender {
+        let sender = Sender {
             client,
             host: host.to_string(),
             runtime: runtime.cloned(),
@@ -97,7 +97,7 @@ impl FileSender {
         return sender;
     }
     
-    pub async fn send<'a>(&mut self, sender_type: SenderType<'a>) -> ReceiverType {
+    pub async fn dist<'a>(&mut self, sender_type: SenderType<'a>) -> ReceiverType {
         
         match sender_type {
             SenderType::Command(_args) => {
