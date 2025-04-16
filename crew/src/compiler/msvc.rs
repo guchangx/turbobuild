@@ -894,9 +894,18 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
     log::trace!("compiler commands: {:?}", compiler_commands);
     
     let start = std::time::Instant::now();
-    let child = std::process::Command::new(compiler_path)
-                            .current_dir(working_dir)
-                            .args(compiler_commands.clone())
+    let mut process = std::process::Command::new(compiler_path);
+
+    for item in compiler_commands {
+        if item.to_string_lossy().contains(" ") {
+            process.arg(item);    
+        }
+        else {
+            process.raw_arg(item);
+        }
+    }
+
+    let child = process.current_dir(working_dir)    
                             .stdout(Stdio::piped())
                             .stderr(Stdio::piped())
                             .spawn();
@@ -1839,7 +1848,7 @@ mod tests {
         assert_eq!(iter.next(), None);
     }
 
-    #[test]
+        #[test]
     fn test_process_command_input_arg() {
         let mut commands: Vec<std::ffi::OsString> = Vec::new();
         commands.push(std::ffi::OsString::from("/C"));
