@@ -167,8 +167,8 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
         if item.contains('"') {
             let count = item.matches('"').collect::<Vec<&str>>().len();
             if count & 1 == 0 {
-                if item.starts_with("\"") {
-                    let arg = item.replace('\"', "");
+                if item.starts_with("\"") && item.ends_with("\"") {
+                    let arg = item.strip_prefix("\"").unwrap().strip_suffix("\"").unwrap().to_owned();
                     result.push(arg);
                 }
                 else {
@@ -234,7 +234,8 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
             }
         }
         else if item.starts_with("/Fo") || item.starts_with("/Fd") {
-            let arg_without_enclosed_quotation = item.replace('"', "");
+             
+            let arg_without_enclosed_quotation = item.replace('"', "").replace("\\\\", "\\");
             result_.push(std::ffi::OsString::from(arg_without_enclosed_quotation));
         }
         else if item.is_empty() {
@@ -329,7 +330,15 @@ mod tests {
 
     #[test]
     fn parse_commands_with_external_args() {
-        let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /I"D:\Webex\spark-client-framework\." /I"D:\Webex\spark-client-framework\.." /I"D:\Webex\spark-client-framework\thirdparty\nlohmann\include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/./mkspecs/win32-msvc" /Zi /W3 /WX /diagnostics:column /MP /O2 /Ob2 /Os /D UNICODE /D WIN32 /D NDEBUG /D "CMAKE_INTDIR=\"Release\"" /Gm- /EHsc /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++17 /Fo"BwcCore.dir\Release\\" /Fd"BwcCore.dir\Release\BwcCore.pdb" /external:W3 /Gd /TP /wd4251 /errorReport:prompt /we4700  /Zc:__cplusplus /bigobj /F2000000 "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Source\boss_admin.cpp" "#;
+        let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /I"D:\Webex\spark-client-framework\." /I"D:\Webex\spark-client-framework\.." /I"D:\Webex\spark-client-framework\thirdparty\nlohmann\include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/./mkspecs/win32-msvc" /Zi /W3 /WX /diagnostics:column /MP /O2 /Ob2 /Os /D UNICODE /D WIN32 /D NDEBUG /D "CMAKE_INTDIR="Release"" /Gm- /EHsc /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++17 /Fo"BwcCore.dir\Release\\" /Fd"BwcCore.dir\Release\BwcCore.pdb" /external:W3 /Gd /TP /wd4251 /errorReport:prompt /we4700  /Zc:__cplusplus /bigobj /F2000000 "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Source\boss_admin.cpp" "#;
+        let (_project, compiler, commands) = parse_commands_by_line(line);
+        assert!(compiler.is_empty());
+        println!("commands {:#?}", commands);
+    }
+
+    #[test]
+    fn parse_commands_with_define_string_value() {
+        let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /D "QT_TESTCASE_BUILDDIR="E:/TestFuture/GammaRay/GammaRayTool/build_enable"" "boss_admin.cpp" "#;
         let (_project, compiler, commands) = parse_commands_by_line(line);
         assert!(compiler.is_empty());
         println!("commands {:#?}", commands);
