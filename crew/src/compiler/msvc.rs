@@ -10,7 +10,7 @@ pub struct MSVC {
 }
 
 //TODO common param in func should be move in msvc struct
-use std::{io::Read, ops::{Add, Index}};
+use std::{io::Read, ops::{Add, Index}, os::windows::process::CommandExt};
 use crate::compiler::model::{CompilerInput, CompilerOutput, CompiledResults, PrecompiledSource};
 
 impl crate::compiler::interface::Compiler for MSVC {
@@ -1783,5 +1783,29 @@ mod tests {
         let mut iter = commands.iter().filter(|&item| item.to_string_lossy().contains("test"));
         println!("tidy up commands {:?}", commands);
         assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_process_command_input_arg() {
+        let mut commands: Vec<std::ffi::OsString> = Vec::new();
+        commands.push(std::ffi::OsString::from("/C"));
+        commands.push(std::ffi::OsString::from("echo"));
+        commands.push(std::ffi::OsString::from("/nologo"));
+        commands.push(std::ffi::OsString::from(r#"CMAKE_INTDIR="Release""#));
+        commands.push(std::ffi::OsString::from(r"C:\test.c"));
+        commands.push(std::ffi::OsString::from(r"C:\test.CPP"));
+
+        let mut process = std::process::Command::new("cmd");
+        for item in commands {
+            process.raw_arg(item);
+        }
+        let output = process.output().expect("failed to execute process");
+
+        let stdout_str = String::from_utf8_lossy(&output.stdout);
+        println!("stdout: {}", stdout_str);
+
+        let out = std::process::Command::new("cmd").arg("/C").arg("echo").arg("/nologo").arg(r#"CMAKE_INTDIR="Release""#).arg(r"C:\test.c").arg(r"C:\test.CPP").output().expect("failed to execute process");
+        let stdout_str = String::from_utf8_lossy(&out.stdout);
+        println!("stdout: {}", stdout_str);
     }
 }
