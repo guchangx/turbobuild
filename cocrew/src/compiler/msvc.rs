@@ -251,7 +251,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                             log::warn!("pdb file is not found, path: {:?}.", result);
                         } 
                     }
-
+                    // .ilk .res .asm
                     let processed_result = CompiledResult {
                         source_file: std::ffi::OsString::from(&line),
                         obj: obj,

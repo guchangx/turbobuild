@@ -9,8 +9,25 @@ pub struct MSVC {
     pub sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>,
 }
 
+pub struct StdOut {
+    pub out: Box<tokio::io::Lines<tokio::io::BufReader<tokio::process::ChildStdout>>>,
+    pub err: Box<tokio::io::Lines<tokio::io::BufReader<tokio::process::ChildStderr>>>,
+    pub child: tokio::process::Child,
+}
+
+pub struct FileOut {
+    pub out: std::sync::Arc<Vec<u8>>,
+    pub err: std::sync::Arc<Vec<u8>>,
+    pub status: u32,
+}
+
+pub enum OutType {
+    Std(StdOut),
+    File(FileOut),
+}
+
 //TODO common param in func should be move in msvc struct
-use std::{io::Read, ops::{Add, Index}, os::windows::process::CommandExt};
+use std::{io::Read, ops::{Add, Index}, sync::Arc};
 use crate::compiler::model::{CompilerInput, CompilerOutput, CompiledResults, PrecompiledSource};
 
 impl crate::compiler::interface::Compiler for MSVC {
@@ -140,6 +157,18 @@ impl MSVC {
         let now = std::time::Instant::now();
 
         //&self.enrich_compiler_commands(&compiler_input);
+
+        let outtype = request_local_precompile(compiler_path, compiler_working_dir, &self.merge_sdk_includes_into_commands(&compiler_commands), false);
+        match outtype {
+            crate::compiler::msvc::OutType::Std(stdout) => {
+                handle_compile_by_std(stdout);
+
+            },
+            crate::compiler::msvc::OutType::File(fileout) => {
+                handle_compile_by_file(fileout);
+            },
+        }
+
         let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, &self.merge_sdk_includes_into_commands(&compiler_commands), false);
 
         let err = String::from_utf8_lossy(&stderr);
@@ -393,6 +422,32 @@ impl MSVC {
     }
 }
 
+
+async fn handle_compile_by_std(mut stdout: StdOut) {
+
+    let file: std::sync::Arc<Vec<u8>>;
+
+    while let Some(line) = stdout.out.next_line().await.unwrap() {
+        println!("stdout: {}", line);
+        //#line 1 "E:\\TestFuture\\GammaRay\\GammaRayTool\\tests\\executiontest.cpp"
+        if line.starts_with("#line 1 ") {
+ 
+        }
+    }
+
+    while let Some(line) = stdout.err.next_line().await.unwrap() {
+        println!("stderr: {}", line);
+    }
+
+    let status = stdout.child.wait().await.unwrap();
+    let code = status.code();
+    println!("status code: {:?}", code);
+}   
+
+async fn handle_compile_by_file(fileout: FileOut) {
+
+}
+
 async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::OsString, precompiled_result: PrecompiledResult, source_files: &Vec<String>, runtime: &std::sync::Arc<tokio::runtime::Handle>)-> Vec<std::ffi::OsString> {
 
     let now = std::time::Instant::now();
@@ -462,13 +517,34 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
 }
 
 fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
-        compiler_commands: &Vec<std::ffi::OsString>, by_stdout: bool) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+        compiler_commands: &Vec<std::ffi::OsString>, by_stdout: bool) -> OutType {
     
     let mut commands = compiler_commands.to_owned();
     if by_stdout {
         commands.insert(0, std::ffi::OsString::from(r"/E"));
         //remove '/MP'. /E incompatible with multiprocessing
         commands.retain(|item| !item.to_string_lossy().starts_with("/MP"));
+
+        match start_local_compiler_by_stream(compiler_path, compiler_working_dir, &commands) {
+            Ok((out, err, child)) => {
+                let std = crate::compiler::msvc::StdOut {
+                    out: out,
+                    err: err,
+                    child: child,
+                };
+
+                return OutType::Std(std);
+            },
+            Err(err) => {
+                let err = format!("spawn compile child process error:: {}", err);
+                let file = crate::compiler::msvc::FileOut {
+                    out: std::sync::Arc::new(err.into()),
+                    err: std::sync::Arc::new(Vec::new()),
+                    status: 1,
+                };
+                return OutType::File(file);
+            }
+        }
     }
     else {
         commands.insert(0, std::ffi::OsString::from(r"/P"));
@@ -476,10 +552,15 @@ fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working
             let path = arg.to_string_lossy().replace("/Fo", "/Fi").replace(".obj", ".i").replace("\\\\", "\\");
             commands.insert(1, std::ffi::OsString::from(path));
         }
+        let (status, stdout, stderr) = start_local_compiler(compiler_path, compiler_working_dir, &commands);
+      
+        let file = crate::compiler::msvc::FileOut {
+            out: stdout,
+            err: stderr,
+            status: status,
+        };
+        return OutType::File(file);
     }
-
-    let (status, stdout, stderr) = start_local_compiler(compiler_path, compiler_working_dir, &commands);
-    return (status, stdout, stderr);
 }
 
 fn push_project_name_to_precompiled_file_path(path: &std::path::PathBuf, obejct: String) -> std::path::PathBuf
@@ -954,6 +1035,50 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
             let mut error_description = String::from("spawn compile child process error: ");
             error_description.push_str(error.to_string().as_str());
             return (1002, std::sync::Arc::new(error_description.into_bytes()), std::sync::Arc::new(vec![]));
+        }
+    }
+}
+
+type OutStream = Box<tokio::io::Lines<tokio::io::BufReader<tokio::process::ChildStdout>>>;
+type ErrStream = Box<tokio::io::Lines<tokio::io::BufReader<tokio::process::ChildStderr>>>;
+fn start_local_compiler_by_stream(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> 
+    std::io::Result<(OutStream, ErrStream, tokio::process::Child)>
+{
+    use std::process::Stdio;
+
+    log::trace!("local compile working dir: {:?}", working_dir);
+    log::trace!("compiler path: {:?}", compiler_path);
+    log::trace!("compiler commands: {:?}", compiler_commands);
+    
+    let start = std::time::Instant::now();
+    let child = tokio::process::Command::new(compiler_path)
+                            .current_dir(working_dir)
+                            .args(compiler_commands.clone())
+                            .stdout(Stdio::piped())
+                            .stderr(Stdio::piped())
+                            .spawn();
+
+    match child {
+        Ok(mut child) => {
+            let elapsed = start.elapsed();
+            log::trace!("compile local file stream elapsed time: {:?}", elapsed);
+
+            use tokio::io::AsyncBufReadExt;
+
+            let stdout = child.stdout.take().unwrap();
+            let reader = tokio::io::BufReader::new(stdout);
+            let outstream = Box::new(reader.lines());
+
+
+            let stderr = child.stderr.take().unwrap();
+            let reader = tokio::io::BufReader::new(stderr);
+            let errstream = Box::new(reader.lines());
+
+            return Ok((outstream, errstream, child));
+        },
+        Err(error) => {
+            log::warn!("spawn compile child process error: {:?}", error);
+            return  Err(error);
         }
     }
 }
@@ -1785,6 +1910,7 @@ mod tests {
         assert_eq!(iter.next(), None);
     }
 
+    use std::os::windows::process::CommandExt;
     #[test]
     fn test_process_command_input_arg() {
         let mut commands: Vec<std::ffi::OsString> = Vec::new();
@@ -1811,5 +1937,74 @@ mod tests {
         let out = std::process::Command::new("cmd").args(commands).output().expect("failed to execute process");
         let stdout_str = String::from_utf8_lossy(&out.stdout);
         println!("stdout: {}", stdout_str);
+    }
+
+    #[tokio::test]
+    async fn test_local_precompile_by_stdout_stream() {
+        println!("run msvc .cpp file generate .i by stdout stream test");
+        tools::logger::init_once_logger();
+
+        let env = crate::platform::windows::WindowsCompilerEnv::default();
+
+        let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
+        compiler_commands.push(std::ffi::OsString::from("/c"));
+        compiler_commands.push(std::ffi::OsString::from("/E")); //stdout
+        compiler_commands.push(std::ffi::OsString::from("/nologo"));
+        compiler_commands.push(std::ffi::OsString::from("/MD"));
+        compiler_commands.push(std::ffi::OsString::from("/GS"));
+        compiler_commands.push(std::ffi::OsString::from("/guard:cf"));
+        compiler_commands.push(std::ffi::OsString::from("/Gy"));
+        compiler_commands.push(std::ffi::OsString::from("/Qpar"));
+        compiler_commands.push(std::ffi::OsString::from("/fp:precise"));
+        compiler_commands.push(std::ffi::OsString::from("/Qspectre"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
+        compiler_commands.push(std::ffi::OsString::from("/GR"));
+        compiler_commands.push(std::ffi::OsString::from("/TC"));
+        
+        compiler_commands.push(std::ffi::OsString::from("/I"));
+        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+        
+        for sdk_include in env.winkits_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", sdk_include.to_str().unwrap())));
+        }
+
+        //compiler_commands.push(std::ffi::OsString::from("/Filz4.i")); don't need
+
+        let current_crate_dir = env!("CARGO_MANIFEST_DIR");
+        let mut current_crate_dir = std::path::PathBuf::from(current_crate_dir);
+        current_crate_dir.pop();
+        let draft_dir = current_crate_dir.join("draft");
+
+        println!("draft dir: {:?}", draft_dir);
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, draft_dir.to_string_lossy())));
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, draft_dir.to_string_lossy())));
+
+        let mut complier_path = env.compiler_path;
+        complier_path.push(r"Hostx64\x64\cl.exe");
+
+        let resut = start_local_compiler_by_stream(&complier_path.into_os_string(), &draft_dir.into_os_string(), &compiler_commands);
+
+        match resut {
+            Ok((mut out, mut err, mut child)) => {
+                println!("compile success");
+                
+                while let Some(line) = out.next_line().await.unwrap() {
+                    println!("stdout: {}", line);
+                }
+
+                while let Some(line) = err.next_line().await.unwrap() {
+                    println!("stderr: {}", line);
+                }
+      
+                let status = child.wait().await.unwrap();
+                let code = status.code();
+                println!("status code: {:?}", code);
+            },
+            Err(e) => {
+                println!("compile failed: {}", e);
+            }
+        }
     }
 }
