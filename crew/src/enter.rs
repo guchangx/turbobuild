@@ -39,7 +39,7 @@ pub fn run_cocrew() {
         
         let process = sysinfo.processes_by_name("cocrew".as_ref());
         if process.count() >= 1 {
-            println!("cocrew already running.");
+            log::debug!("cocrew already running.");
         }
         else {
             match std::process::Command::new("cocrew").spawn() {

@@ -239,7 +239,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                                 },
                                 Err(error) => {
                                     if error.kind() == std::io::ErrorKind::NotFound {
-                                        log::warn!(".idb file path is not found.");
+                                        //log::warn!(".idb file path is not found.");
                                     }
                                     else {
                                         log::warn!(".idb file read failed. {:?}", error);

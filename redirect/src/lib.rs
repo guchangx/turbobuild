@@ -157,7 +157,6 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
             redirect_stdout_log_2_cocrew();
-            log!(info, "DLL_PROCESS_ATTACH");
             read_project_property_from_stdin();
             
             //winapi::um::errhandlingapi::SetUnhandledExceptionFilter(Some(custom_exception_handler));
@@ -208,8 +207,6 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
                 let error_code = winapi::um::errhandlingapi::GetLastError();
                 log!(error, "DetourTransactionCommit failed, error code: {}.", error_code);
             }
-
-            log!(debug, "init hook dll process done.")
         },
         winapi::um::winnt::DLL_THREAD_ATTACH => {
 

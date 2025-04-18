@@ -1,8 +1,6 @@
 
 
 pub unsafe fn init_hook() {
-
-    crate::log!(info, "init hook functions");
     crate::functions::CREATE_FILE_A = winapi::um::fileapi::CreateFileA as *mut std::ffi::c_void;
     crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_A), crate::functions::create_file_a as _);
 
@@ -17,7 +15,6 @@ pub unsafe fn init_hook() {
         crate::log!(error, "can not find create_file_a in kernelbase module");
     }
     else {
-        crate::log!(debug, "find create_file_a in kernelbase module.");
         crate::functions::CREATE_FILE_A_KERNEL_BASE =  kernelbase_create_file_a;
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_A_KERNEL_BASE), crate::functions::kernelbase_create_file_a as _);   
     }
@@ -29,7 +26,6 @@ pub unsafe fn init_hook() {
         crate::log!(error, "can not find create_file_a in kernelbase module");
     }
     else {
-        crate::log!(debug, "find create_file_w in kernelbase module.");
         crate::functions::CREATE_FILE_W_KERNEL_BASE =  kernelbase_create_file_w;
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_W_KERNEL_BASE), crate::functions::kernelbase_create_file_w as _);
     }
@@ -42,7 +38,6 @@ pub unsafe fn init_hook() {
         crate::log!(error, "can not find nt_create_file in nt module.");
     }
     else {
-        crate::log!(error, "find nt_create_file in nt module.");
         crate::functions::NT_CREATE_FILE = nt_create_file;
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_CREATE_FILE), crate::functions::nt_create_file as _);
     }
@@ -54,7 +49,6 @@ pub unsafe fn init_hook() {
         crate::log!(error, "can not find zw_query_directory_file in kernelbase module");
     }
     else {
-        crate::log!(debug, "find zw_query_directory_file in nt module.");
         crate::functions::ZW_QUERY_DIRECTORY_FILE = zw_query_directory_file;
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::ZW_QUERY_DIRECTORY_FILE), crate::functions::zw_query_directory_file as _);
     }
