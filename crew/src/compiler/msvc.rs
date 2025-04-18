@@ -313,7 +313,7 @@ impl MSVC {
         else {
             let output_context = String::from_utf8_lossy(&stderr);
             let lines: Vec<&str> = output_context.lines().collect();
-            let (files, warning_or_error) = filter_compiler_warning_and_message(lines);
+            let (files, warning_or_error) = filter_compiler_warning_and_error(lines);
             log::info!("precompile to files with error or warning output. files: {:?}, warning_or_error: {:?}", files, warning_or_error);
             output.status = status;
             output.out = stdout;
@@ -649,7 +649,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
     if status == 0 {
         let lines = compile_output.lines().collect();
 
-        let (files, _wraning_or_message) = filter_compiler_warning_and_message(lines);
+        let (files, _wraning_or_message) = filter_compiler_warning_and_error(lines);
 
         let mut last = files.clone().last().cloned();
 
@@ -975,9 +975,18 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
     log::trace!("compiler commands: {:?}", compiler_commands);
     
     let start = std::time::Instant::now();
-    let child = std::process::Command::new(compiler_path)
-                            .current_dir(working_dir)
-                            .args(compiler_commands.clone())
+    let mut process = std::process::Command::new(compiler_path);
+
+    for item in compiler_commands {
+        if item.to_string_lossy().contains(" ") {
+            process.arg(item);    
+        }
+        else {
+            process.raw_arg(item);
+        }
+    }
+
+    let child = process.current_dir(working_dir)    
                             .stdout(Stdio::piped())
                             .stderr(Stdio::piped())
                             .spawn();
@@ -999,7 +1008,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                         let elapsed = start.elapsed();
                         let output_context = String::from_utf8_lossy(&output.stdout);  //filename
                         let lines:Vec<&str> = output_context.lines().collect();
-                        let (files, warning_or_message) = filter_compiler_warning_and_message(lines);
+                        let (files, warning_or_message) = filter_compiler_warning_and_error(lines);
 
                         let stderr_context = String::from_utf8_lossy(&output.stderr); 
                         
@@ -1010,7 +1019,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                     else {
                         let output_context = String::from_utf8_lossy(&output.stdout);  //filename
                         let lines:Vec<&str> = output_context.lines().collect();
-                        let (files, error_or_message) = filter_compiler_warning_and_message(lines);
+                        let (files, error_or_message) = filter_compiler_warning_and_error(lines);
 
                         let stderr_context = String::from_utf8_lossy(&output.stderr);
 
@@ -1291,7 +1300,30 @@ fn fetch_compile_source_file(build_and_compiler_type: &std::ffi::OsString, compi
 }
 
 
-fn filter_compiler_warning_and_message(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
+fn filter_compiler_warning_and_error(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
+
+    let mut files = Vec::new();
+    let mut error = Vec::new();
+
+    let mut iter = lines.iter().peekable();
+
+    while let Some(&item) = iter.next() {
+        if item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") {
+            if let Some(next) = iter.peek() {
+                if next.contains(": error ") {
+                   continue;
+                }
+            }
+            files.push(item);
+        }
+        else {
+            error.push(item);
+        }
+    }
+
+    return (files, error);
+
+
     let (files, warning):(Vec<_>, Vec<_>) = lines.into_iter().partition(|item| item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c"));
     return (files, warning);
 }
@@ -1644,6 +1676,8 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/D"));
         compiler_commands.push(std::ffi::OsString::from("TEST_DEFINE"));
         compiler_commands.push(std::ffi::OsString::from("/DTEST_DEFINE_NEW"));
+        compiler_commands.push(std::ffi::OsString::from("/D"));
+        compiler_commands.push(std::ffi::OsString::from(r#""CMAKE_INTDIR=\"Debug\"""#));
         
         compiler_commands.push(std::ffi::OsString::from("/I"));
         compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
@@ -1863,6 +1897,7 @@ mod tests {
 
         let _ = request_local_compile(&complier_path.into_os_string(), &draft_dir.into_os_string(), &compiler_commands, std::ffi::OsString::from(""), false);
     }
+
     #[test]
     fn test_local_compile_preprocess_file() {
         println!("run msvc compile .i file test");
@@ -1886,6 +1921,34 @@ mod tests {
         complier_path.push(r"Hostx64\x64\cl.exe");
 
         let _ = request_local_compile(&complier_path.into_os_string(), &draft_dir.into_os_string(), &compiler_commands, std::ffi::OsString::from(""), false);
+    }
+
+    #[test]
+    fn test_local_compile_preprocess_file_use_same_arg() {
+
+        tools::logger::init_once_logger();
+        let compiler_commands: Vec<std::ffi::OsString> = vec!["/c", "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\tests", "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\tests", 
+            "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\tests\\executiontest_autogen\\include_Debug", "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool", "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\3rdparty", 
+            "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable", "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\core", 
+            "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\common", "/Zi", "/nologo", "/W1", "/WX-", 
+            "/diagnostics:column", "/Od", "/Ob0", "/D_UNICODE", "/DUNICODE", "/DWIN32", "/D_WINDOWS", "/DUNICODE", "/D_UNICODE", "/D_USING_V110_SDK71_=1", 
+            "/DQT_DISABLE_DEPRECATED_BEFORE=0x050500", "/DQT_USE_FAST_CONCATENATION", "/DQT_USE_FAST_OPERATOR_PLUS", "/DQT_NO_CAST_TO_ASCII", 
+            "/DQT_NO_URL_CAST_FROM_STRING", "/DQT_NO_DEBUG_OUTPUT", "/DQT_TESTLIB_LIB", "/DQT_TESTCASE_BUILDDIR=\\E:/TestFuture/GammaRay/GammaRayTool/build_enable\\", 
+            "/DQT_CORE_LIB", "/DQT_GUI_LIB", "/DCMAKE_INTDIR=\\Debug\\", "/Gm-", "/EHsc", "/RTC1", "/MDd", "/GS", "/fp:precise", "/Zc:wchar_t", "/Zc:forScope", "/Zc:inline", "/GR", 
+            "/Foexecutiontest.dir\\Debug\\\\", "/Fdexecutiontest.dir\\Debug\\vc143.pdb", "/external:W0", "/Gd", "/TP", "/wd4244", "/wd4267", "/errorReport:prompt", "/external:I", 
+            "D:/WorkTool/Qt/qt_5.15.2.17/out64/include", "/external:I", "D:/WorkTool/Qt/qt_5.15.2.17/out64/include/QtTest", "/external:I", "D:/WorkTool/Qt/qt_5.15.2.17/out64/include/QtCore", 
+            "/external:I", "D:/WorkTool/Qt/qt_5.15.2.17/out64/./mkspecs/win32-msvc", "/external:I", "D:/WorkTool/Qt/qt_5.15.2.17/out64/include/QtGui", "/external:I", 
+            "D:/WorkTool/Qt/qt_5.15.2.17/out64/include/QtANGLE", "/TP", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\tests\\executiontest.dir\\Debug\\mocs_compilation_Debug.i", 
+            "E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\tests\\executiontest.dir\\Debug\\executiontest.i"].iter().map(|item|std::ffi::OsString::from(*item)).collect::<Vec<std::ffi::OsString>>();
+
+        let current_crate_dir = "E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\tests";
+        let current_crate_dir = std::path::PathBuf::from(current_crate_dir);
+
+        let env = crate::platform::windows::WindowsCompilerEnv::default();
+        let mut complier_path = env.compiler_path;
+        complier_path.push(r"Hostx64\x64\cl.exe");
+
+        let _ = request_local_compile(&complier_path.into_os_string(), &current_crate_dir.into_os_string(), &compiler_commands, std::ffi::OsString::from(""), false);
     }
 
     #[test]

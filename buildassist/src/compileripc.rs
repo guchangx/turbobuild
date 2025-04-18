@@ -39,7 +39,7 @@ impl SocketClient {
 
 
                 let mut buffer = [0 as u8; 128];
-                stream.set_read_timeout(Some(std::time::Duration::from_secs(180))).unwrap();
+                stream.set_read_timeout(Some(std::time::Duration::from_secs(360))).unwrap();
                 loop {
                     match stream.read(&mut buffer) {
                         Ok(size) => {

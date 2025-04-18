@@ -83,16 +83,18 @@ impl Receiver {
 
                         let result = crate::compiler::interface::request_compile(input, runtime.clone(), if work_env.winkits_includes_path.is_empty() {Some(work_env)} else { None }, distor).await;  
                         result.out.lines().for_each(|line| {
-                            stream.write_all(line.unwrap().as_bytes()).unwrap();
+                            let line = line.unwrap();
+                            stream.write_all(line.as_bytes()).expect(&format!("crew write out to assist failed, {:?}", line));
                         });
 
                         result.err.lines().for_each(|line| {
-                            stream.write_all(line.unwrap().as_bytes()).unwrap();
+                            let line = line.unwrap();
+                            stream.write_all(line.as_bytes()).expect(&format!("crew write err to assist failed, {:?}", line));
                         });
              
                         log::info!("assistbuild request compile done. from: {:?}", stream.peer_addr().unwrap());
                         let _ = stream.flush();
-                        let _ =  stream.shutdown(std::net::Shutdown::Both);         
+                        let _ =  stream.shutdown(std::net::Shutdown::Both);
                         break;
                     }
                 },
