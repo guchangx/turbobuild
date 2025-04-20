@@ -19,8 +19,10 @@ impl SocketClient {
         
         let addr = "localhost:22403".to_socket_addrs().unwrap().next().unwrap();
         
-        match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(2)) {
+        match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(1)) {
             Ok(mut stream) => {
+                stream.set_nodelay(true).unwrap();
+                stream.set_write_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
                 let commands: Vec<_> = compiler_input.compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
 
                 let buffer = format!(
@@ -32,28 +34,25 @@ impl SocketClient {
                     compiler_input.build_and_compiler_type.to_string_lossy()
                 );
 
-                println!("send to turbobuild: {}, task id: {}-{:?}", buffer, process_id, thread_id);
-
-                stream.write(buffer.as_bytes()).unwrap();
+                println!("{} send to turbobuild: {}, task id: {}-{:?}", current_datetime(), buffer, process_id, thread_id);
+                let size = stream.write(buffer.as_bytes());
                 stream.flush().unwrap();
-
-
                 let mut buffer = [0 as u8; 128];
                 stream.set_read_timeout(Some(std::time::Duration::from_secs(360))).unwrap();
                 loop {
                     match stream.read(&mut buffer) {
                         Ok(size) => {
                             if size == 0 {
-                                println!("read form turbobuild done. task id: {}-{:?}", process_id, thread_id);
+                                println!("{} read form turbobuild done. task id: {}-{:?}", current_datetime(), process_id, thread_id);
                                 break;
                             }
                             else if size < buffer.len() {
                                 let data = std::str::from_utf8(&buffer[0..size]).unwrap();
-                                println!("read form turbobuild: {}", data);
+                                println!("{} read form turbobuild: {}", current_datetime(), data);
                             }
                         },
                         Err(err) => {
-                            println!("read from turbobuild server failed: {:?}. task id: {}-{:?}", err, process_id, thread_id);
+                            println!("{} read from turbobuild server failed: {:?}. task id: {}-{:?}", current_datetime(), err, process_id, thread_id);
                             break;
                         }
                     }
@@ -68,6 +67,22 @@ impl SocketClient {
             },
         }
     }
+}
+
+pub fn current_datetime() -> String {
+    let total_seconds = std::time::SystemTime::now()
+        .duration_since( std::time::UNIX_EPOCH)
+        .expect("fetch current time failed.")
+        .as_secs();
+   
+    let seconds = total_seconds % 60;
+    let minutes = (total_seconds / 60) % 60;
+    let hours = (total_seconds / 3600) % 24;
+    //let days = total_seconds / 86400;
+    //let year = 1970 + days / 365;
+    //let month = (days % 365) / 30 + 1;
+    //let day = (days % 365) % 30 + 1;
+    return format!("{:02}:{:02}:{:02}", hours, minutes, seconds);
 }
 
 #[cfg(test)]

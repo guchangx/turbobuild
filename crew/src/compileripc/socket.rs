@@ -29,24 +29,21 @@ impl Receiver {
         //tokio::net::TcpListener::bind(addr.clone()).await.unwrap();
         let listener = std::net::TcpListener::bind(addr).unwrap();
 
+        let runtime = self.common.upgrade().unwrap()
+                .lock().unwrap()
+                .pool.clone().unwrap();
+
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {
                     log::debug!("new buildassist connection socket");
-                    let runtime = self.common.upgrade().unwrap()
-                        .lock().unwrap()
-                        .pool.clone().unwrap();
-                    
+
                     let distributor = self.distributor.clone();
                     let runtime_ = runtime.clone();
                     let env = self.work_env.clone();
 
-                    let _ = runtime.spawn_blocking( move || {
-                        let runtime__ = runtime_.clone();
-                        let _ = runtime_.block_on(async { Self::handle_ipc_stream(stream, runtime__, env, distributor).await; });
-                    });
- 
-                    //can't block current run.
+                    let _ =  runtime.spawn(async { Self::handle_ipc_stream(stream, runtime_, env, distributor).await; });
+
                 },
                 Err(err) => {
                     log::error!("tcplistener bind error: {}", err);

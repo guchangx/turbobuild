@@ -15,7 +15,7 @@ fn main() -> std::process::ExitCode {
 
 fn fetch_and_dist_compiler_commands() -> std::result::Result<(), ()> {
     let start = std::time::Instant::now();
-    
+    #[allow(unused_assignments)]
     let mut result = Ok(());
     let commands = commands::fetch_compiler_commands();
     match commands {

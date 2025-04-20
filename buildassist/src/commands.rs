@@ -16,8 +16,8 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
         let (project, mut compiler, commands) = fetch_and_parse_commands_for_msbuild(&mut commands);
         match commands {
             Some(commands) => {
-
-                println!("commands {:#?}", commands);
+                
+                //println!("commands {:#?}", commands); // format print
                 if compiler.is_empty() {
                     compiler = "x64".to_string();
                 }
@@ -75,11 +75,11 @@ fn fetch_compiler_parameters_from_response_file(compiler_response_file: String) 
                 break;
             }
         }
-        println!("read compiler args from temp .rsp file: {}", commands);
+        println!("{} read compiler args: {}", crate::compileripc::current_datetime(), commands);
         return Some(commands);
     }
     else {
-        println!("{:?} .rsp file do not exist", compiler_response_file)   
+        println!("{} {:?} .rsp file do not exist",  crate::compileripc::current_datetime(), compiler_response_file)   
     }
     return None;
 }

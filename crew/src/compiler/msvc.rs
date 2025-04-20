@@ -28,6 +28,8 @@ pub enum OutType {
 
 //TODO common param in func should be move in msvc struct
 use std::{io::Read, ops::{Add, Index}, sync::Arc};
+use std::os::windows::process::CommandExt;
+use std::io::BufRead;
 use crate::compiler::model::{CompilerInput, CompilerOutput, CompiledResults, PrecompiledSource};
 
 impl crate::compiler::interface::Compiler for MSVC {
@@ -160,164 +162,46 @@ impl MSVC {
 
         let outtype = request_local_precompile(compiler_path, compiler_working_dir, &self.merge_sdk_includes_into_commands(&compiler_commands), false);
         match outtype {
-            crate::compiler::msvc::OutType::Std(stdout) => {
-                handle_compile_by_std(stdout);
-
+            crate::compiler::msvc::OutType::Std(_stdout) => {
+                //handle_compile_by_std(stdout);
             },
             crate::compiler::msvc::OutType::File(fileout) => {
-                handle_compile_by_file(fileout);
-            },
-        }
+                if fileout.status == 0 {
+                    let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir);  
 
-        let (status, stdout, stderr) = request_local_precompile(compiler_path, compiler_working_dir, &self.merge_sdk_includes_into_commands(&compiler_commands), false);
+                    let addr = self.sender.lock().unwrap().schedule();
 
-        let err = String::from_utf8_lossy(&stderr);
-
-        if status == 0 {
-            let files: Vec<&str> = err.lines().collect();
-
-            let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir);
-
-            let sources = actions.compile_source_file;
-
-            if sources.len() == files.len() {
-                log::debug!("local preprocessed multiple sources, count: {:?}. elapsed time: {:?}.", files.len(), now.elapsed());
-            }
-            else
-            {
-                log::warn!("preprocessed multiple sources are different with commands. elapsed time: {:?}.", now.elapsed());
-                log::warn!("commands sources keys: {:?}, files: {:?}", sources.keys(), files);
-            }
-
-            let mut commands = tidyup_commands_for_precompile(compiler_commands);
-
-            let addr = self.sender.lock().unwrap().schedule();
-            
-            if actions.precompile_2_stdout {
-                let mut content = String::from_utf8_lossy(&stdout);
-                //TODO should not convrt to String, mybe operate stdout direct.
-    
-                let mut index = 0;
-                let mut handles = Vec::new();
-    
-                let addr_ = addr.clone();
-
-                for file in &files {
+                    let err = String::from_utf8_lossy(&fileout.err);
+                    let files: Vec<&str> = err.lines().collect();
                     
-                    let mut precompiled_result_path = std::ffi::OsString::from(file);
-                    match actions.precompiled_result_file.clone() {
-                        PrecompiledResult::PathWithPCResultName(path) => {
-                            precompiled_result_path = path.into_os_string();
-                        },
-                        PrecompiledResult::PathWithoutPCResultName(path) => {
-                            let path = path.join(file);
-                            precompiled_result_path = path.into_os_string();
-                        },
-                        _ => {},
+                    let sources = actions.compile_source_file;
+                    if sources.len() == files.len() {
+                        log::debug!("local preprocessed multiple sources, count: {:?}. elapsed time: {:?}.", files.len(), now.elapsed());
                     }
-                    commands.push(precompiled_result_path.clone());
-                    
-                    if let Some(next_file) = files.get(index + 1) {
-                        //#line 1 "D:\\TrainSpace\\json\\tests\\abi\\main.cpp"
-                        let line = format!(r#"#line 1 "{}""#, next_file).replace(r"\", r"\\");
-                        if let Some(position) = content.find(&line) {
-                            if position.gt(&0) {
+                    else
+                    {
+                        log::warn!("preprocessed multiple sources are different with commands. elapsed time: {:?}.", now.elapsed());
+                        log::warn!("commands sources keys: {:?}, files: {:?}", sources.keys(), files);
+                    }
             
-                                let (first, last) = content.split_at(position);
-                    
-                                let msvc_compile_empty_input = CompilerInput {
-                                    project: project.to_owned(),
-                                    compiler_path: compiler_path.to_owned(),
-                                    compiler_working_dir: std::ffi::OsString::from(""),
-                                    compiler_commands: Vec::<std::ffi::OsString>::new(),
-                                    build_and_compiler_type: std::ffi::OsString::from("Sync Precompiled Source File")
-                                };
-    
-                                let precompiled_suorce = PrecompiledSource {
-                                    contents: Some(first.as_bytes().to_vec()),
-                                    path: precompiled_result_path.clone()
-                                };
-    
-                                log::debug!("sync precompiled source file: {:?}. size: {:.2?}M.", std::path::PathBuf::from(precompiled_result_path).file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
-                                content = last.to_string().into();
-    
-                                let addr__ = addr_.clone();
-                                let self_ = self.clone();
-    
-                                let handle = self.runtime.spawn_blocking( move || {
-                                    let _ = self_.request_dist_compile_from_stdout(&addr__,
-                                        &msvc_compile_empty_input, &precompiled_suorce);
-                                });
-                                
-                                handles.push(handle);
-                            }
-                            else {
-                                log::warn!("posite source file line in precompile source stdout failed.");
-                                break;
-                            }
-                        }
+                    if fileout.out.is_empty() {
+                        let commands = tidyup_commands_for_precompile(compiler_commands);
+                        output = self.request_dist_compile_from_file(&actions.precompiled_result_file, project, compiler_path, compiler_working_dir, &addr, files.iter().map(|&item| item.to_string()).collect(), &commands).await;
                     }
                     else {
-    
-                        let compiler_input = CompilerInput {
-                            project: project.to_owned(),
-                            compiler_path: compiler_path.to_owned(),
-                            compiler_working_dir: compiler_working_dir.to_owned(),
-                            compiler_commands: commands.to_owned(),
-                            build_and_compiler_type: std::ffi::OsString::from("MSBuild Precompile")
-                        };
-    
-                        let precompiled_suorce = PrecompiledSource {
-                            contents: Some(content.as_bytes().to_vec()),
-                            path: std::ffi::OsString::from(&precompiled_result_path)
-                        };
-    
-                        self.runtime.block_on(async {
-                            for handle in handles {
-                                handle.await.expect("join sync precompiled results thread failed.");
-                            }    
-                        });
-                        
-                        let now = std::time::Instant::now();
-                        let addr__ = addr_.clone();
-                        
-                        let cooutput = self.runtime.block_on(async move {
-                            let output = self.request_dist_compile_from_stdout(&addr__, &compiler_input, &precompiled_suorce).await;
-                            return output;
-                        });
-                        
-                        log::debug!("request {:?} dist compile with precompiled source size: {:?}M, response elapsed: {:?}.", std::path::PathBuf::from(precompiled_result_path).file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0, now.elapsed());
-                
-                        output.status = cooutput.status;
-                        output.out = cooutput.out;
-                        output.err = cooutput.err;
-                        break;
+                        log::warn!("precompile to files with error or warning output.");
                     }
-                    index = index.add(1);
-                }
-    
-                self.sender.lock().unwrap().done(addr.as_str());
- 
-            }
-            else {
-                //prcompile to file on disk
-                log::info!("precompile to files, so dist from disk.");
-                if stdout.is_empty() {
-                    output = self.request_dist_compile_from_file(&actions.precompiled_result_file, project, compiler_path, compiler_working_dir, &addr, files.iter().map(|&item| item.to_string()).collect(), &commands).await;
                 }
                 else {
-                    log::warn!("precompile to files with error or warning output.");
+                    let output_context = String::from_utf8_lossy(&fileout.err);
+                    let lines: Vec<&str> = output_context.lines().collect();
+                    let (files, warning_or_error) = filter_compiler_warning_and_error(lines);
+                    log::info!("precompile to files with error or warning output. files: {:?}, warning_or_error: {:?}", files, warning_or_error);
+                    output.status = fileout.status;
+                    output.out = fileout.out;
+                    output.err = fileout.err;
                 }
-            }
-        }
-        else {
-            let output_context = String::from_utf8_lossy(&stderr);
-            let lines: Vec<&str> = output_context.lines().collect();
-            let (files, warning_or_error) = filter_compiler_warning_and_error(lines);
-            log::info!("precompile to files with error or warning output. files: {:?}, warning_or_error: {:?}", files, warning_or_error);
-            output.status = status;
-            output.out = stdout;
-            output.err = stderr;
+            },
         }
         return output;
     }
@@ -442,6 +326,112 @@ async fn handle_compile_by_std(mut stdout: StdOut) {
     let status = stdout.child.wait().await.unwrap();
     let code = status.code();
     println!("status code: {:?}", code);
+    /*
+    let mut content = String::from_utf8_lossy(&stdout);
+    //TODO should not convrt to String, mybe operate stdout direct.
+
+    let mut index = 0;
+    let mut handles = Vec::new();
+
+    let addr_ = addr.clone();
+
+    for file in &files {
+        
+        let mut precompiled_result_path = std::ffi::OsString::from(file);
+        match actions.precompiled_result_file.clone() {
+            PrecompiledResult::PathWithPCResultName(path) => {
+                precompiled_result_path = path.into_os_string();
+            },
+            PrecompiledResult::PathWithoutPCResultName(path) => {
+                let path = path.join(file);
+                precompiled_result_path = path.into_os_string();
+            },
+            _ => {},
+        }
+        commands.push(precompiled_result_path.clone());
+        
+        if let Some(next_file) = files.get(index + 1) {
+            //#line 1 "D:\\TrainSpace\\json\\tests\\abi\\main.cpp"
+            let line = format!(r#"#line 1 "{}""#, next_file).replace(r"\", r"\\");
+            if let Some(position) = content.find(&line) {
+                if position.gt(&0) {
+
+                    let (first, last) = content.split_at(position);
+        
+                    let msvc_compile_empty_input = CompilerInput {
+                        project: project.to_owned(),
+                        compiler_path: compiler_path.to_owned(),
+                        compiler_working_dir: std::ffi::OsString::from(""),
+                        compiler_commands: Vec::<std::ffi::OsString>::new(),
+                        build_and_compiler_type: std::ffi::OsString::from("Sync Precompiled Source File")
+                    };
+
+                    let precompiled_suorce = PrecompiledSource {
+                        contents: Some(first.as_bytes().to_vec()),
+                        path: precompiled_result_path.clone()
+                    };
+
+                    log::debug!("sync precompiled source file: {:?}. size: {:.2?}M.", std::path::PathBuf::from(precompiled_result_path).file_name().unwrap(), first.as_bytes().len() as f32 / 1024.0 / 1024.0);
+                    content = last.to_string().into();
+
+                    let addr__ = addr_.clone();
+                    let self_ = self.clone();
+
+                    let handle = self.runtime.spawn_blocking( move || {
+                        let _ = self_.request_dist_compile_from_stdout(&addr__,
+                            &msvc_compile_empty_input, &precompiled_suorce);
+                    });
+                    
+                    handles.push(handle);
+                }
+                else {
+                    log::warn!("posite source file line in precompile source stdout failed.");
+                    break;
+                }
+            }
+        }
+        else {
+
+            let compiler_input = CompilerInput {
+                project: project.to_owned(),
+                compiler_path: compiler_path.to_owned(),
+                compiler_working_dir: compiler_working_dir.to_owned(),
+                compiler_commands: commands.to_owned(),
+                build_and_compiler_type: std::ffi::OsString::from("MSBuild Precompile")
+            };
+
+            let precompiled_suorce = PrecompiledSource {
+                contents: Some(content.as_bytes().to_vec()),
+                path: std::ffi::OsString::from(&precompiled_result_path)
+            };
+
+            self.runtime.block_on(async {
+                for handle in handles {
+                    handle.await.expect("join sync precompiled results thread failed.");
+                }    
+            });
+            
+            let now = std::time::Instant::now();
+            let addr__ = addr_.clone();
+            
+            let cooutput = self.runtime.block_on(async move {
+                let output = self.request_dist_compile_from_stdout(&addr__, &compiler_input, &precompiled_suorce).await;
+                return output;
+            });
+            
+            log::debug!("request {:?} dist compile with precompiled source size: {:?}M, response elapsed: {:?}.", std::path::PathBuf::from(precompiled_result_path).file_name().unwrap(), content.as_bytes().len() as f32 / 1024.0 / 1024.0, now.elapsed());
+    
+            output.status = cooutput.status;
+            output.out = cooutput.out;
+            output.err = cooutput.err;
+            break;
+        }
+        index = index.add(1);
+    }
+
+    self.sender.lock().unwrap().done(addr.as_str());
+    
+     */
 }   
 
 async fn handle_compile_by_file(fileout: FileOut) {
@@ -985,44 +975,41 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
             process.raw_arg(item);
         }
     }
-
+    
     let child = process.current_dir(working_dir)    
+                            //.args(compiler_commands)
                             .stdout(Stdio::piped())
                             .stderr(Stdio::piped())
                             .spawn();
     
     match child {
         Ok(child) => {
-
-            /* 
-            let stdout = child.stdout.take().unwrap();
-            let mut lines = std::io::BufReader::new(stdout).lines();
-
-            while let Some(line) = lines.next() {
-                println!("Received: {:?}", line);
-            }
-            */
             match child.wait_with_output() {
                 Ok(output) => {
                     if output.status.success() {
-                        let elapsed = start.elapsed();
-                        let output_context = String::from_utf8_lossy(&output.stdout);  //filename
-                        let lines:Vec<&str> = output_context.lines().collect();
-                        let (files, warning_or_message) = filter_compiler_warning_and_error(lines);
+                        //if precompile
+                        //files warning error form stdout
+                        //logo message form stderr
 
-                        let stderr_context = String::from_utf8_lossy(&output.stderr); 
+                        let elapsed = start.elapsed();
+                        let output_context = String::from_utf8_lossy(&output.stdout);
+                        
+                        let stderr_context = String::from_utf8_lossy(&output.stderr); //filename
+
+                        let lines:Vec<&str> = stderr_context.lines().collect();
+                        let (files, warning_or_message) = filter_compiler_warning_and_error(lines);
                         
                         log::trace!("compile local file count {:?} success, elapsed time: {:?}, file: {:?}, warning: {:?}, stderr: {:?}", files.len(), elapsed, files, warning_or_message, stderr_context);
+                
                         return (output.status.code().expect("process exit code unwrap failed.") as u32, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
                         //TODO shoud not be used Arc wrap
                     }
                     else {
-                        let output_context = String::from_utf8_lossy(&output.stdout);  //filename
+                        let output_context = String::from_utf8_lossy(&output.stdout);  //error
                         let lines:Vec<&str> = output_context.lines().collect();
                         let (files, error_or_message) = filter_compiler_warning_and_error(lines);
 
                         let stderr_context = String::from_utf8_lossy(&output.stderr);
-
                         let elapsed = start.elapsed();
                         log::info!("compile file count {:?} failure, elapsed time: {:?}. file: {:?}, error: {:?}, error code: {:?}, stderr:  {:?}", files.len(), elapsed, files, error_or_message, output.status.code(), stderr_context);
 
@@ -1899,11 +1886,60 @@ mod tests {
     }
 
     #[test]
-    fn test_local_compile_preprocess_file() {
+    fn test_local_precompile_by_file() {
+        println!("run msvc .cpp file generate .i by disk file test");
+        tools::logger::init_once_logger();
+
+        let env = crate::platform::windows::WindowsCompilerEnv::default();
+
+        let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
+        compiler_commands.push(std::ffi::OsString::from("/c"));
+        compiler_commands.push(std::ffi::OsString::from("/P")); //disk file
+        compiler_commands.push(std::ffi::OsString::from("/nologo"));
+        compiler_commands.push(std::ffi::OsString::from("/MD"));
+        compiler_commands.push(std::ffi::OsString::from("/GS"));
+        compiler_commands.push(std::ffi::OsString::from("/guard:cf"));
+        compiler_commands.push(std::ffi::OsString::from("/Gy"));
+        compiler_commands.push(std::ffi::OsString::from("/Qpar"));
+        compiler_commands.push(std::ffi::OsString::from("/fp:precise"));
+        compiler_commands.push(std::ffi::OsString::from("/Qspectre"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
+        compiler_commands.push(std::ffi::OsString::from("/GR"));
+        compiler_commands.push(std::ffi::OsString::from("/TC"));
+        
+        compiler_commands.push(std::ffi::OsString::from("/I"));
+        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+        
+        for sdk_include in env.winkits_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", sdk_include.to_str().unwrap())));
+        }
+
+        //compiler_commands.push(std::ffi::OsString::from("/Filz4.i")); don't need
+
+        let current_crate_dir = env!("CARGO_MANIFEST_DIR");
+        let mut current_crate_dir = std::path::PathBuf::from(current_crate_dir);
+        current_crate_dir.pop();
+        let draft_dir = current_crate_dir.join("draft");
+
+        println!("draft dir: {:?}", draft_dir);
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, draft_dir.to_string_lossy())));
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, draft_dir.to_string_lossy())));
+
+        let mut complier_path = env.compiler_path;
+        complier_path.push(r"Hostx64\x64\cl.exe");
+
+        let _ = request_local_compile(&complier_path.into_os_string(), &draft_dir.into_os_string(), &compiler_commands, std::ffi::OsString::from(""), false);
+    }
+
+    #[test]
+    fn test_local_compile_preprocessed_file() {
         println!("run msvc compile .i file test");
         tools::logger::init_once_logger();
         let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
         compiler_commands.push(std::ffi::OsString::from("/c"));
+        compiler_commands.push(std::ffi::OsString::from("/nologo"));
         compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
         compiler_commands.push(std::ffi::OsString::from("/TC"));
 
@@ -1925,7 +1961,7 @@ mod tests {
 
     #[test]
     fn test_local_compile_preprocess_file_use_same_arg() {
-
+        println!("run msvc compile use project args test, if you want simulate the project compile, please use this test and replace args.");
         tools::logger::init_once_logger();
         let compiler_commands: Vec<std::ffi::OsString> = vec!["/c", "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\tests", "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\tests", 
             "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\tests\\executiontest_autogen\\include_Debug", "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool", "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\3rdparty", 
