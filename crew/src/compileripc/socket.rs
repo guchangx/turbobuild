@@ -1,7 +1,6 @@
 
 use std::io::BufRead;
-use std::io::Read;
-use std::io::Write;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Default, Clone)]
 pub struct Receiver {
@@ -26,39 +25,32 @@ impl Receiver {
         let addr = format!("localhost:{}", self.port);
         log::debug!("init ipc socket {}", addr);
 
-        //tokio::net::TcpListener::bind(addr.clone()).await.unwrap();
-        let listener = std::net::TcpListener::bind(addr).unwrap();
+        let listener = tokio::net::TcpListener::bind(addr.clone()).await.unwrap();
 
         let runtime = self.common.upgrade().unwrap()
                 .lock().unwrap()
                 .pool.clone().unwrap();
+        loop {
+            let (stream, _) = listener.accept().await.unwrap(); 
 
-        for stream in listener.incoming() {
-            match stream {
-                Ok(stream) => {
-                    let metrics = runtime.metrics();
-                    log::debug!("new buildassist connection socket. runtime: {:#?} {:#?}", metrics.num_workers(), metrics.num_alive_tasks());
+            let distributor = self.distributor.clone();
+            let runtime_ = runtime.clone();
+            let env = self.work_env.clone();
 
-                    let distributor = self.distributor.clone();
-                    let runtime_ = runtime.clone();
-                    let env = self.work_env.clone();
+            let _ =  runtime.spawn(async { Self::handle_ipc_stream(stream, runtime_, env, distributor).await;});
 
-                    let _ =  runtime.spawn(async { Self::handle_ipc_stream(stream, runtime_, env, distributor).await; });
-
-                },
-                Err(err) => {
-                    log::error!("tcplistener bind error: {}", err);
-                }
-            }
+            let metrics = runtime.metrics();
+            log::debug!("new buildassist connection socket. runtime: {:#?} {:#?}", metrics.num_workers(), metrics.num_alive_tasks());
         }
     }
     
-    async fn handle_ipc_stream(mut stream: std::net::TcpStream, runtime: std::sync::Arc<tokio::runtime::Handle>, work_env: crate::platform::windows::WindowsCompilerEnv, distor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) {
+    async fn handle_ipc_stream(mut stream: tokio::net::TcpStream, runtime: std::sync::Arc<tokio::runtime::Handle>, work_env: crate::platform::windows::WindowsCompilerEnv, distor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) {
        
         let mut data = "".to_string();
         let mut buffer = [0 as u8; 256];
+        
         loop {
-            match stream.read(&mut buffer) {
+            match stream.read(&mut buffer).await {
                 Ok(size) => {
                     data = data + std::str::from_utf8(&buffer[..size]).unwrap();
                     if size < buffer.len() {
@@ -80,19 +72,22 @@ impl Receiver {
                         };
 
                         let result = crate::compiler::interface::request_compile(input, runtime.clone(), if work_env.winkits_includes_path.is_empty() {Some(work_env)} else { None }, distor).await;  
-                        result.out.lines().for_each(|line| {
+   
+                        for line in result.out.lines() {
                             let line = line.unwrap();
-                            stream.write_all(line.as_bytes()).expect(&format!("crew write out to assist failed, {:?}", line));
-                        });
+                            let _ = stream.write_all(line.as_bytes()).await;
+                        };
+
                         let _ = stream.flush();
-                        result.err.lines().for_each(|line| {
+
+                        for line in result.err.lines() {
                             let line = line.unwrap();
-                            stream.write_all(line.as_bytes()).expect(&format!("crew write err to assist failed, {:?}", line));
-                        });
+                            let _ = stream.write_all(line.as_bytes()).await;
+                        };
              
                         log::info!("assistbuild request compile done. from: {:?}", stream.peer_addr().unwrap());
                         let _ = stream.flush();
-                        let _ =  stream.shutdown(std::net::Shutdown::Both);
+                        let _ =  stream.shutdown().await;
                         break;
                     }
                 },

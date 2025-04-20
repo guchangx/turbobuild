@@ -500,9 +500,7 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
 
     let _ = crate::communicate::distributor::Distributor::compile(&addr, intermediate.as_os_str().into(), &intput, &content, runtime).await;
 
-
-
-    log::debug!("transmit precompiled source file to remote server elapsed time {:?}", std::time::Instant::now().elapsed());
+    log::debug!("transmit precompiled source file to remote server elapsed time {:?}", now.elapsed());
     return precompiled_files_path;
 }
 

@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::{BufRead, Read, Write};
 use std::net::ToSocketAddrs;
 
 pub struct SocketClient {
@@ -47,8 +47,9 @@ impl SocketClient {
                                 break;
                             }
                             else if size < buffer.len() {
-                                let data = std::str::from_utf8(&buffer[0..size]).unwrap();
-                                println!("{} read form turbobuild: {}", current_datetime(), data);
+                                buffer[0..size].lines().for_each(|line| {
+                                    println!("{} read form turbobuild: {}", current_datetime(), line.unwrap());
+                                });
                             }
                         },
                         Err(err) => {
