@@ -40,11 +40,11 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
 
     let res = crate::communicate::notifier::NotificationType::Resource(info);
     //channel send
-    sender_.send(res).await.expect("send local replica resource failed.");
+    sender_.send(res).await.unwrap_or_else(|err | {log::warn!("send local replica resource failed. {:?}", err)});
 
     let mut fingerprint = crate::fingerprint::gather::SystemInfo::new();
 
-    let handle = rt.spawn(async move {
+    let _ = rt.spawn(async move {
         loop {
     
             let (cpu_usage, memory_used) = crate::fingerprint::gather::SystemInfo::fetch_cpu_and_memory_usage();

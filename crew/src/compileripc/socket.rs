@@ -21,7 +21,7 @@ impl Receiver {
         }
     } 
     
-    pub fn init(&self) {
+    pub async fn init(&self) {
         
         let addr = format!("localhost:{}", self.port);
         log::debug!("init ipc socket {}", addr);
@@ -36,7 +36,8 @@ impl Receiver {
         for stream in listener.incoming() {
             match stream {
                 Ok(stream) => {
-                    log::debug!("new buildassist connection socket");
+                    let metrics = runtime.metrics();
+                    log::debug!("new buildassist connection socket. runtime: {:#?} {:#?}", metrics.num_workers(), metrics.num_alive_tasks());
 
                     let distributor = self.distributor.clone();
                     let runtime_ = runtime.clone();
@@ -83,7 +84,7 @@ impl Receiver {
                             let line = line.unwrap();
                             stream.write_all(line.as_bytes()).expect(&format!("crew write out to assist failed, {:?}", line));
                         });
-
+                        let _ = stream.flush();
                         result.err.lines().for_each(|line| {
                             let line = line.unwrap();
                             stream.write_all(line.as_bytes()).expect(&format!("crew write err to assist failed, {:?}", line));
@@ -96,7 +97,7 @@ impl Receiver {
                     }
                 },
                 Err(err) => {
-                    println!("buildassist connect data error: {}", err);
+                    log::warn!("buildassist connect data error: {}", err);
                     break;
                 }
             }

@@ -35,7 +35,7 @@ impl SocketClient {
                 );
 
                 println!("{} send to turbobuild: {}, task id: {}-{:?}", current_datetime(), buffer, process_id, thread_id);
-                let size = stream.write(buffer.as_bytes());
+                let _size = stream.write(buffer.as_bytes());
                 stream.flush().unwrap();
                 let mut buffer = [0 as u8; 128];
                 stream.set_read_timeout(Some(std::time::Duration::from_secs(360))).unwrap();

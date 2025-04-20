@@ -52,7 +52,7 @@ pub fn run_cocrew() {
     }
 }
 
-pub fn init() {
+pub async fn init() {
     run_cocrew();
     
     let common = Common::new();
@@ -85,8 +85,8 @@ pub fn init() {
     let socket = crate::compileripc::socket::Receiver::new(weak_common.clone(), arc_dist);
     let socket_ = socket.clone();
     
-    let handle = std::thread::spawn(move || {
-        socket_.init();
+    let handle = runtime.spawn(async move {
+        socket_.init().await;
     });
     
     let arc_socket = std::sync::Arc::new(std::sync::Mutex::new(socket));
@@ -101,6 +101,6 @@ pub fn init() {
     weak_common.upgrade().unwrap().lock().unwrap().roster = Some(arc_roster);
 
     log::debug!("crew common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
-    handle.join().expect("run compiler ipc receiver failed");
     
+    let _ = handle.await; ("run compiler ipc receiver failed");
 }
