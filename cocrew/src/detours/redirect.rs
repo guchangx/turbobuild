@@ -57,7 +57,6 @@ pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE
 pub fn msvc_detours(project: String, app_path: String, command: String, workding_directory: String) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     //TODO workding_directory should be also use redirect.
      
-    log::trace!("msvc detours");
     unsafe {
         //let lpApplicationName = "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe";
         let lpApplicationName =  app_path.as_str();
@@ -138,7 +137,6 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
             CloseHandle(hStdErrorWrite);
 
             if ret == winapi::shared::minwindef::TRUE {
-                log::trace!("DetourCreateProcessWithDllExW success!");
                 
                 pass_object_name_to_redriect(hStdInWrite, &project);
                 
