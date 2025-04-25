@@ -162,38 +162,10 @@ impl MSVC {
                         //handle_compile_by_std(stdout);
                     },
                     crate::compiler::msvc::OutType::File(mut fileout) => {
-                        let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, working_dir);
-
-                        //TODO should use no blocking here
-                        while let Some(line) = fileout.out.next() {
-                            log::debug!("precompile stdout: {:?}", line);
-                        }
 
                         let addr = self.sender.lock().unwrap().schedule();
+                        output = self.handle_compile_by_filestream(&mut fileout, &compiler_input, &addr, &compiler_commands).await;
 
-                        let mut files= Vec::new();
-
-                        while let Some(line) = fileout.err.next() {
-                            log::debug!("precompile stderr: {:?}", line);
-                            let file = line.unwrap();
-
-                            if file.contains("...") // Generate
-                            {
-
-                            }
-                            else {
-                                files.push(file);
-
-                                if files.len() == actions.compile_source_file.len() {
-
-                                    let mut input = CompilerInput::from(compiler_input.clone());
-                                    input.compiler_commands = tidyup_commands_for_precompile(compiler_commands);
-                                    //TODO: should use tokio::runtime::spawn
-                                    let _ = self.request_dist_compile_from_file(&actions.precompiled_result_file, &addr, files.iter().map(|item| item.to_string()).collect(), &input).await;    
-                                }
-                            }                           
-                        }
-            
                         match fileout.child.wait() {
                             Ok(exit) => {
                                 let code = exit.code().unwrap_or(-1);
@@ -211,6 +183,8 @@ impl MSVC {
                 output.status = 1;
             },
         }
+
+        log::debug!("local precompile and dist file and commmand done. elaspsed time: {:?}", now.elapsed());
         return output;
     }
 
@@ -239,7 +213,23 @@ impl MSVC {
         log::debug!("request dist compile with precompiled source files. count: {:?}, addr: {:?}, elapsed time {:?}", len, addr, now.elapsed());
         return output;
     }
+    
+    async fn request_dist_compile_with_command(&self, addr: &str, compiler_input: CompilerInput)
+        -> CompilerOutput {
 
+        let now = std::time::Instant::now();
+
+        let precompiled_source = crate::compiler::model::PrecompiledSource {
+            contents: None,
+            path: std::ffi::OsString::new(),
+        };
+
+        let output = self.request_dist_compile_from_stdout(&addr, &compiler_input, &precompiled_source).await;
+        log::debug!("request dist compile with precompiled source files elapsed time {:?}", now.elapsed());
+        return output;
+    }
+
+    //TODO: should remove 'from_stdout'
     async fn request_dist_compile_from_stdout(&self, addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
     
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
@@ -309,10 +299,64 @@ impl MSVC {
         commands.push(std::ffi::OsString::from(format!("{}", self.work_env.msvc_includes_path.to_string_lossy())));
         return commands;
     }
+    
+    async fn handle_compile_by_filestream(&self, fileout: &mut FileOut, compiler_input: &CompilerInput, addr: &str, compiler_commands: &Vec<std::ffi::OsString>) 
+        -> CompilerOutput {
+        
+        let project_name = &compiler_input.project;
+
+        let mut files = Vec::new();
+
+        let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, &compiler_input.compiler_working_dir);
+
+        while let Some(line) = fileout.out.next() {
+            log::debug!("precompile stdout: {:?}", line);
+        }
+
+        let mut handles = Vec::new();
+        while let Some(line) = fileout.err.next() {
+            log::debug!("precompile stderr: {:?}", line);
+
+            let file = line.unwrap();
+            if file.contains("Generating Code...") || file.contains("Compiling...")
+            {
+    
+            }
+            else {
+                let runtime = self.runtime.clone();
+                let precompiled_result_path = actions.precompiled_result_file.clone();
+                let project_name_ = project_name.clone();
+                let addr = addr.to_owned();
+
+                let handle = self.runtime.spawn(async move {
+                    let files = transmit_precompiled_source_file(&addr, &project_name_.clone(), precompiled_result_path.clone(), &vec![file], &runtime).await;
+                    return files;
+                });
+                handles.push(handle);
+            }                           
+        }
+        
+        for handle in handles {
+            let mut files_ = handle.await.unwrap();
+            files.append(&mut files_);
+        }
+
+        //TODO: should be use ref of compiler_input.
+        let mut compiler_input = compiler_input.clone();
+        let mut commands = tidyup_commands_for_precompile(compiler_commands);
+        commands.append(&mut files);
+        compiler_input.compiler_commands = commands;
+
+        let output = self.request_dist_compile_with_command(&addr, compiler_input.clone()).await;
+        // send all precompiled source file and commands to remote server at same time.
+        //let _ = self.request_dist_compile_from_file(&actions.precompiled_result_file, &addr, files_.iter().map(|item| item.clone().into_string().unwrap()).collect(), &compiler_input).await; 
+        return output;
+    }
+    
 }
 
 
-async fn handle_compile_by_std(mut stdout: StdOut) {
+async fn handle_compile_by_stdstream(mut stdout: StdOut) {
 
     let file: std::sync::Arc<Vec<u8>>;
 
@@ -439,10 +483,6 @@ async fn handle_compile_by_std(mut stdout: StdOut) {
      */
 }   
 
-async fn handle_compile_by_file(fileout: FileOut) {
-
-}
-
 async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::OsString, precompiled_result: PrecompiledResult, source_files: &Vec<String>, runtime: &std::sync::Arc<tokio::runtime::Handle>)-> Vec<std::ffi::OsString> {
 
     let now = std::time::Instant::now();
@@ -465,7 +505,7 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
                 intermediate = path.join(file);
                 intermediate.set_extension("i");
             },
-            PrecompiledResult::PCResultNameWithoutPath(path) => {
+            PrecompiledResult::PCResultNameWithoutPath(_path) => {
 
             }
             _ => {},
@@ -473,6 +513,7 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
 
         log::debug!("zip precompiled file: {:?}", intermediate);
 
+        //TODO use tokio file io
         if let Ok(file) = std::fs::File::open(&intermediate) {
             zip.start_file(intermediate.file_name().unwrap().to_string_lossy(), options.to_owned()).unwrap();
             let mut file = std::io::BufReader::new(file);

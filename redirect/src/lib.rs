@@ -114,10 +114,13 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                 }
                 else {
                     let error = winapi::um::errhandlingapi::GetLastError();
-                    println!("CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                    
                     if error == winapi::shared::winerror::ERROR_PIPE_BUSY || error == winapi::shared::winerror::ERROR_FILE_NOT_FOUND {
                         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                         continue;
+                    }
+                    else {
+                        println!("CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
                     }
                 }
             }
