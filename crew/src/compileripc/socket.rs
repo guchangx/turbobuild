@@ -31,31 +31,32 @@ impl Receiver {
                 .lock().unwrap()
                 .pool.clone().unwrap();
         loop {
-            let (stream, _) = listener.accept().await.unwrap(); 
-
+            let (stream, _) = listener.accept().await.unwrap();
+            let metrics = runtime.metrics(); 
+            log::debug!("new buildassist connection socket. runtime: {:#?} {:#?}", metrics.num_workers(), metrics.num_alive_tasks());
+            
             let distributor = self.distributor.clone();
             let runtime_ = runtime.clone();
             let env = self.work_env.clone();
 
             let _ =  runtime.spawn(async { Self::handle_ipc_stream(stream, runtime_, env, distributor).await;});
-
-            let metrics = runtime.metrics();
-            log::debug!("new buildassist connection socket. runtime: {:#?} {:#?}", metrics.num_workers(), metrics.num_alive_tasks());
         }
     }
     
     async fn handle_ipc_stream(mut stream: tokio::net::TcpStream, runtime: std::sync::Arc<tokio::runtime::Handle>, work_env: crate::platform::windows::WindowsCompilerEnv, distor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) {
        
-        let mut data = "".to_string();
-        let mut buffer = [0 as u8; 256];
+        let mut data = String::new();
+        let mut buffer = [0 as u8; 1024];
+        stream.set_nodelay(true).unwrap();
         
         loop {
             match stream.read(&mut buffer).await {
                 Ok(size) => {
-                    data = data + std::str::from_utf8(&buffer[..size]).unwrap();
-                    if size < buffer.len() {
+                    data.push_str(std::str::from_utf8(&buffer[..size]).unwrap());
+
+                    if size < buffer.len() || buffer.ends_with(b"}") {
                         log::debug!("buildassist connection data {}", data);
-                        
+
                         let input: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
                         let project = input["project"].as_str().unwrap();
                         let compiler = input["compiler_path"].as_str().unwrap();
