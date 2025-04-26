@@ -1,4 +1,5 @@
-use std::io::Write;
+
+use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
 
 
@@ -182,16 +183,19 @@ impl Sender {
 
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
-                                    log::debug!("precompiled sourcefile done response: {}", response.tips);
+                                    log::debug!("precompiled sourcefile done. response: {}", response.tips);
 
                                     recv.status = response.status;
                                     recv.out = response.out;
                                     recv.err = response.err;
 
                                     let mut myself = self.clone();
-                                    self.runtime.clone().unwrap().spawn(async move {
-                                        myself.save_compile_output(&response.results).await;
+
+                                    let handle = self.runtime.clone().unwrap().spawn(async move {
+                                        let runtime = myself.runtime.clone().unwrap();
+                                        myself.save_compile_output(&response.results, &runtime).await;
                                     });
+                                    handle.await.unwrap();
                                 }
                                 else {
                                     
@@ -216,20 +220,36 @@ impl Sender {
         return recv;
     }
 
-    async fn save_compile_output(&mut self, results: &Vec<crate::communicate::package::pack::IntermediateResult>) {
-        for result in results {
-            log::debug!("save compile result: {:?}", result.file);
+    async fn save_compile_output(&mut self, results: &[crate::communicate::package::pack::IntermediateResult], runtime: &std::sync::Arc<tokio::runtime::Handle>) {
+        let mut handles = Vec::new();
+        for result in results.to_owned() {
 
-            match std::fs::OpenOptions::new().read(true).write(true).create(true).open(&result.file) {
-                Ok(file) => {
-                    let mut writer = std::io::BufWriter::new(file);
-                    writer.write_all(&result.content).unwrap();
-                    writer.flush().unwrap();
-                },
+            let handle = runtime.spawn(async move {
+                log::debug!("save compile result: {:?}", result.file);
+                match tokio::fs::OpenOptions::new().write(true).create(true).open(&result.file).await {
+                    Ok(mut file) => {
+                        file.write_all(&result.content).await.unwrap();
+
+                        //let mut writer = tokio::io::BufWriter::new(file);
+                        //writer.write_all(&result.content).await.unwrap();
+                        //writer.flush().await.unwrap();
+                    },
+                    Err(err) => {
+                        log::error!("create file failed: {}, path: {}", err, result.file);
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+
+        for hande in handles {
+            match hande.await {
+                Ok(_) => {},
                 Err(err) => {
-                    log::error!("create file failed: {}, path: {}", err, result.file);
+                    log::error!("save compile output failed: {:?}", err);
                 }
             }
         }
+        log::info!("save compile output done. file count: {}", results.len());
     }
 }
