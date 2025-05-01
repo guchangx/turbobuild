@@ -224,7 +224,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
             }
             else {
                 let code = winapi::um::errhandlingapi::GetLastError();
-                log::info!("DetourCreateProcessWithDllExW failed! error code: {}.", code);
+                log::error!("DetourCreateProcessWithDllExW failed! error code: {}. error message: {}.", code, tools::utils::get_winapi_error_message(code));
                 return (code, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
             }
 

@@ -70,6 +70,8 @@ impl Receiver {
                 let path = project.access_replica_toolchain_path();
     
                 Self::extract(&path, &content).await;
+                //TODO: report resource again to captain. 
+
             }
             else {
                 log::error!("package toolchain is not end with .zip {}", path);
@@ -315,7 +317,7 @@ type ResponseStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<p
 #[tonic::async_trait]
 impl package::communicate_server::Communicate for Receiver {
     async fn transmit_file(&self, request: tonic::Request<package::FileTrRequest>) -> core::result::Result<tonic::Response<package::FileTrResponse>, tonic::Status> {
-        log::debug!("sync request transmit file.");
+        log::debug!("sync request transmit file. from: {:?}", request.remote_addr());
         
         let tr_file = request.into_inner();
         let reply = self.transmit_file_handle(tr_file).await;

@@ -1,4 +1,3 @@
-use std::ops::Add;
 
 
 #[allow(non_camel_case_types)]
@@ -6,9 +5,10 @@ pub mod notify {
     include!("../../proto/notify.rs");
 }
 
-#[derive(Default)] 
+#[derive(Debug, Clone)]
 pub struct NotificationSender {
     common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>,
+    sender: std::sync::Arc<tokio::sync::mpsc::Sender<NotificationType>>,
 }
 
 pub enum NotificationType {
@@ -20,9 +20,10 @@ static PORT:i32 = 18912;
 
 impl NotificationSender {
 
-    pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>) ->Self {
+    pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::enter::Common>>, sender: std::sync::Arc<tokio::sync::mpsc::Sender<NotificationType>>) ->Self {
         return Self {
             common,
+            sender,
         }
     }
 
@@ -217,6 +218,7 @@ impl NotificationSender {
             let resources: Vec<crate::replica::toolchain::CrewsResource> = serde_json::from_str(message).expect("serde from json failed.");
             Self::update_crew_resource(roster, &resources).await;
             crate::replica::toolchain::Property::check_resource_and_judge_sync(resources).await;  
+            // func should do one thing at a time.
             //TODO: time-consuming task, should be done in runtime.
         }
         else {

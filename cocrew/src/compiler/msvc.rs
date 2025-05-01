@@ -1,5 +1,5 @@
 
-use crew::compiler::model::{CompilerInput, CompilerOutput, CompiledResult, CompiledResults};
+use crew::{communicate::package::CompileRecv, compiler::model::{CompiledResult, CompiledResults, CompilerInput, CompilerOutput}};
 
 pub struct MSVC {
     pub version: String,
@@ -108,11 +108,24 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
         combine_commands.push(commands[commands.len() - 1].clone());
     }
 
-    let (output, results) = request_local_compile(compiler_input.project.clone(), compiler_input.compiler_path.clone(),
-                    compiler_input.compiler_working_dir.clone(), combine_commands,
-                    compiler_input.build_and_compiler_type.clone(), true);
+    let replica_working_dir = redirect_working_dir(&compiler_input.compiler_working_dir, &compiler_input.project);
+    log::debug!("replica working dir: {:?}", replica_working_dir);
 
-    return (output, results);
+    let replica_compiler = redirect_compiler_path(compiler_input.compiler_path.clone());
+    log::debug!("replica compiler: {:?}", replica_compiler);
+    if replica_compiler.is_some() {
+        let (output, results) = request_local_compile(compiler_input.project.clone(), replica_compiler.unwrap(),
+                replica_working_dir.unwrap() , combine_commands,
+                compiler_input.build_and_compiler_type.clone(), true);
+
+        return (output, results);
+    }
+    else {
+        let mut output = CompilerOutput::default();
+        output.status = 1;
+        output.err = std::sync::Arc::new("can not find compiler in replica dir.".as_bytes().to_vec());
+        return (output, None);  
+    }
 }
 
 fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::ffi::OsString, compiler_working_dir: std::ffi::OsString, 
@@ -611,6 +624,39 @@ fn repair_original_path(project: &std::ffi::OsString, working_dir: &std::ffi::Os
         return path.as_os_str().to_owned();
     }            
 }
+
+fn redirect_compiler_path(compiler: std::ffi::OsString) -> Option<std::ffi::OsString> {
+
+    match compiler.to_string_lossy().find("MSVC") {
+        Some(index) => {
+            let mut path = compiler.to_string_lossy().to_string();
+            let path = std::path::PathBuf::from(format!(r#"{}\{}"#, tools::utils::access_replica_dir(), path.split_off(index)));
+            if std::fs::exists(&path).unwrap() {
+                return Some(path.into_os_string());
+            }
+            else {
+                return None;
+            }
+        },
+        None => return None,
+    };
+} 
+
+fn redirect_working_dir(working_dir: &std::ffi::OsString, project: &std::ffi::OsString) -> Option<std::ffi::OsString> {
+    if let Some(index) = working_dir.to_string_lossy().find(project.to_str().unwrap()) {
+        let dir = tools::utils::access_working_path("Replica").unwrap_or_default();
+        let path = std::path::PathBuf::from(format!(r#"{}\Project\{}"#, dir, working_dir.to_string_lossy().to_string().split_off(index)));
+        if std::fs::exists(&path).unwrap() {
+            return Some(path.into_os_string());
+        }
+        else {
+            return None;
+        }
+    }
+    else {
+        return None;
+    }
+} 
 
 #[cfg(test)]
 mod tests {

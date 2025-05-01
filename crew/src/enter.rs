@@ -7,6 +7,7 @@ pub struct Common {
     pub pool: std::option::Option<std::sync::Arc<tokio::runtime::Handle>>,
     pub roster: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::ResourceList>>>,
     pub tasks: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::TasksManager>>>,
+    pub notify: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::communicate::notifier::NotificationSender>>>,
 }
 
 impl Common {
@@ -18,6 +19,7 @@ impl Common {
             pool: None,
             roster: None,
             tasks: None,
+            notify: None,
         };
         
         return common;
@@ -25,7 +27,7 @@ impl Common {
 }
 
 pub fn run_cocrew() {
-    log::debug!("init crew");
+    log::debug!("check need init cocrew");
     
     let args = std::env::args().collect::<Vec<String>>();
 
@@ -53,6 +55,8 @@ pub fn run_cocrew() {
 }
 
 pub async fn init() {
+    log::debug!("init crew");
+    
     run_cocrew();
     
     let common = Common::new();

@@ -35,6 +35,26 @@ impl Packager {
         let mut file = std::fs::File::open(cl.join("Hostx64/x64/cl.exe")).expect("can't find x64 cl.exe");
         let _ = std::io::copy(&mut file, &mut zip);
 
+        let _ = zip.start_file(format!("Hostx64/x64/c1.dll"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x64/c1.dll")).expect("can't find x64 c1.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let _ = zip.start_file(format!("Hostx64/x64/c1xx.dll"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x64/c1xx.dll")).expect("can't find x64 c1xx.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let _ = zip.start_file(format!("Hostx64/x64/c2.dll"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x64/c2.dll")).expect("can't find x64 c2.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let _ = zip.start_file(format!("Hostx64/x64/mspdbcore.dll"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x64/mspdbcore.dll")).expect("can't find x64 mspdbcore.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let _ = zip.start_file(format!("Hostx64/x64/tbbmalloc.dll"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x64/tbbmalloc.dll")).expect("can't find x64 tbbmalloc.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
         let clui = path.clone();
 
         let _ = zip.start_file(format!("Hostx64/x64/1033/clui.dll"), options.clone());
@@ -43,6 +63,26 @@ impl Packager {
 
         let _ = zip.start_file(format!("Hostx64/x86/cl.exe"), options.clone()).unwrap();
         let mut file = std::fs::File::open(cl.join("Hostx64/x86/cl.exe")).expect("can't find x86 cl.exe");
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let _ = zip.start_file(format!("Hostx64/x86/c1.dll"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x86/c1.dll")).expect("can't find x86 c1.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let _ = zip.start_file(format!("Hostx64/x86/c1xx.dll"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x86/c1xx.dll")).expect("can't find x86 c1xx.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let _ = zip.start_file(format!("Hostx64/x86/c2.dll"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x86/c2.dll")).expect("can't find x86 c2.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let _ = zip.start_file(format!("Hostx64/x86/mspdbcore.dll"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x86/mspdbcore.dll")).expect("can't find x86 mspdbcore.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let _ = zip.start_file(format!("Hostx64/x86/tbbmalloc.dll"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x86/tbbmalloc.dll")).expect("can't find x86 tbbmalloc.dll");
         let _ = std::io::copy(&mut file, &mut zip);
 
         let _ = zip.start_file(format!("Hostx64/x86/1033/clui.dll"), options.clone());

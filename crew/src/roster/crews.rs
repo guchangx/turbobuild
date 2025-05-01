@@ -11,6 +11,7 @@ impl ResourceList {
         };
     }
     pub fn add(&mut self, crew: crate::replica::toolchain::CrewsResource) {
+        log::debug!("add crew: {:?}", crew);
         self.crews.push(crew);
     }
 
@@ -18,6 +19,7 @@ impl ResourceList {
         let index = self.crews.iter().position(|arg| arg.username == crew.username && arg.aliasname == crew.aliasname && arg.addr == crew.addr);
         match index {
             Some(index) => {
+                log::debug!("remove crew: {:?}", crew);
                 self.crews.remove(index);
                 true
             },
@@ -44,6 +46,7 @@ impl ResourceList {
 
     pub fn update(&mut self, crews: &Vec<crate::replica::toolchain::CrewsResource>) {
 
+        log::debug!("update crews: {:?}", crews);
         //update
         for crew in self.crews.iter_mut() {
             

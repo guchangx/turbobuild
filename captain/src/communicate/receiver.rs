@@ -52,9 +52,10 @@ impl NotificationReceiver {
     }
 
     pub async fn broadcast(&self, response: notify::NotifyResponse) {
+        log::debug!("broadcast notify response: {:?}", response);
         let mut broadcaster = self.broadcaster.lock().await;
-        broadcaster.retain_mut(|tx| {
-            tx.try_send(Ok(response.clone())).is_ok()
+        broadcaster.iter_mut().for_each(|tx| {
+            tx.try_send(Ok(response.clone())).expect("broadcast notify response failed");
         });
     }
 }
@@ -168,7 +169,8 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 error_message: "checkresource success".to_string(),
                             };
                             
-                            let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+                            //let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+                            self_.broadcast(reply).await;
                         }
                         else if notify::Type::Keepalive as i32 == notification.r#type {
                             log::debug!("keepalive request: {:?} {:?}", addr, notification);

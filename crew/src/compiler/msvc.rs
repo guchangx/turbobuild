@@ -29,7 +29,6 @@ pub enum OutType {
 //TODO common param in func should be move in msvc struct
 use std::{io::Read, ops::{Add, Index}, sync::Arc};
 use std::os::windows::process::CommandExt;
-use std::io::BufRead;
 use crate::compiler::model::{CompilerInput, CompilerOutput, CompiledResults, PrecompiledSource};
 
 impl crate::compiler::interface::Compiler for MSVC {
@@ -211,7 +210,7 @@ impl MSVC {
         let now = std::time::Instant::now();
 
         let precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, project, &precompiled_result).await;
-        log::debug!("dist sync precompiled source from file. count: {:?}, elapsed time {:?}", precompiled_files.len(), now.elapsed());
+        log::debug!("dist sync precompiled source from file. count: {:?}, addr: {}, elapsed time {:?}", precompiled_files.len(), addr, now.elapsed());
         let mut commands = compiler_commands.clone();
         for file in precompiled_files {
             commands.push(file);
@@ -238,7 +237,7 @@ impl MSVC {
     async fn request_dist_compile_from_stdout(&self, addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
     
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
-        log::debug!("in commands compiler version: {:?}", cversion);
+        log::debug!("in commands compiler version: {:?}， addr: {:?}", cversion, addr);
         if self.sender.lock().unwrap().check(addr, &cversion) {
             
             let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled, &self.runtime).await;
@@ -500,7 +499,7 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
 
     let _ = crate::communicate::distributor::Distributor::compile(&addr, intermediate.as_os_str().into(), &intput, &content, runtime).await;
 
-    log::debug!("transmit precompiled source file to remote server elapsed time {:?}", now.elapsed());
+    log::debug!("transmit precompiled source file to remote server {:?} elapsed time {:?}", &addr, now.elapsed());
     return precompiled_files_path;
 }
 
