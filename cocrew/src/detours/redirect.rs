@@ -78,6 +78,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
         
         //TODO performance issue when build time frequently call this function.
         let dllPath = tools::utils::access_working_path("redirect64.dll");
+        log::debug!("redirect64.dll {:?}", dllPath);
         if let Some(dllPath) = dllPath {
 
             let dllPath = std::ffi::CString::new(dllPath).unwrap();

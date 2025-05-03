@@ -143,9 +143,29 @@ fn uninit_custom_resource() {
     }
 }
 
+
 use std::io::BufRead;
 
 use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
+
+unsafe fn show_message_box_for_debug() {
+    use std::os::windows::ffi::OsStrExt;
+    let text: Vec<u16> = std::ffi::OsStr::new("Debug BreakPoint")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    let caption: Vec<u16> = std::ffi::OsStr::new("Attach Programe")
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
+
+    log!(info, "show debug message box for process attach");
+    
+    //just for attach debug, when message box block process run.
+    winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.as_ptr(), caption.as_ptr(), 0);
+}
+
 #[no_mangle]
 unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserved: LPVOID) -> BOOL {
     
@@ -159,24 +179,7 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
             redirect_stdout_log_2_cocrew();
             read_project_property_from_stdin();
             
-            //winapi::um::errhandlingapi::SetUnhandledExceptionFilter(Some(custom_exception_handler));
-            /* 
-            use std::os::windows::ffi::OsStrExt;
-            let _text: Vec<u16> = std::ffi::OsStr::new("Debug BreakPoint")
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-
-            let _caption: Vec<u16> = std::ffi::OsStr::new("Attach Programe")
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-
-            log!(info, "show debug message box for process attach");
-            
-            //just for attach debug
-            //winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.as_ptr(), caption.as_ptr(), 0);
-            */
+            //show_message_box_for_debug();
 
             let ret = crate::detours::DetourRestoreAfterWith();
             if ret == winapi::shared::minwindef::FALSE {

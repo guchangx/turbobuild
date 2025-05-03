@@ -93,9 +93,6 @@ pub fn replace_dir(path: &mut String) -> bool {
     else if path.contains(r"AppData\Local\Temp\") {
         return false;
     }
-    else if path.ends_with(".i") {
-        return false;
-    }
     else if path.starts_with(r"\\??\\pipe\\") {
         return false;
     }

@@ -462,10 +462,10 @@ pub unsafe fn nt_create_file(
 
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
 
-                //crate::log!(debug, "nt_create_file hook path: {:?}", name);
+                //crate::log!(debug, "nt_create_file hook path: {}", name);
                 let replace = crate::replace::replace_dir(&mut name);
                 if replace {
-                    crate::log!(debug, "nt_create_file replace hook: {:?}", name.clone());
+                    crate::log!(debug, "nt_create_file replace hook: {}", name.clone());
 
                     let mut object_name: winapi::shared::ntdef::UNICODE_STRING = std::mem::zeroed();
 

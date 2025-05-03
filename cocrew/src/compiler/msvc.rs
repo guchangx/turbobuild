@@ -332,6 +332,7 @@ fn filter_compiler_error(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
 
     return (files, error);
 }
+
 fn exact_compiler_object_file(project: std::borrow::Cow<str>, mut arg: std::borrow::Cow<str>, working_dir: &std::path::PathBuf) -> GeneratedObject {
 
     let replica = tools::utils::access_replica_dir();
@@ -536,12 +537,11 @@ pub fn redirect_stdout_log() {
         if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
             log::info!("redirect stdout log create new named pipe success. count: {}.", count);
             
-            if winapi::um::namedpipeapi::ConnectNamedPipe(pipe, std::ptr::null_mut()) == winapi::shared::minwindef::TRUE {
+            if winapi::shared::minwindef::TRUE == winapi::um::namedpipeapi::ConnectNamedPipe(pipe, std::ptr::null_mut()) {
                 log::info!("redirect stdout log be connected named pipe. count: {}", count);
 
                 let handle = tools::ptr::HandleBox::new(pipe);
                 let _ = runtime.spawn(async move {
-                //let _ = std::thread::spawn(move || {
 
                     log::info!("redirect stdout log read named pipe message task start. count: {}", count);
                     let mut buffer = vec![0u8; 512];
@@ -782,6 +782,34 @@ mod tests {
         println!("compile .i file stderr: {}", String::from_utf8_lossy(&stderr));
     }
     
+    #[test]
+    fn compile_preprocessed_file_use_project_arg() {
+        println!("run msvc compile use project args test with inject, if you want simulate the project compile, please use this test and replace args.");
+
+        tools::logger::init_once_logger();
+
+        let _handle = std::thread::spawn(||{
+            redirect_stdout_log();
+        });
+
+
+        let compiler_commands: Vec<std::ffi::OsString> = vec! ["/c", "/I \"E:\\TestFuture\\GammaRay\\GammaRayTool\\build\\3rdparty\\kde\"", "/I \"E:\\TestFuture\\GammaRay\\GammaRayTool\\3rdparty\\kde\"", "/I \"E:\\TestFuture\\GammaRay\\GammaRayTool\\build\\3rdparty\\kde\\gammaray_kitemmodels_autogen\\include_Debug\"", "/I \"E:\\TestFuture\\GammaRay\\GammaRayTool\"", "/I \"E:\\TestFuture\\GammaRay\\GammaRayTool\\3rdparty\"", "/I \"E:\\TestFuture\\GammaRay\\GammaRayTool\\build\"", "/Zi", "/nologo", "/W1", "/WX-", "/diagnostics:column", "/Od", "/Ob0", "/D", "_WINDLL", "/D", "_MBCS", "/D", "WIN32", "/D", "_WINDOWS", "/D", "QT_DISABLE_DEPRECATED_BEFORE=0x050500", "/D", "QT_USE_FAST_CONCATENATION", "/D", "QT_USE_FAST_OPERATOR_PLUS", "/D", "QT_NO_CAST_TO_ASCII", "/D", "QT_NO_URL_CAST_FROM_STRING", "/D", "QT_CORE_LIB", "/D", "CMAKE_INTDIR=\\\"Debug\\\"", "/D", "MAKE_KITEMMODELS_LIB", "/Gm-", "/EHsc", "/RTC1", "/MDd", "/GS", "/fp:precise", "/Zc:wchar_t", "/Zc:forScope", "/Zc:inline", "/GR", "/Fogammaray_kitemmodels.dir\\Debug\\", "/Fdgammaray_kitemmodels.dir\\Debug\\vc143.pdb", "/external:W0", "/Gd", "/TP", "/wd4244", "/wd4267", "/errorReport:prompt", "/external:I", "D:/WorkTool/Qt/qt_5.15.2.17/out64/include", "/external:I", "D:/WorkTool/Qt/qt_5.15.2.17/out64/include/QtCore", "/external:I", "D:/WorkTool/Qt/qt_5.15.2.17/out64/./mkspecs/win32-msvc", "/TP", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build\\3rdparty\\kde\\gammaray_kitemmodels.dir\\Debug\\mocs_compilation_Debug.i", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build\\3rdparty\\kde\\gammaray_kitemmodels.dir\\Debug\\klinkitemselectionmodel.i", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build\\3rdparty\\kde\\gammaray_kitemmodels.dir\\Debug\\kmodelindexproxymapper.i", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build\\3rdparty\\kde\\gammaray_kitemmodels.dir\\Debug\\kdescendantsproxymodel.i", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build\\3rdparty\\kde\\gammaray_kitemmodels.dir\\Debug\\kitemmodels_debug.i"]
+            .iter()
+            .map(|item|std::ffi::OsString::from(*item)).collect::<Vec<std::ffi::OsString>>();
+
+        let env = crew::platform::windows::WindowsCompilerEnv::default();
+        let mut complier_path = env.compiler_path;
+        complier_path.push(r"Hostx64\x64\cl.exe");
+
+        let mut working_dir = std::ffi::OsString::from("C:\\WorkSpace\\TurboBuildTool\\turbobuild\\Replica\\Project\\GammaRayTool\\build\\3rdparty\\kde");
+        
+        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("GammaRayTool"), 
+            &complier_path.into_os_string(), &working_dir, &compiler_commands);
+        log::info!("stdout: {}", String::from_utf8_lossy(&stdout));
+        log::info!("stderr: {}", String::from_utf8_lossy(&stderr));
+        assert!(status == 0);
+    }
+
     unsafe fn named_pipe_send_message_test() {
         use std::os::windows::ffi::OsStrExt;
         let id = std::thread::current().id();

@@ -1957,7 +1957,7 @@ mod tests {
     }
 
     #[test]
-    fn test_local_compile_preprocess_file_use_same_arg() {
+    fn test_local_compile_preprocess_file_use_project_arg() {
         println!("run msvc compile use project args test, if you want simulate the project compile, please use this test and replace args.");
         tools::logger::init_once_logger();
         let compiler_commands: Vec<std::ffi::OsString> = vec!["/c", "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\tests", "/I", "E:\\TestFuture\\GammaRay\\GammaRayTool\\tests", 
