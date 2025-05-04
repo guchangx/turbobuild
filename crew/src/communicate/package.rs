@@ -203,6 +203,9 @@ impl Sender {
                             }
                             else {
                                 log::warn!("send precompiled sourcefile reveice response failed. {}", response.tips);
+                                recv.status = response.status;
+                                recv.out = response.out;
+                                recv.err = response.err;
                             }
                         },
                         Err(err) => {

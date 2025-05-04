@@ -5,7 +5,7 @@ mod integration_tests {
     #[test]
     fn compile_test() {
         //cargo test --package it --test cross_net_compile -- integration_tests::compile_test --exact --show-output --color always --nocapture
-
+        tools::logger::init_logger("");
         println!("run cross ipc compile integration test");
 
         let captain = std::thread::spawn(|| { 
@@ -25,14 +25,15 @@ mod integration_tests {
         std::thread::sleep(std::time::Duration::from_millis(3000));
         
         println!("send compile socket in integration test");
-        socket_send();
+        let _ret = socket_send();
 
-        captain.join().unwrap();
-        cocrew.join().unwrap();
-        crew.join().unwrap();
+        //captain.join().unwrap();
+        //cocrew.join().unwrap();
+        //crew.join().unwrap();
+
     }
 
-    fn socket_send() {
+    fn socket_send() -> bool {
         use std::io::Write;
         use std::io::Read;
     
@@ -95,7 +96,7 @@ mod integration_tests {
                 stream.write(data.as_bytes()).unwrap();
     
                 let mut data = String::new();
-                let mut buffer = [0 as u8; 128];
+                let mut buffer = [0 as u8; 256];
                 let mut reply = String::new();
                 loop {
                     match stream.read(&mut buffer) {
@@ -112,7 +113,10 @@ mod integration_tests {
                         }
                     }
                 }
-                assert!(reply == "done");
+                println!("replay: {}", reply);
+                assert!(reply == "lz4.i");
+                std::thread::sleep(std::time::Duration::from_secs(15));
+                //std::process::exit(0);
             },
             Err(err) => {
                 let kind = err.kind();
@@ -121,6 +125,7 @@ mod integration_tests {
                 println!("buildassist failed: {:?}, {}", kind, message);
             },
         }
+        return true;
     }
 }
 

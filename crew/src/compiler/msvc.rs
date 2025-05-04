@@ -291,12 +291,19 @@ impl MSVC {
     
     fn merge_sdk_includes_into_commands(&self, compiler_commands: &Vec<std::ffi::OsString>) -> Vec<std::ffi::OsString> {
         let mut commands = compiler_commands.clone();
+
         for path in &self.work_env.winkits_includes_path {
-            commands.push(std::ffi::OsString::from("/I"));
-            commands.push(std::ffi::OsString::from(format!("{}", path.to_string_lossy())));
+            if !commands.contains(&path) {
+                commands.push(std::ffi::OsString::from("/I"));
+                commands.push(std::ffi::OsString::from(format!("{}", path.to_string_lossy())));
+            }
         }
-        commands.push(std::ffi::OsString::from("/I"));
-        commands.push(std::ffi::OsString::from(format!("{}", self.work_env.msvc_includes_path.to_string_lossy())));
+
+        if !commands.contains(&self.work_env.msvc_includes_path.clone().into_os_string()) {
+            commands.push(std::ffi::OsString::from("/I"));
+            commands.push(std::ffi::OsString::from(format!("{}", self.work_env.msvc_includes_path.to_string_lossy())));
+        }
+
         return commands;
     }
     
@@ -304,8 +311,6 @@ impl MSVC {
         -> CompilerOutput {
         
         let project_name = &compiler_input.project;
-
-        let mut files = Vec::new();
 
         let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, &compiler_input.compiler_working_dir);
 
@@ -336,21 +341,31 @@ impl MSVC {
             }                           
         }
         
-        for handle in handles {
-            let mut files_ = handle.await.unwrap();
-            files.append(&mut files_);
+        if handles.is_empty() {
+            log::warn!("no precompiled source file found in precompile output.");
+            let mut out = CompilerOutput::default();
+            out.status = 1;
+            return out;
         }
-
-        //TODO: should be use ref of compiler_input.
-        let mut compiler_input = compiler_input.clone();
-        let mut commands = tidyup_commands_for_precompile(compiler_commands);
-        commands.append(&mut files);
-        compiler_input.compiler_commands = commands;
-
-        let output = self.request_dist_compile_with_command(&addr, compiler_input.clone()).await;
-        // send all precompiled source file and commands to remote server at same time.
-        //let _ = self.request_dist_compile_from_file(&actions.precompiled_result_file, &addr, files_.iter().map(|item| item.clone().into_string().unwrap()).collect(), &compiler_input).await; 
-        return output;
+        else
+        {
+            let mut files = Vec::new();
+            for handle in handles {
+                let mut files_ = handle.await.unwrap();
+                files.append(&mut files_);
+            }
+    
+            //TODO: should be use ref of compiler_input.
+            let mut compiler_input = compiler_input.clone();
+            let mut commands = tidyup_commands_for_precompile(compiler_commands);
+            commands.append(&mut files);
+            compiler_input.compiler_commands = commands;
+    
+            let output = self.request_dist_compile_with_command(&addr, compiler_input.clone()).await;
+            // send all precompiled source file and commands to remote server at same time.
+            //let _ = self.request_dist_compile_from_file(&actions.precompiled_result_file, &addr, files_.iter().map(|item| item.clone().into_string().unwrap()).collect(), &compiler_input).await; 
+            return output;
+        }
     }
     
 }
@@ -1545,7 +1560,9 @@ fn tidyup_commands_for_precompile(compiler_commands: &Vec<std::ffi::OsString>) -
         cxx = item.ends_with(".cpp") || item.ends_with(".cxx") || item.ends_with(".cc");
         c = item.ends_with(".c");
 
-        return !(cxx || c || item == "/p" || item.starts_with("/fi"))
+        let removed = item == "/p" || item.starts_with("/fi") ||item == "/P" || item.starts_with("/Fi");
+        return !(cxx || c || removed);
+
     }).map(|item| item.to_owned()).collect();
 
     if cxx && c {

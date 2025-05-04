@@ -92,11 +92,13 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                 
                                 if result == winapi::shared::minwindef::FALSE || bytes == 0 {
                                     let error = winapi::um::errhandlingapi::GetLastError();
-                                    if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+                                    if error == winapi::shared::winerror::ERROR_BROKEN_PIPE || error == winapi::shared::winerror::ERROR_NO_DATA {
                                         //break;
                                     }
-                                    println!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
-                                    break;
+                                    else {
+                                        println!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                                        break;
+                                    }
                                 }
                                 unsafe {
                                     if winapi::shared::minwindef::TRUE == winapi::um::fileapi::FlushFileBuffers(handle.get().to_owned()) {
@@ -111,6 +113,7 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                         }
                     };
                     winapi::um::handleapi::CloseHandle(handle.get().to_owned());
+                    break;
                 }
                 else {
                     let error = winapi::um::errhandlingapi::GetLastError();
@@ -149,8 +152,8 @@ unsafe fn redirect_stdout_log_2_cocrew() {
 }
 
 fn read_project_property_from_stdin() {
-    RUNTIME.lock().unwrap().spawn(
-        async move {
+    //let hendle = RUNTIME.lock().unwrap().spawn(
+    //    async move {
         let stdin = std::io::stdin();
         let handle = stdin.lock();
         
@@ -169,7 +172,7 @@ fn read_project_property_from_stdin() {
                 REPLICADIR.set(dir.to_string()).unwrap();
             }
         }
-    });
+    //});
 }
 
 static MODULE_PATH :std::sync::OnceLock<std::ffi::CString> = std::sync::OnceLock::new();
@@ -262,9 +265,9 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
 
+            redirect_stdout_log_2_cocrew();
             read_project_property_from_stdin();
             fetch_module_path(hinst);
-            redirect_stdout_log_2_cocrew();
             
             //show_message_box_for_debug();
 
