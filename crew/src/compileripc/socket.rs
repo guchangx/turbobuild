@@ -88,7 +88,7 @@ impl Receiver {
              
                         log::info!("assistbuild request compile done. from: {:?}", stream.peer_addr().unwrap());
                         let _ = stream.flush();
-                        let _ =  stream.shutdown().await;
+                        let _ = stream.shutdown().await;
                         break;
                     }
                 },

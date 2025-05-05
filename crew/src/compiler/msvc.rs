@@ -593,7 +593,7 @@ fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working
     }
     else {
         commands.insert(0, std::ffi::OsString::from(r"/P"));
-        if let Some(arg) = compiler_commands.iter().find(|arg| arg.to_string_lossy().starts_with("/Fo")) {
+        if let Some(arg) = compiler_commands.iter().find(|arg| arg.to_string_lossy().starts_with("/Fo") &&  arg.to_string_lossy().starts_with(".obj")) {
             let path = arg.to_string_lossy().replace("/Fo", "/Fi").replace(".obj", ".i").replace("\\\\", "\\");
             commands.insert(1, std::ffi::OsString::from(path));
         }
@@ -1433,6 +1433,7 @@ fn filter_compiler_warning_and_error(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>)
     return (files, warning);
 }
 
+#[derive(Debug)]
 struct CompileAction {
     pub precompile_2_stdout: bool,
     pub compile_source_file: std::collections::HashMap<std::string::String, std::path::PathBuf>,
@@ -1684,7 +1685,7 @@ fn fetch_compile_pdb_path(build_and_compiler_type: std::ffi::OsString, compiler_
     return (ProgramDataBase::NonePDBPath, false);
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 enum PrecompiledResult {
     NonePCResultPath,
     PathWithPCResultName(std::path::PathBuf),
