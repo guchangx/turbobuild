@@ -108,16 +108,18 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
         combine_commands.push(commands[commands.len() - 1].clone());
     }
 
+    log::debug!("origin working dir: {:?}", compiler_input.compiler_working_dir);
     let replica_working_dir = redirect_working_dir(&compiler_input.compiler_working_dir, &compiler_input.project);
-    log::debug!("replica working dir: {:?}", replica_working_dir);
 
+    log::debug!("orgin compiler: {:?}", compiler_input.compiler_path);
     let replica_compiler = redirect_compiler_path(compiler_input.compiler_path.clone());
-    log::debug!("replica compiler: {:?}", replica_compiler);
-    if replica_compiler.is_some() {
-        let (output, results) = request_local_compile(compiler_input.project.clone(), replica_compiler.unwrap(),
-                replica_working_dir.unwrap() , combine_commands,
-                compiler_input.build_and_compiler_type.clone(), true);
 
+    if replica_compiler.is_some() {
+        let (output, results) = request_local_compile(compiler_input.project.clone(), 
+                replica_compiler.unwrap(),
+                compiler_input.compiler_working_dir.clone(), replica_working_dir.unwrap() , 
+                combine_commands, compiler_input.build_and_compiler_type.clone(), true
+            );
         return (output, results);
     }
     else {
@@ -128,17 +130,16 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
     }
 }
 
-fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::ffi::OsString, compiler_working_dir: std::ffi::OsString, 
+fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::ffi::OsString, origin_working_dir: std::ffi::OsString, replica_working_dir: std::ffi::OsString, 
                                 compiler_commands: Vec<std::ffi::OsString>, build_and_compiler_type: std::ffi::OsString,
                             sync_compile_result: bool) -> (CompilerOutput, Option<CompiledResults>) {
     use std::io::Read;
 
     let now = std::time::Instant::now();
-    let (status, stdout, stderr) = start_local_compiler(&project_name, &compiler_path, &compiler_working_dir, &compiler_commands);
+    let (status, stdout, stderr) = start_local_compiler(&project_name, &compiler_path, &replica_working_dir, &compiler_commands);
     let compile_output = String::from_utf8_lossy(&stdout);
     let compile_error = String::from_utf8_lossy(&stderr);
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
-    let mut compiled_output: Vec<std::ffi::OsString> = Vec::new();
     let mut compiled_results: CompiledResults = Vec::new();
     
     log::trace!("injectd compile status: {}, stdout: {:?} stderr: {:?}", status, compile_output, compile_error);
@@ -151,7 +152,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
 
         log::debug!("local compile file count: {:?} success, elapsed: {:?}.", lines.len(), now.elapsed());
 
-        let actions = parse_action_from_commands(&project_name, &build_and_compiler_type, &compiler_commands, &compiler_working_dir);
+        let actions = parse_action_from_commands(&project_name, &build_and_compiler_type, &compiler_commands, &replica_working_dir);
 
         let generated_object = actions.generated_object;
         let program_database = actions.program_database;
@@ -189,7 +190,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                             let mut file = std::io::BufReader::new(file);
                             let _ = file.read_to_end(&mut contents).unwrap();
 
-                            let origin = repair_original_path(&project_name, &compiler_working_dir, &result);        
+                            let origin = repair_original_path(&project_name, &origin_working_dir, &result);        
 
                             obj = Some((origin, contents));
                         },
@@ -228,7 +229,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                                     let mut contents = Vec::new();
                                     let mut file = std::io::BufReader::new(file);
                                     let _ = file.read_to_end(&mut contents).unwrap();
-                                    let origin = repair_original_path(&project_name, &compiler_working_dir, &result);        
+                                    let origin = repair_original_path(&project_name, &origin_working_dir, &result);        
                                     pdb = Some((origin, contents));
                                 },
                                 Err(error) => {
@@ -247,7 +248,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                                     let mut contents = Vec::new();
                                     let mut file = std::io::BufReader::new(file);
                                     let _ = file.read_to_end(&mut contents).unwrap();
-                                    let origin = repair_original_path(&project_name, &compiler_working_dir, &result);     
+                                    let origin = repair_original_path(&project_name, &origin_working_dir, &result);     
                                     idb = Some((origin, contents));
                                 },
                                 Err(error) => {
@@ -501,7 +502,7 @@ fn start_local_compiler(project_name: &std::ffi::OsString, compiler_path: &std::
                     -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
 
     log::trace!("project name: {:?}", project_name);
-    log::trace!("local compile working dir: {:?}", working_dir);
+    log::trace!("working dir: {:?}", working_dir);
     log::trace!("compiler path: {:?}", compiler_path);
     log::trace!("compile content: {:?}", compiler_commands);
 
@@ -599,10 +600,8 @@ pub fn redirect_stdout_log() {
 
 fn repair_original_path(project: &std::ffi::OsString, working_dir: &std::ffi::OsString, path: &std::path::PathBuf) -> std::ffi::OsString {
 
-    //E:\\TestFuture\\GammaRay\\GammaRayTool\\build_enable\\common"
-    //d:\\turbobuild\\target\\debug\\Replica\\Project\\GammaRayTool\\build_enable\\common\\gammaray_common.dir\\Debug\\lz4.obj"
+    //get the original .obj/.pdb file path
     let components = path.components().collect::<Vec<_>>();
-    
     if let Some(index) = components.iter().position(|item| item.as_os_str().to_string_lossy() == project.to_string_lossy()) {
         let result: std::path::PathBuf = components[index + 1..].iter().collect();
         
