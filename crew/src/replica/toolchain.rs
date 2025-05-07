@@ -201,7 +201,15 @@ impl Property {
         let bin_dir = compiler_env.compiler_path;
         let version = compiler_env.msvc_version;
 
+        let devicename = crate::fingerprint::gather::SystemInfo::fetch_devicename();
+        
         for item in resources {
+            // skip when addr is localhost when not in local machine.
+
+            if (item.addr == "localhost" || item.addr =="127.0.0.1") && item.devicename != devicename {
+                continue;
+            }
+
             let mut exist = false;
             for compiler in item.compiler_versions {
                 if compiler.version == version {

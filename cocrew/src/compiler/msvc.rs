@@ -140,6 +140,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     let compile_output = String::from_utf8_lossy(&stdout);
     let compile_error = String::from_utf8_lossy(&stderr);
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
+    let mut compiled_output: Vec<std::ffi::OsString> = Vec::new();
     let mut compiled_results: CompiledResults = Vec::new();
     
     log::trace!("injectd compile status: {}, stdout: {:?} stderr: {:?}", status, compile_output, compile_error);
