@@ -537,10 +537,8 @@ pub fn redirect_stdout_log() {
         0, 0, 0, std::ptr::null_mut());
         
         if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
-            log::info!("redirect stdout log create new named pipe success. count: {}.", count);
             
             if winapi::shared::minwindef::TRUE == winapi::um::namedpipeapi::ConnectNamedPipe(pipe, std::ptr::null_mut()) {
-                log::info!("redirect stdout log be connected named pipe. count: {}", count);
 
                 let handle = tools::ptr::HandleBox::new(pipe);
                 let _ = runtime.spawn(async move {
@@ -560,7 +558,7 @@ pub fn redirect_stdout_log() {
         
                         if result == winapi::shared::minwindef::FALSE || bytes == 0 {
                             let error = winapi::um::errhandlingapi::GetLastError();
-                            log::warn!("reaf pipe failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                            log::warn!("reaf pipe failed, error code: {}, message: {}, count: {}", error, tools::utils::get_winapi_error_message(error), count);
 
                             if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
                                 break;

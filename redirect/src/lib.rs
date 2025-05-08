@@ -49,7 +49,7 @@ static REPLICADIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 unsafe fn redirect_stdout_log_2_cocrew() {
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(128);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(512);
     *LOGGER.lock().unwrap() = Some(tx.clone());
 
     use std::os::windows::ffi::OsStrExt;
