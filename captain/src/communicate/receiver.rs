@@ -50,7 +50,7 @@ impl NotificationReceiver {
         });
 
     }
-
+    //TODO client exit should remove the channel.
     pub async fn broadcast(&self, response: notify::NotifyResponse) {
         log::debug!("broadcast notify response: {:?}", response);
         let mut broadcaster = self.broadcaster.lock().await;

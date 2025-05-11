@@ -558,9 +558,9 @@ pub fn redirect_stdout_log() {
         
                         if result == winapi::shared::minwindef::FALSE || bytes == 0 {
                             let error = winapi::um::errhandlingapi::GetLastError();
-                            log::warn!("reaf pipe failed, error code: {}, message: {}, count: {}", error, tools::utils::get_winapi_error_message(error), count);
 
                             if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+                                log::warn!("reaf pipe failed, error code: {}, message: {}, count: {}", error, tools::utils::get_winapi_error_message(error), count);
                                 break;
                             }
                             else {
@@ -568,9 +568,8 @@ pub fn redirect_stdout_log() {
                             }
                         }
                         let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
-                        //log::info!("redirect: {:?}", output);
-                        //println!("redirect: {}", output);
-                        tokio::io::stdout().write_all(format!("redirect: {}\n", output).as_bytes()).await.expect("Failed to write to stdout");
+                        log::info!("redirect: {:?}", output);
+                        //tokio::io::stdout().write_all(format!("redirect: {}\n", output).as_bytes()).await.expect("Failed to write to stdout");
                     }
                     winapi::um::namedpipeapi::DisconnectNamedPipe(handle.get().to_owned());
                     winapi::um::handleapi::CloseHandle(handle.get().to_owned());

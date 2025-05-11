@@ -7,7 +7,7 @@ impl Logger {
             match tx.try_send(message.clone()) {
                 Ok(_) => {},
                 Err(e) => {
-                    println!("logger send message failed: {}, message: {:?}", e, message);
+                    println!("logger send message failed: {}, message: {:?} {:?}", e, message, tx.capacity());
                 }
             }
         }

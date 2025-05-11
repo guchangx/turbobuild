@@ -27,7 +27,7 @@ impl Common {
 }
 
 pub fn run_cocrew() {
-    log::debug!("check need init cocrew");
+    log::debug!("check whether to init cocrew");
     
     let args = std::env::args().collect::<Vec<String>>();
 

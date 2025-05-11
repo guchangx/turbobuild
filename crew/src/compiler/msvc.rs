@@ -210,7 +210,8 @@ impl MSVC {
         let now = std::time::Instant::now();
 
         let precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, project, &precompiled_result).await;
-        log::debug!("dist sync precompiled source from file. count: {:?}, addr: {}, elapsed time {:?}", precompiled_files.len(), addr, now.elapsed());
+        let len = precompiled_files.len();
+        log::debug!("request dist sync precompiled source file. count: {:?}, addr: {}, elapsed time {:?}", len, addr, now.elapsed());
         let mut commands = compiler_commands.clone();
         for file in precompiled_files {
             commands.push(file);
@@ -230,7 +231,7 @@ impl MSVC {
         };
 
         let output = self.request_dist_compile_from_stdout(&addr, &input, &precompiled_suorce).await;
-        log::debug!("request dist compile with precompiled source files elapsed time {:?}", now.elapsed());
+        log::debug!("request dist compile with precompiled source files. count: {:?}, addr: {:?}, elapsed time {:?}", len, addr, now.elapsed());
         return output;
     }
 
@@ -478,7 +479,7 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
             log::error!("precompiled file not found: {:?}", intermediate);   
         }
     }
-    log::debug!("zip precompiled file elapsed time {:?}", now.elapsed());
+    log::debug!("zip precompiled file count {} elapsed time: {:?}", source_files.len(), now.elapsed());
 
     let content = zip.finish().unwrap();
     let file = content.to_owned().into_inner();

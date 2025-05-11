@@ -138,7 +138,8 @@ impl Receiver {
     }
 
     async fn storage(project: &str, path: &str, content: &[u8]) -> package::CompileTrResponse {
-
+        let now = std::time::Instant::now();
+        
         let mut reply = package::CompileTrResponse {
             progress: package::CompileProgress::Filetransfer.into(),
             out: Vec::new(),
@@ -175,7 +176,8 @@ impl Receiver {
                 }
             }
         }
-        
+
+        log::info!("transmit storage file done. elapsed: {:?}", now.elapsed());
         return reply;   
     }
 

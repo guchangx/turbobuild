@@ -14,6 +14,7 @@ fn main() -> std::process::ExitCode {
 }
 
 fn fetch_and_dist_compiler_commands() -> std::result::Result<(), ()> {
+    //println!("{} buildassist compile start.", crate::compileripc::current_datetime());
     let start = std::time::Instant::now();
     #[allow(unused_assignments)]
     let mut result = Ok(());
