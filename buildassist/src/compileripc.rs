@@ -26,7 +26,9 @@ impl SocketClient {
                 stream.set_read_timeout(Some(std::time::Duration::from_secs(360))).unwrap();
 
                 let commands: Vec<_> = compiler_input.compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
-
+                //TODO should not use project args, working_dir can do it.
+                //TODO should not use compielr path. just x86 or x64.
+                
                 let buffer = format!(
                     r#"{{"project": {:?}, "compiler_path": {:?}, "compiler_working_dir": {:?}, "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
                     compiler_input.project.to_string_lossy(),

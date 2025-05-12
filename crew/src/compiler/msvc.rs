@@ -78,12 +78,6 @@ impl MSVC {
             }
         }
 
-        let _source_file = fetch_compile_source_file(&compiler_input.build_and_compiler_type,
-            compiler_commands, &compiler_input.compiler_working_dir).unwrap();
-
-        let _object = fetch_compile_object_file(&compiler_input.build_and_compiler_type,
-                                    &compiler_commands, &compiler_input.compiler_working_dir);
-    
         let exists_source_file_in_command = determine_whether_need_compile(compiler_commands.clone());
         
         let mut compiler_output = CompilerOutput::default();
@@ -102,7 +96,7 @@ impl MSVC {
                 if true {
                     // dist with preprocessed source
                     let now = std::time::Instant::now();
-                    let output = self.request_multi_dist_once_compile(&compiler_input.project, &compiler_input.compiler_path, &compiler_input.compiler_working_dir, &compiler_commands.clone()).await;
+                    let output = self.request_multi_dist_once_compile(&compiler_input).await;
                     log::trace!("request_multi_dist_sync_once_compile elaspsed time: {:?}", now.elapsed());
                     //let output = request_dist_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
                     compiler_output.set(output);
@@ -152,21 +146,22 @@ impl MSVC {
         }
     }
 
-    async fn request_multi_dist_once_compile(&self, project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> CompilerOutput {
+    async fn request_multi_dist_once_compile(&self, compiler_input: &CompilerInput) -> CompilerOutput {
 
         let mut output = CompilerOutput::default();
         let now = std::time::Instant::now();
 
-        //&self.enrich_compiler_commands(&compiler_input);
+        let working_dir = &compiler_input.compiler_working_dir;
+        let compiler_commands = &compiler_input.compiler_commands;
 
-        let outtype = request_local_precompile(compiler_path, compiler_working_dir, &self.merge_sdk_includes_into_commands(&compiler_commands), false);
+        let outtype = request_local_precompile(&compiler_input.compiler_path, working_dir, &self.merge_sdk_includes_into_commands(&compiler_commands), false);
         match outtype {
             crate::compiler::msvc::OutType::Std(_stdout) => {
                 //handle_compile_by_std(stdout);
             },
             crate::compiler::msvc::OutType::File(fileout) => {
                 if fileout.status == 0 {
-                    let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, compiler_working_dir);  
+                    let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, working_dir);  
 
                     let addr = self.sender.lock().unwrap().schedule();
 
@@ -184,8 +179,10 @@ impl MSVC {
                     }
             
                     if fileout.out.is_empty() {
-                        let commands = tidyup_commands_for_precompile(compiler_commands);
-                        output = self.request_dist_compile_from_file(&actions.precompiled_result_file, project, compiler_path, compiler_working_dir, &addr, files.iter().map(|&item| item.to_string()).collect(), &commands).await;
+                        let mut input = CompilerInput::from(compiler_input.clone());
+                        input.compiler_commands = tidyup_commands_for_precompile(compiler_commands);
+
+                        output = self.request_dist_compile_from_file(&actions.precompiled_result_file, &addr, files.iter().map(|&item| item.to_string()).collect(), &input).await;
                     }
                     else {
                         log::warn!("precompile to files with error or warning output.");
@@ -205,25 +202,21 @@ impl MSVC {
         return output;
     }
 
-    async fn request_dist_compile_from_file(&self, precompiled_result: &PrecompiledResult, project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, addr: &str, source_files: Vec<String>, compiler_commands: &Vec<std::ffi::OsString>) 
+    async fn request_dist_compile_from_file(&self, precompiled_result: &PrecompiledResult, addr: &str, source_files: Vec<String>, compiler_input: &CompilerInput)
         -> CompilerOutput {
         let now = std::time::Instant::now();
 
-        let precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, project, &precompiled_result).await;
+        let precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, &compiler_input.project, &precompiled_result).await;
         let len = precompiled_files.len();
         log::debug!("request dist sync precompiled source file. count: {:?}, addr: {}, elapsed time {:?}", len, addr, now.elapsed());
-        let mut commands = compiler_commands.clone();
+        let mut commands = compiler_input.compiler_commands.clone();
         for file in precompiled_files {
             commands.push(file);
         }
-
-        let input = CompilerInput {
-            project: project.to_owned(),
-            compiler_path: compiler_path.to_owned(),
-            compiler_working_dir: working_dir.to_owned(),
-            compiler_commands: commands.to_owned(),
-            build_and_compiler_type: std::ffi::OsString::from("MSBuild_Precompile")
-        };
+        
+        let mut input = CompilerInput::from(compiler_input.clone());
+        input.compiler_commands =  commands.to_owned();
+        input.build_and_compiler_type = std::ffi::OsString::from("MSBuild_Precompile");
 
         let precompiled_suorce = crate::compiler::model::PrecompiledSource {
             contents: None,
@@ -1040,9 +1033,9 @@ fn start_local_compiler_by_stream(compiler_path: &std::ffi::OsString, working_di
 {
     use std::process::Stdio;
 
-    log::trace!("local compile working dir: {:?}", working_dir);
-    log::trace!("compiler path: {:?}", compiler_path);
-    log::trace!("compiler commands: {:?}", compiler_commands);
+    log::trace!("working dir: {:?}", working_dir);
+    log::trace!("path: {:?}", compiler_path);
+    log::trace!("commands: {:?}", compiler_commands);
     
     let start = std::time::Instant::now();
     let child = tokio::process::Command::new(compiler_path)

@@ -31,6 +31,7 @@ pub struct CompilerInput {
     pub compiler_commands: Vec<std::ffi::OsString>,
     pub build_and_compiler_type: std::ffi::OsString,
 }
+
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct PrecompiledSource {
     pub contents: Option<Vec<u8>>,
