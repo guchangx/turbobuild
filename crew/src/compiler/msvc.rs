@@ -1425,21 +1425,22 @@ fn tidyup_commands_for_precompile(compiler_commands: &Vec<std::ffi::OsString>) -
     let mut c = false;
     let mut commands: Vec<_> = compiler_commands.into_iter().filter(|&item| {
         let item = item.to_string_lossy().to_lowercase();
-        if item == "/TP" || item == "/TC" || item == "/Tc" || item == "/Tp" {
+
+        if item == "/tp" || item == "/tc" || item == "/TP" || item == "/TC" || item == "/Tc" || item == "/Tp" {
             specify_sourcefile_type = false;
         }
 
         cxx = item.ends_with(".cpp") || item.ends_with(".cxx");
         c = item.ends_with(".c");
 
-        return !((cxx || c || item.starts_with("/p")) || item.starts_with("/fi")) 
+        return !(cxx || c || item == "/p" || item.starts_with("/fi"))
     }).map(|item| item.to_owned()).collect();
 
     if cxx && c {
         log::warn!("cxx/cpp file and c file cannot be specified at the same time");
     }
 
-    if specify_sourcefile_type {       
+    if specify_sourcefile_type {
         commands.push(std::ffi::OsString::from(if cxx {"/TP"} else {"/TC"}));
     }
 
@@ -1990,7 +1991,8 @@ mod tests {
     fn test_tidyup_commands_for_precompile() {
         let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
         compiler_commands.push(std::ffi::OsString::from("/nologo"));
-        compiler_commands.push(std::ffi::OsString::from("/EHs /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR"));
+        compiler_commands.push(std::ffi::OsString::from("/EHs /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++17 /permissive-"));
+        compiler_commands.push(std::ffi::OsString::from("/TP"));
         compiler_commands.push(std::ffi::OsString::from(r"C:\test.c"));
         compiler_commands.push(std::ffi::OsString::from(r"C:\test.CPP"));
         let commands = tidyup_commands_for_precompile(&compiler_commands);

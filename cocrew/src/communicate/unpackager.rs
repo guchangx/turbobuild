@@ -39,7 +39,7 @@ impl Receiver {
     
         let result = tonic::transport::Server::builder()
             .tcp_nodelay(true)
-            .add_service(server.max_decoding_message_size(1024 *1024 *60).max_encoding_message_size(1024 * 1024 *60))
+            .add_service(server.max_decoding_message_size(1024 *1024 * 80).max_encoding_message_size(1024 * 1024 * 80))
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             //.serve(addr)
             .await;
@@ -273,6 +273,7 @@ impl Receiver {
 
     pub async fn check_dir_exists(project: &String, commands: &Vec<String>) {
         let path = commands.iter().find(|&item| item.starts_with("/Fd")).map(|item| item.clone());
+
         match path {
             Some(mut path) => {
                 let pdb = path.split_off(3);
@@ -283,7 +284,7 @@ impl Receiver {
 
                     let split = |pdb: std::path::PathBuf, project: &String| {
                         if project.is_empty() {
-                            return pdb;
+                            return Some(pdb);
                         }
                         else {
                             let components = pdb.components().collect::<Vec<_>>();
@@ -291,19 +292,23 @@ impl Receiver {
                                 let result: std::path::PathBuf = components[index + 1..].iter().collect();
                                 let path = replica.join("Project").join(project).join(result);
                                 let path = path.parent().unwrap().to_owned();
-                                return path;
+                                return Some(path);
                             }
                             else {
-                                return pdb;
+                                log::error!("not find project in path: {:?} project: {}.", pdb, project);
+                                return None;
                             }            
                         }
                     };
                     
-                    let path = split(pdb, project);
-                    let path = replica.join("Project").join(project).join(path);
-                    if !path.exists() {
-                        log::info!("check dir not exist, so need create dir: {:?}", path);
-                        let _ = std::fs::create_dir(path);
+                    if let Some(path) = split(pdb, project) {
+                        let path = replica.join("Project").join(project).join(path);
+                        if !path.exists() {
+                            log::info!("check dir not exist, so need create dir: {:?}", path);
+                            let _ = std::fs::create_dir(path);
+                        }
+                    }
+                    else {
                     }
                 }
             },
@@ -361,5 +366,80 @@ mod tests {
             println!("run check_dir_exists test in runtime.");
             crate::communicate::unpackager::Receiver::check_dir_exists(&"test_dir".to_string(), &commands).await;
         });
+    }
+
+    #[test]
+    fn check_dir_exists_test_args() {
+        let commands = vec![
+            "/c",
+            "/I",
+            "G:\\OpenSource\\llvm-project\\build\\lib\\Testing\\Annotations",
+            "/I",
+            "G:\\OpenSource\\llvm-project\\llvm\\lib\\Testing\\Annotations",
+            "/I",
+            "G:\\OpenSource\\llvm-project\\build\\include",
+            "/I",
+            "G:\\OpenSource\\llvm-project\\llvm\\include",
+            "/Zi",
+            "/nologo",
+            "/W4",
+            "/WX-",
+            "/diagnostics:column",
+            "/MP",
+            "/Od",
+            "/Ob0",
+            "/Oi",
+            "/D",
+            "_UNICODE",
+            "/D",
+            "UNICODE",
+            "/D",
+            "WIN32",
+            "/D",
+            "_WINDOWS",
+            "/D",
+            "UNICODE",
+            "/D",
+            "_UNICODE",
+            "/D",
+            "CMAKE_INTDIR=\\\"Debug\\\"",
+            "/Zc:preprocessor",
+            "/Gm-",
+            "/RTC1",
+            "/MDd",
+            "/GS",
+            "/fp:precise",
+            "/Zc:wchar_t",
+            "/Zc:forScope",
+            "/Zc:inline",
+            "/GR-",
+            "/std:c++17",
+            "/FoLLVMTestingAnnotations.dir\\Debug\\",
+            "/FdG:\\OpenSource\\llvm-project\\build\\Debug\\lib\\LLVMTestingAnnotations.pdb",
+            "/external:W4",
+            "/Gd",
+            "/TP",
+            "/errorReport:prompt",
+            "/we4238",
+            "/Zc:__cplusplus",
+            "/bigobj",
+            "-w14062",
+            "/Gw",
+            "/EHs-c-",
+            "/TP",
+            "G:\\OpenSource\\llvm-project\\build\\lib\\Testing\\Annotations\\LLVMTestingAnnotations.dir\\Debug\\Annotations.i"
+        ].iter().map(|item| item.to_string()).collect::<Vec<String>>();
+
+        let handle = {
+            let rt =  crate::common::RUNTIME.lock().unwrap();
+            rt.handle().clone()
+        };
+
+
+        handle.spawn(async move {
+            println!("run check_dir_exists test in runtime.");
+            crate::communicate::unpackager::Receiver::check_dir_exists(&"test_dir".to_string(), &commands).await;
+        });
+
     }
 }

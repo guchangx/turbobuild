@@ -47,8 +47,16 @@ impl Packager {
         let mut file = std::fs::File::open(cl.join("Hostx64/x64/c2.dll")).expect("can't find x64 c2.dll");
         let _ = std::io::copy(&mut file, &mut zip);
 
+        let _ = zip.start_file(format!("Hostx64/x64/mspdb140.dll"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x64/mspdb140.dll")).expect("can't find x64 mspdb140.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
         let _ = zip.start_file(format!("Hostx64/x64/mspdbcore.dll"), options.clone()).unwrap();
         let mut file = std::fs::File::open(cl.join("Hostx64/x64/mspdbcore.dll")).expect("can't find x64 mspdbcore.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let _ = zip.start_file(format!("Hostx64/x64/mspdbsrv.exe"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x64/mspdbsrv.exe")).expect("can't find x64 mspdbsrv.exe");
         let _ = std::io::copy(&mut file, &mut zip);
 
         let _ = zip.start_file(format!("Hostx64/x64/tbbmalloc.dll"), options.clone()).unwrap();
@@ -77,8 +85,16 @@ impl Packager {
         let mut file = std::fs::File::open(cl.join("Hostx64/x86/c2.dll")).expect("can't find x86 c2.dll");
         let _ = std::io::copy(&mut file, &mut zip);
 
+        let _ = zip.start_file(format!("Hostx64/x86/mspdb140.dll"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x86/mspdb140.dll")).expect("can't find x86 mspdb140.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
         let _ = zip.start_file(format!("Hostx64/x86/mspdbcore.dll"), options.clone()).unwrap();
         let mut file = std::fs::File::open(cl.join("Hostx64/x86/mspdbcore.dll")).expect("can't find x86 mspdbcore.dll");
+        let _ = std::io::copy(&mut file, &mut zip);
+
+        let _ = zip.start_file(format!("Hostx64/x86/mspdbsrv.exe"), options.clone()).unwrap();
+        let mut file = std::fs::File::open(cl.join("Hostx64/x86/mspdbsrv.exe")).expect("can't find x86 mspdbsrv.exe");
         let _ = std::io::copy(&mut file, &mut zip);
 
         let _ = zip.start_file(format!("Hostx64/x86/tbbmalloc.dll"), options.clone()).unwrap();
