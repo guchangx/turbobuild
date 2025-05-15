@@ -1,5 +1,5 @@
 
-use std::error::Error;
+use std::{any::Any, error::Error};
 
 #[allow(non_camel_case_types)]
 pub mod notify {
@@ -50,12 +50,15 @@ impl NotificationReceiver {
         });
 
     }
-    //TODO client exit should remove the channel.
+
     pub async fn broadcast(&self, response: notify::NotifyResponse) {
         log::debug!("broadcast notify response: {:?}", response);
         let mut broadcaster = self.broadcaster.lock().await;
+
         broadcaster.iter_mut().for_each(|tx| {
-            tx.try_send(Ok(response.clone())).expect("broadcast notify response failed");
+            if !tx.is_closed() {
+                tx.try_send(Ok(response.clone())).expect("broadcast notify response failed");
+            }
         });
     }
 }
@@ -230,6 +233,12 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                     }
                 }
             }
+            log::debug!("client stream request exits. addr: {:?}", addr);
+
+            let mut broadcaster = self_.broadcaster.lock().await;
+            broadcaster.retain(|tx| {
+                !tx.is_closed()
+            });
         });
 
         let response = tokio_stream::wrappers::ReceiverStream::new(rx);
