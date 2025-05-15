@@ -30,7 +30,7 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
     }
     */
 
-    //replace .cpp/.c to .i
+    //replace .cpp/.c/.cc to .i
     let commands = compiler_input.compiler_commands.clone();
     
     /* 
@@ -160,7 +160,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
 
         for line in &lines {
             let line = line.replace(r#"""#, "");
-            if line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".i") {
+            if line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") || line.ends_with(".i") {
                 if sync_compile_result {
                     let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
                     let mut pdb: Option<(std::ffi::OsString, Vec<u8>)> = None;
@@ -308,7 +308,7 @@ enum GeneratedObject {
 }
 
 fn filter_compiler_warning(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
-    let (files, warning):(Vec<_>, Vec<_>) = lines.into_iter().partition(|item| item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c"));
+    let (files, warning):(Vec<_>, Vec<_>) = lines.into_iter().partition(|item| item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cc"));
     return (files, warning);
 }
 
@@ -319,7 +319,7 @@ fn filter_compiler_error(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
     let mut iter = lines.iter().peekable();
 
     while let Some(&item) = iter.next() {
-        if item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") {
+        if item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cc") {
             if let Some(next) = iter.peek() {
                 if next.contains(": error ") {
                    continue;

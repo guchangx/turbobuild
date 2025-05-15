@@ -645,7 +645,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
         let pdb_path = std::rc::Rc::new(pdb_path);
         for line in files {
             let line = line.replace(r#"""#, "");
-            if line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".i") {
+            if line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") || line.ends_with(".i") {
                 if sync_compile_result {
                     let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
                     let mut pdb: Option<(std::ffi::OsString, Vec<u8>)> = None;
@@ -770,7 +770,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
 
 fn request_local_compile_by_preprocessed_source(msvc_compile_input: &CompilerInput, _pool: std::sync::Arc<tokio::runtime::Handle>) -> (CompilerOutput, Option<CompiledResults>) {
 
-    //replace .cpp/.c to .i
+    //replace .cpp/.c/.cc to .i
     let commands = msvc_compile_input.compiler_commands.clone();
 
     let obj_file:Vec<std::ffi::OsString> = commands.clone().into_iter().filter(|value| value.to_string_lossy().starts_with("/Fo")).collect();
@@ -1150,7 +1150,7 @@ fn extract_path_ecnclosed_quotation_arg(compiler_commands: &mut String) -> Vec<s
 
             if path_contain_space.contains(" ") || 
                 (path_contain_space.starts_with(r#"/I""#) && path_contain_space.ends_with(r#"""#)) ||
-                path_contain_space.contains(".cpp") || path_contain_space.contains(".c") {
+                path_contain_space.contains(".cpp") || path_contain_space.contains(".c") ||  path_contain_space.contains(".cc") {
                 let path_without_quotation = path_contain_space.replace('"', "");
                 include_args.push(std::ffi::OsString::from(path_without_quotation));
                 let arg = String::from(" ") + path_contain_space;
@@ -1242,7 +1242,7 @@ fn fetch_compile_source_file(build_and_compiler_type: &std::ffi::OsString, compi
         for command in compiler_commands {
             let command = command.to_string_lossy();
             
-            if command.to_lowercase().contains(".cpp") || command.to_lowercase().contains(".c") {
+            if command.to_lowercase().contains(".cpp") || command.to_lowercase().contains(".c") || command.to_lowercase().contains(".cc") {
                 let source = command.replace(r#"""#, "");
                 let mut index = source.rfind(r"\");
                 if index.is_none() {
@@ -1286,7 +1286,7 @@ fn filter_compiler_warning_and_error(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>)
     let mut iter = lines.iter().peekable();
 
     while let Some(&item) = iter.next() {
-        if item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") {
+        if item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cc") {
             if let Some(next) = iter.peek() {
                 if next.contains(": error ") {
                    continue;
@@ -1302,7 +1302,7 @@ fn filter_compiler_warning_and_error(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>)
     return (files, error);
 
 
-    let (files, warning):(Vec<_>, Vec<_>) = lines.into_iter().partition(|item| item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c"));
+    let (files, warning):(Vec<_>, Vec<_>) = lines.into_iter().partition(|item| item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cc"));
     return (files, warning);
 }
 
@@ -1334,7 +1334,7 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
             else if command == "/E" {
                 precompile_2_stdout = true;
             }
-            else if command.to_lowercase().contains(".cpp") || command.to_lowercase().contains(".c") {
+            else if command.to_lowercase().contains(".cpp") || command.to_lowercase().contains(".c") || command.to_lowercase().contains(".cc") {
                 let source = command.replace(r#"""#, "");
                 let mut index = source.rfind(r"\");
                 if index.is_none() {
@@ -1430,7 +1430,7 @@ fn tidyup_commands_for_precompile(compiler_commands: &Vec<std::ffi::OsString>) -
             specify_sourcefile_type = false;
         }
 
-        cxx = item.ends_with(".cpp") || item.ends_with(".cxx");
+        cxx = item.ends_with(".cpp") || item.ends_with(".cxx") || item.ends_with(".cc");
         c = item.ends_with(".c");
 
         return !(cxx || c || item == "/p" || item.starts_with("/fi"))
@@ -1618,7 +1618,7 @@ fn exempt_compile_current_source_by_cache(single_source_file: String, compiler_c
 fn determine_whether_need_compile(compiler_commands: Vec<std::ffi::OsString>) -> bool {
 
     let source = compiler_commands.into_iter().filter(|arg| arg.to_string_lossy().contains(".cpp") || 
-                        arg.to_string_lossy().contains(".c")).collect::<Vec<std::ffi::OsString>>();
+                        arg.to_string_lossy().contains(".c") || arg.to_string_lossy().contains(".cc")).collect::<Vec<std::ffi::OsString>>();
     if source.len() > 0 {
         return true;
     }
