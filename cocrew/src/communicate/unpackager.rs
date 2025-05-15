@@ -271,49 +271,58 @@ impl Receiver {
         }
     }
 
+    //create dir for .pdb, if parent dir not exist, .pdb file can not be generated.
     pub async fn check_dir_exists(project: &String, commands: &Vec<String>) {
-        let path = commands.iter().find(|&item| item.starts_with("/Fd")).map(|item| item.clone());
 
-        match path {
-            Some(mut path) => {
-                let pdb = path.split_off(3);
-                let pdb = std::path::PathBuf::from(pdb);
-                if pdb.has_root() && pdb.is_absolute() {
-                        
-                    let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
+        let project = project.clone();
+        let commands = commands.clone();
 
-                    let split = |pdb: std::path::PathBuf, project: &String| {
-                        if project.is_empty() {
-                            return Some(pdb);
-                        }
-                        else {
-                            let components = pdb.components().collect::<Vec<_>>();
-                            if let Some(index) = components.iter().position(|item| item.as_os_str().to_str().unwrap() == project) {
-                                let result: std::path::PathBuf = components[index + 1..].iter().collect();
-                                let path = replica.join("Project").join(project).join(result);
-                                let path = path.parent().unwrap().to_owned();
-                                return Some(path);
+        let rt = crate::common::RUNTIME.lock().unwrap();
+        let _ = rt.spawn(async move {
+            let path = commands.iter().find(|&item| item.starts_with("/Fd")).map(|item| item.clone());
+
+            match path {
+                Some(mut path) => {
+                    let pdb = path.split_off(3);
+                    let pdb = std::path::PathBuf::from(pdb);
+                    if pdb.has_root() && pdb.is_absolute() {
+                            
+                        let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
+    
+                        let split = |pdb: std::path::PathBuf, project: &String| {
+                            if project.is_empty() {
+                                return Some(pdb);
                             }
                             else {
-                                log::error!("not find project in path: {:?} project: {}.", pdb, project);
-                                return None;
-                            }            
+                                let components = pdb.components().collect::<Vec<_>>();
+                                if let Some(index) = components.iter().position(|item| item.as_os_str().to_str().unwrap() == project) {
+                                    let result: std::path::PathBuf = components[index + 1..].iter().collect();
+                                    let path = replica.join("Project").join(project).join(result);
+                                    let path = path.parent().unwrap().to_owned();
+                                    return Some(path);
+                                }
+                                else {
+                                    log::error!("not find project in path: {:?} project: {}.", pdb, project);
+                                    return None;
+                                }            
+                            }
+                        };
+                        
+                        if let Some(path) = split(pdb, &project) {
+                            let path = replica.join("Project").join(project).join(path);
+                            if !path.exists() {
+                                log::info!("check dir not exist, so need create dir: {:?}", path);
+                                let _ = std::fs::create_dir_all(path);
+                            }
                         }
-                    };
-                    
-                    if let Some(path) = split(pdb, project) {
-                        let path = replica.join("Project").join(project).join(path);
-                        if !path.exists() {
-                            log::info!("check dir not exist, so need create dir: {:?}", path);
-                            let _ = std::fs::create_dir(path);
+                        else {
                         }
                     }
-                    else {
-                    }
-                }
-            },
-            None => {},
-        }
+                },
+                None => {},
+            }
+        });
+
     }
     
 }
