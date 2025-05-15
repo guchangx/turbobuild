@@ -26,6 +26,17 @@ impl HandleBox {
 unsafe impl Send for HandleBox {}
 unsafe impl Sync for HandleBox {}
 
+static REDIRECT_DLL_PATH: std::sync::LazyLock<Option<std::ffi::CString>> = std::sync::LazyLock::new(|| {
+        if let Some(path) = tools::utils::access_working_path("redirect64.dll") {
+            log::debug!("access redirect64 path successful. {:?}", path);
+            return Some(std::ffi::CString::new(path).unwrap());
+        }
+        else {
+            log::error!("access redirect64 path failed.");
+            return None;
+        }
+    });
+
 pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE, project: &str) {
     if !project.is_empty() {
         let arg = format!("project:{}\nreplica:{}\n", project, tools::utils::access_replica_dir());
@@ -75,13 +86,9 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
         
         let lpCurrentDirectory = std::ffi::OsStr::new(&workding_directory);
         let currentDirectoryWideChars: Vec<u16> = lpCurrentDirectory.encode_wide().chain(std::iter::once(0)).collect();
-        
-        //TODO performance issue when build time frequently call this function.
-        let dllPath = tools::utils::access_working_path("redirect64.dll");
-        //log::debug!("redirect64.dll {:?}", dllPath);
-        if let Some(dllPath) = dllPath {
 
-            let dllPath = std::ffi::CString::new(dllPath).unwrap();
+        let redirect_dll_path = &*REDIRECT_DLL_PATH;
+        if let Some(dllPath) = redirect_dll_path {
             let dllPath = dllPath.as_ptr();
 
             let mut pipeAttributes = winapi::um::minwinbase::SECURITY_ATTRIBUTES {
@@ -235,7 +242,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
         }
         else
         {
-            log::error!("can't fetch redirectdll. {:?}", dllPath);
+            log::error!("access redirect64.dll failed. {:?}", redirect_dll_path);
             return (1, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
         }
     }
