@@ -2,17 +2,12 @@ pub struct Logger;
 
 impl Logger {
     pub fn log(message: impl Into<String>) {
-        if let Some(tx) = crate::LOGGER.lock().unwrap().as_ref() {
-            let message = message.into();
-            match tx.try_send(message.clone()) {
-                Ok(_) => {},
-                Err(e) => {
-                    println!("logger send message failed: {}, message: {:?} {:?}", e, message, tx.capacity());
-                }
+        let message = message.into();
+        match crate::LOGGER.tx.try_send(message.clone()) {
+            Ok(_) => {},
+            Err(e) => {
+                println!("logger send message failed: {}, message: {:?} {:?}", e, message, crate::LOGGER.tx.capacity());
             }
-        }
-        else {
-            println!("logger not ready yet, message: {}", message.into());
         }
     }
 

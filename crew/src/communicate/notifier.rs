@@ -77,7 +77,7 @@ impl NotificationSender {
                                     }
                                 }
                             }
-                            log::debug!("poll next stream end.");
+                            log::debug!("captain request stream exist.");
                         });
                     },
                     Err(status) => {

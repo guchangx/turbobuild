@@ -8,7 +8,7 @@ pub fn init_logger(module: &str) {
     .format(|buf, record| {
         writeln!(
             buf,
-            "[{} {} {}:{}:{}] {}",
+            "[{} {} {} {}:{}] {}",
             buf.timestamp_millis(),
             record.level(),
             record.target().split("::").next().unwrap_or("<unnamed>"),

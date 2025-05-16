@@ -560,15 +560,16 @@ pub fn redirect_stdout_log() {
                             let error = winapi::um::errhandlingapi::GetLastError();
 
                             if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
-                                log::warn!("reaf pipe failed, error code: {}, message: {}, count: {}", error, tools::utils::get_winapi_error_message(error), count);
+                                //The pipe has been ended.
                                 break;
                             }
                             else {
+                                log::warn!("reaf pipe failed, error code: {}, message: {}, count: {}", error, tools::utils::get_winapi_error_message(error), count);
                                 break;
                             }
                         }
                         let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
-                        log::info!("redirect: {:?}", output);
+                        log::info!("redirect: {}", output);
                         //tokio::io::stdout().write_all(format!("redirect: {}\n", output).as_bytes()).await.expect("Failed to write to stdout");
                     }
                     winapi::um::namedpipeapi::DisconnectNamedPipe(handle.get().to_owned());
@@ -774,9 +775,9 @@ mod tests {
 
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), 
             &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands);
-        assert!(status == 0);
         println!("compile .i file stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile .i file stderr: {}", String::from_utf8_lossy(&stderr));
+        assert!(status == 0);
     }
     
     #[test]

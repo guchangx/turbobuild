@@ -22,9 +22,16 @@ unsafe extern "system" fn custom_exception_handler(
     }
     winapi::um::errhandlingapi::UnhandledExceptionFilter(exception_info)
 }
+struct Channel {
+    tx:  tokio::sync::mpsc::Sender<String>, 
+    rx: std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<String>>>,
+}
 
-static LOGGER: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex::<Option<tokio::sync::mpsc::Sender<String>>>>>
-     = std::sync::LazyLock::new(|| {std::sync::Arc::new(std::sync::Mutex::new(None))});
+static LOGGER: std::sync::LazyLock<Channel> = std::sync::LazyLock::new(|| {
+        let (tx, rx) = tokio::sync::mpsc::channel::<String>(512);
+        let channel = Channel { tx, rx: std::sync::Mutex::new(Some(rx)) };
+        return channel; 
+    });
 
 static RUNTIME: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex::<tokio::runtime::Runtime>>> = std::sync::LazyLock::new(|| {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
@@ -49,9 +56,6 @@ static REPLICADIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 unsafe fn redirect_stdout_log_2_cocrew() {
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(512);
-    *LOGGER.lock().unwrap() = Some(tx.clone());
-
     use std::os::windows::ffi::OsStrExt;
     RUNTIME.lock().unwrap().spawn(async move {
         let name = std::ffi::OsString::from("\\\\.\\pipe\\redirect_stdout_log_pipe");
@@ -67,7 +71,9 @@ unsafe fn redirect_stdout_log_2_cocrew() {
      
             if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let handle = tools::ptr::HandleBox::new(pipe);
-    
+                
+                let mut rx = crate::LOGGER.rx.lock().unwrap().take().unwrap();
+
                 loop {
                     let message = rx.recv().await;
                     match message {
@@ -90,7 +96,14 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                                 println!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
                                 break;
                             }
-                            unsafe { winapi::um::fileapi::FlushFileBuffers(handle.get().to_owned()) };
+                            unsafe { 
+                                if winapi::shared::minwindef::TRUE == winapi::um::fileapi::FlushFileBuffers(handle.get().to_owned()) {
+
+                                }
+                                else {
+                                    println!("FlushFileBuffers failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
+                                }
+                            };
                         },
                         None => break,
                     }
@@ -138,9 +151,7 @@ macro_rules! log {
 }
 
 fn uninit_custom_resource() {
-    if let Some(tx) = LOGGER.lock().unwrap().take() {
-        drop(tx);
-    }
+
 }
 
 
@@ -176,6 +187,7 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
 
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
+
             redirect_stdout_log_2_cocrew();
             read_project_property_from_stdin();
             
