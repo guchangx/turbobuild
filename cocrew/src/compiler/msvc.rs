@@ -808,6 +808,38 @@ mod tests {
         assert!(status == 0);
     }
 
+    #[test]
+    fn compile_preprocessed_file_use_project_arg_2() {
+        println!("run msvc compile use project args test with inject, if you want simulate the project compile, please use this test and replace args.");
+
+        tools::logger::init_once_logger();
+
+        let _handle = std::thread::spawn(||{
+            redirect_stdout_log();
+        });
+
+        // "/MP" 
+        let compiler_commands: Vec<std::ffi::OsString> = vec!["/c", "/I \"G:\\OpenSource\\llvm-project\\build\\lib\\Support\\BLAKE3\"", "/I \"G:\\OpenSource\\llvm-project\\llvm\\lib\\Support\\BLAKE3\"", "/I \"G:\\OpenSource\\llvm-project\\build\\include\"", "/I \"G:\\OpenSource\\llvm-project\\llvm\\include\"", "/Zi", "/nologo", "/W4", "/WX-", "/diagnostics:column", "/Od", "/Ob0", "/Oi", "/D", "_UNICODE", "/D", "UNICODE", "/D", "WIN32", "/D", "_WINDOWS", "/D", "_HAS_EXCEPTIONS=0", "/D", "GTEST_HAS_RTTI=0", "/D", "_CRT_SECURE_NO_DEPRECATE", "/D", "_CRT_SECURE_NO_WARNINGS", "/D", "_CRT_NONSTDC_NO_DEPRECATE", "/D", "_CRT_NONSTDC_NO_WARNINGS", "/D", "_SCL_SECURE_NO_DEPRECATE", "/D", "_SCL_SECURE_NO_WARNINGS", "/D", "UNICODE", "/D", "_UNICODE", "/D", "__STDC_CONSTANT_MACROS", "/D", "__STDC_FORMAT_MACROS", "/D", "__STDC_LIMIT_MACROS", "/D", "CMAKE_INTDIR=\\\"Debug\\\"", "/Zc:preprocessor", "/Gm-", "/RTC1", "/MDd", "/GS", "/fp:precise", "/Zc:wchar_t", "/Zc:forScope", "/Zc:inline", "/permissive-", "/FoLLVMSupportBlake3.dir\\Debug\\", "/FdLLVMSupportBlake3.dir\\Debug\\LLVMSupportBlake3.pdb", "/external:W4", "/Gd", "/TC", "/wd4141", "/wd4146", "/wd4244", "/wd4267", "/wd4291", "/wd4351", "/wd4456", "/wd4457", "/wd4458", "/wd4459", "/wd4503", "/wd4624", "/wd4722", "/wd4100", "/wd4127", "/wd4512", "/wd4505", "/wd4610", "/wd4510", "/wd4702", "/wd4245", "/wd4706", "/wd4310", "/wd4701", "/wd4703", "/wd4389", "/wd4611", "/wd4805", "/wd4204", "/wd4577", "/wd4091", "/wd4592", "/wd4319", "/wd4709", "/wd5105", "/wd4324", "/wd4251", "/wd4275", "/errorReport:prompt", "/we4238", "-w14062", "/Gw", 
+        "D:\\OpenSource\\llvm-project\\build\\lib\\Support\\BLAKE3\\LLVMSupportBlake3.dir\\Debug\\blake3.i",
+        "D:\\OpenSource\\llvm-project\\build\\lib\\Support\\BLAKE3\\LLVMSupportBlake3.dir\\Debug\\blake3_dispatch.i",
+        "D:\\OpenSource\\llvm-project\\build\\lib\\Support\\BLAKE3\\LLVMSupportBlake3.dir\\Debug\\blake3_portable.i",
+        "D:\\OpenSource\\llvm-project\\build\\lib\\Support\\BLAKE3\\LLVMSupportBlake3.dir\\Debug\\blake3_neon.i"
+         ]
+            .iter()
+            .map(|item|std::ffi::OsString::from(*item)).collect::<Vec<std::ffi::OsString>>();
+
+
+        let complier_path = std::path::PathBuf::from(r"C:\turbobuild\target\debug\Replica\MSVC\14.39.33519\bin\Hostx64\x64\cl.exe");
+
+        let working_dir = std::ffi::OsString::from(r"C:\\turbobuild\\target\\debug\\Replica\\Project\\llvm-project\\build\\lib\\Support\\BLAKE3");
+        
+        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("llvm-project"), 
+            &complier_path.into_os_string(), &working_dir, &compiler_commands);
+        log::info!("stdout: {}", String::from_utf8_lossy(&stdout));
+        log::info!("stderr: {}", String::from_utf8_lossy(&stderr));
+        assert!(status == 0);
+    }
+
     unsafe fn named_pipe_send_message_test() {
         use std::os::windows::ffi::OsStrExt;
         let id = std::thread::current().id();
