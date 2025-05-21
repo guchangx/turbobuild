@@ -107,6 +107,16 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
     if commands.len() / 2 != 0 {
         combine_commands.push(commands[commands.len() - 1].clone());
     }
+    
+    //remote compile remove /MP. since multiple cl.exe can not be injected.
+    combine_commands.retain(|item| {
+        if item.to_string_lossy() == ("/PM") {
+            return false;
+        }
+        else {
+            return true;
+        }
+    });
 
     log::debug!("origin working dir: {:?}", compiler_input.compiler_working_dir);
     let replica_working_dir = redirect_working_dir(&compiler_input.compiler_working_dir, &compiler_input.project);
