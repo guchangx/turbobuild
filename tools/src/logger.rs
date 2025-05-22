@@ -10,7 +10,15 @@ pub fn init_logger(module: &str) {
             buf,
             "[{} {} {} {}:{}] {}",
             buf.timestamp_millis(),
-            record.level(),
+            {
+                match record.level() {
+                    log::Level::Error => "E",
+                    log::Level::Warn => "W",
+                    log::Level::Info => "I",
+                    log::Level::Debug => "D",
+                    log::Level::Trace => "T", 
+                } 
+            },
             record.target().split("::").next().unwrap_or("<unnamed>"),
             record.file().unwrap_or("<unnamed>").split(r"\").last().unwrap_or("<unnamed>"),
             record.line().unwrap_or(0),
