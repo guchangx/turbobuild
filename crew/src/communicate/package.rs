@@ -86,8 +86,8 @@ impl Sender {
             .connect_lazy();
 
         let client = pack::communicate_client::CommunicateClient::new(channel)
-            .max_decoding_message_size(1024 * 1024 * 80)
-            .max_encoding_message_size(1024 * 1024 * 80);
+            .max_decoding_message_size(1024 * 1024 * 120)
+            .max_encoding_message_size(1024 * 1024 * 120);
 
         let sender = Sender {
             client,
