@@ -143,17 +143,40 @@ fn read_project_property_from_stdin() {
     });
 }
 
+static LOGGER_LEVEL: LogLevel = LogLevel::Info;
+
+#[derive(PartialOrd, PartialEq)]
+enum LogLevel {
+    Trace = 0,
+    Debug = 1,
+    Info = 2,
+    Warn = 3,
+    Error = 4,
+}
+
 #[macro_export]
 macro_rules! log {
     ($level:ident, $($arg:tt)*) => {
-        crate::logger::Logger::$level(format!("{}:{} {}", file!(), line!(), format!($($arg)*)))
-    }
+        {   
+            let level = match stringify!($level) {
+                "trace" => crate::LogLevel::Trace,
+                "debug" => crate::LogLevel::Debug,
+                "info" => crate::LogLevel::Info,
+                "warn" => crate::LogLevel::Warn,
+                "error" => crate::LogLevel::Error,
+                _ => crate::LogLevel::Warn,
+            };
+
+            if crate::LOGGER_LEVEL <= level {
+                crate::logger::Logger::$level(format!("{}:{} {}", file!().split(r"\").last().unwrap_or("<unnamed>"), line!(), format!($($arg)*)))
+            }
+        }
+    };
 }
 
 fn uninit_custom_resource() {
 
 }
-
 
 use std::io::BufRead;
 

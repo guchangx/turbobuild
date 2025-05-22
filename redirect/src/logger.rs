@@ -13,28 +13,28 @@ impl Logger {
 
     pub fn trace(message: impl Into<String>) {
         let now = chrono::Local::now();
-        let time = now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-        Self::log(format!("[{} TRACE redriect] {}",time, message.into()));
+        let time = now.format("%H:%M:%S%.3f").to_string();
+        Self::log(format!("[{} T] {}",time, message.into()));
     }
     pub fn debug(message: impl Into<String>) {
         let now = chrono::Local::now();
-        let time = now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-        Self::log(format!("[{} DEBUG] {}", time, message.into()));
+        let time = now.format("%H:%M:%S%.3f").to_string();
+        Self::log(format!("[{} D] {}", time, message.into()));
     }
     pub fn info(message: impl Into<String>) {
         let now = chrono::Local::now();
-        let time = now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-        Self::log(format!("[{} INFO] {}", time, message.into()));
+        let time = now.format("%H:%M:%S%.3f").to_string();
+        Self::log(format!("[{} I] {}", time, message.into()));
     }
     pub fn warn(message: impl Into<String>) {
         let now = chrono::Local::now();
-        let time = now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-        Self::log(format!("[{} WARN] {}", time, message.into()));
+        let time = now.format("%H:%M:%S%.3f").to_string();
+        Self::log(format!("[{} W] {}", time, message.into()));
     }
     pub fn error(message: impl Into<String>) {
         let now = chrono::Local::now();
-        let time = now.format("%Y-%m-%d %H:%M:%S%.3f").to_string();
-        Self::log(format!("[{} ERROR] {}", time, message.into()));
+        let time = now.format("%H:%M:%S%.3f").to_string();
+        Self::log(format!("[{} E] {}", time, message.into()));
     }
 
 

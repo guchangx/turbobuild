@@ -43,7 +43,7 @@ pub unsafe fn create_file_a(
     let path = crate::utils::convert::lpstr_2_string(lp_file_name);
   
     if let Ok(mut path) = path {
-        crate::log!(debug, "hook func create_file_a path: {}", path);
+        crate::log!(trace, "create_file_a hook path: {}", path);
 
         let create_file_a: extern "C" fn(
             lp_file_name: LPCSTR,
@@ -57,6 +57,7 @@ pub unsafe fn create_file_a(
 
         let replace = crate::replace::replace(&mut path);
         if replace {
+            crate::log!(trace, "create_file_a replace hook: {}", path);
             let fake_path = crate::utils::convert::string_2_lpstr(path);
 
             let handle = create_file_a(
@@ -141,7 +142,7 @@ pub unsafe fn create_file_w(
     let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
     if let Some(mut path) = path {
 
-        crate::log!(debug, "hook func create_file_w, path: {}", path);
+        crate::log!(trace, "create_file_w hook path: {}", path);
 
         let create_file_w: extern "C" fn (
             lp_file_name: LPCWSTR,
@@ -156,7 +157,7 @@ pub unsafe fn create_file_w(
         let replace = crate::replace::replace(&mut path);
 
         if replace {
-            crate::log!(debug, "hook func create_file_w new, path: {}", path);
+            crate::log!(trace, "create_file_w replace hook: {}", path);
             let fake_path = crate::utils::convert::string_2_lpwstr(path);
                 
             let handle = create_file_w(
@@ -219,7 +220,7 @@ pub unsafe fn kernelbase_create_file_a(
   
     if let Ok(mut path) = path {
         
-        crate::log!(debug, "hook func kernelbase_create_file_a, path: {}", path);
+        crate::log!(trace, "kernelbase_create_file_a hook path: {}", path);
 
         let create_file_a: extern "C" fn(
             lp_file_name: LPCSTR,
@@ -234,6 +235,7 @@ pub unsafe fn kernelbase_create_file_a(
         let replace = crate::replace::replace(&mut path);
 
         if replace {
+            crate::log!(trace, "kernelbase_create_file_a replace hook: {}", path);
             let fake_path = crate::utils::convert::string_2_lpstr(path);
             let handle = create_file_a(
                 fake_path,
@@ -334,11 +336,11 @@ pub unsafe fn kernelbase_create_file_w(
             h_template_file: HANDLE,
         ) -> HANDLE = std::mem::transmute(CREATE_FILE_W_KERNEL_BASE);
 
-        crate::log!(debug, "hook func kernelbase_create_file_w, path: {}", path);
+        crate::log!(trace, "kernelbase_create_file_w hook path: {}", path);
 
         let replace = crate::replace::replace(&mut path);
         if replace {
-            crate::log!(debug, "hook func kernelbase_create_file_w new, path: {}", path);
+            crate::log!(trace, "kernelbase_create_file_w replace hook: {}", path);
             let fake_path = crate::utils::convert::string_2_lpwstr(path);
             
             let handle = create_file_w(
@@ -404,7 +406,7 @@ pub unsafe fn zw_query_directory_file(
         let buffer = (*file_name).Buffer;
         let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
         
-        crate::log!(debug, "hook func zw_query_directory_file, path: {:?}", name);
+        crate::log!(trace, "zw_query_directory_file path: {:?}", name);
     }
 
     let nt_status = zw_query_directory_file(
@@ -465,7 +467,7 @@ pub unsafe fn nt_create_file(
                 //crate::log!(debug, "nt_create_file hook path: {}", name);
                 let replace = crate::replace::replace_dir(&mut name);
                 if replace {
-                    crate::log!(debug, "nt_create_file replace hook: {}", name.clone());
+                    crate::log!(trace, "nt_create_file replace hook: {}", name.clone());
 
                     let mut object_name: winapi::shared::ntdef::UNICODE_STRING = std::mem::zeroed();
 
@@ -502,7 +504,7 @@ pub unsafe fn nt_create_file(
                     );
 
                     if nt_status != winapi::shared::ntstatus::STATUS_SUCCESS {
-                        crate::log!(error, "zw_create_file faile. status: {:?}", (*io_status_block).Status);
+                        crate::log!(error, "zw_create_file failed! error_code: {:?}", (*io_status_block).Status);
                     }
                     return nt_status;
                 }
