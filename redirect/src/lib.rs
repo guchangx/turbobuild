@@ -143,7 +143,25 @@ fn read_project_property_from_stdin() {
     });
 }
 
-static LOGGER_LEVEL: LogLevel = LogLevel::Info;
+static MODULE_PATH :std::sync::OnceLock<std::ffi::CString> = std::sync::OnceLock::new();
+
+fn fetch_module_path(hinst: HINSTANCE) {
+    let mut buffer = vec![0u16; 512];
+    let length = unsafe { GetModuleFileNameW(hinst, buffer.as_mut_ptr(), buffer.len() as u32) };
+    if length == 0 {
+        log!(error, "GetModuleFileNameW failed, error code: {}", unsafe {winapi::um::errhandlingapi::GetLastError()});
+    }
+    else {
+        use std::os::windows::ffi::OsStringExt;
+        buffer.truncate(length as usize);
+        let path = std::ffi::OsString::from_wide(&buffer);
+        let path = std::ffi::CString::new(path.to_string_lossy().to_string()).unwrap();
+        log!(debug, "current module path: {:?}", path);
+        MODULE_PATH.set(path).unwrap();
+    }
+}
+
+static LOGGER_LEVEL: LogLevel = LogLevel::Trace;
 
 #[derive(PartialOrd, PartialEq)]
 enum LogLevel {
@@ -167,7 +185,7 @@ macro_rules! log {
                 _ => crate::LogLevel::Warn,
             };
 
-            if crate::LOGGER_LEVEL <= level {
+            if level >= crate::LOGGER_LEVEL {
                 crate::logger::Logger::$level(format!("{}:{} {}", file!().split(r"\").last().unwrap_or("<unnamed>"), line!(), format!($($arg)*)))
             }
         }
@@ -180,7 +198,7 @@ fn uninit_custom_resource() {
 
 use std::io::BufRead;
 
-use winapi::shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID};
+use winapi::{shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID}, um::libloaderapi::GetModuleFileNameW};
 
 unsafe fn show_message_box_for_debug() {
     use std::os::windows::ffi::OsStrExt;
@@ -200,8 +218,12 @@ unsafe fn show_message_box_for_debug() {
     winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.as_ptr(), caption.as_ptr(), 0);
 }
 
+thread_local! {
+    static IN_HOOK: std::cell::Cell<bool> = std::cell::Cell::new(false);
+}
+
 #[no_mangle]
-unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserved: LPVOID) -> BOOL {
+unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserved: LPVOID) -> BOOL {
     
     if crate::detours::DetourIsHelperProcess() == winapi::shared::minwindef::TRUE {
         //println!("target application is a helper process, so do nothing.");
@@ -211,6 +233,7 @@ unsafe extern "stdcall" fn DllMain(_hinst: HINSTANCE, fdw_reason: DWORD, _reserv
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
 
+            fetch_module_path(hinst);
             redirect_stdout_log_2_cocrew();
             read_project_property_from_stdin();
             

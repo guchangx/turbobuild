@@ -1,7 +1,7 @@
 
 use winapi::{
-    shared::{minwindef::DWORD, ntdef::LPCWSTR,},
-    um::{minwinbase::LPSECURITY_ATTRIBUTES, winnt::{HANDLE, LPCSTR},}
+    shared::{minwindef::DWORD, minwindef::LPVOID, ntdef::LPCWSTR, ntdef::LPWSTR},
+    um::{minwinbase::LPSECURITY_ATTRIBUTES, winnt::{HANDLE, LPCSTR, LPSTR}}
 };
 
 pub static mut CREATE_FILE_A: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
@@ -10,6 +10,8 @@ pub static mut CREATE_FILE_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std:
 pub static mut CREATE_FILE_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut ZW_QUERY_DIRECTORY_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut NT_CREATE_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+pub static mut CREATE_PROCESS_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+pub static mut CREATE_PROCESS_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 
 
 const PIPE_PREFIX_CONTENT_W: &[u16] = &['\\' as u16, '\\' as u16, '.' as u16, '\\' as u16, 'p' as u16, 'i' as u16, 'p' as u16, 'e' as u16, '\\' as u16];  //\\.\\pipe\\ or \\??\\pipe\\
@@ -283,7 +285,6 @@ pub unsafe fn kernelbase_create_file_a(
     }
 }
 
-
 pub unsafe fn kernelbase_create_file_w(
     lp_file_name: LPCWSTR,
     dw_desired_access: DWORD,
@@ -386,6 +387,245 @@ pub unsafe fn kernelbase_create_file_w(
 
 }
 
+pub unsafe fn kernelbase_create_process_a(
+    lp_application_name: LPCSTR,
+    lp_command_line: LPSTR,
+    lp_process_attributes: LPSECURITY_ATTRIBUTES,
+    lp_thread_attributes: LPSECURITY_ATTRIBUTES,
+    b_inherit_handles: super::ntdef::types::BOOL,
+    dw_creation_flags: DWORD,
+    lp_environment: LPVOID,
+    lp_current_directory: LPCSTR,
+    lp_startup_info: crate::detours::LPSTARTUPINFOA,
+    lp_process_information: crate::detours::LPPROCESS_INFORMATION,
+) -> HANDLE {
+
+    let application = crate::utils::convert::lpstr_2_string(lp_application_name);
+  
+    if let Ok(application) = application {
+        
+        crate::log!(info, "kernelbase_create_process_a hook path: {}", application);
+        //crate::log!(info, "kernelbase_create_process_a hook commandline: {:?}", crate::utils::convert::lpstr_2_string(lp_command_line));
+
+        let dllpath = crate::MODULE_PATH.get();
+
+        if application.ends_with("cl.exe") && dllpath.is_some() && crate::IN_HOOK.get() == false {
+            crate::IN_HOOK.set(true);
+
+            let ret = crate::detours::DetourCreateProcessWithDllExA(
+                lp_application_name,
+                lp_command_line,
+                lp_process_attributes as *mut crate::detours::_SECURITY_ATTRIBUTES,
+                lp_thread_attributes as *mut crate::detours::_SECURITY_ATTRIBUTES, 
+                b_inherit_handles as i32, 
+                dw_creation_flags,
+                lp_environment as *mut std::ffi::c_void,
+                lp_current_directory, 
+                lp_startup_info,
+                lp_process_information, 
+                dllpath.unwrap().as_ptr() as *const i8,
+                Option::None
+            );
+            
+            if ret == winapi::shared::minwindef::TRUE { 
+                return (*lp_process_information).hProcess as winapi::um::winnt::HANDLE;
+            }
+            else {
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+                crate::log!(error, "detour create process withdllexa failed! error_code: {}.", error_code);
+
+                let create_process_a: extern "C" fn(
+                    lp_application_name: LPCSTR,
+                    lp_command_line: LPSTR,
+                    lp_process_attributes: LPSECURITY_ATTRIBUTES,
+                    lp_thread_attributes: LPSECURITY_ATTRIBUTES,
+                    b_inherit_handles: super::ntdef::types::BOOL,
+                    dw_creation_flags: DWORD,
+                    lp_environment: LPVOID,
+                    lp_current_directory: LPCSTR,
+                    lp_startup_info: crate::detours::LPSTARTUPINFOA,
+                    lp_process_information: crate::detours::LPPROCESS_INFORMATION,
+                ) -> HANDLE = std::mem::transmute(CREATE_PROCESS_A_KERNEL_BASE);
+                
+
+                let handle = create_process_a (
+                    lp_application_name,
+                    lp_command_line,
+                    lp_process_attributes,
+                    lp_thread_attributes,
+                    b_inherit_handles,
+                    dw_creation_flags,
+                    lp_environment,
+                    lp_current_directory,
+                    lp_startup_info,
+                    lp_process_information);
+                
+                if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                    let error_code = winapi::um::errhandlingapi::GetLastError();
+                    crate::log!(error, "kernelbase_create_process_a failed! error_code: {}.", error_code);
+                }
+                return handle;
+            }
+        }
+        else
+        {
+            let create_process_a: extern "C" fn(
+                lp_application_name: LPCSTR,
+                lp_command_line: LPSTR,
+                lp_process_attributes: LPSECURITY_ATTRIBUTES,
+                lp_thread_attributes: LPSECURITY_ATTRIBUTES,
+                b_inherit_handles: super::ntdef::types::BOOL,
+                dw_creation_flags: DWORD,
+                lp_environment: LPVOID,
+                lp_current_directory: LPCSTR,
+                lp_startup_info: crate::detours::LPSTARTUPINFOA,
+                lp_process_information: crate::detours::LPPROCESS_INFORMATION,
+            ) -> HANDLE = std::mem::transmute(CREATE_PROCESS_A_KERNEL_BASE);
+    
+            let handle = create_process_a (
+                lp_application_name,
+                lp_command_line,
+                lp_process_attributes,
+                lp_thread_attributes,
+                b_inherit_handles,
+                dw_creation_flags,
+                lp_environment,
+                lp_current_directory,
+                lp_startup_info,
+                lp_process_information);
+            
+            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+                crate::log!(error, "kernelbase_create_process_a failed! error_code: {}.", error_code);
+            }
+    
+            return handle;
+        }
+    }
+    else {
+        return 0 as HANDLE;
+    }
+}
+
+pub unsafe fn kernelbase_create_process_w(
+    lp_application_name: LPCWSTR,
+    lp_command_line: LPWSTR,
+    lp_process_attributes: LPSECURITY_ATTRIBUTES,
+    lp_thread_attributes: LPSECURITY_ATTRIBUTES,
+    b_inherit_handles: super::ntdef::types::BOOL,
+    dw_creation_flags: DWORD,
+    lp_environment: LPVOID,
+    lp_current_directory: LPCWSTR,
+    lp_startup_info: crate::detours::LPSTARTUPINFOW,
+    lp_process_information: crate::detours::LPPROCESS_INFORMATION,
+) -> HANDLE {
+    
+    let application = crate::utils::convert::lpwstr_2_string(lp_application_name);
+
+    if let Some(application) = application {
+        
+        crate::log!(info, "kernelbase_create_process_w hook path: {}", application);
+        //crate::log!(info, "kernelbase_create_process_w hook commandline: {:?}", crate::utils::convert::lpwstr_2_string(lp_command_line));
+
+        let dllpath = crate::MODULE_PATH.get();
+
+        if application.ends_with("cl.exe") && dllpath.is_some() && crate::IN_HOOK.get() == false {
+            
+            crate::IN_HOOK.set(true);
+
+            let ret = crate::detours::DetourCreateProcessWithDllExW(
+                lp_application_name,
+                lp_command_line,
+                lp_process_attributes as *mut crate::detours::_SECURITY_ATTRIBUTES,
+                lp_thread_attributes as *mut crate::detours::_SECURITY_ATTRIBUTES, 
+                b_inherit_handles as i32, 
+                dw_creation_flags,
+                lp_environment as *mut std::ffi::c_void,
+                lp_current_directory, 
+                lp_startup_info,
+                lp_process_information, 
+                dllpath.unwrap().as_ptr() as *const i8,
+                Option::None
+            );
+            
+            if ret == winapi::shared::minwindef::TRUE { 
+                return (*lp_process_information).hProcess as winapi::um::winnt::HANDLE;
+            }
+            else {
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+                crate::log!(error, "detour create process withdllexw failed! error_code: {}.", error_code);
+
+                let create_process_w: extern "C" fn(
+                    lp_application_name: LPCWSTR,
+                    lp_command_line: LPWSTR,
+                    lp_process_attributes: LPSECURITY_ATTRIBUTES,
+                    lp_thread_attributes: LPSECURITY_ATTRIBUTES,
+                    b_inherit_handles: super::ntdef::types::BOOL,
+                    dw_creation_flags: DWORD,
+                    lp_environment: LPVOID,
+                    lp_current_directory: LPCWSTR,
+                    lp_startup_info: crate::detours::LPSTARTUPINFOW,
+                    lp_process_information: crate::detours::LPPROCESS_INFORMATION,
+                ) -> HANDLE = std::mem::transmute(CREATE_PROCESS_W_KERNEL_BASE);
+                
+
+                let handle = create_process_w (
+                    lp_application_name,
+                    lp_command_line,
+                    lp_process_attributes,
+                    lp_thread_attributes,
+                    b_inherit_handles,
+                    dw_creation_flags,
+                    lp_environment,
+                    lp_current_directory,
+                    lp_startup_info,
+                    lp_process_information);
+                
+                if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                    let error_code = winapi::um::errhandlingapi::GetLastError();
+                    crate::log!(error, "kernelbase create_file_w failed! error_code: {}.", error_code);
+                }
+                return handle;
+            }
+        } 
+        else {
+            let create_process_w: extern "C" fn(
+                lp_application_name: LPCWSTR,
+                lp_command_line: LPWSTR,
+                lp_process_attributes: LPSECURITY_ATTRIBUTES,
+                lp_thread_attributes: LPSECURITY_ATTRIBUTES,
+                b_inherit_handles: super::ntdef::types::BOOL,
+                dw_creation_flags: DWORD,
+                lp_environment: LPVOID,
+                lp_current_directory: LPCWSTR,
+                lp_startup_info: crate::detours::LPSTARTUPINFOW,
+                lp_process_information: crate::detours::LPPROCESS_INFORMATION,
+            ) -> HANDLE = std::mem::transmute(CREATE_PROCESS_W_KERNEL_BASE);
+            
+            let handle = create_process_w (
+                lp_application_name,
+                lp_command_line,
+                lp_process_attributes,
+                lp_thread_attributes,
+                b_inherit_handles,
+                dw_creation_flags,
+                lp_environment,
+                lp_current_directory,
+                lp_startup_info,
+                lp_process_information);
+            
+            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+                crate::log!(error, "kernelbase create_file_w failed! error_code: {}.", error_code);
+            }
+            return handle;
+        }
+    }
+    else {
+        return 0 as HANDLE;
+    }
+}
+
 pub unsafe fn zw_query_directory_file(
     file_handle: super::ntdef::types::HANDLE,
     event: super::ntdef::types::HANDLE,
@@ -439,7 +679,7 @@ pub unsafe fn nt_create_file(
     ea_length:           super::ntdef::types::ULONG
     ) -> super::ntdef::types::NTSTATUS {
 
-    use std::os::windows::ffi::{OsStringExt, OsStrExt};
+    use std::os::windows::ffi::OsStrExt;
 
     let zw_create_file: super::ntdef::functions::ZwCreateFile = std::mem::transmute(NT_CREATE_FILE);
     
@@ -448,8 +688,11 @@ pub unsafe fn nt_create_file(
         if !object_name.is_null() {
             let buffer = (*object_name).Buffer;
             let length = (*object_name).Length;
-            if !buffer.is_null() && length > 0 {
+            
+            if !buffer.is_null() && length > 0 && !start_with_pipe_w(buffer) {
 
+                /* 
+                // another way to get string from utf16 slice.
                 let utf16_slice = std::slice::from_raw_parts(buffer, (length / 2) as usize);
                 let os_string = std::ffi::OsString::from_wide(utf16_slice);
                 match os_string.into_string() {
@@ -460,11 +703,11 @@ pub unsafe fn nt_create_file(
                         crate::log!(error,"can't convert osstring into string.");
                     }
                 }
-                // up and down are 2 way to get string from utf16 slice.
+                */
 
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
 
-                //crate::log!(debug, "nt_create_file hook path: {}", name);
+                crate::log!(trace, "nt_create_file hook path: {}", name);
                 let replace = crate::replace::replace_dir(&mut name);
                 if replace {
                     crate::log!(trace, "nt_create_file replace hook: {}", name.clone());
@@ -504,7 +747,7 @@ pub unsafe fn nt_create_file(
                     );
 
                     if nt_status != winapi::shared::ntstatus::STATUS_SUCCESS {
-                        crate::log!(error, "zw_create_file failed! error_code: {:?}", (*io_status_block).Status);
+                        crate::log!(error, "zw_create_file failed! error_code: {:?} path: {}", nt_status, name);
                     }
                     return nt_status;
                 }

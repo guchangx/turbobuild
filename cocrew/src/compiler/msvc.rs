@@ -556,12 +556,12 @@ pub fn redirect_stdout_log() {
                     log::info!("redirect stdout log read named pipe message task start. count: {}", count);
                     let mut buffer = vec![0u8; 512];
                     let mut bytes: winapi::shared::minwindef::DWORD = 0;
-        
+                    let mut moredata = String::new();
                     loop {
                         let result = winapi::um::fileapi::ReadFile(
                             handle.get().to_owned(),
                             buffer.as_mut_ptr() as *mut _,
-                            buffer.len() as u32,
+                            512,
                             &mut bytes,
                             std::ptr::null_mut()
                         );
@@ -573,13 +573,30 @@ pub fn redirect_stdout_log() {
                                 //The pipe has been ended.
                                 break;
                             }
+                            else if error == winapi::shared::winerror::ERROR_MORE_DATA {
+                                //The buffer is not enough.
+                                let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
+                                moredata.push_str(&output);
+                                continue;
+                            }
+                            else if error == winapi::shared::winerror::ERROR_IO_PENDING {
+                                //The operation is pending.
+                                continue;
+                            }
                             else {
                                 log::warn!("reaf pipe failed, error code: {}, message: {}, count: {}", error, tools::utils::get_winapi_error_message(error), count);
                                 break;
                             }
                         }
                         let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
-                        log::info!("redirect: {}", output);
+                        if moredata.is_empty() {
+                            log::info!("redirect: {}", output);
+                        }
+                        else {
+                            moredata.push_str(&output);
+                            log::info!("redirect: {}", moredata);
+                            moredata.clear();
+                        }
                         //tokio::io::stdout().write_all(format!("redirect: {}\n", output).as_bytes()).await.expect("Failed to write to stdout");
                     }
                     winapi::um::namedpipeapi::DisconnectNamedPipe(handle.get().to_owned());

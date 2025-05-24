@@ -32,6 +32,26 @@ pub unsafe fn init_hook() {
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_W_KERNEL_BASE), crate::functions::kernelbase_create_file_w as _);
     }
 
+    let func_create_process_a = crate::utils::convert::string_2_lpstr("CreateProcessA".to_string());
+    let kernelbase_create_process_a = crate::detours::DetourFindFunction(module,  func_create_process_a);
+    if kernelbase_create_process_a as usize == 0 {
+        crate::log!(error, "can not find create_process_a in kernelbase module");
+    }
+    else {
+        crate::functions::CREATE_PROCESS_A_KERNEL_BASE = kernelbase_create_process_a;
+        crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_PROCESS_A_KERNEL_BASE), crate::functions::kernelbase_create_process_a as _);
+    }
+
+    let func_create_process_w = crate::utils::convert::string_2_lpstr("CreateProcessW".to_string());
+    let kernelbase_create_process_w = crate::detours::DetourFindFunction(module,  func_create_process_w);
+    if kernelbase_create_process_w as usize == 0 {
+        crate::log!(error, "can not find create_process_w in kernelbase module");
+    }
+    else {
+        crate::functions::CREATE_PROCESS_W_KERNEL_BASE = kernelbase_create_process_w;
+        crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_PROCESS_W_KERNEL_BASE), crate::functions::kernelbase_create_process_w as _);
+    }
+
     let module = crate::utils::convert::string_2_lpstr("ntdll.dll".to_string());
 
     let func_nt_create_file = crate::utils::convert::string_2_lpstr("NtCreateFile".to_string());
