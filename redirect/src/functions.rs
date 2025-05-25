@@ -1,6 +1,6 @@
 
 use winapi::{
-    shared::{minwindef::DWORD, minwindef::LPVOID, ntdef::LPCWSTR, ntdef::LPWSTR},
+    shared::{minwindef::{DWORD, LPVOID}, ntdef::{LPCWSTR, LPWSTR}, winerror::ERROR_SEM_USER_LIMIT},
     um::{minwinbase::LPSECURITY_ATTRIBUTES, winnt::{HANDLE, LPCSTR, LPSTR}}
 };
 
@@ -412,6 +412,35 @@ pub unsafe fn kernelbase_create_process_a(
         if application.ends_with("cl.exe") && dllpath.is_some() && crate::IN_HOOK.get() == false {
             crate::IN_HOOK.set(true);
 
+            let mut stdin_write_handle: Option<winapi::shared::ntdef::HANDLE> = None;
+
+            if ((*lp_startup_info).dwFlags & winapi::um::winbase::STARTF_USESTDHANDLES) != 0 {
+
+                let mut pipe_attributes = winapi::um::minwinbase::SECURITY_ATTRIBUTES {
+                    nLength: std::mem::size_of::<winapi::um::minwinbase::SECURITY_ATTRIBUTES>() as u32,
+                    lpSecurityDescriptor: std::ptr::null_mut(),
+                    bInheritHandle: winapi::shared::minwindef::TRUE,
+                };
+
+                let mut h_stdin_read: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
+                let mut h_stdin_write: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
+
+                let ret = winapi::um::namedpipeapi::CreatePipe(
+                    &mut h_stdin_read as winapi::shared::ntdef::PHANDLE, 
+                    &mut h_stdin_write as winapi::shared::ntdef::PHANDLE, 
+                    &mut pipe_attributes, 
+                    0
+                );
+
+                if winapi::shared::minwindef::FALSE == ret {
+                    crate::log!(error, "create input pipe failed.")
+                }
+                else {
+                    (*lp_startup_info).hStdInput = h_stdin_read as *mut std::ffi::c_void;
+                    stdin_write_handle = Some(h_stdin_write);
+                }
+            }
+
             let ret = crate::detours::DetourCreateProcessWithDllExA(
                 lp_application_name,
                 lp_command_line,
@@ -427,7 +456,11 @@ pub unsafe fn kernelbase_create_process_a(
                 Option::None
             );
             
-            if ret == winapi::shared::minwindef::TRUE { 
+            if ret == winapi::shared::minwindef::TRUE {
+                if let Some(stdin_write) = stdin_write_handle {
+                    pass_project_and_replica_to_redriect(stdin_write, crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
+                }
+                
                 return (*lp_process_information).hProcess as winapi::um::winnt::HANDLE;
             }
             else {
@@ -533,6 +566,35 @@ pub unsafe fn kernelbase_create_process_w(
             
             crate::IN_HOOK.set(true);
 
+            let mut stdin_write_handle: Option<winapi::shared::ntdef::HANDLE> = None;
+
+            if ((*lp_startup_info).dwFlags & winapi::um::winbase::STARTF_USESTDHANDLES) != 0 {
+
+                let mut pipe_attributes = winapi::um::minwinbase::SECURITY_ATTRIBUTES {
+                    nLength: std::mem::size_of::<winapi::um::minwinbase::SECURITY_ATTRIBUTES>() as u32,
+                    lpSecurityDescriptor: std::ptr::null_mut(),
+                    bInheritHandle: winapi::shared::minwindef::TRUE,
+                };
+
+                let mut h_stdin_read: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
+                let mut h_stdin_write: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
+
+                let ret = winapi::um::namedpipeapi::CreatePipe(
+                    &mut h_stdin_read as winapi::shared::ntdef::PHANDLE, 
+                    &mut h_stdin_write as winapi::shared::ntdef::PHANDLE, 
+                    &mut pipe_attributes, 
+                    0
+                );
+
+                if winapi::shared::minwindef::FALSE == ret {
+                    crate::log!(error, "create input pipe failed.")
+                }
+                else {
+                    (*lp_startup_info).hStdInput = h_stdin_read as *mut std::ffi::c_void;
+                    stdin_write_handle = Some(h_stdin_write);
+                }
+            }
+
             let ret = crate::detours::DetourCreateProcessWithDllExW(
                 lp_application_name,
                 lp_command_line,
@@ -543,12 +605,16 @@ pub unsafe fn kernelbase_create_process_w(
                 lp_environment as *mut std::ffi::c_void,
                 lp_current_directory, 
                 lp_startup_info,
-                lp_process_information, 
+                lp_process_information,
                 dllpath.unwrap().as_ptr() as *const i8,
                 Option::None
             );
             
-            if ret == winapi::shared::minwindef::TRUE { 
+            if ret == winapi::shared::minwindef::TRUE {
+                if let Some(stdin_write) = stdin_write_handle {
+                    pass_project_and_replica_to_redriect(stdin_write, crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
+                }
+
                 return (*lp_process_information).hProcess as winapi::um::winnt::HANDLE;
             }
             else {
@@ -688,8 +754,8 @@ pub unsafe fn nt_create_file(
         if !object_name.is_null() {
             let buffer = (*object_name).Buffer;
             let length = (*object_name).Length;
-            
-            if !buffer.is_null() && length > 0 && !start_with_pipe_w(buffer) {
+
+            if !buffer.is_null() && length > 0 {
 
                 /* 
                 // another way to get string from utf16 slice.
@@ -769,6 +835,34 @@ pub unsafe fn nt_create_file(
         ea_length
     );
     return nt_status;
+}
+
+pub unsafe fn pass_project_and_replica_to_redriect(handle: winapi::shared::ntdef::HANDLE, project: &str, replica: &str) {
+    if !project.is_empty() {
+        let arg = format!("project:{}\nreplica:{}\n", project, replica);
+        let mut bytes: winapi::shared::minwindef::DWORD = 0;
+        let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+        let ret = winapi::um::fileapi::WriteFile(
+            handle,
+            arg.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
+            arg.len() as u32,
+            &mut bytes,
+            &mut overlapped
+        );
+    
+        if ret == winapi::shared::minwindef::FALSE || bytes == 0 {
+            let error = winapi::um::errhandlingapi::GetLastError();
+            crate::log!(error, "write pipe error, failed code: {}", error);
+        }
+        else {
+            //winapi::um::fileapi::FlushFileBuffers(handle);
+            crate::log!(trace, "childprocess send message by pipe {} {:?}", if bytes > 0 {"success."} else {"failed."}, arg);
+        }
+    }
+    else {
+        crate::log!(warn, "don't pass project name and project path, use current path and don't redirect.");
+    }
+    winapi::um::handleapi::CloseHandle(handle);
 }
 
 #[cfg(test)]

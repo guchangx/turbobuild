@@ -108,16 +108,6 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
         combine_commands.push(commands[commands.len() - 1].clone());
     }
 
-    //remote compile remove /MP. since multiple cl.exe can not be injected.
-    combine_commands.retain(|item| {
-        if item.to_string_lossy() == ("/MP") {
-            return false;
-        }
-        else {
-            return true;
-        }
-    });
-
     log::debug!("origin working dir: {:?}", compiler_input.compiler_working_dir);
     let replica_working_dir = redirect_working_dir(&compiler_input.compiler_working_dir, &compiler_input.project);
 
@@ -836,7 +826,7 @@ mod tests {
     }
 
     #[test]
-    fn compile_preprocessed_file_use_project_arg_2() {
+    fn compile_preprocessed_file_use_project_arg_mp() {
         println!("run msvc compile use project args test with inject, if you want simulate the project compile, please use this test and replace args.");
 
         tools::logger::init_once_logger();
@@ -845,8 +835,8 @@ mod tests {
             redirect_stdout_log();
         });
 
-        // "/MP" 
-        let compiler_commands: Vec<std::ffi::OsString> = vec!["/c", "/I \"G:\\OpenSource\\llvm-project\\build\\lib\\Support\\BLAKE3\"", "/I \"G:\\OpenSource\\llvm-project\\llvm\\lib\\Support\\BLAKE3\"", "/I \"G:\\OpenSource\\llvm-project\\build\\include\"", "/I \"G:\\OpenSource\\llvm-project\\llvm\\include\"", "/Zi", "/nologo", "/W4", "/WX-", "/diagnostics:column", "/Od", "/Ob0", "/Oi", "/D", "_UNICODE", "/D", "UNICODE", "/D", "WIN32", "/D", "_WINDOWS", "/D", "_HAS_EXCEPTIONS=0", "/D", "GTEST_HAS_RTTI=0", "/D", "_CRT_SECURE_NO_DEPRECATE", "/D", "_CRT_SECURE_NO_WARNINGS", "/D", "_CRT_NONSTDC_NO_DEPRECATE", "/D", "_CRT_NONSTDC_NO_WARNINGS", "/D", "_SCL_SECURE_NO_DEPRECATE", "/D", "_SCL_SECURE_NO_WARNINGS", "/D", "UNICODE", "/D", "_UNICODE", "/D", "__STDC_CONSTANT_MACROS", "/D", "__STDC_FORMAT_MACROS", "/D", "__STDC_LIMIT_MACROS", "/D", "CMAKE_INTDIR=\\\"Debug\\\"", "/Zc:preprocessor", "/Gm-", "/RTC1", "/MDd", "/GS", "/fp:precise", "/Zc:wchar_t", "/Zc:forScope", "/Zc:inline", "/permissive-", "/FoLLVMSupportBlake3.dir\\Debug\\", "/FdLLVMSupportBlake3.dir\\Debug\\LLVMSupportBlake3.pdb", "/external:W4", "/Gd", "/TC", "/wd4141", "/wd4146", "/wd4244", "/wd4267", "/wd4291", "/wd4351", "/wd4456", "/wd4457", "/wd4458", "/wd4459", "/wd4503", "/wd4624", "/wd4722", "/wd4100", "/wd4127", "/wd4512", "/wd4505", "/wd4610", "/wd4510", "/wd4702", "/wd4245", "/wd4706", "/wd4310", "/wd4701", "/wd4703", "/wd4389", "/wd4611", "/wd4805", "/wd4204", "/wd4577", "/wd4091", "/wd4592", "/wd4319", "/wd4709", "/wd5105", "/wd4324", "/wd4251", "/wd4275", "/errorReport:prompt", "/we4238", "-w14062", "/Gw", 
+        // must contain "/MP" arg 
+        let compiler_commands: Vec<std::ffi::OsString> = vec!["/c", "/I \"G:\\OpenSource\\llvm-project\\build\\lib\\Support\\BLAKE3\"", "/I \"G:\\OpenSource\\llvm-project\\llvm\\lib\\Support\\BLAKE3\"", "/I \"G:\\OpenSource\\llvm-project\\build\\include\"", "/I \"G:\\OpenSource\\llvm-project\\llvm\\include\"", "/Zi", "/nologo", "/W4", "/WX-", "/diagnostics:column", "/MP", "/Od", "/Ob0", "/Oi", "/D", "_UNICODE", "/D", "UNICODE", "/D", "WIN32", "/D", "_WINDOWS", "/D", "_HAS_EXCEPTIONS=0", "/D", "GTEST_HAS_RTTI=0", "/D", "_CRT_SECURE_NO_DEPRECATE", "/D", "_CRT_SECURE_NO_WARNINGS", "/D", "_CRT_NONSTDC_NO_DEPRECATE", "/D", "_CRT_NONSTDC_NO_WARNINGS", "/D", "_SCL_SECURE_NO_DEPRECATE", "/D", "_SCL_SECURE_NO_WARNINGS", "/D", "UNICODE", "/D", "_UNICODE", "/D", "__STDC_CONSTANT_MACROS", "/D", "__STDC_FORMAT_MACROS", "/D", "__STDC_LIMIT_MACROS", "/D", "CMAKE_INTDIR=\\\"Debug\\\"", "/Zc:preprocessor", "/Gm-", "/RTC1", "/MDd", "/GS", "/fp:precise", "/Zc:wchar_t", "/Zc:forScope", "/Zc:inline", "/permissive-", "/FoLLVMSupportBlake3.dir\\Debug\\", "/FdLLVMSupportBlake3.dir\\Debug\\LLVMSupportBlake3.pdb", "/external:W4", "/Gd", "/TC", "/wd4141", "/wd4146", "/wd4244", "/wd4267", "/wd4291", "/wd4351", "/wd4456", "/wd4457", "/wd4458", "/wd4459", "/wd4503", "/wd4624", "/wd4722", "/wd4100", "/wd4127", "/wd4512", "/wd4505", "/wd4610", "/wd4510", "/wd4702", "/wd4245", "/wd4706", "/wd4310", "/wd4701", "/wd4703", "/wd4389", "/wd4611", "/wd4805", "/wd4204", "/wd4577", "/wd4091", "/wd4592", "/wd4319", "/wd4709", "/wd5105", "/wd4324", "/wd4251", "/wd4275", "/errorReport:prompt", "/we4238", "-w14062", "/Gw", 
         "D:\\OpenSource\\llvm-project\\build\\lib\\Support\\BLAKE3\\LLVMSupportBlake3.dir\\Debug\\blake3.i",
         "D:\\OpenSource\\llvm-project\\build\\lib\\Support\\BLAKE3\\LLVMSupportBlake3.dir\\Debug\\blake3_dispatch.i",
         "D:\\OpenSource\\llvm-project\\build\\lib\\Support\\BLAKE3\\LLVMSupportBlake3.dir\\Debug\\blake3_portable.i",
