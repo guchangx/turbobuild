@@ -460,7 +460,7 @@ pub unsafe fn kernelbase_create_process_a(
                 if let Some(stdin_write) = stdin_write_handle {
                     pass_project_and_replica_to_redriect(stdin_write, crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
                 }
-                
+
                 return (*lp_process_information).hProcess as winapi::um::winnt::HANDLE;
             }
             else {
@@ -776,6 +776,7 @@ pub unsafe fn nt_create_file(
                 crate::log!(trace, "nt_create_file hook path: {}", name);
                 let replace = crate::replace::replace_dir(&mut name);
                 if replace {
+                    //TODO elpase 10ms, need optimize. 
                     crate::log!(trace, "nt_create_file replace hook: {}", name.clone());
 
                     let mut object_name: winapi::shared::ntdef::UNICODE_STRING = std::mem::zeroed();
@@ -813,7 +814,12 @@ pub unsafe fn nt_create_file(
                     );
 
                     if nt_status != winapi::shared::ntstatus::STATUS_SUCCESS {
-                        crate::log!(error, "zw_create_file failed! error_code: {:?} path: {}", nt_status, name);
+                        if nt_status == winapi::shared::ntstatus::STATUS_OBJECT_NAME_NOT_FOUND {
+
+                        }
+                        else {
+                            crate::log!(error, "zw_create_file failed! error_code: {:#X} path: {}", nt_status, name);   
+                        }
                     }
                     return nt_status;
                 }
