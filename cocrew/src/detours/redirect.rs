@@ -143,6 +143,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
             
             CloseHandle(hStdOutputWrite);
             CloseHandle(hStdErrorWrite);
+            CloseHandle(hStdInRead);
 
             if ret == winapi::shared::minwindef::TRUE {
                 
@@ -238,7 +239,6 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
 
             winapi::um::handleapi::CloseHandle(hStdOutputRead);
             winapi::um::handleapi::CloseHandle(hStdErrorRead);
-            winapi::um::handleapi::CloseHandle(hStdInRead);
         }
         else
         {

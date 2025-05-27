@@ -562,37 +562,40 @@ pub unsafe fn kernelbase_create_process_w(
 
         let dllpath = crate::MODULE_PATH.get();
 
-        if application.ends_with("cl.exe") && dllpath.is_some() && crate::IN_HOOK.get() == false {
+        if (application.ends_with("cl.exe") || application.ends_with("mspdbsrv.exe")) && dllpath.is_some() && crate::IN_HOOK.get() == false {
             
             crate::IN_HOOK.set(true);
-
+            
             let mut stdin_write_handle: Option<winapi::shared::ntdef::HANDLE> = None;
 
-            if ((*lp_startup_info).dwFlags & winapi::um::winbase::STARTF_USESTDHANDLES) != 0 {
 
-                let mut pipe_attributes = winapi::um::minwinbase::SECURITY_ATTRIBUTES {
-                    nLength: std::mem::size_of::<winapi::um::minwinbase::SECURITY_ATTRIBUTES>() as u32,
-                    lpSecurityDescriptor: std::ptr::null_mut(),
-                    bInheritHandle: winapi::shared::minwindef::TRUE,
-                };
+            let mut pipe_attributes = winapi::um::minwinbase::SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<winapi::um::minwinbase::SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: std::ptr::null_mut(),
+                bInheritHandle: winapi::shared::minwindef::TRUE,
+            };
 
-                let mut h_stdin_read: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-                let mut h_stdin_write: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
+            let mut h_stdin_read: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
+            let mut h_stdin_write: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
 
-                let ret = winapi::um::namedpipeapi::CreatePipe(
-                    &mut h_stdin_read as winapi::shared::ntdef::PHANDLE, 
-                    &mut h_stdin_write as winapi::shared::ntdef::PHANDLE, 
-                    &mut pipe_attributes, 
-                    0
-                );
+            let ret = winapi::um::namedpipeapi::CreatePipe(
+                &mut h_stdin_read as winapi::shared::ntdef::PHANDLE, 
+                &mut h_stdin_write as winapi::shared::ntdef::PHANDLE, 
+                &mut pipe_attributes, 
+                0
+            );
 
-                if winapi::shared::minwindef::FALSE == ret {
-                    crate::log!(error, "create input pipe failed.")
-                }
-                else {
-                    (*lp_startup_info).hStdInput = h_stdin_read as *mut std::ffi::c_void;
-                    stdin_write_handle = Some(h_stdin_write);
-                }
+            let mut b_inherit_handles = b_inherit_handles;
+            if winapi::shared::minwindef::FALSE == ret {
+                crate::log!(error, "create input pipe failed.")
+            }
+            else {
+                (*lp_startup_info).hStdInput = h_stdin_read as *mut std::ffi::c_void;
+                (*lp_startup_info).dwFlags |=  winapi::um::winbase::STARTF_USESTDHANDLES;
+
+                b_inherit_handles = super::ntdef::enums::TRUE;
+                
+                stdin_write_handle = Some(h_stdin_write);
             }
 
             let ret = crate::detours::DetourCreateProcessWithDllExW(
@@ -611,6 +614,9 @@ pub unsafe fn kernelbase_create_process_w(
             );
             
             if ret == winapi::shared::minwindef::TRUE {
+                
+                winapi::um::handleapi::CloseHandle(h_stdin_read);
+
                 if let Some(stdin_write) = stdin_write_handle {
                     pass_project_and_replica_to_redriect(stdin_write, crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
                 }
