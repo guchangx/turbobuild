@@ -103,6 +103,9 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
             if winapi::shared::minwindef::FALSE == ret {
                 log::error!("create input pipe failed.")
             }
+            else {
+                winapi::um::handleapi::SetHandleInformation(hStdInWrite, winapi::um::winbase::HANDLE_FLAG_INHERIT, 0);
+            }
             
             let mut hStdOutputRead: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
             let mut hStdOutputWrite: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
@@ -110,12 +113,18 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
             if winapi::shared::minwindef::FALSE == ret {
                 log::error!("create output pipe failed.")
             }
+            else {
+                winapi::um::handleapi::SetHandleInformation(hStdOutputRead, winapi::um::winbase::HANDLE_FLAG_INHERIT, 0);
+            }
 
             let mut hStdErrorRead: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
             let mut hStdErrorWrite: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
             let ret = winapi::um::namedpipeapi::CreatePipe(&mut hStdErrorRead as winapi::shared::ntdef::PHANDLE, &mut hStdErrorWrite as winapi::shared::ntdef::PHANDLE, &mut pipeAttributes, 0);
             if winapi::shared::minwindef::FALSE == ret {
                 log::error!("create error pipe failed.")
+            }
+            else {
+                winapi::um::handleapi::SetHandleInformation(hStdErrorRead, winapi::um::winbase::HANDLE_FLAG_INHERIT, 0);
             }
 
             let lpProcessAttributes = std::ptr::null_mut();
@@ -219,6 +228,10 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                 }
                 
                 winapi::um::synchapi::WaitForSingleObject(lpProcessInformation.hProcess as winapi::um::winnt::HANDLE, winapi::um::winbase::INFINITE);
+                
+                winapi::um::handleapi::CloseHandle(hStdOutputRead);
+                winapi::um::handleapi::CloseHandle(hStdErrorRead);
+                
                 let stdout = task.join().unwrap();
 
                 let mut code: winapi::shared::minwindef::DWORD = 0;
@@ -237,8 +250,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                 return (code, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
             }
 
-            winapi::um::handleapi::CloseHandle(hStdOutputRead);
-            winapi::um::handleapi::CloseHandle(hStdErrorRead);
+
         }
         else
         {

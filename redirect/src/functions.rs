@@ -568,7 +568,6 @@ pub unsafe fn kernelbase_create_process_w(
             
             let mut stdin_write_handle: Option<winapi::shared::ntdef::HANDLE> = None;
 
-
             let mut pipe_attributes = winapi::um::minwinbase::SECURITY_ATTRIBUTES {
                 nLength: std::mem::size_of::<winapi::um::minwinbase::SECURITY_ATTRIBUTES>() as u32,
                 lpSecurityDescriptor: std::ptr::null_mut(),
@@ -590,11 +589,37 @@ pub unsafe fn kernelbase_create_process_w(
                 crate::log!(error, "create input pipe failed.")
             }
             else {
+
+                if application.ends_with("mspdbsrv.exe") {
+
+                    let current_stdout = winapi::um::processenv::GetStdHandle(winapi::um::winbase::STD_OUTPUT_HANDLE);
+                    let current_stderr = winapi::um::processenv::GetStdHandle(winapi::um::winbase::STD_ERROR_HANDLE);
+                    
+                    if !current_stdout.is_null() {
+                        winapi::um::handleapi::SetHandleInformation(
+                            current_stdout,
+                            winapi::um::winbase::HANDLE_FLAG_INHERIT,
+                            0
+                        );
+                    }
+                    
+                    if !current_stderr.is_null() {
+                        winapi::um::handleapi::SetHandleInformation(
+                            current_stderr,
+                            winapi::um::winbase::HANDLE_FLAG_INHERIT,
+                            0
+                        );
+                    }
+
+                    (*lp_startup_info).hStdOutput = std::ptr::null_mut();
+                    (*lp_startup_info).hStdError = std::ptr::null_mut();
+                }
+                b_inherit_handles = super::ntdef::enums::TRUE;
+
+                winapi::um::handleapi::SetHandleInformation(h_stdin_write, winapi::um::winbase::HANDLE_FLAG_INHERIT, 0);
                 (*lp_startup_info).hStdInput = h_stdin_read as *mut std::ffi::c_void;
                 (*lp_startup_info).dwFlags |=  winapi::um::winbase::STARTF_USESTDHANDLES;
 
-                b_inherit_handles = super::ntdef::enums::TRUE;
-                
                 stdin_write_handle = Some(h_stdin_write);
             }
 
@@ -624,6 +649,9 @@ pub unsafe fn kernelbase_create_process_w(
                 return (*lp_process_information).hProcess as winapi::um::winnt::HANDLE;
             }
             else {
+                winapi::um::handleapi::CloseHandle(h_stdin_read);
+                winapi::um::handleapi::CloseHandle(h_stdin_write);
+
                 let error_code = winapi::um::errhandlingapi::GetLastError();
                 crate::log!(error, "detour create process withdllexw failed! error_code: {}.", error_code);
 
