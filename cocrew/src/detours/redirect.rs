@@ -229,9 +229,6 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                 
                 winapi::um::synchapi::WaitForSingleObject(lpProcessInformation.hProcess as winapi::um::winnt::HANDLE, winapi::um::winbase::INFINITE);
                 
-                winapi::um::handleapi::CloseHandle(hStdOutputRead);
-                winapi::um::handleapi::CloseHandle(hStdErrorRead);
-                
                 let stdout = task.join().unwrap();
 
                 let mut code: winapi::shared::minwindef::DWORD = 0;
@@ -250,6 +247,8 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                 return (code, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
             }
 
+            winapi::um::handleapi::CloseHandle(hStdOutputRead);
+            winapi::um::handleapi::CloseHandle(hStdErrorRead);
 
         }
         else
