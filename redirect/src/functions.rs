@@ -806,7 +806,7 @@ pub unsafe fn nt_create_file(
                 */
 
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-
+                //TODO should not print pipe path. 
                 crate::log!(trace, "nt_create_file hook path: {}", name);
                 let replace = crate::replace::replace_dir(&mut name);
                 if replace {

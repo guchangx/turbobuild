@@ -105,7 +105,7 @@ impl Receiver {
 
         if file.is_empty() {
 
-            Self::check_dir_exists(&project, &commands).await;
+            let handle = Self::check_dir_exists(&project, &commands).await;
 
             let compiler_input = crew::compiler::model::CompilerInput {
                 project: std::ffi::OsString::from(project),
@@ -114,7 +114,8 @@ impl Receiver {
                 compiler_commands: commands.iter().map(|item| std::ffi::OsString::from(item)).collect(),
                 build_and_compiler_type: std::ffi::OsString::from(request.variety),
             };
-
+            let _ = handle.await;
+            
             let reply = Self::execute(&compiler_input).await;
             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
         } 
@@ -272,13 +273,13 @@ impl Receiver {
     }
 
     //create dir for .pdb, if parent dir not exist, .pdb file can not be generated.
-    pub async fn check_dir_exists(project: &String, commands: &Vec<String>) {
+    pub async fn check_dir_exists(project: &String, commands: &Vec<String>) -> tokio::task::JoinHandle<()> {
 
         let project = project.clone();
         let commands = commands.clone();
 
         let rt = crate::common::RUNTIME.lock().unwrap();
-        let _ = rt.spawn(async move {
+        let handel = rt.spawn(async move {
             let path = commands.iter().find(|&item| item.starts_with("/Fd")).map(|item| item.clone());
 
             match path {
@@ -286,7 +287,8 @@ impl Receiver {
                     let pdb = path.split_off(3);
                     let pdb = std::path::PathBuf::from(pdb);
                     if pdb.has_root() && pdb.is_absolute() {
-                            
+                        println!("pdb path is absolute path: {:?}", pdb);
+
                         let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
     
                         let split = |pdb: std::path::PathBuf, project: &String| {
@@ -318,11 +320,14 @@ impl Receiver {
                         else {
                         }
                     }
+                    else {
+                        println!("pdb path is not absolute path: {:?}", pdb);
+                    }
                 },
                 None => {},
             }
         });
-
+        return handel;
     }
     
 }

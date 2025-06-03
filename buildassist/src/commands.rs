@@ -7,6 +7,7 @@ pub struct CompilerInput {
     pub build_and_compiler_type: std::ffi::OsString,
 }
 
+//TODO should fetch build index, but it is not ideal way to do it.
 pub fn fetch_compiler_commands() -> Option<CompilerInput> {
     let commandline =  std::env::args_os();
     let mut commands:Vec<std::ffi::OsString> = commandline.collect();
