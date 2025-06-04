@@ -39,7 +39,7 @@ impl Receiver {
     
         let result = tonic::transport::Server::builder()
             .tcp_nodelay(true)
-            .add_service(server.max_decoding_message_size(1024 *1024 * 180).max_encoding_message_size(1024 * 1024 * 180))
+            .add_service(server.max_decoding_message_size(1024 *1024 * 180 * 2).max_encoding_message_size(1024 * 1024 * 180 * 2))
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             //.serve(addr)
             .await;
