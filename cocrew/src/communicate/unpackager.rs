@@ -117,8 +117,12 @@ impl Receiver {
                 build_and_compiler_type: std::ffi::OsString::from(request.variety),
             };
 
-            let output_callback = |reply: package::CompileTrResponse| async {
-                let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+            let tx_ = tx.clone();
+            let output_callback = move |reply: package::CompileTrResponse| {
+                let tx = tx_.clone();
+                async move {
+                    let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+                }
             };
 
             Self::execute(&compiler_input, output_callback).await;
@@ -215,8 +219,8 @@ impl Receiver {
         }
     }
     async fn execute<Func, Fut>(input: &crew::compiler::model::CompilerInput, sender: Func)
-    where Func: Fn(package::CompileTrResponse) -> Fut + Send + 'static,
-          Fut: std::future::Future<Output = ()> + Send + 'static
+    where Func: Fn(package::CompileTrResponse) -> Fut + Send + Sync + Clone + 'static,
+          Fut: std::future::Future<Output = ()> + Send
     {
         let (out_sender, out_receiver) = std::sync::mpsc::channel::<crew::compiler::model::CompiledResults>();
         let (err_sender, err_receiver) = std::sync::mpsc::channel::<crew::compiler::model::CompiledResults>();
@@ -226,7 +230,20 @@ impl Receiver {
             stderr: err_sender,
         };
 
+        let sender_ = sender.clone();
+
         COCREW_RUNTIME.lock().unwrap().spawn(async move {
+
+            let reply = package::CompileTrResponse {
+                progress: package::CompileProgress::Compilestart.into(),
+                out: Vec::new(),
+                err: Vec::new(),
+                results: Vec::new(),
+                status: 0,
+                tips: "transmit do compile start.".to_string(),
+            };
+            sender_(reply).await;
+
             while let Ok(results) = out_receiver.recv() {
                 for result in results {
                     let mut intermediates = Vec::new();
@@ -271,7 +288,7 @@ impl Receiver {
                         tips: "transmit do compile success.".to_string(),
                     };
 
-                    sender(reply).await;
+                    sender_(reply).await;
                 }
             }
         });
@@ -284,9 +301,15 @@ impl Receiver {
 
         let (output, results) = crate::compiler::interface::cocrew_build(input.to_owned(), out_err_stream);
         if output.status == 0 {
-            if let Some(results) = results {
-
+            let reply = package::CompileTrResponse {
+                progress: package::CompileProgress::Compiledone.into(),
+                out: output.out.to_vec(),
+                err: output.err.to_vec(),
+                results: Vec::new(),
+                status: output.status,
+                tips: "transmit do compile success.".to_string(),
             };
+            sender(reply).await;
         }
         else {  
             let reply = package::CompileTrResponse {

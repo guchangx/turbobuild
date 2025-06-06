@@ -180,14 +180,19 @@ impl Sender {
 
                                 }
                                 else if response.progress == pack::CompileProgress::Compilestart as i32 {
-
+                                    log::debug!("precompiled sourcefile start response: {}", response.tips);
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
-                                    log::debug!("precompiled sourcefile done. response: {}", response.tips);
-
+                                    if !response.out.is_empty() {
+                                        log::debug!("precompiled sourcefile done response: {:?}", String::from_utf8_lossy(&response.out));
+                                        recv.out = response.out;
+                                    }
+                                    if !response.err.is_empty() {
+                                        log::debug!("precompiled sourcefile done response: {:?}", String::from_utf8_lossy(&response.err));
+                                        recv.err = response.err;
+                                    }
+                                    
                                     recv.status = response.status;
-                                    recv.out = response.out;
-                                    recv.err = response.err;
 
                                     let mut myself = self.clone();
 
