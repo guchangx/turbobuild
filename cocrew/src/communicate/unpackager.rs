@@ -287,7 +287,6 @@ impl Receiver {
                     let pdb = path.split_off(3);
                     let pdb = std::path::PathBuf::from(pdb);
                     if pdb.has_root() && pdb.is_absolute() {
-                        println!("pdb path is absolute path: {:?}", pdb);
 
                         let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
     
@@ -319,9 +318,6 @@ impl Receiver {
                         }
                         else {
                         }
-                    }
-                    else {
-                        println!("pdb path is not absolute path: {:?}", pdb);
                     }
                 },
                 None => {},

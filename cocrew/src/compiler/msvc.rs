@@ -117,7 +117,7 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput) 
     if replica_compiler.is_some() {
         let (output, results) = request_local_compile(compiler_input.project.clone(), 
                 replica_compiler.unwrap(),
-                compiler_input.compiler_working_dir.clone(), replica_working_dir.unwrap() , 
+                compiler_input.compiler_working_dir.clone(), replica_working_dir.unwrap(), 
                 combine_commands, compiler_input.build_and_compiler_type.clone(), true
             );
         return (output, results);

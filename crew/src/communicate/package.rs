@@ -207,6 +207,8 @@ impl Sender {
                         },
                         Err(err) => {
                             log::error!("send precompiled sourcefile receive response failed. {}", err);
+                            recv.status = 1;
+                            recv.err = err.to_string().into_bytes();
                             break;
                         },
                     }
@@ -215,6 +217,8 @@ impl Sender {
             }
             Err(err) => {
                 log::warn!("send precompiled sourcefile failed {:?}", err);
+                recv.status = 1;
+                recv.err = err.to_string().into_bytes();
             }
         }
         return recv;

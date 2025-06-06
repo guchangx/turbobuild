@@ -36,6 +36,6 @@ fn fetch_and_dist_compiler_commands() -> std::result::Result<(), ()> {
             result = Err(());
         },
     }
-    println!("{} buildassist compile done. elapsed: {:?}.", crate::compileripc::current_datetime(), start.elapsed());
+    println!("{} buildassist compile {:?}. elapsed: {:?}.", crate::compileripc::current_datetime(), result, start.elapsed());
     return result;
 }

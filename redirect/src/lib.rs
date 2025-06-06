@@ -233,9 +233,9 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
 
+            read_project_property_from_stdin();
             fetch_module_path(hinst);
             redirect_stdout_log_2_cocrew();
-            read_project_property_from_stdin();
             
             //show_message_box_for_debug();
 
