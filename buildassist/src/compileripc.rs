@@ -42,19 +42,48 @@ impl SocketClient {
                 let _size = stream.write_all(buffer.as_bytes());
                 stream.flush().unwrap();
 
+                let mut data = Vec::new();
                 let mut buffer = [0 as u8; 256];
                 let mut ret = Ok(0);
                 loop {
                     match stream.read(&mut buffer) {
                         Ok(size) => {
                             if size == 0 {
+                                data.clear();
                                 println!("{} read form turbobuild done.", current_datetime());
                                 break;
                             }
+                            else if size == buffer.len() {
+                                data.extend_from_slice(&buffer);
+                            }
                             else if size < buffer.len() {
-                                buffer[0..size].lines().for_each(|line| {
-                                    println!("{} read form turbobuild: {}", current_datetime(), line.unwrap());
-                                });
+                                if data.is_empty() {
+                                    buffer[0..size].lines().for_each(|line| {
+                                        if let Ok(file) = line {
+                                            if file.trim_end().ends_with(".i") || file.trim_end().ends_with(".cpp") || file.trim_end().ends_with(".cc") || file.trim_end().ends_with(".cxx") {
+                                                println!("{} read form turbobuild: {}", current_datetime(), file);
+                                            }
+                                            else {
+                                                ret = Err(());
+                                                eprintln!("{} read error form turbobuild: {}", current_datetime(), file);
+                                            }
+                                        }
+                                    });   
+                                }
+                                else {
+                                    data[..].lines().for_each(|line| {
+                                        if let Ok(file) = line {
+                                            if file.trim_end().ends_with(".i") || file.trim_end().ends_with(".cpp") || file.trim_end().ends_with(".cc") || file.trim_end().ends_with(".cxx") {
+                                                println!("{} read form turbobuild: {}", current_datetime(), file);
+                                            }
+                                            else {
+                                                //fatal error
+                                                ret = Err(());
+                                                eprintln!("{} read error form turbobuild: {}", current_datetime(), file);
+                                            }
+                                        }
+                                    });
+                                }
                             }
                         },
                         Err(err) => {

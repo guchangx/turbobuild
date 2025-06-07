@@ -516,6 +516,7 @@ fn start_local_compiler(project_name: &std::ffi::OsString, compiler_path: &std::
     return (status, stdout, stderr);
 }
 
+//TODO: tokio::net::windows::named_pipe
 pub fn redirect_stdout_log() {
     use tokio::io::AsyncWriteExt;
     log::info!("redirect stdout log loop thread start.");
@@ -608,7 +609,8 @@ pub fn redirect_stdout_log() {
             }
         }
         else {
-            log::debug!("create named pipe failed. count: {}.", count);
+            let error = winapi::um::errhandlingapi::GetLastError();
+            log::error!("connect named pipe failcreate named pipe failed. error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
         }
         count += 1;
     }}

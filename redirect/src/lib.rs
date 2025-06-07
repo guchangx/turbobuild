@@ -23,7 +23,7 @@ unsafe extern "system" fn custom_exception_handler(
     winapi::um::errhandlingapi::UnhandledExceptionFilter(exception_info)
 }
 struct Channel {
-    tx:  tokio::sync::mpsc::Sender<String>, 
+    tx: tokio::sync::mpsc::Sender<String>, 
     rx: std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<String>>>,
 }
 
@@ -61,61 +61,87 @@ unsafe fn redirect_stdout_log_2_cocrew() {
         let name = std::ffi::OsString::from("\\\\.\\pipe\\redirect_stdout_log_pipe");
         let name = name.encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
     
-        if  winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 100) == winapi::shared::minwindef::TRUE {
-            let pipe = winapi::um::fileapi::CreateFileW(name.as_ptr(), 
-                winapi::um::winnt::GENERIC_WRITE, 0,
+        if  winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 300) == winapi::shared::minwindef::TRUE {
+        
+            for _ in 0..3 {
+                let pipe = winapi::um::fileapi::CreateFileW(name.as_ptr(), winapi::um::winnt::GENERIC_WRITE,
+                0,
                 std::ptr::null_mut(),  
                 winapi::um::fileapi::OPEN_EXISTING, 
                 winapi::um::winnt::FILE_ATTRIBUTE_NORMAL, 
                 winapi::shared::ntdef::NULL);
      
-            if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                let handle = tools::ptr::HandleBox::new(pipe);
+                if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                    let handle = tools::ptr::HandleBox::new(pipe);
+                    
+                    let mut rx = crate::LOGGER.rx.lock().unwrap().take().unwrap();
+
+                    loop {
+                        let message = rx.recv().await;
+                        match message {
+                            Some(message) => {
+
+                                let mut bytes: winapi::shared::minwindef::DWORD = 0;
+                                let result = winapi::um::fileapi::WriteFile(
+                                    handle.get().to_owned(),
+                                    message.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
+                                    message.len() as u32,
+                                    &mut bytes,
+                                    std::ptr::null_mut()
+                                );
                 
-                let mut rx = crate::LOGGER.rx.lock().unwrap().take().unwrap();
-
-                loop {
-                    let message = rx.recv().await;
-                    match message {
-                        Some(message) => {
-
-                            let mut bytes: winapi::shared::minwindef::DWORD = 0;
-                            let result = winapi::um::fileapi::WriteFile(
-                                handle.get().to_owned(),
-                                message.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
-                                message.len() as u32,
-                                &mut bytes,
-                                std::ptr::null_mut()
-                            );
-            
-                            if result == winapi::shared::minwindef::FALSE || bytes == 0 {
-                                let error = winapi::um::errhandlingapi::GetLastError();
-                                if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+                                if result == winapi::shared::minwindef::FALSE || bytes == 0 {
+                                    let error = winapi::um::errhandlingapi::GetLastError();
+                                    if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+                                        //break;
+                                    }
+                                    println!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
                                     break;
                                 }
-                                println!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
-                                break;
-                            }
-                            unsafe { 
-                                if winapi::shared::minwindef::TRUE == winapi::um::fileapi::FlushFileBuffers(handle.get().to_owned()) {
+                                unsafe {
+                                    if winapi::shared::minwindef::TRUE == winapi::um::fileapi::FlushFileBuffers(handle.get().to_owned()) {
 
-                                }
-                                else {
-                                    println!("FlushFileBuffers failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
-                                }
-                            };
-                        },
-                        None => break,
+                                    }
+                                    else {
+                                        println!("FlushFileBuffers failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
+                                    }
+                                };
+                            },
+                            None => break,
+                        }
+                    };
+                    winapi::um::handleapi::CloseHandle(handle.get().to_owned());
+                }
+                else {
+                    let error = winapi::um::errhandlingapi::GetLastError();
+                    println!("CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                    if error == winapi::shared::winerror::ERROR_PIPE_BUSY || error == winapi::shared::winerror::ERROR_FILE_NOT_FOUND {
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        continue;
                     }
-                };
-                winapi::um::namedpipeapi::DisconnectNamedPipe(handle.get().to_owned());
-                winapi::um::handleapi::CloseHandle(handle.get().to_owned());
+                }
             }
         }
         else {
             let error = winapi::um::errhandlingapi::GetLastError();
             println!("WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
         }
+        
+        let mut rx: Option<tokio::sync::mpsc::Receiver<String>> = None;
+        {
+            rx = crate::LOGGER.rx.lock().unwrap().take();
+        }
+        
+        if let Some(mut rx) = rx {
+            loop {
+                match rx.recv().await {
+                    Some(_) => {
+                    },
+                    None => break,
+                }
+            }
+        }
+
     });
 }
 
