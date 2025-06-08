@@ -164,10 +164,13 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     let project_name_ = project_name.clone();
     let origin_working_dir_ = origin_working_dir.clone();
 
+    let mut unready_objfiles = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+    let unready_objfiles_ = unready_objfiles.clone();
     let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
 
         while let Ok(data) = out_receiver.recv() {
             let line = String::from_utf8_lossy(&data);
+            log::info!("stream stdout: {:?}", line);
             
             let line = line.replace(r#"""#, "").trim_end().to_string();
             if  line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") {
@@ -200,16 +203,17 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                         let mut file = std::io::BufReader::new(file);
                         let _ = file.read_to_end(&mut contents).unwrap();
 
-                            let origin = repair_original_path(&project_name_, &origin_working_dir_, &result);        
+                        let origin = repair_original_path(&project_name_, &origin_working_dir_, &result);        
 
                         obj = Some((origin, contents));
                     },
                     Err(error) => {
                         if error.kind() == std::io::ErrorKind::NotFound {
+                            unready_objfiles_.lock().unwrap().insert(line.clone(), result.clone());
                             log::trace!(".obj file path is not found.");
                         }
                         else {
-                            log::trace!(".obj file read failed. {:?}", error);
+                            log::error!(".obj file read failed. {:?}", error);
                         }
                     }
                 };
@@ -254,18 +258,57 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     let compile_output = String::from_utf8_lossy(&stdout);
     let compile_error = String::from_utf8_lossy(&stderr);
     
-    log::trace!("injectd compile status: {}, stdout: {:?} stderr: {:?}", status, compile_output, compile_error);
+    log::info!("injectd compile status: {}, {:?} stdout: {:?} stderr: {:?}", status, now.elapsed(), compile_output, compile_error);
 
     if status == 0 {
-        log::debug!("local compile file count: {:?} success, elapsed: {:?}.", 0, now.elapsed());
 
+        /* 
+        for (line, objfile) in unready_objfiles.lock().unwrap().iter() {
+            log::warn!("unready obj file: {:?}", objfile);
+
+            let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
+                let mut compiled_results: CompiledResults = Vec::new();
+                let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
+
+                match std::fs::File::open(&objfile) {
+                    Ok(file) => {
+                        let mut contents = Vec::new();
+                        let mut file = std::io::BufReader::new(file);
+                        let _ = file.read_to_end(&mut contents).unwrap();
+
+                        let origin = repair_original_path(&project_name, &origin_working_dir, &objfile);        
+
+                        obj = Some((origin, contents));
+                    },
+                    Err(error) => {
+                        if error.kind() == std::io::ErrorKind::NotFound {
+                            log::trace!("unready .obj file path is not found.");
+                        }
+                        else {
+                            log::error!("unready .obj file read failed. {:?}", error);
+                        }
+                    }
+                };
+
+                let compiled_result = CompiledResult {
+                    source_file: std::ffi::OsString::from(&line),
+                    obj: obj,
+                    pdb: None,
+                    idb: None,
+                };
+                compiled_results.push(compiled_result);
+            
+                let _ = out_stream.send(compiled_results);
+            });
+        }
+        */
         let mut result = std::path::PathBuf::from("");
         match &program_database {
             ProgramDataBase::PathWithPDBName(path) => {
                 result = path.clone();
             },
             ProgramDataBase::PathWithoutPDBName(dir) => {
-                result = dir.join("vc140");
+                result = dir.join("vc143");
                 result.set_extension("pdb");
             },
             _ => {
@@ -316,23 +359,23 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                     }
                 },
             }
+
+            // .ilk .res .asm
+            let compiled_result = CompiledResult {
+                source_file: std::ffi::OsString::from(&result),
+                obj: None,
+                pdb: pdb,
+                idb: idb,
+            };
+            compiled_results.push(compiled_result);
+        
+            out_err_stream.stdout.send(compiled_results).unwrap_or_else(|err| {
+                log::warn!("send compiled results to out stream failed: {:?}", err);
+            });
         }
         else {
             log::warn!("pdb file is not found, path: {:?}.", result);
         }
-
-        // .ilk .res .asm
-        let compiled_result = CompiledResult {
-            source_file: std::ffi::OsString::from(&result),
-            obj: None,
-            pdb: pdb,
-            idb: idb,
-        };
-        compiled_results.push(compiled_result);
-    
-        out_err_stream.stdout.send(compiled_results).unwrap_or_else(|err| {
-            log::warn!("send compiled results to out stream failed: {:?}", err);
-        });
     }
     else {
         let lines: Vec<&str> = compile_output.lines().collect();
