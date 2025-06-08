@@ -182,18 +182,7 @@ impl Sender {
                                 else if response.progress == pack::CompileProgress::Compilestart as i32 {
                                     log::debug!("precompiled sourcefile start response: {}", response.tips);
                                 }
-                                else if response.progress == pack::CompileProgress::Compiledone as i32 {
-                                    if !response.out.is_empty() {
-                                        log::debug!("precompiled sourcefile done response: {:?}", String::from_utf8_lossy(&response.out));
-                                        recv.out = response.out;
-                                    }
-                                    if !response.err.is_empty() {
-                                        log::debug!("precompiled sourcefile done response: {:?}", String::from_utf8_lossy(&response.err));
-                                        recv.err = response.err;
-                                    }
-                                    
-                                    recv.status = response.status;
-
+                                else if response.progress == pack::CompileProgress::Compiling as i32 {
                                     let mut myself = self.clone();
 
                                     let handle = self.runtime.clone().unwrap().spawn(async move {
@@ -201,6 +190,23 @@ impl Sender {
                                         myself.save_compile_output(&response.results, &runtime).await;
                                     });
                                     handle.await.unwrap();
+                                }
+                                else if response.progress == pack::CompileProgress::Compiledone as i32 {
+            
+                                    log::debug!("precompiled sourcefile done response: {:?}", String::from_utf8_lossy(&response.out));
+                                    recv.out = response.out;
+                                
+                                    log::debug!("precompiled sourcefile done response: {:?}", String::from_utf8_lossy(&response.err));
+                                    recv.err = response.err;
+                                    
+                                    recv.status = response.status;
+                                    
+                                    let mut myself = self.clone();
+                                    self.runtime.clone().unwrap().spawn(async move {
+                                        let runtime = myself.runtime.clone().unwrap();
+                                        myself.save_compile_output(&response.results, &runtime).await;
+                                    });
+
                                 }
                                 else {
                                     

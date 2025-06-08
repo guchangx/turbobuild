@@ -249,7 +249,7 @@ impl Receiver {
                     let mut intermediates = Vec::new();
                     let _source = result.source_file;
       
-                    if let Some(obj)  = result.obj {
+                    if let Some(obj) = result.obj {
                         let file = obj.0;
                         let content = obj.1;
                         let intermediate = package::IntermediateResult {
@@ -278,9 +278,8 @@ impl Receiver {
                         intermediates.push(intermediate);
                     }
 
-                    //
                     let reply = package::CompileTrResponse {
-                        progress: package::CompileProgress::Compiledone.into(),
+                        progress: package::CompileProgress::Compiling.into(),
                         out: Vec::new(),
                         err: Vec::new(),
                         results: intermediates,
@@ -299,7 +298,7 @@ impl Receiver {
             }
         });
 
-        let (output, results) = crate::compiler::interface::cocrew_build(input.to_owned(), out_err_stream);
+        let (output, _) = crate::compiler::interface::cocrew_build(input.to_owned(), out_err_stream);
         if output.status == 0 {
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compiledone.into(),

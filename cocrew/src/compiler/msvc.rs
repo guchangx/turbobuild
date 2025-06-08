@@ -158,7 +158,6 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     let actions = parse_action_from_commands(&project_name, &build_and_compiler_type, &compiler_commands, &replica_working_dir);
     let generated_object = actions.generated_object;
     let program_database = actions.program_database;
-    let files_size = actions.source_files.len();
 
     let out_stream = out_err_stream.stdout.clone();
 
@@ -166,7 +165,6 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     let origin_working_dir_ = origin_working_dir.clone();
 
     let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
-        let mut files_counter = 0;
 
         while let Ok(data) = out_receiver.recv() {
             let line = String::from_utf8_lossy(&data);
@@ -174,12 +172,8 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
             let line = line.replace(r#"""#, "").trim_end().to_string();
             if  line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") {
 
-                files_counter += 1;
-
                 let mut compiled_results: CompiledResults = Vec::new();
                 let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
-                let mut pdb: Option<(std::ffi::OsString, Vec<u8>)> = None;
-                let mut idb: Option<(std::ffi::OsString, Vec<u8>)> = None;
 
                 let mut result = std::path::PathBuf::from("");
                 let object = generated_object.clone();
@@ -206,7 +200,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                         let mut file = std::io::BufReader::new(file);
                         let _ = file.read_to_end(&mut contents).unwrap();
 
-                            let origin = repair_original_path(&project_name, &origin_working_dir_.clone(), &result);        
+                            let origin = repair_original_path(&project_name_, &origin_working_dir_, &result);        
 
                         obj = Some((origin, contents));
                     },
@@ -222,12 +216,11 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
 
                 result.clear();
 
-                // .ilk .res .asm
                 let compiled_result = CompiledResult {
                     source_file: std::ffi::OsString::from(&line),
                     obj: obj,
-                    pdb: pdb,
-                    idb: idb,
+                    pdb: None,
+                    idb: None,
                 };
                 compiled_results.push(compiled_result);
             
@@ -254,16 +247,12 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
         drop(err_stream);
     });
 
-    let (status, stdout, stderr) = start_local_compiler(&project_name_, &compiler_path, &replica_working_dir, &compiler_commands, &stdout_err_stream);
+    let (status, stdout, stderr) = start_local_compiler(&project_name, &compiler_path, &replica_working_dir, &compiler_commands, &stdout_err_stream);
 
     drop(stdout_err_stream);
 
     let compile_output = String::from_utf8_lossy(&stdout);
     let compile_error = String::from_utf8_lossy(&stderr);
-
-    let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
-    let mut compiled_output: Vec<std::ffi::OsString> = Vec::new();
-    let mut compiled_results: CompiledResults = Vec::new();
     
     log::trace!("injectd compile status: {}, stdout: {:?} stderr: {:?}", status, compile_output, compile_error);
 
@@ -296,7 +285,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                     let mut contents = Vec::new();
                     let mut file = std::io::BufReader::new(file);
                     let _ = file.read_to_end(&mut contents).unwrap();
-                    let origin = repair_original_path(&project_name_, &origin_working_dir, &result);        
+                    let origin = repair_original_path(&project_name, &origin_working_dir, &result);        
                     pdb = Some((origin, contents));
                 },
                 Err(error) => {
@@ -315,7 +304,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                     let mut contents = Vec::new();
                     let mut file = std::io::BufReader::new(file);
                     let _ = file.read_to_end(&mut contents).unwrap();
-                    let origin = repair_original_path(&project_name_, &origin_working_dir, &result);     
+                    let origin = repair_original_path(&project_name, &origin_working_dir, &result);     
                     idb = Some((origin, contents));
                 },
                 Err(error) => {
@@ -327,13 +316,12 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
                     }
                 },
             }
-
-
         }
         else {
             log::warn!("pdb file is not found, path: {:?}.", result);
-        } 
-        
+        }
+
+        // .ilk .res .asm
         let compiled_result = CompiledResult {
             source_file: std::ffi::OsString::from(&result),
             obj: None,
@@ -347,11 +335,11 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
         });
     }
     else {
-        let lines:Vec<&str> = compile_output.lines().collect();
+        let lines: Vec<&str> = compile_output.lines().collect();
         let (lines, errors) = filter_compiler_error(lines);
-        compiled_filename = lines.iter().map(|item| std::ffi::OsString::from(item)).collect();
-        compiled_output = errors.iter().map(|item| std::ffi::OsString::from(item)).collect();
-        log::warn!("compile result: filename: {:?}, errors: {:?}", compiled_filename, compiled_output);
+        let compiled_filename: Vec<_> = lines.iter().map(|item| std::ffi::OsString::from(item)).collect();
+        let compiled_output: Vec<_> = errors.iter().map(|item| std::ffi::OsString::from(item)).collect();
+        log::warn!("compile result failed. filename: {:?}, errors: {:?}", compiled_filename, compiled_output);
     }
     
     let result = CompilerOutput {
@@ -360,7 +348,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
         err: stderr,
     };
 
-    return (result, Some(compiled_results));
+    return (result, None);
 }
 
 #[derive(Debug, Clone, PartialEq)]

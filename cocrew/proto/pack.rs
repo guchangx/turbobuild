@@ -79,9 +79,10 @@ pub enum CompileProgress {
     Other = 0,
     Filetransfer = 1,
     Compilestart = 2,
-    Compiledone = 3,
-    Startlink = 4,
-    Linkdone = 5,
+    Compiling = 3,
+    Compiledone = 4,
+    Startlink = 5,
+    Linkdone = 6,
 }
 impl CompileProgress {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -93,6 +94,7 @@ impl CompileProgress {
             Self::Other => "OTHER",
             Self::Filetransfer => "FILETRANSFER",
             Self::Compilestart => "COMPILESTART",
+            Self::Compiling => "COMPILING",
             Self::Compiledone => "COMPILEDONE",
             Self::Startlink => "STARTLINK",
             Self::Linkdone => "LINKDONE",
@@ -104,6 +106,7 @@ impl CompileProgress {
             "OTHER" => Some(Self::Other),
             "FILETRANSFER" => Some(Self::Filetransfer),
             "COMPILESTART" => Some(Self::Compilestart),
+            "COMPILING" => Some(Self::Compiling),
             "COMPILEDONE" => Some(Self::Compiledone),
             "STARTLINK" => Some(Self::Startlink),
             "LINKDONE" => Some(Self::Linkdone),

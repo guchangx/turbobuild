@@ -16,9 +16,10 @@ enum CompileProgress {
     OTHER = 0;
     FILETRANSFER = 1;
     COMPILESTART = 2;
-    COMPILEDONE = 3;
-    STARTLINK = 4;
-    LINKDONE = 5;
+    COMPILING = 3;
+    COMPILEDONE = 4;
+    STARTLINK = 5;
+    LINKDONE = 6;
 }
 
 message IntermediateResult {
