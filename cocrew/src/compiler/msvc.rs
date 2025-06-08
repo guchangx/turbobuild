@@ -5,6 +5,11 @@ pub struct MSVC {
     pub version: String,
 }
 
+pub struct OutAndErrStream {
+    pub stdout: std::sync::mpsc::Sender<Vec<u8>>,
+    pub stderr: std::sync::mpsc::Sender<Vec<u8>>,
+}
+
 impl crate::compiler::interface::Compiler for MSVC {
 
     fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
@@ -136,7 +141,24 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     use std::io::Read;
 
     let now = std::time::Instant::now();
-    let (status, stdout, stderr) = start_local_compiler(&project_name, &compiler_path, &replica_working_dir, &compiler_commands);
+    let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+    let (err_sender, err_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+
+    let out_err_stream = Some(OutAndErrStream {
+        stdout: out_sender,
+        stderr: err_sender,
+    });
+
+    let (status, stdout, stderr) = start_local_compiler(&project_name, &compiler_path, &replica_working_dir, &compiler_commands, out_err_stream);
+
+    while let Ok(data) = out_receiver.recv() {
+        log::info!("stdout: {:?}", String::from_utf8_lossy(&data));
+    }
+
+    while let Ok(data) = err_receiver.recv() {
+        log::info!("stderr: {:?}", String::from_utf8_lossy(&data));
+    }
+
     let compile_output = String::from_utf8_lossy(&stdout);
     let compile_error = String::from_utf8_lossy(&stderr);
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
@@ -147,7 +169,7 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
 
     if status == 0 {
 
-        let lines:Vec<&str> = compile_output.lines().collect();
+        let lines: Vec<&str> = compile_output.lines().collect();
         
         let (lines, _warning) = filter_compiler_warning(lines);
 
@@ -484,7 +506,7 @@ fn parse_action_from_commands(project_name: &std::ffi::OsString, build_and_compi
     return CompileAction { program_database: pdb, generated_object: obj };
 }
 
-fn start_local_compiler_with_inject(project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) 
+fn start_local_compiler_with_inject(project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, out_err_stream: Option<OutAndErrStream>) 
                         -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     
     let line: String = compiler_commands.clone().into_iter()
@@ -494,12 +516,12 @@ fn start_local_compiler_with_inject(project: &std::ffi::OsString, compiler_path:
     let line =  format!(r#""{}" {}"#, compiler_path.to_string_lossy(), line);
 
     let (status, stdout, stderr) = crate::detours::redirect::msvc_detours(project.clone().into_string().unwrap(), compiler_path.clone().into_string().unwrap(), 
-                    line, working_dir.clone().into_string().unwrap());
+                    line, working_dir.clone().into_string().unwrap(), out_err_stream);
 
     return (status, stdout, stderr);
 }
 
-fn start_local_compiler(project_name: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) 
+fn start_local_compiler(project_name: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, out_err_stream: Option<OutAndErrStream>) 
                     -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
 
     log::trace!("project name: {:?}", project_name);
@@ -509,7 +531,7 @@ fn start_local_compiler(project_name: &std::ffi::OsString, compiler_path: &std::
 
     let start = std::time::Instant::now();
     
-    let (status, stdout, stderr) = start_local_compiler_with_inject(project_name, compiler_path, working_dir, compiler_commands);
+    let (status, stdout, stderr) = start_local_compiler_with_inject(project_name, compiler_path, working_dir, compiler_commands, out_err_stream);
     
     let elapsed = start.elapsed();
     log::info!("compile file with inject elapsed time: {:?}.", elapsed);
@@ -736,7 +758,7 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, working_dir.to_string_lossy())));
 
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), 
-            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands);
+            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, None);
         assert!(status == 0);
         println!("compile stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile stderr: {}", String::from_utf8_lossy(&stderr));
@@ -793,7 +815,8 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.i"#, working_dir.to_string_lossy())));
 
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), 
-            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands);
+            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, None);
+        assert!(status == 0);
         println!("compile .i file stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile .i file stderr: {}", String::from_utf8_lossy(&stderr));
         assert!(status == 0);
