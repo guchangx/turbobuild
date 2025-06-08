@@ -107,7 +107,7 @@ mod integration_tests {
                             }
                         },
                         Err(err) => {
-                            println!("read from turbobuild server failed. {:?}", err);
+                            println!("it read from turbobuild server failed. {:?}", err);
                             break;
                         }
                     }
@@ -133,17 +133,17 @@ mod integration_tests {
         tools::logger::init_logger("");
         println!("run cross ipc compile integration test");
 
-        let captain = std::thread::spawn(|| { 
+        let _captain = std::thread::spawn(|| { 
             captain::run();
         });
 
         std::thread::sleep(std::time::Duration::from_millis(200));
 
-        let cocrew = std::thread::spawn(|| {
+        let _cocrew = std::thread::spawn(|| {
             cocrew::run();
         });
 
-        let crew = std::thread::spawn(|| {
+        let _crew = std::thread::spawn(|| {
             crew::run();
         });
 
@@ -253,7 +253,7 @@ mod integration_tests {
                             }
                         },
                         Err(err) => {
-                            println!("read from turbobuild server failed. {:?}", err);
+                            println!("it read from turbobuild server failed. {:?}", err);
                             break;
                         }
                     }
@@ -272,6 +272,7 @@ mod integration_tests {
                     "test_9.i",
                     "Generating Code...",
                 ]);
+                
                 assert!(replys.iter().find(|&item| item == "Generating Code...").is_some());
 
                 //std::thread::sleep(std::time::Duration::from_secs(15));

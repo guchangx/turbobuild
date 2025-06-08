@@ -1,6 +1,8 @@
 
 use std::io::Write;
 
+use crate::common::COCREW_RUNTIME;
+
 #[allow(non_camel_case_types)]
 pub mod package {
     include!("../../proto/pack.rs");
@@ -114,10 +116,12 @@ impl Receiver {
                 compiler_commands: commands.iter().map(|item| std::ffi::OsString::from(item)).collect(),
                 build_and_compiler_type: std::ffi::OsString::from(request.variety),
             };
-            let _ = handle.await;
-            
-            let reply = Self::execute(&compiler_input).await;
-            let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+
+            let output_callback = |reply: package::CompileTrResponse| async {
+                let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+            };
+
+            Self::execute(&compiler_input, output_callback).await;
         } 
         else if !content.is_empty() {
 
@@ -210,12 +214,22 @@ impl Receiver {
             }
         }
     }
-    async fn execute(input: &crew::compiler::model::CompilerInput) -> package::CompileTrResponse {
-        let (output, results) = crate::compiler::interface::cocrew_build(input.to_owned());
-        if output.status == 0 {
-            let mut intermediates = Vec::new();
-            if let Some(results) = results {
+    async fn execute<Func, Fut>(input: &crew::compiler::model::CompilerInput, sender: Func)
+    where Func: Fn(package::CompileTrResponse) -> Fut + Send + 'static,
+          Fut: std::future::Future<Output = ()> + Send + 'static
+    {
+        let (out_sender, out_receiver) = std::sync::mpsc::channel::<crew::compiler::model::CompiledResults>();
+        let (err_sender, err_receiver) = std::sync::mpsc::channel::<crew::compiler::model::CompiledResults>();
+    
+        let out_err_stream = crate::compiler::msvc::CompiledResultsStream {
+            stdout: out_sender,
+            stderr: err_sender,
+        };
+
+        COCREW_RUNTIME.lock().unwrap().spawn(async move {
+            while let Ok(results) = out_receiver.recv() {
                 for result in results {
+                    let mut intermediates = Vec::new();
                     let _source = result.source_file;
       
                     if let Some(obj)  = result.obj {
@@ -246,18 +260,33 @@ impl Receiver {
                         };
                         intermediates.push(intermediate);
                     }
+
+                    //
+                    let reply = package::CompileTrResponse {
+                        progress: package::CompileProgress::Compiledone.into(),
+                        out: Vec::new(),
+                        err: Vec::new(),
+                        results: intermediates,
+                        status: 0,
+                        tips: "transmit do compile success.".to_string(),
+                    };
+
+                    sender(reply).await;
                 }
+            }
+        });
+
+        COCREW_RUNTIME.lock().unwrap().spawn(async move {
+            while let Ok(results) = err_receiver.recv() {
+                
+            }
+        });
+
+        let (output, results) = crate::compiler::interface::cocrew_build(input.to_owned(), out_err_stream);
+        if output.status == 0 {
+            if let Some(results) = results {
+
             };
-            
-            let reply = package::CompileTrResponse {
-                progress: package::CompileProgress::Compiledone.into(),
-                out: output.out.to_vec(),
-                err: output.err.to_vec(),
-                results: intermediates,
-                status: output.status,
-                tips: "transmit do compile success.".to_string(),
-            };
-            return reply;
         }
         else {  
             let reply = package::CompileTrResponse {
@@ -268,7 +297,7 @@ impl Receiver {
                 status: 1,
                 tips: "transmit do compile failed.".to_string(),
             };
-            return reply;
+            sender(reply).await;
         }
     }
 
@@ -278,7 +307,7 @@ impl Receiver {
         let project = project.clone();
         let commands = commands.clone();
 
-        let rt = crate::common::RUNTIME.lock().unwrap();
+        let rt = crate::common::COCREW_RUNTIME.lock().unwrap();
         let handel = rt.spawn(async move {
             let path = commands.iter().find(|&item| item.starts_with("/Fd")).map(|item| item.clone());
 
@@ -349,7 +378,7 @@ impl package::communicate_server::Communicate for Receiver {
         log::debug!("sync request transmit compiler: {:?}", rt_compile.compiler);
         log::debug!("commands: {:?}", rt_compile.commands);
         
-        let (tx, rx) = tokio::sync::mpsc::channel(128);
+        let (tx, rx) = tokio::sync::mpsc::channel(256);
         let self_ = self.clone();
         let _ = tokio::task::spawn(async move {
             self_.transmit_task_handle(rt_compile, tx).await;
@@ -368,7 +397,7 @@ mod tests {
         let commands = vec!["/FdD:\\WorkSpace\\turbobuild\\target\\debug\\test.pdb".to_string()];
 
         let handle = {
-            let rt =  crate::common::RUNTIME.lock().unwrap();
+            let rt =  crate::common::COCREW_RUNTIME.lock().unwrap();
             rt.handle().clone()
         };
 

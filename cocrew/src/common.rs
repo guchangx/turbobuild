@@ -14,7 +14,7 @@ impl Common {
     }
 }
 
-pub static RUNTIME: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex::<tokio::runtime::Runtime>>> = std::sync::LazyLock::new(|| {
+pub static COCREW_RUNTIME: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex::<tokio::runtime::Runtime>>> = std::sync::LazyLock::new(|| {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
     std::sync::Arc::new(std::sync::Mutex::new(runtime))
 });
@@ -34,7 +34,7 @@ pub fn init_common() {
     log::info!("common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
     
     let handle = {
-        let rt = RUNTIME.lock().unwrap();
+        let rt = COCREW_RUNTIME.lock().unwrap();
         rt.handle().clone()
     };
 

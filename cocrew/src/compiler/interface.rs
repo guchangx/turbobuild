@@ -5,14 +5,14 @@ pub trait Compiler {
     fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>);
 }
 
-pub fn cocrew_build(compiler_input: CompilerInput)
+pub fn cocrew_build(compiler_input: CompilerInput, out_err_stream: crate::compiler::msvc::CompiledResultsStream)
         -> (CompilerOutput, Option<CompiledResults>) {
             
     log::info!("build and compiler type: {:?}", compiler_input.build_and_compiler_type);
     if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
         || compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake")  {
 
-        let msvc = super::msvc::MSVC {version: "".to_string()};
+        let msvc = super::msvc::MSVC {version: "".to_string(), out_err_stream};
         
         let output = msvc.request_compile(compiler_input);
         return output;

@@ -65,11 +65,9 @@ pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE
     CloseHandle(handle);
 }
 
-pub fn msvc_detours(project: String, app_path: String, command: String, workding_directory: String, out_err_stream: Option<crate::compiler::msvc::OutAndErrStream>) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+pub fn msvc_detours(project: String, app_path: String, command: String, workding_directory: String, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     //TODO workding_directory should be also use redirect.
      
-    let stdoutstream = out_err_stream.as_ref().expect("donot need stdout stream.").stdout.clone();
-    let stderrstream = out_err_stream.expect("donot need err stream.").stderr;
     unsafe {
         let lpApplicationName = app_path.as_str();
         
@@ -156,6 +154,8 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
             CloseHandle(hStdInRead);
 
             if ret == winapi::shared::minwindef::TRUE {
+                let stdoutstream = out_err_stream.stdout.to_owned();
+                let stderrstream = out_err_stream.stderr.to_owned();
                 
                 pass_object_name_to_redriect(hStdInWrite, &project);
                 
@@ -166,7 +166,6 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                 }
 
                 let hStdOutputReadBox = HandleBox::new(hStdOutputRead);
-                let stdoutstream_ = stdoutstream.clone();
 
                 let task = std::thread::spawn(move || {
 
@@ -195,13 +194,13 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                             break;
                         }
 
-                        stdoutstream_.send(chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize].to_vec()).unwrap_or_else(|_| {
+                        stdoutstream.send(chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize].to_vec()).unwrap_or_else(|_| {
                             log::error!("send stdout stream failed.");
                         });
 
                         stdout.extend_from_slice(&chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize]);
                     }
-                    drop(stdoutstream_);
+                    drop(stdoutstream);
                     return stdout;
                 });
                 
@@ -237,6 +236,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
 
                     stderr.extend_from_slice(&chTmpStdErrorReadBuffer[..bytesStdErrorRead as usize]);
                 }
+                drop(stderrstream);
                 
                 winapi::um::synchapi::WaitForSingleObject(lpProcessInformation.hProcess as winapi::um::winnt::HANDLE, winapi::um::winbase::INFINITE);
                 
@@ -250,15 +250,10 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
 
                 log::info!("msvc detours end with exit code {}", code);
 
-                drop(stdoutstream);
-                drop(stderrstream);
 
                 return (code, std::sync::Arc::new(stdout), std::sync::Arc::new(stderr));
             }
             else {
-                drop(stdoutstream);
-                drop(stderrstream);
-
                 let code = winapi::um::errhandlingapi::GetLastError();
                 log::error!("DetourCreateProcessWithDllExW failed! error code: {}. error message: {}.", code, tools::utils::get_winapi_error_message(code));
                 return (code, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
@@ -270,9 +265,6 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
         }
         else
         {
-            drop(stdoutstream);
-            drop(stderrstream);
-
             log::error!("access redirect64.dll failed. {:?}", redirect_dll_path);
             return (1, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
         }
