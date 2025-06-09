@@ -1,6 +1,6 @@
 
-use crew::{communicate::package::CompileRecv, compiler::model::{CompiledResult, CompiledResults, CompilerInput, CompilerOutput}};
-use tonic::IntoRequest;
+use crew::{communicate::package::CompileRecv, compiler::model::{CompiledResult, CompiledResults, CompilerInput, CompilerOutput}, replica::project};
+use std::io::Read;
 
 pub struct MSVC {
     pub version: String,
@@ -126,11 +126,14 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput, 
     let replica_compiler = redirect_compiler_path(compiler_input.compiler_path.clone());
 
     if replica_compiler.is_some() {
-        let (output, results) = request_local_compile(compiler_input.project.clone(), 
-                replica_compiler.unwrap(),
-                compiler_input.compiler_working_dir.clone(), replica_working_dir.unwrap(), 
-                combine_commands, compiler_input.build_and_compiler_type.clone(), true, out_err_stream
-            );
+        let mut input = CompilerInput::default();
+        input.project = compiler_input.project.clone();
+        input.compiler_path = replica_compiler.unwrap();
+        input.compiler_working_dir = replica_working_dir.unwrap();
+        input.compiler_commands = combine_commands;
+        input.build_and_compiler_type = compiler_input.build_and_compiler_type.clone();
+
+        let (output, results) = request_local_compile(&input, compiler_input.compiler_working_dir.clone(), out_err_stream);
         return (output, results);
     }
     else {
@@ -141,10 +144,9 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput, 
     }
 }
 
-fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::ffi::OsString, origin_working_dir: std::ffi::OsString, replica_working_dir: std::ffi::OsString, 
-                                compiler_commands: Vec<std::ffi::OsString>, build_and_compiler_type: std::ffi::OsString,
-                            sync_compile_result: bool, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) -> (CompilerOutput, Option<CompiledResults>) {
-    use std::io::Read;
+fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std::ffi::OsString,
+                            out_err_stream: &crate::compiler::msvc::CompiledResultsStream)
+                            -> (CompilerOutput, Option<CompiledResults>) {
 
     let now = std::time::Instant::now();
     let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
@@ -154,8 +156,12 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
         stdout: out_sender,
         stderr: err_sender,
     };
+    let project_name = compiler_input.project.clone();
+    let compiler_path = compiler_input.compiler_path.clone();
+    let replica_working_dir = compiler_input.compiler_working_dir.clone();
+    let compiler_commands = compiler_input.compiler_commands.clone();
 
-    let actions = parse_action_from_commands(&project_name, &build_and_compiler_type, &compiler_commands, &replica_working_dir);
+    let actions = parse_action_from_commands(&compiler_input);
     let generated_object = actions.generated_object;
     let program_database = actions.program_database;
 
@@ -164,74 +170,18 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     let project_name_ = project_name.clone();
     let origin_working_dir_ = origin_working_dir.clone();
 
-    let mut unready_objfiles = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+    let unready_objfiles = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     let unready_objfiles_ = unready_objfiles.clone();
     let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
 
         while let Ok(data) = out_receiver.recv() {
+
             let line = String::from_utf8_lossy(&data);
             log::info!("stream stdout: {:?}", line);
-            
-            let line = line.replace(r#"""#, "").trim_end().to_string();
-            if  line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") {
 
-                let mut compiled_results: CompiledResults = Vec::new();
-                let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
-
-                let mut result = std::path::PathBuf::from("");
-                let object = generated_object.clone();
-                
-                match object {
-                    GeneratedObject::PathWithObjName(path) => {
-                        result = path;
-                    },
-                    GeneratedObject::PathWithoutObjName(dir) => {
-                        let mut path = dir.join(&line);
-                        path.set_extension("obj");
-                        result = path;
-                    },
-                    _ => {
-                        log::warn!("fetch result obj file path failed.");
-                    }
-                };
-
-                log::trace!("compile result generated object path: {:?}", result);
-                    
-                match std::fs::File::open(&result) {
-                    Ok(file) => {
-                        let mut contents = Vec::new();
-                        let mut file = std::io::BufReader::new(file);
-                        let _ = file.read_to_end(&mut contents).unwrap();
-
-                        let origin = repair_original_path(&project_name_, &origin_working_dir_, &result);        
-
-                        obj = Some((origin, contents));
-                    },
-                    Err(error) => {
-                        if error.kind() == std::io::ErrorKind::NotFound {
-                            unready_objfiles_.lock().unwrap().insert(line.clone(), result.clone());
-                            log::trace!(".obj file path is not found.");
-                        }
-                        else {
-                            log::error!(".obj file read failed. {:?}", error);
-                        }
-                    }
-                };
-
-                result.clear();
-
-                let compiled_result = CompiledResult {
-                    source_file: std::ffi::OsString::from(&line),
-                    obj: obj,
-                    pdb: None,
-                    idb: None,
-                };
-                compiled_results.push(compiled_result);
-            
-                let _ = out_stream.send(compiled_results);
-            }
-            else {
-                log::trace!("exclude source file, maybe warning and error. {:?}", line);
+            let objfile = pre_return_local_compile_result_objfiles(&line, generated_object.clone(), &project_name_, &origin_working_dir_, &out_stream);
+            if let Some(objfile) = objfile {
+                unready_objfiles_.lock().unwrap().insert(objfile.0, objfile.1);
             }
         }
 
@@ -261,121 +211,8 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     log::info!("injectd compile status: {}, {:?} stdout: {:?} stderr: {:?}", status, now.elapsed(), compile_output, compile_error);
 
     if status == 0 {
-
-        /* 
-        for (line, objfile) in unready_objfiles.lock().unwrap().iter() {
-            log::warn!("unready obj file: {:?}", objfile);
-
-            let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
-                let mut compiled_results: CompiledResults = Vec::new();
-                let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
-
-                match std::fs::File::open(&objfile) {
-                    Ok(file) => {
-                        let mut contents = Vec::new();
-                        let mut file = std::io::BufReader::new(file);
-                        let _ = file.read_to_end(&mut contents).unwrap();
-
-                        let origin = repair_original_path(&project_name, &origin_working_dir, &objfile);        
-
-                        obj = Some((origin, contents));
-                    },
-                    Err(error) => {
-                        if error.kind() == std::io::ErrorKind::NotFound {
-                            log::trace!("unready .obj file path is not found.");
-                        }
-                        else {
-                            log::error!("unready .obj file read failed. {:?}", error);
-                        }
-                    }
-                };
-
-                let compiled_result = CompiledResult {
-                    source_file: std::ffi::OsString::from(&line),
-                    obj: obj,
-                    pdb: None,
-                    idb: None,
-                };
-                compiled_results.push(compiled_result);
-            
-                let _ = out_stream.send(compiled_results);
-            });
-        }
-        */
-        let mut result = std::path::PathBuf::from("");
-        match &program_database {
-            ProgramDataBase::PathWithPDBName(path) => {
-                result = path.clone();
-            },
-            ProgramDataBase::PathWithoutPDBName(dir) => {
-                result = dir.join("vc143");
-                result.set_extension("pdb");
-            },
-            _ => {
-                log::warn!("fetch result pdb file path failed.");
-            }
-        };
-    
-        log::trace!("compile result program database path: {:?}", result);
-        let mut compiled_results: CompiledResults = Vec::new();
-
-        let mut pdb: Option<(std::ffi::OsString, Vec<u8>)> = None;
-        let mut idb: Option<(std::ffi::OsString, Vec<u8>)> = None;
-
-        if result.exists() {
-            match std::fs::File::open(&result) {
-                Ok(file) => {
-                    let mut contents = Vec::new();
-                    let mut file = std::io::BufReader::new(file);
-                    let _ = file.read_to_end(&mut contents).unwrap();
-                    let origin = repair_original_path(&project_name, &origin_working_dir, &result);        
-                    pdb = Some((origin, contents));
-                },
-                Err(error) => {
-                    if error.kind() == std::io::ErrorKind::NotFound {
-                        log::warn!(".pdb file path is not found. path: {:?}", result);
-                    }
-                    else {
-                        log::warn!(".pdb file read failed. {:?}", error);
-                    }
-                }
-            }
-
-            result.set_extension("idb");
-            match std::fs::File::open(&result) {
-                Ok(file) => {
-                    let mut contents = Vec::new();
-                    let mut file = std::io::BufReader::new(file);
-                    let _ = file.read_to_end(&mut contents).unwrap();
-                    let origin = repair_original_path(&project_name, &origin_working_dir, &result);     
-                    idb = Some((origin, contents));
-                },
-                Err(error) => {
-                    if error.kind() == std::io::ErrorKind::NotFound {
-                        //log::warn!(".idb file path is not found.");
-                    }
-                    else {
-                        log::warn!(".idb file read failed. {:?}", error);
-                    }
-                },
-            }
-
-            // .ilk .res .asm
-            let compiled_result = CompiledResult {
-                source_file: std::ffi::OsString::from(&result),
-                obj: None,
-                pdb: pdb,
-                idb: idb,
-            };
-            compiled_results.push(compiled_result);
-        
-            out_err_stream.stdout.send(compiled_results).unwrap_or_else(|err| {
-                log::warn!("send compiled results to out stream failed: {:?}", err);
-            });
-        }
-        else {
-            log::warn!("pdb file is not found, path: {:?}.", result);
-        }
+        return_local_compile_result_objfiles(unready_objfiles, &project_name, &origin_working_dir, out_err_stream);
+        return_local_compile_result_pdbfiles(program_database, &project_name, &origin_working_dir, out_err_stream);
     }
     else {
         let lines: Vec<&str> = compile_output.lines().collect();
@@ -392,6 +229,200 @@ fn request_local_compile(project_name: std::ffi::OsString, compiler_path: std::f
     };
 
     return (result, None);
+}
+
+fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, generated_object: GeneratedObject, project_name: &std::ffi::OsString, 
+                                                origin_working_dir: &std::ffi::OsString, out_stream: &std::sync::mpsc::Sender<CompiledResults>) 
+                                                -> std::option::Option<(std::string::String, std::path::PathBuf)> {
+
+    let mut unready_objfiles: std::option::Option<(std::string::String, std::path::PathBuf)> = None;
+
+    let line = line.replace(r#"""#, "").trim_end().to_string();
+    if  line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") {
+
+        let mut compiled_results: CompiledResults = Vec::new();
+        let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
+
+        let mut result = std::path::PathBuf::from("");
+        let object = generated_object.clone();
+        
+        match object {
+            GeneratedObject::PathWithObjName(path) => {
+                result = path;
+            },
+            GeneratedObject::PathWithoutObjName(dir) => {
+                let mut path = dir.join(&line);
+                path.set_extension("obj");
+                result = path;
+            },
+            _ => {
+                log::warn!("fetch result obj file path failed.");
+            }
+        };
+
+        log::trace!("compile result generated object path: {:?}", result);
+            
+        match std::fs::File::open(&result) {
+            Ok(file) => {
+                let mut contents = Vec::new();
+                let mut file = std::io::BufReader::new(file);
+                let _ = file.read_to_end(&mut contents).unwrap();
+
+                let origin = repair_original_path(&project_name, &origin_working_dir, &result);        
+
+                obj = Some((origin, contents));
+            },
+            Err(error) => {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    unready_objfiles = Some((line.clone(), result.clone()));
+                    log::trace!(".obj file path is not found.");
+                }
+                else {
+                    log::error!(".obj file read failed. {:?}", error);
+                }
+            }
+        };
+
+        result.clear();
+
+        let compiled_result = CompiledResult {
+            source_file: std::ffi::OsString::from(&line),
+            obj: obj,
+            pdb: None,
+            idb: None,
+        };
+        compiled_results.push(compiled_result);
+    
+        let _ = out_stream.send(compiled_results);
+    }
+    else {
+        log::trace!("exclude source file, maybe warning and error. {:?}", line);
+    }
+    return unready_objfiles;
+}
+
+fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<std::string::String, std::path::PathBuf>>>, project_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
+    
+    let objfiles: Vec<_> = objfiles.lock().unwrap().iter().map(|(k, v)|(k.clone(), v.clone())).collect();
+    for (line, objfile) in objfiles {
+        log::warn!("unready obj file: {:?}", objfile);
+        let out_stream = out_err_stream.stdout.clone();
+        let project_name_ = project_name.clone();
+        let origin_working_dir_ = origin_working_dir.clone();
+
+        let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
+            let mut compiled_results: CompiledResults = Vec::new();
+            let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
+
+            match std::fs::File::open(&objfile) {
+                Ok(file) => {
+                    let mut contents = Vec::new();
+                    let mut file = std::io::BufReader::new(file);
+                    let _ = file.read_to_end(&mut contents).unwrap();
+
+                    let origin = repair_original_path(&project_name_, &origin_working_dir_, &objfile);        
+
+                    obj = Some((origin, contents));
+                },
+                Err(error) => {
+                    if error.kind() == std::io::ErrorKind::NotFound {
+                        log::trace!("unready .obj file path is not found.");
+                    }
+                    else {
+                        log::error!("unready .obj file read failed. {:?}", error);
+                    }
+                }
+            };
+
+            let compiled_result = CompiledResult {
+                source_file: std::ffi::OsString::from(&line),
+                obj: obj,
+                pdb: None,
+                idb: None,
+            };
+            compiled_results.push(compiled_result);
+        
+            let _ = out_stream.send(compiled_results);
+            drop(out_stream);
+        });
+    }
+}
+
+fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, project_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
+    let mut result = std::path::PathBuf::from("");
+    match &program_database {
+        ProgramDataBase::PathWithPDBName(path) => {
+            result = path.clone();
+        },
+        ProgramDataBase::PathWithoutPDBName(dir) => {
+            result = dir.join("vc143");
+            result.set_extension("pdb");
+        },
+        _ => {
+            log::warn!("fetch result pdb file path failed.");
+        }
+    };
+    
+    log::trace!("compile result program database path: {:?}", result);
+    let mut compiled_results: CompiledResults = Vec::new();
+
+    let mut pdb: Option<(std::ffi::OsString, Vec<u8>)> = None;
+    let mut idb: Option<(std::ffi::OsString, Vec<u8>)> = None;
+
+    if result.exists() {
+        match std::fs::File::open(&result) {
+            Ok(file) => {
+                let mut contents = Vec::new();
+                let mut file = std::io::BufReader::new(file);
+                let _ = file.read_to_end(&mut contents).unwrap();
+                let origin = repair_original_path(&project_name, &origin_working_dir, &result);        
+                pdb = Some((origin, contents));
+            },
+            Err(error) => {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    log::warn!(".pdb file path is not found. path: {:?}", result);
+                }
+                else {
+                    log::warn!(".pdb file read failed. {:?}", error);
+                }
+            }
+        }
+
+        result.set_extension("idb");
+        match std::fs::File::open(&result) {
+            Ok(file) => {
+                let mut contents = Vec::new();
+                let mut file = std::io::BufReader::new(file);
+                let _ = file.read_to_end(&mut contents).unwrap();
+                let origin = repair_original_path(&project_name, &origin_working_dir, &result);     
+                idb = Some((origin, contents));
+            },
+            Err(error) => {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    //log::warn!(".idb file path is not found.");
+                }
+                else {
+                    log::warn!(".idb file read failed. {:?}", error);
+                }
+            },
+        }
+
+        // .ilk .res .asm
+        let compiled_result = CompiledResult {
+            source_file: std::ffi::OsString::from(&result),
+            obj: None,
+            pdb: pdb,
+            idb: idb,
+        };
+        compiled_results.push(compiled_result);
+    
+        out_err_stream.stdout.send(compiled_results).unwrap_or_else(|err| {
+            log::warn!("send compiled results to out stream failed: {:?}", err);
+        });
+    }
+    else {
+        log::warn!("pdb file is not found, path: {:?}.", result);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -543,19 +574,21 @@ struct CompileAction {
     pub source_files: std::collections::HashMap<std::string::String, std::path::PathBuf>,
 }
 
-fn parse_action_from_commands(project_name: &std::ffi::OsString, build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> CompileAction {
-    
+fn parse_action_from_commands(compiler_input: &CompilerInput) -> CompileAction {
+
+    let project_name = compiler_input.project.clone();
+
     let mut pdb = ProgramDataBase::NonePDBPath;
     let mut obj = GeneratedObject::NoneObjPath;
     let mut sourcefiles: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
-    let working_dir = std::path::PathBuf::from(working_dir);
+    let working_dir = std::path::PathBuf::from(compiler_input.compiler_working_dir.clone());
 
-    if build_and_compiler_type.to_string_lossy().contains("MSBuild")
-        || build_and_compiler_type.to_string_lossy().contains("CMake") 
-        || build_and_compiler_type.to_string_lossy().contains("Dist") {
+    if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
+        || compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake") 
+        || compiler_input.build_and_compiler_type.to_string_lossy().contains("Dist") {
         
         let mut default_pdb = false;
-        for command in compiler_commands {
+        for command in &compiler_input.compiler_commands {
             let command = command.to_string_lossy();
             if command.starts_with("/Fd") {
                 pdb = exact_compile_pdb_path(project_name.to_string_lossy(), command, &working_dir);
@@ -596,7 +629,7 @@ fn parse_action_from_commands(project_name: &std::ffi::OsString, build_and_compi
         if pdb == ProgramDataBase::NonePDBPath && default_pdb {
             let replica = tools::utils::access_replica_dir();
             let replica = std::path::PathBuf::from(replica);
-            pdb = ProgramDataBase::PathWithPDBName(replica.join("Project").join(project_name).join("vc140.pdb"));
+            pdb = ProgramDataBase::PathWithPDBName(replica.join("Project").join(project_name).join("vc143.pdb"));
         }
     }
     else {
@@ -971,8 +1004,16 @@ mod tests {
 
         let mut working_dir = std::ffi::OsString::from("C:\\WorkSpace\\TurboBuildTool\\turbobuild\\Replica\\Project\\GammaRayTool\\build\\3rdparty\\kde");
         
+        let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+        let (err_sender, err_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+    
+        let stdout_err_stream = OutAndErrStream {
+            stdout: out_sender,
+            stderr: err_sender,
+        };
+
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("GammaRayTool"), 
-            &complier_path.into_os_string(), &working_dir, &compiler_commands);
+            &complier_path.into_os_string(), &working_dir, &compiler_commands, &stdout_err_stream);
         log::info!("stdout: {}", String::from_utf8_lossy(&stdout));
         log::info!("stderr: {}", String::from_utf8_lossy(&stderr));
         assert!(status == 0);
@@ -1012,8 +1053,16 @@ mod tests {
 
         let working_dir = std::ffi::OsString::from(r"D:\turbobuild\target\debug\Replica\\Project\\llvm-project\\build\\lib\\Support\\BLAKE3");
         
+        let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+        let (err_sender, err_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+    
+        let stdout_err_stream = OutAndErrStream {
+            stdout: out_sender,
+            stderr: err_sender,
+        };
+
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("llvm-project"), 
-            &complier_path.into_os_string(), &working_dir, &compiler_commands);
+            &complier_path.into_os_string(), &working_dir, &compiler_commands, &stdout_err_stream);
         log::info!("stdout: {}", String::from_utf8_lossy(&stdout));
         log::info!("stderr: {}", String::from_utf8_lossy(&stderr));
         assert!(status == 0);
