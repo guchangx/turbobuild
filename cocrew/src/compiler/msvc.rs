@@ -238,7 +238,10 @@ fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, ge
     let mut unready_objfiles: std::option::Option<(std::string::String, std::path::PathBuf)> = None;
 
     let line = line.replace(r#"""#, "").trim_end().to_string();
-    if  line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") {
+    if line.starts_with("Generating Code...") { 
+    
+    }
+    else if  line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") {
 
         let mut compiled_results: CompiledResults = Vec::new();
         let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;

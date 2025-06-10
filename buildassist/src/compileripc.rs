@@ -11,7 +11,16 @@ impl SocketClient {
         
         }
     }
-
+    //TODO: should send compile failed message to IDE
+    //The VS format of the output should be:
+    //{ filename(line-number [, column-number]) | tool-name } : [ any-text ] {error | warning} code-type-and-number : localizable-string [ any-text ]
+    //Where:
+    //{ a | b } is a choice of either a or b,
+    //[ item ] is an optional string or parameter,
+    //text represents a literal.
+    //For example:
+    //C:\sourcefile.cpp(134) : error C2143: syntax error : missing ';' before '}'
+    //LINK : fatal error LNK1104: cannot open file 'some-library.lib'
     pub fn request_compile(&self, compiler_input: crate::commands::CompilerInput) -> Result<i32, ()> {
 
         let process_id = std::process::id();

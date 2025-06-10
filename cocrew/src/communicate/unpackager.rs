@@ -492,7 +492,7 @@ mod tests {
         ].iter().map(|item| item.to_string()).collect::<Vec<String>>();
 
         let handle = {
-            let rt =  crate::common::RUNTIME.lock().unwrap();
+            let rt =  crate::common::COCREW_RUNTIME.lock().unwrap();
             rt.handle().clone()
         };
 

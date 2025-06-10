@@ -143,6 +143,7 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
         line_.push_str(line);
     }
 
+    //TODO: project name mybe fetch form solution name.
     let mut line__ = String::new();
     let mut project = String::new();
     let assist = "BuildAssistProjectName:";
