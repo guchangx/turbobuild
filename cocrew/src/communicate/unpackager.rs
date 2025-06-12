@@ -107,12 +107,12 @@ impl Receiver {
 
         if file.is_empty() {
 
-            let handle = Self::check_dir_exists(&project, &commands).await;
+            let handle = Self::check_dir_exists(&project, &request.working_dir, &commands).await;
 
             let compiler_input = crew::compiler::model::CompilerInput {
                 project: std::ffi::OsString::from(project),
                 compiler_path: std::ffi::OsString::from(compiler),
-                compiler_working_dir: std::ffi::OsString::from(request.working_dir),
+                compiler_working_dir: std::ffi::OsString::from(&request.working_dir),
                 compiler_commands: commands.iter().map(|item| std::ffi::OsString::from(item)).collect(),
                 build_and_compiler_type: std::ffi::OsString::from(request.variety),
             };
@@ -124,7 +124,7 @@ impl Receiver {
                     let _ = tx.send(Ok(reply)).await.expect("tx send failed");
                 }
             };
-
+            handle.await.unwrap();
             Self::execute(&compiler_input, output_callback).await;
         } 
         else if !content.is_empty() {
@@ -324,10 +324,12 @@ impl Receiver {
     }
 
     //create dir for .pdb, if parent dir not exist, .pdb file can not be generated.
-    pub async fn check_dir_exists(project: &String, commands: &Vec<String>) -> tokio::task::JoinHandle<()> {
+    pub async fn check_dir_exists(project: &String, working_dir: &String, commands: &Vec<String>) -> tokio::task::JoinHandle<()> {
+        log::debug!("check dir exists for project: {}, commands: {:?}", project, commands);
 
         let project = project.clone();
         let commands = commands.clone();
+        let working_dir = working_dir.clone();
 
         let rt = crate::common::COCREW_RUNTIME.lock().unwrap();
         let handel = rt.spawn(async move {
@@ -337,37 +339,53 @@ impl Receiver {
                 Some(mut path) => {
                     let pdb = path.split_off(3);
                     let pdb = std::path::PathBuf::from(pdb);
-                    if pdb.has_root() && pdb.is_absolute() {
-
-                        let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
-    
-                        let split = |pdb: std::path::PathBuf, project: &String| {
-                            if project.is_empty() {
-                                return Some(pdb);
+                    
+                    let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
+                    
+                    let split = |pdb: std::path::PathBuf, project: &String| {
+                        if project.is_empty() {
+                            return Some(pdb);
+                        }
+                        else {
+                            let components = pdb.components().collect::<Vec<_>>();
+                            if let Some(index) = components.iter().position(|item| item.as_os_str().to_str().unwrap() == project) {
+                                let result: std::path::PathBuf = components[index + 1..].iter().collect();
+                                let path = replica.join("Project").join(project).join(result);
+                                return Some(path);
                             }
                             else {
-                                let components = pdb.components().collect::<Vec<_>>();
-                                if let Some(index) = components.iter().position(|item| item.as_os_str().to_str().unwrap() == project) {
-                                    let result: std::path::PathBuf = components[index + 1..].iter().collect();
-                                    let path = replica.join("Project").join(project).join(result);
-                                    let path = path.parent().unwrap().to_owned();
-                                    return Some(path);
-                                }
-                                else {
-                                    log::error!("not find project in path: {:?} project: {}.", pdb, project);
-                                    return None;
-                                }            
-                            }
-                        };
-                        
+                                log::error!("not find project in path: {:?} project: {}.", pdb, project);
+                                return None;
+                            }            
+                        }
+                    };
+
+                    if pdb.has_root() && pdb.is_absolute() {
                         if let Some(path) = split(pdb, &project) {
-                            let path = replica.join("Project").join(project).join(path);
+                            let path = replica.join("Project").join(project).join(path).parent().unwrap().to_owned();
                             if !path.exists() {
                                 log::info!("check dir not exist, so need create dir: {:?}", path);
-                                let _ = std::fs::create_dir_all(path);
+                                if let Err(err)  = std::fs::create_dir_all(&path) {
+                                    log::error!("create all dir failed: {:?} {}", path, err);
+                                }
                             }
                         }
                         else {
+                            log::error!("split path failed, so not create dir.");
+                        }
+                    }
+                    else {
+                        if let Some(path) = split(std::path::PathBuf::from(working_dir), &project) {
+                            let path = replica.join("Project").join(project).join(path).join(pdb).parent().unwrap().to_owned();
+                            if !path.exists() {
+                                log::info!("check dir not exist, so need create dir: {:?}", path);
+                                if let Err(err)  = std::fs::create_dir_all(&path) {
+                                    log::error!("create all dir failed: {:?} {}", path, err);
+                                }
+                            }
+                        }
+                        else {
+                            log::error!("split path failed, so not create dir.");
                         }
                     }
                 },
@@ -425,7 +443,7 @@ mod tests {
 
         handle.spawn(async move {
             println!("run check_dir_exists test in runtime.");
-            crate::communicate::unpackager::Receiver::check_dir_exists(&"test_dir".to_string(), &commands).await;
+            crate::communicate::unpackager::Receiver::check_dir_exists(&"test_dir".to_string(), &"".to_string(), &commands).await;
         });
     }
 
@@ -492,14 +510,14 @@ mod tests {
         ].iter().map(|item| item.to_string()).collect::<Vec<String>>();
 
         let handle = {
-            let rt =  crate::common::RUNTIME.lock().unwrap();
+            let rt =  crate::common::COCREW_RUNTIME.lock().unwrap();
             rt.handle().clone()
         };
 
 
         handle.spawn(async move {
             println!("run check_dir_exists test in runtime.");
-            crate::communicate::unpackager::Receiver::check_dir_exists(&"test_dir".to_string(), &commands).await;
+            crate::communicate::unpackager::Receiver::check_dir_exists(&"llvm-project".to_string(), &"".to_string(), &commands).await;
         });
 
     }

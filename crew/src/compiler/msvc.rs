@@ -593,7 +593,11 @@ fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working
     }
     else {
         commands.insert(0, std::ffi::OsString::from(r"/P"));
-        if let Some(arg) = compiler_commands.iter().find(|arg| arg.to_string_lossy().starts_with("/Fo") &&  arg.to_string_lossy().starts_with(".obj")) {
+
+        if let Some(arg) = compiler_commands.iter().find(|arg| {
+            let arg = arg.to_string_lossy();
+            return arg.starts_with("/Fo") && (arg.ends_with(".obj") || arg.ends_with("\\"));
+            }) {
             let path = arg.to_string_lossy().replace("/Fo", "/Fi").replace(".obj", ".i").replace("\\\\", "\\");
             commands.insert(1, std::ffi::OsString::from(path));
         }
