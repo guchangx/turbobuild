@@ -47,9 +47,15 @@ pub struct ArchiveArgs<'a> {
     pub content: std::borrow::Cow<'a, [u8]>,
 }
 
+pub struct ArchiveStreamArgs {
+    pub rx: tokio::sync::mpsc::Receiver<super::package::ArchiveArgs<'static>>,
+    pub callback: Box<dyn Fn() + Send + Sync>,
+}
+
 pub enum SenderType<'a> {
     Command(CommandArgs),
     Archive(ArchiveArgs<'a>),
+    ArchiveStream(ArchiveStreamArgs),
     Compile(PrecompiledFile<'a>),
     CheckResource,
 } 
@@ -112,6 +118,10 @@ impl Sender {
             },
             SenderType::Archive(args) => {
                 let result= self.dist_archive(args).await;
+                return ReceiverType::Archive(result);
+            },
+            SenderType::ArchiveStream(args) => {
+                let result= self.dist_archive_stream(args).await;
                 return ReceiverType::Archive(result);
             },
             SenderType::Compile(args) => {
@@ -180,6 +190,67 @@ impl Sender {
                 return result;
             }
         }
+    }
+
+    async fn dist_archive_stream(&mut self, args: ArchiveStreamArgs) -> ArchiveRecv {
+
+        let (tx, rx) = tokio::sync::mpsc::channel(128);
+        let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+
+        let mut receiver = args.rx;
+        let handle = self.runtime.as_ref().map(|runtime| runtime.spawn(async move {
+
+            while let Some(archive) = receiver.recv().await {
+                let request = pack::FileTrRequest {
+                    file_type: archive.file_type as i32,
+                    name: archive.name,
+                    path:  archive.path,
+                    content: archive.content.to_vec(),
+                };
+        
+                if let Err(err) = tx.send(request).await {
+                    log::error!("transmit file error: {:?}", err);
+                };
+            }
+
+            drop(tx);
+        }));
+
+        let mut result = ArchiveRecv {
+            status: true,
+            message: "".to_string(),
+        };
+
+        match self.to_owned().client.transmit_file(request_stream).await {
+            Ok(response) => {
+                
+                let host = self.host.clone();
+
+                let mut response_stream = response.into_inner();
+                while let Some(stream) = response_stream.next().await {
+                    match stream {
+                        Ok(stream) => {
+                            log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
+
+                        }
+                        Err(err) => {
+                            log::error!("transmit file {} failed: {:?}", host, err);
+                            break;
+                        }
+                    }
+                };
+            },
+            Err(err) => {
+                log::error!("transmit file  {} failed: {:?}", self.host, err);
+                result.status = false;
+            }
+        }
+
+        if let Some(handle) = handle {
+            handle.await.unwrap();
+        }
+
+        return result;
     }
 
     //TODO should think split dist compiler command or ziped precompilre sourcefile.

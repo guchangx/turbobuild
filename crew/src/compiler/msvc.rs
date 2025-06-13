@@ -188,6 +188,7 @@ impl MSVC {
         return output;
     }
 
+    //Discarded function
     async fn request_dist_compile_from_file(&self, precompiled_result: &PrecompiledResult, addr: &str, source_files: Vec<String>, compiler_input: &CompilerInput)
         -> CompilerOutput {
         let now = std::time::Instant::now();
@@ -267,7 +268,8 @@ impl MSVC {
             let addr = addr.to_owned();
             let runtime = self.runtime.clone();
             let bulk_handle = self.runtime.spawn(async move {
-                let files = transmit_precompiled_source_file(&addr, &project_name, object, &source_files.clone(), &runtime).await;
+                let files = Vec::new();
+                //files = transmit_precompiled_source_file(&addr, &project_name, object, &source_files.clone(), &runtime).await;
                 return files;
             });
 
@@ -319,6 +321,8 @@ impl MSVC {
         }
 
         let mut handles = Vec::new();
+        let stream = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
+
         while let Some(line) = fileout.err.next() {
             log::debug!("precompile stderr: {:?}", line);
 
@@ -330,13 +334,13 @@ impl MSVC {
             else {
                 let runtime = self.runtime.clone();
                 let precompiled_result_path = actions.precompiled_result_file.clone();
-                let project_name_ = project_name.clone();
-                let addr = addr.to_owned();
+                let stream = stream.clone();
 
                 let handle = self.runtime.spawn(async move {
-                    let files = transmit_precompiled_source_file(&addr, &project_name_.clone(), precompiled_result_path.clone(), &vec![file], &runtime).await;
+                    let files = transmit_precompiled_source_file(stream, precompiled_result_path.clone(), &vec![file], &runtime).await;
                     return files;
                 });
+
                 handles.push(handle);
             }                           
         }
@@ -362,8 +366,6 @@ impl MSVC {
             compiler_input.compiler_commands = commands;
     
             let output = self.request_dist_compile_with_command(&addr, compiler_input.clone()).await;
-            // send all precompiled source file and commands to remote server at same time.
-            //let _ = self.request_dist_compile_from_file(&actions.precompiled_result_file, &addr, files_.iter().map(|item| item.clone().into_string().unwrap()).collect(), &compiler_input).await; 
             return output;
         }
     }
@@ -498,7 +500,7 @@ async fn handle_compile_by_stdstream(mut stdout: StdOut) {
      */
 }   
 
-async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::OsString, precompiled_result: PrecompiledResult, source_files: &Vec<String>, runtime: &std::sync::Arc<tokio::runtime::Handle>)-> Vec<std::ffi::OsString> {
+async fn transmit_precompiled_source_file(stream: Option<tokio::sync::mpsc::Sender<crate::communicate::package::ArchiveArgs<'static>>>, precompiled_result: PrecompiledResult, source_files: &Vec<String>, runtime: &std::sync::Arc<tokio::runtime::Handle>)-> Vec<std::ffi::OsString> {
 
     let now = std::time::Instant::now();
     let options = zip::write::SimpleFileOptions::default()
@@ -554,14 +556,27 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
         intermediate.set_extension("zip");
     } 
 
-    let intput = CompilerInput {
-        project: project_name.into(),
-        ..Default::default()
+    let file = crate::communicate::package::ArchiveArgs {
+        file_type:  crate::communicate::package::FileType::ToolChain,
+        name: "".to_string(),
+        path: intermediate.to_string_lossy().to_string(),    
+        content: content.clone(),
     };
 
-    let _ = crate::communicate::distributor::Distributor::compile(&addr, intermediate.as_os_str().into(), &intput, &content, runtime).await;
+    if let Some(stream) = stream {
+        stream.send(file).await.unwrap();        
+    }
 
-    log::debug!("transmit precompiled source file to remote server {:?} elapsed time {:?}", &addr, now.elapsed());
+    /* 
+        let intput = CompilerInput {
+        project: project_name.into(),
+        ..Default::default()
+        };
+
+        let _ = crate::communicate::distributor::Distributor::compile(&addr, intermediate.as_os_str().into(), &intput, &content, runtime).await;
+    */
+
+    log::debug!("transmit precompiled source file elapsed time {:?}", now.elapsed());
     return precompiled_files_path;
 }
 
