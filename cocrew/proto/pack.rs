@@ -156,10 +156,19 @@ pub mod communicate_server {
     /// Generated trait containing gRPC methods that should be implemented for use with CommunicateServer.
     #[async_trait]
     pub trait Communicate: std::marker::Send + std::marker::Sync + 'static {
+        /// Server streaming response type for the transmit_file method.
+        type transmit_fileStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::FileTrResponse, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
         async fn transmit_file(
             &self,
-            request: tonic::Request<super::FileTrRequest>,
-        ) -> std::result::Result<tonic::Response<super::FileTrResponse>, tonic::Status>;
+            request: tonic::Request<tonic::Streaming<super::FileTrRequest>>,
+        ) -> std::result::Result<
+            tonic::Response<Self::transmit_fileStream>,
+            tonic::Status,
+        >;
         /// Server streaming response type for the transmit_task method.
         type transmit_taskStream: tonic::codegen::tokio_stream::Stream<
                 Item = std::result::Result<super::CompileTrResponse, tonic::Status>,
@@ -255,16 +264,19 @@ pub mod communicate_server {
                     struct transmit_fileSvc<T: Communicate>(pub Arc<T>);
                     impl<
                         T: Communicate,
-                    > tonic::server::UnaryService<super::FileTrRequest>
+                    > tonic::server::StreamingService<super::FileTrRequest>
                     for transmit_fileSvc<T> {
                         type Response = super::FileTrResponse;
+                        type ResponseStream = T::transmit_fileStream;
                         type Future = BoxFuture<
-                            tonic::Response<Self::Response>,
+                            tonic::Response<Self::ResponseStream>,
                             tonic::Status,
                         >;
                         fn call(
                             &mut self,
-                            request: tonic::Request<super::FileTrRequest>,
+                            request: tonic::Request<
+                                tonic::Streaming<super::FileTrRequest>,
+                            >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
@@ -290,7 +302,7 @@ pub mod communicate_server {
                                 max_decoding_message_size,
                                 max_encoding_message_size,
                             );
-                        let res = grpc.unary(method, req).await;
+                        let res = grpc.streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

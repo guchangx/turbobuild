@@ -236,8 +236,11 @@ pub mod communicate_client {
         }
         pub async fn transmit_file(
             &mut self,
-            request: impl tonic::IntoRequest<super::FileTrRequest>,
-        ) -> std::result::Result<tonic::Response<super::FileTrResponse>, tonic::Status> {
+            request: impl tonic::IntoStreamingRequest<Message = super::FileTrRequest>,
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<super::FileTrResponse>>,
+            tonic::Status,
+        > {
             self.inner
                 .ready()
                 .await
@@ -250,10 +253,10 @@ pub mod communicate_client {
             let path = http::uri::PathAndQuery::from_static(
                 "/pack.communicate/transmit_file",
             );
-            let mut req = request.into_request();
+            let mut req = request.into_streaming_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("pack.communicate", "transmit_file"));
-            self.inner.unary(req, path, codec).await
+            self.inner.streaming(req, path, codec).await
         }
         pub async fn transmit_task(
             &mut self,

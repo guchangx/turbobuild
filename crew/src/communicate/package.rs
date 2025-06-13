@@ -34,8 +34,10 @@ pub struct PrecompiledFile<'a> {
 
 pub enum FileType {
     Unknown = 0,
-    ToolChain = 1,
-    Kits = 2,
+    SourceFiles = 1,
+    PrecompiledSrcFiles = 2,
+    ToolChain = 3,
+    Kits = 4,
 }
 
 pub struct ArchiveArgs<'a> {
@@ -109,11 +111,7 @@ impl Sender {
                 return ReceiverType::Command(result);
             },
             SenderType::Archive(args) => {
-                self.dist_file(args).await;
-                let result = ArchiveRecv {
-                    status: false,
-                    message: "".to_string(),
-                };
+                let result= self.dist_archive(args).await;
                 return ReceiverType::Archive(result);
             },
             SenderType::Compile(args) => {
@@ -126,25 +124,60 @@ impl Sender {
         }
     }
     
-    async fn dist_file(&mut self, args: ArchiveArgs<'_>) {
+    async fn dist_archive(&mut self, args: ArchiveArgs<'_>) -> ArchiveRecv {
 
-        let request = tonic::Request::new(pack::FileTrRequest {
+        let (tx, rx) = tokio::sync::mpsc::channel(128);
+        let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+        
+        let request = pack::FileTrRequest {
             file_type: args.file_type as i32,
             name: args.name,
             path:  args.path,
             content: args.content.to_vec(),
-        });
+        };
+
+        if let Err(err) = tx.send(request).await {
+            log::error!("transmit file error: {:?}", err);
+            let result = ArchiveRecv {
+                status: false,
+                message: "".to_string(),
+            };
+            return result;
+        };
         
-        let response = self.to_owned().client.transmit_file(request).await;
-        match response {
+        drop(tx);
+
+        match self.to_owned().client.transmit_file(request_stream).await {
             Ok(response) => {
-                let inner = response.into_inner();
-                if inner.error_code == 0 {
-                    log::debug!("send to {} packfile success. response: {}", self.host ,inner.error_message);
-                }
-            }
+                
+                let host = self.host.clone();
+
+                let mut response_stream = response.into_inner();
+                while let Some(stream) = response_stream.next().await {
+                    match stream {
+                        Ok(stream) => {
+                            log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
+                        }
+                        Err(err) => {
+                            log::error!("transmit file {} failed: {:?}", host, err);
+                            break;
+                        }
+                    }
+                };
+                
+                let result = ArchiveRecv {
+                    status: true,
+                    message: "".to_string(),
+                };
+                return result;
+            },
             Err(err) => {
-                log::error!("send file to {}:19302, failed: {:?}", self.host, err);
+                log::error!("transmit file  {} failed: {:?}", self.host, err);
+                let result = ArchiveRecv {
+                    status: false,
+                    message: "".to_string(),
+                };
+                return result;
             }
         }
     }
