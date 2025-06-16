@@ -241,7 +241,7 @@ impl MSVC {
             
             }
             else {
-                log::trace!("request remote compile and sync back failed: {:?}", output);
+                log::trace!("request remote compile and sync back failed: {:?} {:?}", output.out, output.err);
             }
             return output;
         }
@@ -540,7 +540,7 @@ async fn transmit_precompiled_source_file(addr: &str, project_name: &std::ffi::O
             log::error!("precompiled file not found: {:?}", intermediate);   
         }
     }
-    log::debug!("zip precompiled file count {} elapsed time: {:?}", source_files.len(), now.elapsed());
+    log::debug!("zip precompiled file count {} {:?} elapsed time: {:?}", source_files.len(), intermediate, now.elapsed());
 
     let content = zip.finish().unwrap();
     let file = content.to_owned().into_inner();

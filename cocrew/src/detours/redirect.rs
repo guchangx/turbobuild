@@ -1,6 +1,6 @@
 
 use tokio::sync::mpsc::error;
-use winapi::{shared::minwindef::LPDWORD, um::{errhandlingapi::GetLastError, handleapi::CloseHandle, processthreadsapi::CreateProcessW, winioctl::StorageDeviceWriteAggregationProperty}};
+ use winapi::{shared::minwindef::LPDWORD, um::{errhandlingapi::GetLastError, handleapi::CloseHandle, processthreadsapi::CreateProcessW}};
 
 use crate::detours::detours::DetourCreateProcessWithDllExW;
 use std::os::windows::{ffi::OsStrExt, io::FromRawHandle};
@@ -166,12 +166,10 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                 }
 
                 let hStdOutputReadBox = HandleBox::new(hStdOutputRead);
-
                 let task = std::thread::spawn(move || {
 
                     let mut chTmpStdOutputReadBuffer = vec![0; 512];
                     let mut bytesStdOuputRead: winapi::shared::minwindef::DWORD = 0;
-                    let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
     
                     let mut stdout = Vec::new();
                     loop {
@@ -180,7 +178,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                             chTmpStdOutputReadBuffer.as_mut_ptr() as *mut _, 
                             chTmpStdOutputReadBuffer.len() as u32, 
                             &mut bytesStdOuputRead,
-                            &mut overlapped
+                            std::ptr::null_mut()
                         );
                         
                         if bStdOutputRead == winapi::shared::minwindef::FALSE || bytesStdOuputRead == 0 {
@@ -206,7 +204,6 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                 
                 let mut chTmpStdErrorReadBuffer = vec![0; 512];
                 let mut bytesStdErrorRead: winapi::shared::minwindef::DWORD = 0;
-                let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
 
                 let mut stderr = Vec::new();
 
@@ -216,7 +213,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                         chTmpStdErrorReadBuffer.as_mut_ptr() as *mut _, 
                         chTmpStdErrorReadBuffer.len() as u32, 
                         &mut bytesStdErrorRead, 
-                        &mut overlapped
+                        std::ptr::null_mut()
                     );
                     
                     if bStdErrorRead == winapi::shared::minwindef::FALSE || bytesStdErrorRead == 0 {

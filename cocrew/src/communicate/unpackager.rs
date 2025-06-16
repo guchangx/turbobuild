@@ -121,17 +121,19 @@ impl Receiver {
             let output_callback = move |reply: package::CompileTrResponse| {
                 let tx = tx_.clone();
                 async move {
-                    let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+                    for result in &reply.results {
+                        log::trace!("transmit compile handle return file: {}", result.file);
+                    }
+
+                    tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("tx send failed: {:?}", err));
                 }
             };
             handle.await.unwrap();
-            Self::execute(&compiler_input, output_callback).await;
+            Self::cocrew_execute(&compiler_input, output_callback).await;
         } 
         else if !content.is_empty() {
-
             let reply = Self::storage(&project, &file, &content).await;
-            let _ = tx.send(Ok(reply)).await.expect("tx send failed");
-            
+            tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("tx send failed: {:?}", err));
         }
         else {
             let reply = package::CompileTrResponse {
@@ -165,8 +167,6 @@ impl Receiver {
         else {
             let project = crew::replica::project::Property::new( project, path);
             let path = project.fetch_local_replica_project_path();
-            
-            log::trace!("replica storage path: {:?}", path);
     
             if path.extension() == Some(&std::ffi::OsStr::new("zip")) {
                 Self::extract(&path.to_str().unwrap(), &content).await;
@@ -195,33 +195,35 @@ impl Receiver {
             let dir = &path[..(path.len() - ".zip".len())];
             let cursor = std::io::Cursor::new(content);
             let mut zip = zip::ZipArchive::new(cursor).unwrap();
+            
             match zip.extract(dir) {
                 Ok(_) => {
-                    log::trace!("extract zip file done: {}", dir);
+                    log::trace!("extract zip file done: {} {:?}", dir, zip.file_names().collect::<Vec<&str>>());
                 },
                 Err(err) => {
-                    log::error!("extract zip file failed. {} {}", dir, err);
+                    log::error!("extract zip file failed. {} {} {:?}", dir, err, zip.file_names().collect::<Vec<&str>>());
                 }
             }
         }
         else {
             let cursor = std::io::Cursor::new(content);
             let mut zip = zip::ZipArchive::new(cursor).unwrap();
-            log::trace!("extract zip file names {:?}", zip.file_names().collect::<Vec<&str>>());
             match zip.extract(path) {
                 Ok(_) => {
-                    log::trace!("extract zip file done: {}", path);
+                    log::trace!("extract zip file done: {} {:?}", path, zip.file_names().collect::<Vec<&str>>());
                 },
                 Err(err) => {
-                    log::error!("extract zip file failed. {} {}", path, err);
+                    log::error!("extract zip file failed. {} {} {:?}", path, err, zip.file_names().collect::<Vec<&str>>());
                 }
             }
         }
     }
-    async fn execute<Func, Fut>(input: &crew::compiler::model::CompilerInput, sender: Func)
-    where Func: Fn(package::CompileTrResponse) -> Fut + Send + Sync + Clone + 'static,
-          Fut: std::future::Future<Output = ()> + Send
+
+    async fn cocrew_execute<Func, Fut>(input: &crew::compiler::model::CompilerInput, sender: Func)
+        where Func: Fn(package::CompileTrResponse) -> Fut + Send + Sync + Clone + 'static,
+              Fut: std::future::Future<Output = ()> + Send
     {
+        //TODO: use tokio::sync::mpsc replace std::sync::mpsc.
         let (out_sender, out_receiver) = std::sync::mpsc::channel::<crew::compiler::model::CompiledResults>();
         let (err_sender, err_receiver) = std::sync::mpsc::channel::<crew::compiler::model::CompiledResults>();
     
@@ -232,7 +234,7 @@ impl Receiver {
 
         let sender_ = sender.clone();
 
-        COCREW_RUNTIME.lock().unwrap().spawn(async move {
+        let handle = COCREW_RUNTIME.lock().unwrap().spawn(async move {
 
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compilestart.into(),
@@ -290,12 +292,14 @@ impl Receiver {
                     sender_(reply).await;
                 }
             }
+            log::debug!("transmit compile handle out stream end.");
         });
 
         COCREW_RUNTIME.lock().unwrap().spawn(async move {
             while let Ok(results) = err_receiver.recv() {
                 
             }
+            log::debug!("transmit compile handle err stream end.");
         });
 
         let (output, _) = crate::compiler::interface::cocrew_build(input.to_owned(), out_err_stream);
@@ -321,6 +325,9 @@ impl Receiver {
             };
             sender(reply).await;
         }
+
+        handle.await.unwrap();
+
     }
 
     //create dir for .pdb, if parent dir not exist, .pdb file can not be generated.
@@ -422,7 +429,7 @@ impl package::communicate_server::Communicate for Receiver {
         let self_ = self.clone();
         let _ = tokio::task::spawn(async move {
             self_.transmit_task_handle(rt_compile, tx).await;
-        }).await;
+        });
 
         let response = tokio_stream::wrappers::ReceiverStream::new(rx);
         return Ok(tonic::Response::new(Box::pin(response) as ResponseStream));

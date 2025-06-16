@@ -71,6 +71,7 @@ impl SocketClient {
                                     });   
                                 }
                                 else {
+                                    data.extend_from_slice(&buffer);
                                     data[..].lines().for_each(|line| {
                                         if let Ok(file) = line {
                                             if file.trim_end().ends_with(".i") || file.trim_end().ends_with(".cpp") || file.trim_end().ends_with(".cc") || file.trim_end().ends_with(".cxx") {
