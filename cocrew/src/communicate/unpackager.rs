@@ -56,43 +56,56 @@ impl Receiver {
         }
     }
 
-    async fn transmit_file_handle(&self, request: package::FileTrRequest) -> package::FileTrResponse {
-
-        let name = request.name;
-        let path = request.path;
+    async fn transmit_file_handle(&self, request: tonic::Request<tonic::Streaming<package::FileTrRequest>>, tx: tokio::sync::mpsc::Sender<Result<package::FileTrResponse, tonic::Status>>) {
+        use tokio_stream::StreamExt;
+        let mut stream = request.into_inner();
+            
+        while let Some(request) = stream.next().await {
+            if let Ok(request) = request {
+                let name = request.name;
+                let path = request.path;
+                
+                log::debug!("transmit file handle name: {}, path: {}", name, path);
         
-        log::debug!("transmit file handle name: {}, path: {}", name, path);
-
-        let content = request.content;
-        let file_type = request.file_type;
+                let content = request.content;
+                let file_type = request.file_type;
+                
+                if file_type == package::FileType::Toolchain as i32 {
+                    if path.ends_with(".zip") {
+                        let project = crew::replica::toolchain::Property::new(&path[..(path.len() - ".zip".len())]);
+                        let path = project.access_replica_toolchain_path();
+            
+                        Self::extract(&path, &content).await;
+                        //TODO: report resource again to captain. 
         
-        if file_type == package::FileType::Toolchain as i32 {
-            if path.ends_with(".zip") {
-                let project = crew::replica::toolchain::Property::new(&path[..(path.len() - ".zip".len())]);
-                let path = project.access_replica_toolchain_path();
-    
-                Self::extract(&path, &content).await;
-                //TODO: report resource again to captain. 
+                    }
+                    else {
+                        log::error!("package toolchain is not end with .zip {}", path);
+                    }
+                }
+                else if file_type == package::FileType::Kits as i32 {
+                        
+                }
+                else {
+                    log::debug!("unknown file type: {}", file_type);
+                }
+                
+                let reply = package::FileTrResponse {
+                    error_code: 0,
+                    error_message: "sync file success.".to_string(),
+                };
 
+
+                if tx.send(Ok(reply.clone())).await.is_err() {
+                    log::error!("tx send error.");
+                    break;
+                };
             }
             else {
-                log::error!("package toolchain is not end with .zip {}", path);
+                log::error!("transmit file handle request error");
+                break;
             }
         }
-            
-        else if file_type == package::FileType::Kits as i32 {
-                
-        }
-        else {
-            log::debug!("unknown file type: {}", file_type);
-        }
-        
-        let reply = package::FileTrResponse {
-            error_code: 0,
-            error_message: "sync file success.".to_string(),
-        };
-        
-        return reply;
     }
     
     async fn transmit_task_handle(&self, request: package::CompileTrRequest, tx: tokio::sync::mpsc::Sender<Result<package::CompileTrResponse, tonic::Status>>) {
@@ -404,21 +417,27 @@ impl Receiver {
     
 }
 
-type ResponseStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::CompileTrResponse, tonic::Status>> + Send>>;
-
+type ResponseTaskStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::CompileTrResponse, tonic::Status>> + Send>>;
+type ResponseFileStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::FileTrResponse, tonic::Status>> + Send>>;
 
 #[tonic::async_trait]
 impl package::communicate_server::Communicate for Receiver {
-    async fn transmit_file(&self, request: tonic::Request<package::FileTrRequest>) -> core::result::Result<tonic::Response<package::FileTrResponse>, tonic::Status> {
-        log::debug!("sync request transmit file. from: {:?}", request.remote_addr());
-        
-        let tr_file = request.into_inner();
-        let reply = self.transmit_file_handle(tr_file).await;
 
-        Ok(tonic::Response::new(reply))
+    type transmit_fileStream = ResponseFileStream;
+    async fn transmit_file(&self, request: tonic::Request<tonic::Streaming<package::FileTrRequest>>) -> core::result::Result<tonic::Response<Self::transmit_fileStream>, tonic::Status> {
+        log::debug!("sync request transmit file. from: {:?}", request.remote_addr());
+        let (tx, rx) = tokio::sync::mpsc::channel(256);
+
+        let self_ = self.clone();
+        let _ = tokio::task::spawn(async move {
+            self_.transmit_file_handle(request, tx).await;
+        }).await;
+
+        let response = tokio_stream::wrappers::ReceiverStream::new(rx);
+        return Ok(tonic::Response::new(Box::pin(response) as ResponseFileStream));
     }
     
-    type transmit_taskStream = ResponseStream;
+    type transmit_taskStream = ResponseTaskStream;
     async fn transmit_task(&self, request: tonic::Request<package::CompileTrRequest>) -> core::result::Result<tonic::Response<Self::transmit_taskStream>, tonic::Status> {
         
         let rt_compile = request.into_inner();
@@ -432,7 +451,7 @@ impl package::communicate_server::Communicate for Receiver {
         });
 
         let response = tokio_stream::wrappers::ReceiverStream::new(rx);
-        return Ok(tonic::Response::new(Box::pin(response) as ResponseStream));
+        return Ok(tonic::Response::new(Box::pin(response) as ResponseTaskStream));
     }
 }
 

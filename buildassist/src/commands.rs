@@ -4,30 +4,107 @@ pub struct CompilerInput {
     pub compiler_path: std::ffi::OsString,
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
+    pub env_vars: std::collections::HashMap<String, String>,
     pub build_and_compiler_type: std::ffi::OsString,
 }
 
-//TODO should fetch build index, but it is not ideal way to do it.
+//TODO: should fetch build index, but it is not ideal way to do it.
+
+pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMap<String, String>) -> (Option<std::ffi::OsString>, Option<std::ffi::OsString>) {
+
+    let mut project = None;
+    if let Some(sln) = environment.get("VSTEL_SolutionPath") {
+        std::path::PathBuf::from(sln).file_stem().map(|stem,| {
+            project = Some(stem.to_owned());
+        });
+    }
+
+    let mut compiler = String::new();
+    if let Some(dir) = environment.get("VSAPPIDDIR") {
+        compiler = dir.clone();
+    }
+
+    if let Some(edition) = environment.get("VSSKUEDITION") {
+        compiler.find(edition).map(|pos| {
+            compiler.truncate(pos + edition.len() + 1);
+        });
+    }
+
+    let mut buildstates = std::collections::HashMap::with_capacity(6);
+    if let Some(tlog) = environment.get("TRACKER_INTERMEDIATE") {
+        let dir = std::path::PathBuf::from(tlog);
+        std::fs::read_dir(&dir).unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_type().unwrap().is_file())
+            .filter(|entry| entry.file_name().to_string_lossy().ends_with(".lastbuildstate"))
+            .for_each(|entry| {
+                let path = entry.path();
+                let file = dir.join(path.file_name().unwrap());
+                
+                if let Ok(content) = std::fs::read_to_string(&*file) {
+
+                    if let Some(line) = content.lines().next() {
+                        line.split(':').for_each(|part| {
+                            part.split_once('=').map(|(key, value)| {
+                                buildstates.insert(key.to_string(), value.to_string());
+                            });
+                        });
+                    }
+                }
+            });
+    }
+
+    if let Some(version) = buildstates.get("VCToolsVersion") {
+        if !compiler.is_empty() {
+            compiler.push_str(r#"VC\Tools\MSVC\"#);
+            compiler.push_str(version);
+        }
+    }
+
+    if let Some(arch) = buildstates.get("VCToolArchitecture") {
+        if !compiler.is_empty() {
+            if arch == "Native64Bit" {
+                compiler.push_str(&format!(r#"\bin\Hostx64\{}\cl.exe"#, "x64"));
+            }
+            else if arch == "Native32Bit" {
+                compiler.push_str(&format!(r#"\bin\Hostx64\{}\cl.exe"#, "x86"));
+            }
+        }
+    }
+
+    return (project, if compiler.is_empty() {None} else { Some(std::ffi::OsString::from(compiler))});
+}
+
 pub fn fetch_compiler_commands() -> Option<CompilerInput> {
-    let commandline =  std::env::args_os();
-    let mut commands:Vec<std::ffi::OsString> = commandline.collect();
-    
+
+    let mut environment = std::collections::HashMap::new();
+    for (key, value) in std::env::vars() {
+        environment.insert(key, value);
+    }
+
+    if let Some(project) = environment.get("VSTEL_MSBuildProjectFullPath") { 
+        std::path::PathBuf::from(project).file_stem().map(|stem| {
+            println!("assistbuild project: {:?} {:?}", stem, environment.get("VSTEL_ProjectID"));
+        });
+    }
+
+    let (project_, compiler_) = fetch_compiler_args_path_from_envs(&environment);
+
+    let commandline = std::env::args_os();
+    let mut commands: Vec<std::ffi::OsString> = commandline.collect();
     let working_dir = std::env::current_dir().unwrap();
+
     if commands.len() <= 2  && commands.last().unwrap().to_string_lossy().ends_with(".rsp") {
-        let (project, mut compiler, commands) = fetch_and_parse_commands_for_msbuild(&mut commands);
+        let (project, compiler, commands) = fetch_and_parse_commands_for_msbuild(&mut commands);
         match commands {
             Some(commands) => {
-                
-                //println!("commands {:#?}", commands); // format print
-                if compiler.is_empty() {
-                    compiler = "x64".to_string();
-                }
 
                 let input = CompilerInput {
-                    project: std::ffi::OsString::from(project),
-                    compiler_path: std::ffi::OsString::from(compiler),
+                    project: if project.is_empty() { project_.unwrap() } else { std::ffi::OsString::from(project) },
+                    compiler_path: if compiler.is_empty() { compiler_.unwrap() } else { std::ffi::OsString::from(compiler) },
                     compiler_working_dir: std::ffi::OsString::from(working_dir),
                     compiler_commands: commands,
+                    env_vars: environment,
                     build_and_compiler_type: std::ffi::OsString::from("MSBuild_MSVC"),
                 };
 
@@ -45,6 +122,7 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
             compiler_path: compiler_path,
             compiler_working_dir: std::ffi::OsString::from(working_dir),
             compiler_commands: commands,
+            env_vars: environment,
             build_and_compiler_type: std::ffi::OsString::from("CMake_MSVC"),
         };
         return Some(input);
@@ -102,7 +180,7 @@ fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsStr
                     
                     let (project, compiler, commands) = parse_commands_by_line(line.as_str());
                     
-                    if compiler.is_empty() {
+                    if !compiler.is_empty() {
                         let path = std::path::PathBuf::from(compiler.clone());
                         let _version = path.into_iter()
                             .filter(|arg| arg.to_str().unwrap().contains(".") && arg.to_str().unwrap() != "cl.exe")
@@ -143,6 +221,7 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
         line_.push_str(line);
     }
 
+    //TODO: project name mybe fetch form solution name.
     let mut line__ = String::new();
     let mut project = String::new();
     let assist = "BuildAssistProjectName:";
@@ -338,4 +417,4 @@ mod tests {
         assert!(compiler.is_empty());
         println!("commands {:#?}", commands);
     }
-}
+    }

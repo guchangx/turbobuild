@@ -68,6 +68,6 @@ message CocrewResource {
 }
 
 service communicate {
-    rpc transmit_file(FileTrRequest) returns (FileTrResponse) {}
+    rpc transmit_file(stream FileTrRequest) returns (stream FileTrResponse) {}
     rpc transmit_task(CompileTrRequest) returns (stream CompileTrResponse) {}
 }

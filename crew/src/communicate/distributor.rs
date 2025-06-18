@@ -15,7 +15,7 @@ impl Distributor {
         }
     }
     
-    pub async fn sync<'a>(addr: &str, path: &str, content: &std::borrow::Cow<'a, [u8]>, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> String {
+    pub async fn archive<'a>(addr: &str, path: &str, content: &std::borrow::Cow<'a, [u8]>, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> String {
         let mut sender = super::package::Sender::new(addr, Some(runtime));
         
         let file = super::package::ArchiveArgs {
