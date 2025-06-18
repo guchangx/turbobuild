@@ -169,6 +169,9 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
 
     let project_name_ = project_name.clone();
     let origin_working_dir_ = origin_working_dir.clone();
+    let generated_object_ = generated_object.clone();
+
+    let stream_objfiles = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
     let unready_objfiles = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     let unready_objfiles_ = unready_objfiles.clone();
@@ -176,10 +179,12 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
 
         while let Ok(data) = out_receiver.recv() {
 
+            stream_objfiles.lock().unwrap().push(data.clone());
+
             let line = String::from_utf8_lossy(&data);
             log::info!("stream stdout: {:?}", line);
 
-            let objfile = pre_return_local_compile_result_objfiles(&line, generated_object.clone(), &project_name_, &origin_working_dir_, &out_stream);
+            let objfile = pre_return_local_compile_result_objfiles(&line, generated_object_.clone(), &project_name_, &origin_working_dir_, &out_stream);
             if let Some(objfile) = objfile {
                 unready_objfiles_.lock().unwrap().insert(objfile.0, objfile.1);
             }
@@ -211,7 +216,18 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     log::info!("injectd compile status: {}, {:?} stdout: {:?} stderr: {:?}", status, now.elapsed(), compile_output, compile_error);
 
     if status == 0 {
-        return_local_compile_result_objfiles(unready_objfiles, &project_name, &origin_working_dir, out_err_stream);
+        let lines: Vec<_> = compile_output.lines().collect();
+        let (files, _warnings) = filter_compiler_warning(lines);
+        if unready_objfiles.lock().unwrap().is_empty() {
+            let out_stream = out_err_stream.stdout.clone();
+            for line in files {
+                let _ = pre_return_local_compile_result_objfiles(&std::borrow::Cow::from(line), generated_object.clone(), &project_name, &origin_working_dir, &out_stream);
+            }
+            drop(out_stream);
+        }
+        else {
+            return_local_compile_result_objfiles(unready_objfiles, &project_name, &origin_working_dir, out_err_stream);
+        }
         return_local_compile_result_pdbfiles(program_database, &project_name, &origin_working_dir, out_err_stream);
     }
     else {

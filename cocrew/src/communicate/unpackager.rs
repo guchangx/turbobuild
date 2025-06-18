@@ -427,7 +427,7 @@ impl package::communicate_server::Communicate for Receiver {
         
         let (tx, rx) = tokio::sync::mpsc::channel(256);
         let self_ = self.clone();
-        let _ = tokio::task::spawn(async move {
+        let _ = COCREW_RUNTIME.lock().unwrap().spawn(async move {
             self_.transmit_task_handle(rt_compile, tx).await;
         });
 
