@@ -204,7 +204,7 @@ impl Sender {
                 let request = pack::FileTrRequest {
                     file_type: archive.file_type as i32,
                     name: archive.name,
-                    path:  archive.path,
+                    path: archive.path,
                     content: archive.content.to_vec(),
                 };
         

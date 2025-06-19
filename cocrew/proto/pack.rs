@@ -118,8 +118,10 @@ impl CompileProgress {
 #[repr(i32)]
 pub enum FileType {
     Unknown = 0,
-    Toolchain = 1,
-    Kits = 2,
+    Sourcefiles = 1,
+    Precompiledsrcfiles = 2,
+    Toolchain = 3,
+    Kits = 4,
 }
 impl FileType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -129,6 +131,8 @@ impl FileType {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             Self::Unknown => "UNKNOWN",
+            Self::Sourcefiles => "SOURCEFILES",
+            Self::Precompiledsrcfiles => "PRECOMPILEDSRCFILES",
             Self::Toolchain => "TOOLCHAIN",
             Self::Kits => "KITS",
         }
@@ -137,6 +141,8 @@ impl FileType {
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "UNKNOWN" => Some(Self::Unknown),
+            "SOURCEFILES" => Some(Self::Sourcefiles),
+            "PRECOMPILEDSRCFILES" => Some(Self::Precompiledsrcfiles),
             "TOOLCHAIN" => Some(Self::Toolchain),
             "KITS" => Some(Self::Kits),
             _ => None,

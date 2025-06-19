@@ -83,6 +83,19 @@ impl Receiver {
                         log::error!("package toolchain is not end with .zip {}", path);
                     }
                 }
+                else if file_type == package::FileType::Precompiledsrcfiles as i32 {
+                    if path.ends_with(".zip") {
+                        let project = crew::replica::toolchain::Property::new(&path[..(path.len() - ".zip".len())]);
+                        let path = project.access_replica_toolchain_path();
+            
+                        Self::extract(&path, &content).await;
+                        //TODO: report resource again to captain. 
+        
+                    }
+                    else {
+                        log::error!("package precompiledsrc files is not end with .zip {}", path);
+                    }
+                }
                 else if file_type == package::FileType::Kits as i32 {
                         
                 }
@@ -94,7 +107,6 @@ impl Receiver {
                     error_code: 0,
                     error_message: "sync file success.".to_string(),
                 };
-
 
                 if tx.send(Ok(reply.clone())).await.is_err() {
                     log::error!("tx send error.");
