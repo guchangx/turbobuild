@@ -39,7 +39,9 @@ impl SocketClient {
                 //TODO should not use compielr path. just x86 or x64.
                 
                 let buffer = format!(
-                    r#"{{"project": {:?}, "compiler_path": {:?}, "compiler_working_dir": {:?}, "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
+                    r#"{{"solution": {:?}, "index": {:?}, "project": {:?}, "compiler_path": {:?}, "compiler_working_dir": {:?}, "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
+                    compiler_input.solution.to_string_lossy(),
+                    compiler_input.index.to_string_lossy(),
                     compiler_input.project.to_string_lossy(),
                     compiler_input.compiler_path.to_string_lossy(),
                     compiler_input.compiler_working_dir.to_string_lossy(),
@@ -77,7 +79,7 @@ impl SocketClient {
                                                 eprintln!("{} read error form turbobuild: {}", current_datetime(), file);
                                             }
                                         }
-                                    });   
+                                    });
                                 }
                                 else {
                                     data.extend_from_slice(&buffer);

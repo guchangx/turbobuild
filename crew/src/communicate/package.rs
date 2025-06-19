@@ -23,6 +23,8 @@ pub struct FileArgs {
 }
 
 pub struct PrecompiledFile<'a> {
+    pub solution: String,
+    pub index: String,
     pub project: String,
     pub file: String,
     pub compiler: String,
@@ -142,7 +144,7 @@ impl Sender {
         let request = pack::FileTrRequest {
             file_type: args.file_type as i32,
             name: args.name,
-            path:  args.path,
+            path: args.path,
             content: args.content.to_vec(),
         };
 
@@ -256,6 +258,8 @@ impl Sender {
     //TODO should think split dist compiler command or ziped precompilre sourcefile.
     async fn dist_compile(&mut self, compiled: PrecompiledFile<'_>) -> CompileRecv {
         let request = tonic::Request::new(pack::CompileTrRequest {
+            solution: compiled.solution,
+            index: compiled.index,
             project: compiled.project,
             file: compiled.file,
             compiler: compiled.compiler,

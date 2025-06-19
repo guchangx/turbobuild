@@ -2,18 +2,22 @@
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompileTrRequest {
     #[prost(string, tag = "1")]
-    pub project: ::prost::alloc::string::String,
+    pub solution: ::prost::alloc::string::String,
     #[prost(string, tag = "2")]
-    pub file: ::prost::alloc::string::String,
+    pub index: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
-    pub compiler: ::prost::alloc::string::String,
+    pub project: ::prost::alloc::string::String,
     #[prost(string, tag = "4")]
-    pub working_dir: ::prost::alloc::string::String,
+    pub file: ::prost::alloc::string::String,
     #[prost(string, tag = "5")]
+    pub compiler: ::prost::alloc::string::String,
+    #[prost(string, tag = "6")]
+    pub working_dir: ::prost::alloc::string::String,
+    #[prost(string, tag = "7")]
     pub variety: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag = "6")]
+    #[prost(string, repeated, tag = "8")]
     pub commands: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(bytes = "vec", tag = "7")]
+    #[prost(bytes = "vec", tag = "9")]
     pub content: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

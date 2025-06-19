@@ -58,6 +58,9 @@ impl Receiver {
                         log::debug!("buildassist connection data {}", data);
 
                         let input: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
+                        
+                        let solution = input["solution"].as_str().unwrap();
+                        let index = input["index"].as_str().unwrap();
                         let project = input["project"].as_str().unwrap();
                         let compiler = input["compiler_path"].as_str().unwrap();
                         let working = input["compiler_working_dir"].as_str().unwrap();
@@ -65,6 +68,8 @@ impl Receiver {
                         let r#type = input["build_and_compiler_type"].as_str().unwrap();
                         
                         let input = crate::compiler::model::CompilerInput {
+                            solution: std::ffi::OsString::from(solution),
+                            index: std::ffi::OsString::from(index),
                             project: std::ffi::OsString::from(project),
                             compiler_path: std::ffi::OsString::from(compiler),
                             compiler_working_dir: std::ffi::OsString::from(working),

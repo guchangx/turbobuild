@@ -1,5 +1,7 @@
 
 pub struct CompilerInput {
+    pub solution: std::ffi::OsString,
+    pub index: std::ffi::OsString,
     pub project: std::ffi::OsString,
     pub compiler_path: std::ffi::OsString,
     pub compiler_working_dir: std::ffi::OsString,
@@ -10,12 +12,26 @@ pub struct CompilerInput {
 
 //TODO: should fetch build index, but it is not ideal way to do it.
 
-pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMap<String, String>) -> (Option<std::ffi::OsString>, Option<std::ffi::OsString>) {
+pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMap<String, String>) 
+        -> (Option<std::ffi::OsString>, Option<std::ffi::OsString>, Option<std::ffi::OsString>, Option<std::ffi::OsString>) {
+
+    let mut solution= None;
+    if let Some(sln) = environment.get("VSTEL_SolutionPath") {
+        std::path::PathBuf::from(sln).file_stem().map(|stem| {
+            solution = Some(stem.to_owned());
+        });
+    }
 
     let mut project = None;
-    if let Some(sln) = environment.get("VSTEL_SolutionPath") {
-        std::path::PathBuf::from(sln).parent().map(|parent| {
-            std::path::PathBuf::from(parent).file_stem().map(|stem| {
+    let mut index = None;
+    if let Some(proj) = environment.get("VSTEL_MSBuildProjectFullPath") {
+
+        std::path::PathBuf::from(proj).file_stem().map(|stem| {
+            index = Some(stem.to_owned());
+        });
+
+        std::path::PathBuf::from(proj).parent().map(|parent| {
+            parent.file_stem().map(|stem| {
                 project = Some(stem.to_owned());
             });
         });
@@ -74,7 +90,7 @@ pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMa
         }
     }
 
-    return (project, if compiler.is_empty() {None} else { Some(std::ffi::OsString::from(compiler))});
+    return (solution, index, project, if compiler.is_empty() {None} else { Some(std::ffi::OsString::from(compiler))});
 }
 
 pub fn fetch_compiler_commands() -> Option<CompilerInput> {
@@ -84,13 +100,7 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
         environment.insert(key, value);
     }
 
-    if let Some(project) = environment.get("VSTEL_MSBuildProjectFullPath") { 
-        std::path::PathBuf::from(project).file_stem().map(|stem| {
-            println!("assistbuild project: {:?} {:?}", stem, environment.get("VSTEL_ProjectID"));
-        });
-    }
-
-    let (project_, compiler_) = fetch_compiler_args_path_from_envs(&environment);
+    let (solution_, index, project_, compiler_) = fetch_compiler_args_path_from_envs(&environment);
 
     let commandline = std::env::args_os();
     let mut commands: Vec<std::ffi::OsString> = commandline.collect();
@@ -102,6 +112,8 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
             Some(commands) => {
 
                 let input = CompilerInput {
+                    solution: solution_.unwrap_or_else(|| std::ffi::OsString::from("")),
+                    index: index.unwrap_or_else(|| std::ffi::OsString::from("")),
                     project: if project.is_empty() { project_.unwrap() } else { std::ffi::OsString::from(project) },
                     compiler_path: if compiler.is_empty() { compiler_.unwrap() } else { std::ffi::OsString::from(compiler) },
                     compiler_working_dir: std::ffi::OsString::from(working_dir),
@@ -120,6 +132,8 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
      else {
         let (compiler_path, commands) = fetch_and_parse_commands_for_cmake(&mut commands);
         let input = CompilerInput {
+            solution: std::ffi::OsString::from(""),
+            index: std::ffi::OsString::from(""),
             project: std::ffi::OsString::from(""),
             compiler_path: compiler_path,
             compiler_working_dir: std::ffi::OsString::from(working_dir),

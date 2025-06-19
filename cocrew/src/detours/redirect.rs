@@ -37,9 +37,9 @@ static REDIRECT_DLL_PATH: std::sync::LazyLock<Option<std::ffi::CString>> = std::
         }
     });
 
-pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE, project: &str) {
+pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE, solution: &str, index: &str, project: &str) {
     if !project.is_empty() {
-        let arg = format!("project:{}\nreplica:{}\n", project, tools::utils::access_replica_dir());
+        let arg = format!("index:{}\nproject:{}\nreplica:{}\n", index, project, tools::utils::access_replica_dir() + r"\" + solution);
         let mut bytes: winapi::shared::minwindef::DWORD = 0;
         let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
         let ret = winapi::um::fileapi::WriteFile(
@@ -65,7 +65,7 @@ pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE
     CloseHandle(handle);
 }
 
-pub fn msvc_detours(project: String, app_path: String, command: String, workding_directory: String, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+pub fn msvc_detours(sln: String, index: String, project: String, app_path: String, command: String, workding_directory: String, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     //TODO workding_directory should be also use redirect.
      
     unsafe {
@@ -157,7 +157,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                 let stdoutstream = out_err_stream.stdout.to_owned();
                 let stderrstream = out_err_stream.stderr.to_owned();
                 
-                pass_object_name_to_redriect(hStdInWrite, &project);
+                pass_object_name_to_redriect(hStdInWrite, &sln, &index, &project);
                 
                 let ret = winapi::um::processthreadsapi::ResumeThread(lpProcessInformation.hThread as _);
                 if ret == winapi::shared::minwindef::FALSE as u32 {

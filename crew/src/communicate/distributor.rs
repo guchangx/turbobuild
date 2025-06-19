@@ -55,6 +55,8 @@ impl Distributor {
         runtime: &std::sync::Arc<tokio::runtime::Handle>) -> crate::communicate::package::ReceiverType {
 
         let args = super::package::PrecompiledFile {
+            solution: input.solution.to_string_lossy().to_string(),
+            index: input.index.to_string_lossy().to_string(),
             project: input.project.to_string_lossy().to_string(),
             file: file.to_string_lossy().to_string(),
             compiler: input.compiler_path.to_string_lossy().to_string(),

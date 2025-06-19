@@ -3,13 +3,15 @@ syntax = "proto3";
 package pack;
 
 message CompileTrRequest {
-    string project = 1;
-    string file = 2;
-    string compiler = 3;
-    string working_dir = 4;
-    string variety = 5;
-    repeated string commands = 6;
-    bytes content = 7;
+    string solution = 1;
+    string index = 2;
+    string project = 3;
+    string file = 4;
+    string compiler = 5;
+    string working_dir = 6;
+    string variety = 7;
+    repeated string commands = 8;
+    bytes content = 9;
 }
 
 enum CompileProgress {

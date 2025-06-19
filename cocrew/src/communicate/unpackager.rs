@@ -125,6 +125,7 @@ impl Receiver {
         let project = request.project;
         let file = request.file;
         let compiler = request.compiler;
+        let solution = request.solution;
     
         let commands = request.commands;
         let content = request.content;
@@ -135,6 +136,8 @@ impl Receiver {
             let handle = Self::check_dir_exists(&project, &request.working_dir, &commands).await;
 
             let compiler_input = crew::compiler::model::CompilerInput {
+                solution: std::ffi::OsString::from(solution),
+                index: std::ffi::OsString::from(request.index), 
                 project: std::ffi::OsString::from(project),
                 compiler_path: std::ffi::OsString::from(compiler),
                 compiler_working_dir: std::ffi::OsString::from(&request.working_dir),
@@ -157,7 +160,7 @@ impl Receiver {
             Self::cocrew_execute(&compiler_input, output_callback).await;
         } 
         else if !content.is_empty() {
-            let reply = Self::storage(&project, &file, &content).await;
+            let reply = Self::storage(&project, &file, &solution, &content).await;
             tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("tx send failed: {:?}", err));
         }
         else {
@@ -173,7 +176,7 @@ impl Receiver {
         }
     }
 
-    async fn storage(project: &str, path: &str, content: &[u8]) -> package::CompileTrResponse {
+    async fn storage(project: &str, solution: &str, path: &str, content: &[u8]) -> package::CompileTrResponse {
         let now = std::time::Instant::now();
         
         let mut reply = package::CompileTrResponse {
@@ -190,7 +193,7 @@ impl Receiver {
             log::error!("transmit storage project name or path is empty.");
         }
         else {
-            let project = crew::replica::project::Property::new( project, path);
+            let project = crew::replica::project::Property::new(project, solution, path);
             let path = project.fetch_local_replica_project_path();
     
             if path.extension() == Some(&std::ffi::OsStr::new("zip")) {
