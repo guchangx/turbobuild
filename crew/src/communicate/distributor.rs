@@ -20,6 +20,7 @@ impl Distributor {
         let mut sender = super::package::Sender::new(addr, Some(runtime));
         let file = super::package::ArchiveArgs {
             file_type: super::package::FileType::ToolChain,
+            project: "".to_string(),
             name: "".to_string(),
             path:  path.to_string(),    
             content: content.clone(),

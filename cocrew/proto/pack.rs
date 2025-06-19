@@ -43,10 +43,12 @@ pub struct FileTrRequest {
     #[prost(enumeration = "FileType", tag = "1")]
     pub file_type: i32,
     #[prost(string, tag = "2")]
-    pub name: ::prost::alloc::string::String,
+    pub project: ::prost::alloc::string::String,
     #[prost(string, tag = "3")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(string, tag = "4")]
     pub path: ::prost::alloc::string::String,
-    #[prost(bytes = "vec", tag = "4")]
+    #[prost(bytes = "vec", tag = "5")]
     pub content: ::prost::alloc::vec::Vec<u8>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]

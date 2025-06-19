@@ -42,6 +42,7 @@ pub enum FileType {
 
 pub struct ArchiveArgs<'a> {
     pub file_type: FileType,
+    pub project: String,
     pub name: String,
     pub path: String,    
     pub content: std::borrow::Cow<'a, [u8]>,
@@ -141,6 +142,7 @@ impl Sender {
         
         let request = pack::FileTrRequest {
             file_type: args.file_type as i32,
+            project: args.project.clone(),
             name: args.name,
             path:  args.path,
             content: args.content.to_vec(),
@@ -202,7 +204,8 @@ impl Sender {
 
             while let Some(archive) = receiver.recv().await {
                 let request = pack::FileTrRequest {
-                    file_type: archive.file_type as i32,
+                    file_type: archive.file_type as i32, 
+                    project: archive.project.clone(),
                     name: archive.name,
                     path: archive.path,
                     content: archive.content.to_vec(),
