@@ -15,9 +15,9 @@ impl Distributor {
         }
     }
     
+    //should replace with archive_stream, after test.
     pub async fn archive<'a>(addr: &str, path: &str, content: &std::borrow::Cow<'a, [u8]>, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> String {
         let mut sender = super::package::Sender::new(addr, Some(runtime));
-        
         let file = super::package::ArchiveArgs {
             file_type: super::package::FileType::ToolChain,
             name: "".to_string(),
@@ -29,6 +29,26 @@ impl Distributor {
         sender.dist(file).await;
         
         return "".to_string();
+    }
+
+    pub async fn archive_stream<'a>(addr: &str, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> Option<tokio::sync::mpsc::Sender<super::package::ArchiveArgs<'static>>> {
+        
+        let (tx, rx) = tokio::sync::mpsc::channel::<super::package::ArchiveArgs>(128);
+
+        let args = super::package::ArchiveStreamArgs {
+            rx: rx,
+            callback: Box::new(||{})
+        };
+
+        let addr = addr.to_owned();
+        let runtime_ = runtime.clone();
+        runtime.spawn(async move {
+            let mut sender = super::package::Sender::new(&addr, Some(&runtime_));
+            let archive = super::package::SenderType::ArchiveStream(args);
+            sender.dist(archive).await;
+        });
+        
+        return Some(tx);
     }
     
     pub async fn compile<'a>(addr: &str, file: std::ffi::OsString, input: &crate::compiler::model::CompilerInput, content: &std::borrow::Cow<'a, [u8]>,
