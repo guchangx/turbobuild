@@ -342,7 +342,7 @@ impl MSVC {
                 });
 
                 handles.push(handle);
-            }                           
+            }
         }
         
         if handles.is_empty() {
@@ -557,7 +557,7 @@ async fn transmit_precompiled_source_file(stream: Option<tokio::sync::mpsc::Send
     } 
 
     let file = crate::communicate::package::ArchiveArgs {
-        file_type:  crate::communicate::package::FileType::ToolChain,
+        file_type:  crate::communicate::package::FileType::PrecompiledSrcFiles,
         name: "".to_string(),
         path: intermediate.to_string_lossy().to_string(),    
         content: content.clone(),
@@ -1164,7 +1164,7 @@ fn start_local_compiler_by_file(compiler_path: &std::ffi::OsString, working_dir:
             return Ok((outstream, errstream, child));
         },
         Err(error) => {
-            println!("spawn compile child process error: {:?}", error);
+            log::warn!("spawn compile child process error: {:?}", error);
             let mut error_description = String::from("spawn compile child process error: ");
             error_description.push_str(error.to_string().as_str());
             return Err(error);

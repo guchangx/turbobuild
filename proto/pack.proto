@@ -38,8 +38,10 @@ message CompileTrResponse {
 
 enum FileType {
     UNKNOWN = 0;
-    TOOLCHAIN = 1;
-    KITS= 2;
+    SOURCEFILES = 1;
+    PRECOMPILEDSRCFILES = 2;
+    TOOLCHAIN = 3;
+    KITS= 4;
 }
 
 message FileTrRequest {
