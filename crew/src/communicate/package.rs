@@ -91,12 +91,12 @@ impl Sender {
         }
         
         let channel = tonic::transport::Endpoint::from_shared(std::format!("http://{}:19302", host)).unwrap()
+            .connect_timeout(std::time::Duration::from_secs(15))
             .connect_lazy();
 
         let client = pack::communicate_client::CommunicateClient::new(channel)
             .max_decoding_message_size(1024 * 1024 * 180 * 2)
             .max_encoding_message_size(1024 * 1024 * 180 * 2);
-
         let sender = Sender {
             client,
             host: host.to_string(),
@@ -289,11 +289,11 @@ impl Sender {
                                 else if response.progress == pack::CompileProgress::Compiling as i32 {
                                     let mut myself = self.clone();
 
-                                    let handle = self.runtime.clone().unwrap().spawn(async move {
-                                        let runtime = myself.runtime.clone().unwrap();
-                                        myself.save_compile_output(&response.results, &runtime).await;
-                                    });
-                                    handle.await.unwrap();
+                                    log::trace!("compiling receive precompiled sourcefile response: {:?}", response.results.iter().map(|item| item.file.clone()).collect::<Vec<_>>());
+
+                                    let runtime = myself.runtime.clone().unwrap();
+                                    myself.save_compile_output(&response.results, &runtime).await;
+
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
             
@@ -310,7 +310,7 @@ impl Sender {
                                         let runtime = myself.runtime.clone().unwrap();
                                         myself.save_compile_output(&response.results, &runtime).await;
                                     });
-
+                                    
                                 }
                                 else {
                                     
@@ -334,7 +334,7 @@ impl Sender {
                 log::info!("send precompiled sourcefile receive response done.");
             }
             Err(err) => {
-                log::warn!("send precompiled sourcefile failed {:?}", err);
+                log::warn!("send precompiled sourcefile failed: {:?}", err);
                 recv.status = 1;
                 recv.err = err.to_string().into_bytes();
             }

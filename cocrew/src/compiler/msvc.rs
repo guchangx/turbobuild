@@ -169,6 +169,9 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
 
     let project_name_ = project_name.clone();
     let origin_working_dir_ = origin_working_dir.clone();
+    let generated_object_ = generated_object.clone();
+
+    let stream_objfiles = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
 
     let unready_objfiles = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     let unready_objfiles_ = unready_objfiles.clone();
@@ -176,10 +179,12 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
 
         while let Ok(data) = out_receiver.recv() {
 
+            stream_objfiles.lock().unwrap().push(data.clone());
+
             let line = String::from_utf8_lossy(&data);
             log::info!("stream stdout: {:?}", line);
 
-            let objfile = pre_return_local_compile_result_objfiles(&line, generated_object.clone(), &project_name_, &origin_working_dir_, &out_stream);
+            let objfile = pre_return_local_compile_result_objfiles(&line, generated_object_.clone(), &project_name_, &origin_working_dir_, &out_stream);
             if let Some(objfile) = objfile {
                 unready_objfiles_.lock().unwrap().insert(objfile.0, objfile.1);
             }
@@ -211,7 +216,18 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     log::info!("injectd compile status: {}, {:?} stdout: {:?} stderr: {:?}", status, now.elapsed(), compile_output, compile_error);
 
     if status == 0 {
-        return_local_compile_result_objfiles(unready_objfiles, &project_name, &origin_working_dir, out_err_stream);
+        let lines: Vec<_> = compile_output.lines().collect();
+        let (files, _warnings) = filter_compiler_warning(lines);
+        if unready_objfiles.lock().unwrap().is_empty() {
+            let out_stream = out_err_stream.stdout.clone();
+            for line in files {
+                let _ = pre_return_local_compile_result_objfiles(&std::borrow::Cow::from(line), generated_object.clone(), &project_name, &origin_working_dir, &out_stream);
+            }
+            drop(out_stream);
+        }
+        else {
+            return_local_compile_result_objfiles(unready_objfiles, &project_name, &origin_working_dir, out_err_stream);
+        }
         return_local_compile_result_pdbfiles(program_database, &project_name, &origin_working_dir, out_err_stream);
     }
     else {
@@ -276,27 +292,31 @@ fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, ge
                 obj = Some((origin, contents));
             },
             Err(error) => {
+                unready_objfiles = Some((line.clone(), result.clone()));
                 if error.kind() == std::io::ErrorKind::NotFound {
-                    unready_objfiles = Some((line.clone(), result.clone()));
-                    log::trace!(".obj file path is not found.");
+                    log::trace!(".obj file path is not found. {:?}.", result);
                 }
                 else {
-                    log::error!(".obj file read failed. {:?}", error);
+                    log::error!(".obj file read failed. {:?}, {:?}.", error, result);
                 }
             }
         };
 
         result.clear();
 
-        let compiled_result = CompiledResult {
-            source_file: std::ffi::OsString::from(&line),
-            obj: obj,
-            pdb: None,
-            idb: None,
-        };
-        compiled_results.push(compiled_result);
-    
-        let _ = out_stream.send(compiled_results);
+        if obj.is_some() {
+            let compiled_result = CompiledResult {
+                source_file: std::ffi::OsString::from(&line),
+                obj: obj,
+                pdb: None,
+                idb: None,
+            };
+            compiled_results.push(compiled_result);
+        
+            let _ = out_stream.send(compiled_results).unwrap_or_else(|err| {
+                log::warn!("send .obj results to out stream failed: {:?}", err);
+            });
+        }
     }
     else {
         log::trace!("exclude source file, maybe warning and error. {:?}", line);
@@ -306,9 +326,10 @@ fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, ge
 
 fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<std::string::String, std::path::PathBuf>>>, project_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
     
+    log::trace!("unready obj files: {:?}", objfiles.lock().unwrap());
     let objfiles: Vec<_> = objfiles.lock().unwrap().iter().map(|(k, v)|(k.clone(), v.clone())).collect();
     for (line, objfile) in objfiles {
-        log::warn!("unready obj file: {:?}", objfile);
+
         let out_stream = out_err_stream.stdout.clone();
         let project_name_ = project_name.clone();
         let origin_working_dir_ = origin_working_dir.clone();
@@ -316,9 +337,11 @@ fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mute
         let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
             let mut compiled_results: CompiledResults = Vec::new();
             let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
-
+            
             match std::fs::File::open(&objfile) {
                 Ok(file) => {
+                    log::info!("unready obj file: {:?}", objfile);
+
                     let mut contents = Vec::new();
                     let mut file = std::io::BufReader::new(file);
                     let _ = file.read_to_end(&mut contents).unwrap();
@@ -329,10 +352,10 @@ fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mute
                 },
                 Err(error) => {
                     if error.kind() == std::io::ErrorKind::NotFound {
-                        log::trace!("unready .obj file path is not found.");
+                        log::trace!("unready .obj file path is not found. {:?}.", objfile);
                     }
                     else {
-                        log::error!("unready .obj file read failed. {:?}", error);
+                        log::error!("unready .obj file read failed. {:?}, {:?}.", error, objfile);
                     }
                 }
             };
@@ -344,11 +367,16 @@ fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mute
                 idb: None,
             };
             compiled_results.push(compiled_result);
-        
-            let _ = out_stream.send(compiled_results);
+            
+            if !compiled_results.is_empty() {
+                let _ = out_stream.send(compiled_results).unwrap_or_else(|err| {
+                    log::warn!("send unready .obj results to out stream failed: {:?}", err);
+                });
+            }
             drop(out_stream);
         });
     }
+    log::trace!("unready obj file end, send out stream end.");
 }
 
 fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, project_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
@@ -386,7 +414,7 @@ fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, proje
                     log::warn!(".pdb file path is not found. path: {:?}", result);
                 }
                 else {
-                    log::warn!(".pdb file read failed. {:?}", error);
+                    log::warn!(".pdb file read failed. {:?}, {:?}.", error, result);
                 }
             }
         }
@@ -409,19 +437,21 @@ fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, proje
                 }
             },
         }
-
-        // .ilk .res .asm
-        let compiled_result = CompiledResult {
-            source_file: std::ffi::OsString::from(&result),
-            obj: None,
-            pdb: pdb,
-            idb: idb,
-        };
-        compiled_results.push(compiled_result);
-    
-        out_err_stream.stdout.send(compiled_results).unwrap_or_else(|err| {
-            log::warn!("send compiled results to out stream failed: {:?}", err);
-        });
+        if pdb.is_some() || idb.is_some() {
+            
+            // .ilk .res .asm
+            let compiled_result = CompiledResult {
+                source_file: std::ffi::OsString::from(&result),
+                obj: None,
+                pdb: pdb,
+                idb: idb,
+            };
+            compiled_results.push(compiled_result);
+        
+            out_err_stream.stdout.send(compiled_results).unwrap_or_else(|err| {
+                log::warn!("send compiled pdb results to out stream failed: {:?}", err);
+            });
+        }
     }
     else {
         log::warn!("pdb file is not found, path: {:?}.", result);
@@ -823,7 +853,11 @@ fn redirect_working_dir(working_dir: &std::ffi::OsString, project: &std::ffi::Os
             return Some(path.into_os_string());
         }
         else {
-            return None;
+            log::warn!("redirect working dir not exist so create, path: {:?} is not exists.", path);
+            std::fs::create_dir_all(&path).unwrap_or_else(|err| {
+                log::error!("create redirect working dir failed: {:?}, error: {:?}", path, err);
+            });
+            return Some(path.into_os_string());
         }
     }
     else {

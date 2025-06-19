@@ -83,6 +83,11 @@ impl Distributor {
         manager.done(addr);
     }
 
+    pub fn all(&self) -> Vec<String> {
+        let manager  = self.tasker.lock().unwrap();
+        return manager.all().into_iter().map(|item| item.addr).collect();
+    }
+
     pub fn check(&self, addr: &str, cversion: &crate::replica::toolchain::CompilerVersion) -> bool {
         let mut resources = self.resources.lock().unwrap();
 

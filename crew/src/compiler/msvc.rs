@@ -242,7 +242,7 @@ impl MSVC {
             
             }
             else {
-                log::trace!("request remote compile and sync back failed: {:?}", output);
+                log::trace!("request remote compile and sync back failed: {:?} {:?}", output.out, output.err);
             }
             return output;
         }
@@ -542,7 +542,7 @@ async fn transmit_precompiled_source_file(stream: Option<tokio::sync::mpsc::Send
             log::error!("precompiled file not found: {:?}", intermediate);   
         }
     }
-    log::debug!("zip precompiled file count {} elapsed time: {:?}", source_files.len(), now.elapsed());
+    log::debug!("zip precompiled file count {} {:?} elapsed time: {:?}", source_files.len(), intermediate, now.elapsed());
 
     let content = zip.finish().unwrap();
     let file = content.to_owned().into_inner();
@@ -608,7 +608,11 @@ fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working
     }
     else {
         commands.insert(0, std::ffi::OsString::from(r"/P"));
-        if let Some(arg) = compiler_commands.iter().find(|arg| arg.to_string_lossy().starts_with("/Fo") &&  arg.to_string_lossy().starts_with(".obj")) {
+
+        if let Some(arg) = compiler_commands.iter().find(|arg| {
+            let arg = arg.to_string_lossy();
+            return arg.starts_with("/Fo") && (arg.ends_with(".obj") || arg.ends_with("\\"));
+            }) {
             let path = arg.to_string_lossy().replace("/Fo", "/Fi").replace(".obj", ".i").replace("\\\\", "\\");
             commands.insert(1, std::ffi::OsString::from(path));
         }
