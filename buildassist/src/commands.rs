@@ -14,8 +14,10 @@ pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMa
 
     let mut project = None;
     if let Some(sln) = environment.get("VSTEL_SolutionPath") {
-        std::path::PathBuf::from(sln).file_stem().map(|stem,| {
-            project = Some(stem.to_owned());
+        std::path::PathBuf::from(sln).parent().map(|parent| {
+            std::path::PathBuf::from(parent).file_stem().map(|stem| {
+                project = Some(stem.to_owned());
+            });
         });
     }
 
