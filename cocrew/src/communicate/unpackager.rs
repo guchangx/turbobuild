@@ -120,12 +120,12 @@ impl Receiver {
 
         if file.is_empty() {
 
-            let handle = Self::check_dir_exists(&project, &commands).await;
+            let handle = Self::check_dir_exists(&project, &request.working_dir, &commands).await;
 
             let compiler_input = crew::compiler::model::CompilerInput {
                 project: std::ffi::OsString::from(project),
                 compiler_path: std::ffi::OsString::from(compiler),
-                compiler_working_dir: std::ffi::OsString::from(request.working_dir),
+                compiler_working_dir: std::ffi::OsString::from(&request.working_dir),
                 compiler_commands: commands.iter().map(|item| std::ffi::OsString::from(item)).collect(),
                 build_and_compiler_type: std::ffi::OsString::from(request.variety),
             };
@@ -134,17 +134,19 @@ impl Receiver {
             let output_callback = move |reply: package::CompileTrResponse| {
                 let tx = tx_.clone();
                 async move {
-                    let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+                    for result in &reply.results {
+                        log::trace!("transmit compile handle return file: {}", result.file);
+                    }
+
+                    tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("tx send failed: {:?}", err));
                 }
             };
-
-            Self::execute(&compiler_input, output_callback).await;
+            handle.await.unwrap();
+            Self::cocrew_execute(&compiler_input, output_callback).await;
         } 
         else if !content.is_empty() {
-
             let reply = Self::storage(&project, &file, &content).await;
-            let _ = tx.send(Ok(reply)).await.expect("tx send failed");
-            
+            tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("tx send failed: {:?}", err));
         }
         else {
             let reply = package::CompileTrResponse {
@@ -178,8 +180,6 @@ impl Receiver {
         else {
             let project = crew::replica::project::Property::new( project, path);
             let path = project.fetch_local_replica_project_path();
-            
-            log::trace!("replica storage path: {:?}", path);
     
             if path.extension() == Some(&std::ffi::OsStr::new("zip")) {
                 Self::extract(&path.to_str().unwrap(), &content).await;
@@ -208,33 +208,35 @@ impl Receiver {
             let dir = &path[..(path.len() - ".zip".len())];
             let cursor = std::io::Cursor::new(content);
             let mut zip = zip::ZipArchive::new(cursor).unwrap();
+            
             match zip.extract(dir) {
                 Ok(_) => {
-                    log::trace!("extract zip file done: {}", dir);
+                    log::trace!("extract zip file done: {} {:?}", dir, zip.file_names().collect::<Vec<&str>>());
                 },
                 Err(err) => {
-                    log::error!("extract zip file failed. {} {}", dir, err);
+                    log::error!("extract zip file failed. {} {} {:?}", dir, err, zip.file_names().collect::<Vec<&str>>());
                 }
             }
         }
         else {
             let cursor = std::io::Cursor::new(content);
             let mut zip = zip::ZipArchive::new(cursor).unwrap();
-            log::trace!("extract zip file names {:?}", zip.file_names().collect::<Vec<&str>>());
             match zip.extract(path) {
                 Ok(_) => {
-                    log::trace!("extract zip file done: {}", path);
+                    log::trace!("extract zip file done: {} {:?}", path, zip.file_names().collect::<Vec<&str>>());
                 },
                 Err(err) => {
-                    log::error!("extract zip file failed. {} {}", path, err);
+                    log::error!("extract zip file failed. {} {} {:?}", path, err, zip.file_names().collect::<Vec<&str>>());
                 }
             }
         }
     }
-    async fn execute<Func, Fut>(input: &crew::compiler::model::CompilerInput, sender: Func)
-    where Func: Fn(package::CompileTrResponse) -> Fut + Send + Sync + Clone + 'static,
-          Fut: std::future::Future<Output = ()> + Send
+
+    async fn cocrew_execute<Func, Fut>(input: &crew::compiler::model::CompilerInput, sender: Func)
+        where Func: Fn(package::CompileTrResponse) -> Fut + Send + Sync + Clone + 'static,
+              Fut: std::future::Future<Output = ()> + Send
     {
+        //TODO: use tokio::sync::mpsc replace std::sync::mpsc.
         let (out_sender, out_receiver) = std::sync::mpsc::channel::<crew::compiler::model::CompiledResults>();
         let (err_sender, err_receiver) = std::sync::mpsc::channel::<crew::compiler::model::CompiledResults>();
     
@@ -245,7 +247,7 @@ impl Receiver {
 
         let sender_ = sender.clone();
 
-        COCREW_RUNTIME.lock().unwrap().spawn(async move {
+        let handle = COCREW_RUNTIME.lock().unwrap().spawn(async move {
 
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compilestart.into(),
@@ -303,12 +305,14 @@ impl Receiver {
                     sender_(reply).await;
                 }
             }
+            log::debug!("transmit compile handle out stream end.");
         });
 
         COCREW_RUNTIME.lock().unwrap().spawn(async move {
             while let Ok(results) = err_receiver.recv() {
                 
             }
+            log::debug!("transmit compile handle err stream end.");
         });
 
         let (output, _) = crate::compiler::interface::cocrew_build(input.to_owned(), out_err_stream);
@@ -334,13 +338,18 @@ impl Receiver {
             };
             sender(reply).await;
         }
+
+        handle.await.unwrap();
+
     }
 
     //create dir for .pdb, if parent dir not exist, .pdb file can not be generated.
-    pub async fn check_dir_exists(project: &String, commands: &Vec<String>) -> tokio::task::JoinHandle<()> {
+    pub async fn check_dir_exists(project: &String, working_dir: &String, commands: &Vec<String>) -> tokio::task::JoinHandle<()> {
+        log::debug!("check dir exists for project: {}, commands: {:?}", project, commands);
 
         let project = project.clone();
         let commands = commands.clone();
+        let working_dir = working_dir.clone();
 
         let rt = crate::common::COCREW_RUNTIME.lock().unwrap();
         let handel = rt.spawn(async move {
@@ -350,37 +359,53 @@ impl Receiver {
                 Some(mut path) => {
                     let pdb = path.split_off(3);
                     let pdb = std::path::PathBuf::from(pdb);
-                    if pdb.has_root() && pdb.is_absolute() {
-
-                        let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
-    
-                        let split = |pdb: std::path::PathBuf, project: &String| {
-                            if project.is_empty() {
-                                return Some(pdb);
+                    
+                    let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
+                    
+                    let split = |pdb: std::path::PathBuf, project: &String| {
+                        if project.is_empty() {
+                            return Some(pdb);
+                        }
+                        else {
+                            let components = pdb.components().collect::<Vec<_>>();
+                            if let Some(index) = components.iter().position(|item| item.as_os_str().to_str().unwrap() == project) {
+                                let result: std::path::PathBuf = components[index + 1..].iter().collect();
+                                let path = replica.join("Project").join(project).join(result);
+                                return Some(path);
                             }
                             else {
-                                let components = pdb.components().collect::<Vec<_>>();
-                                if let Some(index) = components.iter().position(|item| item.as_os_str().to_str().unwrap() == project) {
-                                    let result: std::path::PathBuf = components[index + 1..].iter().collect();
-                                    let path = replica.join("Project").join(project).join(result);
-                                    let path = path.parent().unwrap().to_owned();
-                                    return Some(path);
-                                }
-                                else {
-                                    log::error!("not find project in path: {:?} project: {}.", pdb, project);
-                                    return None;
-                                }            
-                            }
-                        };
-                        
+                                log::error!("not find project in path: {:?} project: {}.", pdb, project);
+                                return None;
+                            }            
+                        }
+                    };
+
+                    if pdb.has_root() && pdb.is_absolute() {
                         if let Some(path) = split(pdb, &project) {
-                            let path = replica.join("Project").join(project).join(path);
+                            let path = replica.join("Project").join(project).join(path).parent().unwrap().to_owned();
                             if !path.exists() {
                                 log::info!("check dir not exist, so need create dir: {:?}", path);
-                                let _ = std::fs::create_dir_all(path);
+                                if let Err(err)  = std::fs::create_dir_all(&path) {
+                                    log::error!("create all dir failed: {:?} {}", path, err);
+                                }
                             }
                         }
                         else {
+                            log::error!("split path failed, so not create dir.");
+                        }
+                    }
+                    else {
+                        if let Some(path) = split(std::path::PathBuf::from(working_dir), &project) {
+                            let path = replica.join("Project").join(project).join(path).join(pdb).parent().unwrap().to_owned();
+                            if !path.exists() {
+                                log::info!("check dir not exist, so need create dir: {:?}", path);
+                                if let Err(err)  = std::fs::create_dir_all(&path) {
+                                    log::error!("create all dir failed: {:?} {}", path, err);
+                                }
+                            }
+                        }
+                        else {
+                            log::error!("split path failed, so not create dir.");
                         }
                     }
                 },
@@ -421,9 +446,9 @@ impl package::communicate_server::Communicate for Receiver {
         
         let (tx, rx) = tokio::sync::mpsc::channel(256);
         let self_ = self.clone();
-        let _ = tokio::task::spawn(async move {
+        let _ = COCREW_RUNTIME.lock().unwrap().spawn(async move {
             self_.transmit_task_handle(rt_compile, tx).await;
-        }).await;
+        });
 
         let response = tokio_stream::wrappers::ReceiverStream::new(rx);
         return Ok(tonic::Response::new(Box::pin(response) as ResponseTaskStream));
@@ -444,7 +469,7 @@ mod tests {
 
         handle.spawn(async move {
             println!("run check_dir_exists test in runtime.");
-            crate::communicate::unpackager::Receiver::check_dir_exists(&"test_dir".to_string(), &commands).await;
+            crate::communicate::unpackager::Receiver::check_dir_exists(&"test_dir".to_string(), &"".to_string(), &commands).await;
         });
     }
 
@@ -518,7 +543,7 @@ mod tests {
 
         handle.spawn(async move {
             println!("run check_dir_exists test in runtime.");
-            crate::communicate::unpackager::Receiver::check_dir_exists(&"test_dir".to_string(), &commands).await;
+            crate::communicate::unpackager::Receiver::check_dir_exists(&"llvm-project".to_string(), &"".to_string(), &commands).await;
         });
 
     }
