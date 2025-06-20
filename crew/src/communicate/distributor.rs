@@ -32,13 +32,18 @@ impl Distributor {
         return "".to_string();
     }
 
-    pub async fn archive_stream<'a>(addr: &str, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> Option<tokio::sync::mpsc::Sender<super::package::ArchiveArgs<'static>>> {
+    pub async fn archive_stream<'a>(addr: &str, runtime: &std::sync::Arc<tokio::runtime::Handle>) 
+        -> (Option<tokio::sync::mpsc::Sender<super::package::ArchiveArgs<'static>>>, std::sync::Arc<tokio::sync::Notify>) {
         
         let (tx, rx) = tokio::sync::mpsc::channel::<super::package::ArchiveArgs>(128);
 
+        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let notify_ = notify.clone();
         let args = super::package::ArchiveStreamArgs {
             rx: rx,
-            callback: Box::new(||{})
+            callback: Box::new(move || {
+                notify.notify_waiters();
+            })
         };
 
         let addr = addr.to_owned();
@@ -49,7 +54,7 @@ impl Distributor {
             sender.dist(archive).await;
         });
         
-        return Some(tx);
+        return (Some(tx), notify_);
     }
     
     pub async fn compile<'a>(addr: &str, file: std::ffi::OsString, input: &crate::compiler::model::CompilerInput, content: &std::borrow::Cow<'a, [u8]>,

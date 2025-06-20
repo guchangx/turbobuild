@@ -321,7 +321,7 @@ impl MSVC {
         }
 
         let mut handles = Vec::new();
-        let stream = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
+        let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
 
         while let Some(line) = fileout.err.next() {
             log::debug!("precompile stderr: {:?}", line);
@@ -358,6 +358,8 @@ impl MSVC {
                 let mut files_ = handle.await.unwrap();
                 files.append(&mut files_);
             }
+
+            drop(stream);
     
             //TODO: should be use ref of compiler_input.
             let mut compiler_input = compiler_input.clone();
@@ -365,6 +367,8 @@ impl MSVC {
             commands.append(&mut files);
             compiler_input.compiler_commands = commands;
     
+            notify.notified().await;
+
             let output = self.request_dist_compile_with_command(&addr, compiler_input.clone()).await;
             return output;
         }
@@ -565,7 +569,7 @@ async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream
     };
 
     if let Some(stream) = stream {
-        stream.send(file).await.unwrap();        
+        let _ = stream.send(file).await.unwrap();        
     }
 
     /* 

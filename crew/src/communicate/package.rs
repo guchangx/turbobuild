@@ -200,6 +200,8 @@ impl Sender {
         let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
         let mut receiver = args.rx;
+        let callback = args.callback;
+
         let handle = self.runtime.as_ref().map(|runtime| runtime.spawn(async move {
 
             while let Some(archive) = receiver.recv().await {
@@ -242,15 +244,18 @@ impl Sender {
                         }
                     }
                 };
+
+                log::debug!("transmit file {} completed.", host);
+                callback();
             },
             Err(err) => {
                 log::error!("transmit file  {} failed: {:?}", self.host, err);
                 result.status = false;
             }
-        }
+        };
 
         if let Some(handle) = handle {
-            handle.await.unwrap();
+            let _ = handle.await.unwrap();
         }
 
         return result;
