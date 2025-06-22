@@ -265,7 +265,7 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
 
-            force_unbuffered_output();
+            //force_unbuffered_output();
 
             redirect_stdout_log_2_cocrew();
             read_project_property_from_stdin();

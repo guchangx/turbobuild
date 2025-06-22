@@ -71,7 +71,7 @@ impl TaskManager {
             core: crew.core,
             memory: crew.memory,
             running: 0,
-            max: 100,
+            max: 1024,
         };
         self.add(task);
     }
