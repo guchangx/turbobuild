@@ -17,7 +17,7 @@ impl Distributor {
     
     //should replace with archive_stream, after test.
     pub async fn archive<'a>(addr: &str, path: &str, content: &std::borrow::Cow<'a, [u8]>, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> String {
-        let mut sender = super::package::Sender::new(addr, Some(runtime));
+        let mut sender = super::package::Sender::new(addr, Some(runtime)).await;
         let file = super::package::ArchiveArgs {
             file_type: super::package::FileType::ToolChain,
             project: "".to_string(),
@@ -49,7 +49,7 @@ impl Distributor {
         let addr = addr.to_owned();
         let runtime_ = runtime.clone();
         runtime.spawn(async move {
-            let mut sender = super::package::Sender::new(&addr, Some(&runtime_));
+            let mut sender = super::package::Sender::new(&addr, Some(&runtime_)).await;
             let archive = super::package::SenderType::ArchiveStream(args);
             sender.dist(archive).await;
         });
@@ -70,7 +70,7 @@ impl Distributor {
             content: content.clone(),
         };
 
-        let mut sender = super::package::Sender::new(addr, Some(runtime));
+        let mut sender = super::package::Sender::new(addr, Some(runtime)).await;
         
         let args = super::package::SenderType::Compile(args);
         

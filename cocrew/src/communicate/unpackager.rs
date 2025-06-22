@@ -152,6 +152,7 @@ impl Receiver {
             };
             handle.await.unwrap();
             Self::cocrew_execute(&compiler_input, output_callback).await;
+            log::debug!("transmit compile task handle execute done, return file: {}", file);
         } 
         else if !content.is_empty() {
             let ret = Self::storage(&project, &file, &content).await;

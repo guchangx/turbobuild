@@ -85,7 +85,7 @@ pub enum ReceiverType {
 }
 
 impl Sender {
-    pub fn new(addr: &str, runtime: Option<&std::sync::Arc<tokio::runtime::Handle>>) -> Self {
+    pub async fn new(addr: &str, runtime: Option<&std::sync::Arc<tokio::runtime::Handle>>) -> Self {
         let mut host = "localhost"; 
         if !addr.is_empty() {
             host = addr;
@@ -93,7 +93,9 @@ impl Sender {
         
         let channel = tonic::transport::Endpoint::from_shared(std::format!("http://{}:19302", host)).unwrap()
             .connect_timeout(std::time::Duration::from_secs(15))
-            .connect_lazy();
+            .connect()
+            .await
+            .expect("Failed to connect to the server");
 
         let client = pack::communicate_client::CommunicateClient::new(channel)
             .max_decoding_message_size(1024 * 1024 * 180 * 2)
@@ -283,6 +285,16 @@ impl Sender {
 
         match response {
             Ok(response) => {
+
+                let (tx, rx) = tokio::sync::mpsc::channel::<Vec<pack::IntermediateResult>>(128);
+                let mut myself = self.clone();
+                let save_compile_ouput_handle = self.runtime.as_ref().map(|runtime| {
+                    let handle = runtime.spawn(async move {
+                        myself.save_compile_ouput_form_channel(rx).await;
+                    });
+                    return handle;
+                });
+
                 let mut stream = response.into_inner();
                 while let Some(inner) = stream.next().await {
                     match inner {
@@ -295,13 +307,12 @@ impl Sender {
                                     log::debug!("precompiled sourcefile start response: {}", response.tips);
                                 }
                                 else if response.progress == pack::CompileProgress::Compiling as i32 {
-                                    let mut myself = self.clone();
 
                                     log::trace!("compiling receive precompiled sourcefile response: {:?}", response.results.iter().map(|item| item.file.clone()).collect::<Vec<_>>());
-
-                                    let runtime = myself.runtime.clone().unwrap();
-                                    myself.save_compile_output(&response.results, &runtime).await;
-
+                                    
+                                    tx.send(response.results).await.unwrap_or_else(|err| {
+                                        log::error!("send precompiled sourcefile response to save failed: {:?}", err);
+                                    });
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
             
@@ -339,6 +350,12 @@ impl Sender {
                         },
                     }
                 }
+
+                drop(tx);
+                if let Some(handle) = save_compile_ouput_handle {
+                    let _ = handle.await;
+                }
+
                 log::info!("send precompiled sourcefile receive response done.");
             }
             Err(err) => {
@@ -382,4 +399,44 @@ impl Sender {
         }
         log::info!("save compile output done. file count: {}", results.len());
     }
+
+    async fn save_compile_ouput_form_channel(&mut self, mut stream: tokio::sync::mpsc::Receiver<Vec<pack::IntermediateResult>>) {
+        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+        let mut handles = Vec::new();
+        while let Some(results) = stream.recv().await {
+            for result in results {
+                log::debug!("save compile result: {:?}", result.file);
+                let permit = semaphore.clone().acquire_owned().await;
+
+                self.runtime.as_ref().map(|runtime| {
+
+                    let _handle = runtime.spawn(async move {
+                        let _permit = permit;
+                        match tokio::fs::OpenOptions::new().write(true).create(true).open(&result.file).await {
+                            Ok(mut file) => {
+                                file.write_all(&result.content).await.unwrap();
+                            },
+                            Err(err) => {
+                                log::error!("save compile output create file failed: {}, path: {}", err, result.file);
+                            }
+                        }
+                    });
+                    handles.push(_handle);
+                });
+
+            }
+        }
+
+        for handle in handles {
+            match handle.await {
+                Ok(_) => {},
+                Err(err) => {
+                    log::error!("save compile output from channel failed: {:?}", err);
+                }
+            }
+        }
+
+        log::info!("save compile output from channel done.");
+    }
+
 }
