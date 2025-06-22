@@ -265,6 +265,8 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
 
+            force_unbuffered_output();
+
             redirect_stdout_log_2_cocrew();
             read_project_property_from_stdin();
             fetch_module_path(hinst);
@@ -324,4 +326,39 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
     }
 
     return winapi::shared::minwindef::TRUE;
+}
+
+
+extern "C" {
+    fn setvbuf(stream: *mut std::ffi::c_void, buffer: *mut std::ffi::c_char, mode: std::ffi::c_int, size: usize) -> std::ffi::c_int;
+    fn __acrt_iob_func(index: std::ffi::c_uint) -> *mut std::ffi::c_void;
+    fn fflush(stream: *mut std::ffi::c_void) -> std::ffi::c_int;
+}
+
+
+const _IOFBF: std::ffi::c_int = 0; 
+const _IOLBF: std::ffi::c_int = 1; 
+const _IONBF: std::ffi::c_int = 2; 
+
+
+unsafe fn force_unbuffered_output() {
+    
+    let stdout_ptr = __acrt_iob_func(1);
+    let stderr_ptr = __acrt_iob_func(2);
+    
+    if !stdout_ptr.is_null() && !stderr_ptr.is_null() {
+
+        let _result_stdout = setvbuf(stdout_ptr, std::ptr::null_mut(), _IOLBF, 0);
+        let _result_stdout = setvbuf(stderr_ptr, std::ptr::null_mut(), _IOLBF, 0);
+        
+
+        // let result1 = setvbuf(stdout_ptr, std::ptr::null_mut(), _IONBF, 0);
+        // let result2 = setvbuf(stderr_ptr, std::ptr::null_mut(), _IONBF, 0);
+
+
+        fflush(stdout_ptr);
+        fflush(stderr_ptr);
+    } else {
+        crate::log!(warn, "Failed to get stdout/stderr pointers");
+    }
 }
