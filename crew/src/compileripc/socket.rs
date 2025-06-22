@@ -79,19 +79,19 @@ impl Receiver {
                             let _ = stream.write_all(line.as_bytes()).await.unwrap_or_else(|err| {
                                 log::warn!("assistbuild request compile output error: {}", err);
                             });
+                            let _ = stream.flush();
                         };
-
-                        let _ = stream.flush();
 
                         for line in result.err.lines() {
                             let line = line.unwrap();
                             let _ = stream.write_all(line.as_bytes()).await.unwrap_or_else(|err| {
                                 log::warn!("assistbuild request compile error: {}", err);
                             });
+                            let _ = stream.flush();
                         };
              
                         log::info!("assistbuild request compile done. from: {:?}", stream.peer_addr().unwrap());
-                        let _ = stream.flush();
+
                         let _ = stream.shutdown().await;
                         break;
                     }
