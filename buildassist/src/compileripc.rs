@@ -66,10 +66,13 @@ impl SocketClient {
                                 data.extend_from_slice(&buffer);
                             }
                             else if size < buffer.len() {
-                                if data.is_empty() {
+                                if data.is_empty() {     
                                     buffer[0..size].lines().for_each(|line| {
                                         if let Ok(file) = line {
                                             if file.trim_end().ends_with(".i") || file.trim_end().ends_with(".cpp") || file.trim_end().ends_with(".cc") || file.trim_end().ends_with(".cxx") {
+                                                println!("{} read form turbobuild: {}", current_datetime(), file);
+                                            }
+                                            else if file.eq("waiting...") {
                                                 println!("{} read form turbobuild: {}", current_datetime(), file);
                                             }
                                             else {
@@ -80,10 +83,13 @@ impl SocketClient {
                                     });   
                                 }
                                 else {
-                                    data.extend_from_slice(&buffer);
+                                    data.extend_from_slice(&buffer[0..size]);
                                     data[..].lines().for_each(|line| {
                                         if let Ok(file) = line {
                                             if file.trim_end().ends_with(".i") || file.trim_end().ends_with(".cpp") || file.trim_end().ends_with(".cc") || file.trim_end().ends_with(".cxx") {
+                                                println!("{} read form turbobuild: {}", current_datetime(), file);
+                                            }
+                                            else if file.eq("waiting...") {
                                                 println!("{} read form turbobuild: {}", current_datetime(), file);
                                             }
                                             else {

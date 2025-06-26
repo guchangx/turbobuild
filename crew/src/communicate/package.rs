@@ -251,7 +251,7 @@ impl Sender {
                 callback();
             },
             Err(err) => {
-                log::error!("transmit file  {} failed: {:?}", self.host, err);
+                log::error!("transmit file {} failed: {:?}", self.host, err);
                 result.status = false;
             }
         };
@@ -316,10 +316,10 @@ impl Sender {
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
             
-                                    log::debug!("precompiled sourcefile done response: {:?}", String::from_utf8_lossy(&response.out));
+                                    log::debug!("precompiled sourcefile done response out: {:?}", String::from_utf8_lossy(&response.out));
                                     recv.out = response.out;
                                 
-                                    log::debug!("precompiled sourcefile done response: {:?}", String::from_utf8_lossy(&response.err));
+                                    log::debug!("precompiled sourcefile done response err: {:?}", String::from_utf8_lossy(&response.err));
                                     recv.err = response.err;
                                     
                                     recv.status = response.status;

@@ -72,27 +72,61 @@ impl Receiver {
                             build_and_compiler_type: std::ffi::OsString::from(r#type),
                         };
 
+                        let stream = std::sync::Arc::new(tokio::sync::Mutex::new(stream));
+                        let stream_ = stream.clone();
+
+                        let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<()>();
+                        let _ = runtime.spawn(async move {
+                            
+                            let mut timer = tokio::time::interval(tokio::time::Duration::from_secs(3 * 60));
+                            timer.tick().await;
+ 
+                            let mut stop_rx = std::pin::Pin::new(&mut stop_rx);
+       
+                            for _ in 0..4 {
+                                tokio::select! {
+                                    _ = timer.tick() => {
+                                        let _ = stream_.lock().await.write_all(b"waiting...").await.unwrap_or_else(|err| {
+                                            log::warn!("assistbuild request compile output error: {}", err);
+                                        });
+                                        let _ = stream_.lock().await.flush().await;
+                                    },
+                                    _ = &mut stop_rx => {
+                                        break;
+                                    }
+                                }
+                            }
+                        });
+
                         let result = crate::compiler::interface::request_compile(input, runtime.clone(), if work_env.winkits_includes_path.is_empty() {Some(work_env)} else { None }, distor).await;  
-   
-                        for line in result.out.lines() {
-                            let line = line.unwrap();
-                            let _ = stream.write_all(line.as_bytes()).await.unwrap_or_else(|err| {
-                                log::warn!("assistbuild request compile output error: {}", err);
-                            });
-                            let _ = stream.flush();
-                        };
+                        
+                        stop_tx.send(()).unwrap();
 
-                        for line in result.err.lines() {
-                            let line = line.unwrap();
-                            let _ = stream.write_all(line.as_bytes()).await.unwrap_or_else(|err| {
-                                log::warn!("assistbuild request compile error: {}", err);
-                            });
-                            let _ = stream.flush();
-                        };
-             
-                        log::info!("assistbuild request compile done. from: {:?}", stream.peer_addr().unwrap());
+                        if !result.out.is_empty() {
+                            for line in result.out.lines() {
+                                let mut line = line.unwrap();
+                                line.push_str("\r\n");
+                                let _ = stream.lock().await.write_all(line.as_bytes()).await.unwrap_or_else(|err| {
+                                    log::warn!("assistbuild request compile output error: {}", err);
+                                });
+                                let _ = stream.lock().await.flush().await;
+                            };
+                        }
 
-                        let _ = stream.shutdown().await;
+                        if !result.err.is_empty() {
+                            for line in result.err.lines() {
+                                let mut line = line.unwrap();
+                                line.push_str("\r\n");
+                                let _ = stream.lock().await.write_all(line.as_bytes()).await.unwrap_or_else(|err| {
+                                    log::warn!("assistbuild request compile error: {}", err);
+                                });
+                                let _ = stream.lock().await.flush().await;
+                            };
+                        }
+
+                        log::info!("assistbuild request compile done. from: {:?}", stream.lock().await.peer_addr().unwrap());
+
+                        let _ = stream.lock().await.shutdown().await;
                         break;
                     }
                 },

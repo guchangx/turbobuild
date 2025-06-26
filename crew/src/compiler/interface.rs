@@ -19,7 +19,6 @@ pub async fn request_compile(compiler_input: CompilerInput, runtime: std::sync::
             runtime: runtime,
             sender: distor,
         };
-           
         let output = msvc.request_compile(compiler_input);
         return output;
     }

@@ -569,7 +569,9 @@ async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream
     };
 
     if let Some(stream) = stream {
-        let _ = stream.send(file).await.unwrap();        
+        let _ = stream.send(file).await.unwrap_or_else(|err| {
+            log::error!("send precompiled source file to stream error: {} file: {:?}", err, intermediate.to_string_lossy());
+        });
     }
 
     /* 
