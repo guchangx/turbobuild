@@ -74,6 +74,7 @@ impl Receiver {
                 log::debug!("transmit file handle name: {}, path: {}", name, path);
         
                 let file_type = request.file_type;
+                let solution = request.solution;
                 let project = request.project;
                 let content = request.content;
                 
@@ -91,7 +92,7 @@ impl Receiver {
                     }
                 }
                 else if file_type == package::FileType::Precompiledsrcfiles as i32 {
-                    let ret = Self::storage(&project, &path, &content).await;
+                    let ret = Self::storage(&solution, &path, &content).await;
                     if let Err(err) = ret {
                         log::error!("transmit file handle save precompiled src files failed: {}", err);
                         reply.error_code = 1;
@@ -119,6 +120,7 @@ impl Receiver {
     
     async fn transmit_task_handle(&self, request: package::CompileTrRequest, tx: tokio::sync::mpsc::Sender<Result<package::CompileTrResponse, tonic::Status>>) {
 
+        let solution = request.solution;
         let project = request.project;
         let file = request.file;
         let compiler = request.compiler;
@@ -129,9 +131,10 @@ impl Receiver {
 
         if file.is_empty() {
 
-            let handle = Self::check_dir_exists(&project, &request.working_dir, &commands).await;
+            let handle = Self::check_dir_exists(&solution, &request.working_dir, &commands).await;
 
             let compiler_input = crew::compiler::model::CompilerInput {
+                solution: std::ffi::OsString::from(solution),
                 project: std::ffi::OsString::from(project),
                 compiler_path: std::ffi::OsString::from(compiler),
                 compiler_working_dir: std::ffi::OsString::from(&request.working_dir),
@@ -186,15 +189,15 @@ impl Receiver {
         }
     }
 
-    async fn storage(project: &str, path: &str, content: &[u8]) -> Result<(), String> {
+    async fn storage(solution: &str, path: &str, content: &[u8]) -> Result<(), String> {
         let now = std::time::Instant::now();
 
-        if project.is_empty() || path.is_empty() {
+        if solution.is_empty() || path.is_empty() {
             log::error!("transmit storage project name or path is empty.");
             return Err("project or path param is empty, so do nothing".to_string());
         }
         else {
-            let project = crew::replica::project::Property::new(project, path);
+            let project = crew::replica::project::Property::new(solution, path);
             let path = project.fetch_local_replica_project_path();
     
             if path.extension() == Some(&std::ffi::OsStr::new("zip")) {
@@ -359,10 +362,10 @@ impl Receiver {
     }
 
     //create dir for .pdb, if parent dir not exist, .pdb file can not be generated.
-    pub async fn check_dir_exists(project: &String, working_dir: &String, commands: &Vec<String>) -> tokio::task::JoinHandle<()> {
-        log::debug!("check dir exists for project: {}, commands: {:?}", project, commands);
+    pub async fn check_dir_exists(solution: &String, working_dir: &String, commands: &Vec<String>) -> tokio::task::JoinHandle<()> {
+        log::debug!("check dir exists for project: {}, commands: {:?}", solution, commands);
 
-        let project = project.clone();
+        let solution = solution.clone();
         let commands = commands.clone();
         let working_dir = working_dir.clone();
 
@@ -377,27 +380,27 @@ impl Receiver {
                     
                     let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
                     
-                    let split = |pdb: std::path::PathBuf, project: &String| {
-                        if project.is_empty() {
+                    let split = |pdb: std::path::PathBuf, solution: &String| {
+                        if solution.is_empty() {
                             return Some(pdb);
                         }
                         else {
                             let components = pdb.components().collect::<Vec<_>>();
-                            if let Some(index) = components.iter().position(|item| item.as_os_str().to_str().unwrap() == project) {
+                            if let Some(index) = components.iter().position(|item| item.as_os_str().to_str().unwrap() == solution) {
                                 let result: std::path::PathBuf = components[index + 1..].iter().collect();
-                                let path = replica.join("Project").join(project).join(result);
+                                let path = replica.join("Project").join(solution).join(result);
                                 return Some(path);
                             }
                             else {
-                                log::error!("not find project in path: {:?} project: {}.", pdb, project);
+                                log::error!("not find project in path: {:?} solution: {}.", pdb, solution);
                                 return None;
                             }            
                         }
                     };
 
                     if pdb.has_root() && pdb.is_absolute() {
-                        if let Some(path) = split(pdb, &project) {
-                            let path = replica.join("Project").join(project).join(path).parent().unwrap().to_owned();
+                        if let Some(path) = split(pdb, &solution) {
+                            let path = replica.join("Project").join(solution).join(path).parent().unwrap().to_owned();
                             if !path.exists() {
                                 log::info!("check dir not exist, so need create dir: {:?}", path);
                                 if let Err(err)  = std::fs::create_dir_all(&path) {
@@ -410,8 +413,8 @@ impl Receiver {
                         }
                     }
                     else {
-                        if let Some(path) = split(std::path::PathBuf::from(working_dir), &project) {
-                            let path = replica.join("Project").join(project).join(path).join(pdb).parent().unwrap().to_owned();
+                        if let Some(path) = split(std::path::PathBuf::from(working_dir), &solution) {
+                            let path = replica.join("Project").join(solution).join(path).join(pdb).parent().unwrap().to_owned();
                             if !path.exists() {
                                 log::info!("check dir not exist, so need create dir: {:?}", path);
                                 if let Err(err)  = std::fs::create_dir_all(&path) {

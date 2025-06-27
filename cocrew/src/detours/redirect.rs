@@ -37,9 +37,9 @@ static REDIRECT_DLL_PATH: std::sync::LazyLock<Option<std::ffi::CString>> = std::
         }
     });
 
-pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE, project: &str) {
-    if !project.is_empty() {
-        let arg = format!("project:{}\nreplica:{}\n", project, tools::utils::access_replica_dir());
+pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE, solution: &str, project: &str) {
+    if !solution.is_empty() {
+        let arg = format!("solution:{}\nproject:{}\nreplica:{}\n", solution, project, tools::utils::access_replica_dir());
         let mut bytes: winapi::shared::minwindef::DWORD = 0;
         let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
         let ret = winapi::um::fileapi::WriteFile(
@@ -65,7 +65,7 @@ pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE
     CloseHandle(handle);
 }
 
-pub fn msvc_detours(project: String, app_path: String, command: String, workding_directory: String, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+pub fn msvc_detours(solution: String, project: String, app_path: String, command: String, workding_directory: String, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     //TODO workding_directory should be also use redirect.
      
     unsafe {
@@ -157,7 +157,7 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                 let stdoutstream = out_err_stream.stdout.to_owned();
                 let stderrstream = out_err_stream.stderr.to_owned();
                 
-                pass_object_name_to_redriect(hStdInWrite, &project);
+                pass_object_name_to_redriect(hStdInWrite, &solution, &project);
                 
                 let ret = winapi::um::processthreadsapi::ResumeThread(lpProcessInformation.hThread as _);
                 if ret == winapi::shared::minwindef::FALSE as u32 {
@@ -168,11 +168,13 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                 let hStdOutputReadBox = HandleBox::new(hStdOutputRead);
                 let task = std::thread::spawn(move || {
 
-                    let mut chTmpStdOutputReadBuffer = vec![0; 512];
+                    let mut chTmpStdOutputReadBuffer = [0u8; 1024];
                     let mut bytesStdOuputRead: winapi::shared::minwindef::DWORD = 0;
-    
+                    
+                    let mut line = Vec::new();
                     let mut stdout = Vec::new();
                     loop {
+                        chTmpStdOutputReadBuffer.fill(0);
                         let bStdOutputRead = winapi::um::fileapi::ReadFile(
                             hStdOutputReadBox.get().to_owned(),
                             chTmpStdOutputReadBuffer.as_mut_ptr() as *mut _, 
@@ -192,9 +194,23 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                             break;
                         }
 
-                        stdoutstream.send(chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize].to_vec()).unwrap_or_else(|_| {
-                            log::error!("send stdout stream failed.");
-                        });
+                        if bytesStdOuputRead > 2 && chTmpStdOutputReadBuffer[(bytesStdOuputRead - 1) as usize] == b'\n' && chTmpStdOutputReadBuffer[(bytesStdOuputRead - 2) as usize] == b'\r' {
+                            if line.is_empty() {
+                                stdoutstream.send(chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize].to_vec()).unwrap_or_else(|_| {
+                                    log::error!("send stdout stream failed.");
+                                });
+                            }
+                            else {
+                                line.extend_from_slice(&chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize]);
+                                stdoutstream.send(line[..].to_vec()).unwrap_or_else(|_| {
+                                    log::error!("send stdout stream failed.");
+                                });
+                                line.clear();
+                            }
+                        }
+                        else {
+                            line.extend_from_slice(&chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize]);
+                        }
 
                         stdout.extend_from_slice(&chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize]);
                     }
@@ -202,12 +218,13 @@ pub fn msvc_detours(project: String, app_path: String, command: String, workding
                     return stdout;
                 });
                 
-                let mut chTmpStdErrorReadBuffer = vec![0; 512];
+                let mut chTmpStdErrorReadBuffer =  [0u8; 1024];
                 let mut bytesStdErrorRead: winapi::shared::minwindef::DWORD = 0;
 
                 let mut stderr = Vec::new();
 
                 loop {
+                    chTmpStdErrorReadBuffer.fill(0);
                     let bStdErrorRead = winapi::um::fileapi::ReadFile(
                         hStdErrorRead, 
                         chTmpStdErrorReadBuffer.as_mut_ptr() as *mut _, 

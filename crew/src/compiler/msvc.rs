@@ -242,7 +242,7 @@ impl MSVC {
             
             }
             else {
-                log::trace!("request remote compile and sync back failed: {:?} {:?}", output.out, output.err);
+                //log::trace!("request remote compile and sync back failed: {:?} {:?}", output.out, output.err);
             }
             return output;
         }
@@ -311,8 +311,6 @@ impl MSVC {
     
     async fn handle_compile_by_filestream(&self, fileout: &mut FileOut, compiler_input: &CompilerInput, addr: &str, compiler_commands: &Vec<std::ffi::OsString>) 
         -> CompilerOutput {
-        
-        let project_name = &compiler_input.project;
 
         let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, &compiler_input.compiler_working_dir);
 
@@ -562,8 +560,9 @@ async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream
 
     let file = crate::communicate::package::ArchiveArgs {
         file_type:  crate::communicate::package::FileType::PrecompiledSrcFiles,
-        name: source_files.join(",").into(),
+        solution: compiler_input.solution.to_string_lossy().to_string(),
         project: compiler_input.project.to_string_lossy().to_string(),
+        name: source_files.join(",").into(),
         path: intermediate.to_string_lossy().to_string(),    
         content: content.clone(),
     };

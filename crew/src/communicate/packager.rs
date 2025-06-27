@@ -181,6 +181,7 @@ impl Packager {
         let mut sender = crate::communicate::package::Sender::new(addr, None).await;
         let args = crate::communicate::package::ArchiveArgs {
             file_type: crate::communicate::package::FileType::ToolChain,
+            solution: String::new(),
             project: String::new(),
             name: name.to_owned(),
             path: path,
@@ -201,6 +202,7 @@ impl Packager {
 
         let args = crate::communicate::package::ArchiveArgs {
             file_type: crate::communicate::package::FileType::Unknown,
+            solution: String::new(),
             project: String::new(),
             name: "precompiledsourcefile".to_string(),
             path: path.to_owned(),

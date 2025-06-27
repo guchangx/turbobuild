@@ -37,9 +37,10 @@ impl SocketClient {
                 let commands: Vec<_> = compiler_input.compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
                 //TODO should not use project args, working_dir can do it.
                 //TODO should not use compielr path. just x86 or x64.
-                
+    
                 let buffer = format!(
-                    r#"{{"project": {:?}, "compiler_path": {:?}, "compiler_working_dir": {:?}, "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
+                    r#"{{"solution": {:?}, "project": {:?}, "compiler_path": {:?}, "compiler_working_dir": {:?}, "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
+                    compiler_input.solution.to_string_lossy(),
                     compiler_input.project.to_string_lossy(),
                     compiler_input.compiler_path.to_string_lossy(),
                     compiler_input.compiler_working_dir.to_string_lossy(),

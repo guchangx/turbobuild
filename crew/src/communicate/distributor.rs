@@ -20,6 +20,7 @@ impl Distributor {
         let mut sender = super::package::Sender::new(addr, Some(runtime)).await;
         let file = super::package::ArchiveArgs {
             file_type: super::package::FileType::ToolChain,
+            solution: "".to_string(),
             project: "".to_string(),
             name: "".to_string(),
             path:  path.to_string(),    
@@ -61,6 +62,7 @@ impl Distributor {
         runtime: &std::sync::Arc<tokio::runtime::Handle>) -> crate::communicate::package::ReceiverType {
 
         let args = super::package::PrecompiledFile {
+            solution: input.solution.to_string_lossy().to_string(),
             project: input.project.to_string_lossy().to_string(),
             file: file.to_string_lossy().to_string(),
             compiler: input.compiler_path.to_string_lossy().to_string(),

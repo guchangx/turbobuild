@@ -3,13 +3,14 @@ syntax = "proto3";
 package pack;
 
 message CompileTrRequest {
-    string project = 1;
-    string file = 2;
-    string compiler = 3;
-    string working_dir = 4;
-    string variety = 5;
-    repeated string commands = 6;
-    bytes content = 7;
+    string solution = 1;
+    string project = 2;
+    string file = 3;
+    string compiler = 4;
+    string working_dir = 5;
+    string variety = 6;
+    repeated string commands = 7;
+    bytes content = 8;
 }
 
 enum CompileProgress {
@@ -46,10 +47,11 @@ enum FileType {
 
 message FileTrRequest {
     FileType file_type = 1;
-    string project = 2;
-    string name = 3;
-    string path = 4;
-    bytes content = 5;
+    string solution = 2;
+    string project = 3;
+    string name = 4;
+    string path = 5;
+    bytes content = 6;
 }
 
 message FileTrResponse {
