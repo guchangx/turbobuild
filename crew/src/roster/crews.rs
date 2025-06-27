@@ -1,3 +1,5 @@
+use std::f32;
+
 
 #[derive(Default, Clone)]
 pub struct ResourceList {
@@ -79,7 +81,13 @@ impl ResourceList {
     
 }
 
-#[derive(serde::Deserialize, Clone, Debug)]
+#[derive(serde::Deserialize, Clone, Debug, Default)]
+pub struct Usage {
+    pub cpu: f32,
+    pub memory: f32,
+}
+
+#[derive(serde::Deserialize, Clone, Debug, Default)]
 pub struct Task {
     pub username: String,
     pub devicename: String,
@@ -87,7 +95,9 @@ pub struct Task {
     pub core: u32,
     pub memory: f32,
     pub running: u32,
-    pub max: u32
+    pub max: u32,
+    #[serde(default)]
+    pub usage: Usage,
 }
 
 #[derive(serde::Deserialize, Default, Clone, Debug)]
@@ -118,8 +128,7 @@ impl TasksManager {
 
     pub fn schedule(&mut self) -> &str {
 
-        let iter = self.tasks.iter_mut().filter(|item| item.running < item.max).min_by(|x, y| x.running.cmp(&y.running));
-        
+        let iter = self.tasks.iter_mut().filter(|item| item.running < item.max && item.usage.cpu <= 0.95).min_by(|x, y| x.running.cmp(&y.running));
         if let Some(item) = iter {
             item.running += 1;    
             return item.addr.as_str();    
@@ -144,6 +153,12 @@ impl TasksManager {
         return tasks;
     }
 
+    pub fn usage(&mut self, cpu: f32, memory: f32) {
+        if let Some(task) = self.tasks.iter_mut().find(|item| item.addr == "127.0.0.1") {
+            task.usage.cpu = cpu;
+            task.usage.memory = memory;
+        }
+    }
 }
 
 #[cfg(test)]

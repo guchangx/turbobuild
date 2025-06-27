@@ -62,13 +62,20 @@ impl Receiver {
             
         while let Some(request) = stream.next().await {
             if let Ok(request) = request {
+
+                let mut reply = package::FileTrResponse {
+                    error_code: 0,
+                    error_message: "sync file success.".to_string(),
+                };
+
                 let name = request.name;
                 let path = request.path;
                 
                 log::debug!("transmit file handle name: {}, path: {}", name, path);
         
-                let content = request.content;
                 let file_type = request.file_type;
+                let project = request.project;
+                let content = request.content;
                 
                 if file_type == package::FileType::Toolchain as i32 {
                     if path.ends_with(".zip") {
@@ -84,17 +91,12 @@ impl Receiver {
                     }
                 }
                 else if file_type == package::FileType::Precompiledsrcfiles as i32 {
-                    if path.ends_with(".zip") {
-                        let project = crew::replica::toolchain::Property::new(&path[..(path.len() - ".zip".len())]);
-                        let path = project.access_replica_toolchain_path();
-            
-                        Self::extract(&path, &content).await;
-                        //TODO: report resource again to captain. 
-        
-                    }
-                    else {
-                        log::error!("package precompiledsrc files is not end with .zip {}", path);
-                    }
+                    let ret = Self::storage(&project, "", &path, &content).await;
+                    if let Err(err) = ret {
+                        log::error!("transmit file handle save precompiled src files failed: {}", err);
+                        reply.error_code = 1;
+                        reply.error_message = err;
+                    };
                 }
                 else if file_type == package::FileType::Kits as i32 {
                         
@@ -102,11 +104,6 @@ impl Receiver {
                 else {
                     log::debug!("unknown file type: {}", file_type);
                 }
-                
-                let reply = package::FileTrResponse {
-                    error_code: 0,
-                    error_message: "sync file success.".to_string(),
-                };
 
                 if tx.send(Ok(reply.clone())).await.is_err() {
                     log::error!("tx send error.");
@@ -125,7 +122,6 @@ impl Receiver {
         let project = request.project;
         let file = request.file;
         let compiler = request.compiler;
-        let solution = request.solution;
     
         let commands = request.commands;
         let content = request.content;
@@ -136,8 +132,6 @@ impl Receiver {
             let handle = Self::check_dir_exists(&project, &request.working_dir, &commands).await;
 
             let compiler_input = crew::compiler::model::CompilerInput {
-                solution: std::ffi::OsString::from(solution),
-                index: std::ffi::OsString::from(request.index), 
                 project: std::ffi::OsString::from(project),
                 compiler_path: std::ffi::OsString::from(compiler),
                 compiler_working_dir: std::ffi::OsString::from(&request.working_dir),
@@ -158,9 +152,25 @@ impl Receiver {
             };
             handle.await.unwrap();
             Self::cocrew_execute(&compiler_input, output_callback).await;
+            log::debug!("transmit compile task handle execute done, return file: {}", file);
         } 
         else if !content.is_empty() {
-            let reply = Self::storage(&project, &file, &solution, &content).await;
+            let ret = Self::storage(&project, &file, &solution, &content).await;
+
+            let mut reply = package::CompileTrResponse {
+                progress: package::CompileProgress::Filetransfer.into(),
+                out: Vec::new(),
+                err: Vec::new(),
+                results: Vec::new(),
+                status: 0,
+                tips: "transmit do save file success.".to_string(),
+            };
+
+            if ret.is_err() {
+                reply.status = 1;
+                reply.tips = ret.unwrap_err();
+            }
+
             tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("tx send failed: {:?}", err));
         }
         else {
@@ -176,24 +186,15 @@ impl Receiver {
         }
     }
 
-    async fn storage(project: &str, solution: &str, path: &str, content: &[u8]) -> package::CompileTrResponse {
+    async fn storage(project: &str, solution: &str, path: &str, content: &[u8]) -> Result<(), String> {
         let now = std::time::Instant::now();
-        
-        let mut reply = package::CompileTrResponse {
-            progress: package::CompileProgress::Filetransfer.into(),
-            out: Vec::new(),
-            err: Vec::new(),
-            results: Vec::new(),
-            status: 0,
-            tips: "transmit do save file success.".to_string(),
-        };
 
         if project.is_empty() || path.is_empty() {
-            reply.tips = "project or path param is empty, so do nothing".to_string();
             log::error!("transmit storage project name or path is empty.");
+            return Err("project or path param is empty, so do nothing".to_string());
         }
         else {
-            let project = crew::replica::project::Property::new(project, solution, path);
+            let project = crew::replica::project::Property::new( project, solution, path);
             let path = project.fetch_local_replica_project_path();
     
             if path.extension() == Some(&std::ffi::OsStr::new("zip")) {
@@ -205,7 +206,6 @@ impl Receiver {
                 match file.write_all(&content) {
                     Ok(_) => {
                         log::trace!("transmit storage file done: {:?}", path);
-            
                     },
                     Err(err) => {
                         log::error!("transmit storage file failed. {:?} {:?}", path, err)
@@ -215,7 +215,7 @@ impl Receiver {
         }
 
         log::info!("transmit storage file done. elapsed: {:?}", now.elapsed());
-        return reply;   
+        return Ok(());   
     }
 
     async fn extract(path: &str, content: &[u8]) {

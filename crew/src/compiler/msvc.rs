@@ -242,7 +242,7 @@ impl MSVC {
             
             }
             else {
-                log::trace!("request remote compile and sync back failed: {:?} {:?}", output.out, output.err);
+                log::trace!("request remote compile and sync back failed: {:?} {:?}", std::str::from_utf8(&output.out), std::str::from_utf8(&output.err));
             }
             return output;
         }
@@ -321,7 +321,7 @@ impl MSVC {
         }
 
         let mut handles = Vec::new();
-        let stream = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
+        let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
 
         while let Some(line) = fileout.err.next() {
             log::debug!("precompile stderr: {:?}", line);
@@ -335,9 +335,9 @@ impl MSVC {
                 let runtime = self.runtime.clone();
                 let precompiled_result_path = actions.precompiled_result_file.clone();
                 let stream = stream.clone();
-
+                let compiler_input_ = compiler_input.clone();
                 let handle = self.runtime.spawn(async move {
-                    let files = transmit_precompiled_source_file(stream, precompiled_result_path.clone(), &vec![file], &runtime).await;
+                    let files = transmit_precompiled_source_file(&compiler_input_, stream, precompiled_result_path.clone(), &vec![file], &runtime).await;
                     return files;
                 });
 
@@ -358,6 +358,8 @@ impl MSVC {
                 let mut files_ = handle.await.unwrap();
                 files.append(&mut files_);
             }
+
+            drop(stream);
     
             //TODO: should be use ref of compiler_input.
             let mut compiler_input = compiler_input.clone();
@@ -365,6 +367,8 @@ impl MSVC {
             commands.append(&mut files);
             compiler_input.compiler_commands = commands;
     
+            notify.notified().await;
+
             let output = self.request_dist_compile_with_command(&addr, compiler_input.clone()).await;
             return output;
         }
@@ -500,7 +504,7 @@ async fn handle_compile_by_stdstream(mut stdout: StdOut) {
      */
 }   
 
-async fn transmit_precompiled_source_file(stream: Option<tokio::sync::mpsc::Sender<crate::communicate::package::ArchiveArgs<'static>>>, precompiled_result: PrecompiledResult, source_files: &Vec<String>, runtime: &std::sync::Arc<tokio::runtime::Handle>)-> Vec<std::ffi::OsString> {
+async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream: Option<tokio::sync::mpsc::Sender<crate::communicate::package::ArchiveArgs<'static>>>, precompiled_result: PrecompiledResult, source_files: &Vec<String>, runtime: &std::sync::Arc<tokio::runtime::Handle>)-> Vec<std::ffi::OsString> {
 
     let now = std::time::Instant::now();
     let options = zip::write::SimpleFileOptions::default()
@@ -554,17 +558,18 @@ async fn transmit_precompiled_source_file(stream: Option<tokio::sync::mpsc::Send
     }   
     else {
         intermediate.set_extension("zip");
-    } 
+    }
 
     let file = crate::communicate::package::ArchiveArgs {
         file_type:  crate::communicate::package::FileType::PrecompiledSrcFiles,
-        name: "".to_string(),
+        name: source_files.join(",").into(),
+        project: compiler_input.project.to_string_lossy().to_string(),
         path: intermediate.to_string_lossy().to_string(),    
         content: content.clone(),
     };
 
     if let Some(stream) = stream {
-        stream.send(file).await.unwrap();        
+        let _ = stream.send(file).await.unwrap();        
     }
 
     /* 
@@ -576,7 +581,8 @@ async fn transmit_precompiled_source_file(stream: Option<tokio::sync::mpsc::Send
         let _ = crate::communicate::distributor::Distributor::compile(&addr, intermediate.as_os_str().into(), &intput, &content, runtime).await;
     */
 
-    log::debug!("transmit precompiled source file elapsed time {:?}", now.elapsed());
+    log::debug!("transmit precompiled source file count {} {:?} elapsed time {:?}", source_files.len(), intermediate, now.elapsed());
+
     return precompiled_files_path;
 }
 

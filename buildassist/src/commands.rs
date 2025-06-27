@@ -16,24 +16,36 @@ pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMa
         -> (Option<std::ffi::OsString>, Option<std::ffi::OsString>, Option<std::ffi::OsString>, Option<std::ffi::OsString>) {
 
     let mut solution= None;
+    let mut project = None;
+
     if let Some(sln) = environment.get("VSTEL_SolutionPath") {
-        std::path::PathBuf::from(sln).file_stem().map(|stem| {
+        let sln = std::path::PathBuf::from(sln);
+        sln.file_stem().map(|stem| {
+            
             solution = Some(stem.to_owned());
+
+            sln.parent().map(|parent| {
+                parent.file_stem().map(|dir| {
+                    if dir.eq(stem) {
+                        project = Some(stem.to_owned());
+                    }
+                    else {
+                        parent.parent().map(|grandparent| {
+                            grandparent.file_stem().map(|stem| {
+                                project = Some(stem.to_owned());
+                            });
+                        });
+                    }
+                });
+            });
         });
     }
 
-    let mut project = None;
     let mut index = None;
     if let Some(proj) = environment.get("VSTEL_MSBuildProjectFullPath") {
 
         std::path::PathBuf::from(proj).file_stem().map(|stem| {
             index = Some(stem.to_owned());
-        });
-
-        std::path::PathBuf::from(proj).parent().map(|parent| {
-            parent.file_stem().map(|stem| {
-                project = Some(stem.to_owned());
-            });
         });
     }
 
@@ -255,7 +267,7 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
 
     
     let commands: Vec<_> = line__.split(&[' ', '\u{A0}']).collect();
-
+    
     let mut result = Vec::new();
     let mut iter = commands.iter();
 
@@ -329,7 +341,7 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
             result_.push(std::ffi::OsString::from(arg_without_enclosed_quotation));
         }
         else if item.is_empty() {
-            iter.next();
+            continue;
         }
         else {
             result_.push(std::ffi::OsString::from(item));
@@ -420,7 +432,12 @@ mod tests {
 
     #[test]
     fn parse_commands_with_external_args() {
-        let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /I"D:\Webex\spark-client-framework\." /I"D:\Webex\spark-client-framework\.." /I"D:\Webex\spark-client-framework\thirdparty\nlohmann\include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/./mkspecs/win32-msvc" /Zi /W3 /WX /diagnostics:column /MP /O2 /Ob2 /Os /D UNICODE /D WIN32 /D NDEBUG /D "CMAKE_INTDIR="Release"" /Gm- /EHsc /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++17 /Fo"BwcCore.dir\Release\\" /Fd"BwcCore.dir\Release\BwcCore.pdb" /external:W3 /Gd /TP /wd4251 /errorReport:prompt /we4700  /Zc:__cplusplus /bigobj /F2000000 "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Source\boss_admin.cpp" "#;
+        let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /I"D:\Webex\spark-client-framework\." /I"D:\Webex\spark-client-framework\.." /I"D:\Webex\spark-client-framework\thirdparty\nlohmann\include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/./mkspecs/win32-msvc" /Zi /W3 /WX /diagnostics:column /MP /O2 /Ob2 /Os /D UNICODE /D WIN32 /D NDEBUG /D "CMAKE_INTDIR="Release"" /Gm- /EHsc /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++17 /Fo"BwcCore.dir\Release\\" /Fd"BwcCore.dir\Release\BwcCore.pdb" /external:W3 /Gd /TP /wd4251 /errorReport:prompt /we4700  /Zc:__cplusplus /bigobj /F2000000 "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Source\boss_admin.cpp" "#;
+        let (_project, compiler, commands) = parse_commands_by_line(line);
+        assert!(compiler.is_empty());
+        println!("commands {:#?}", commands);
+
+        let line = r#"/c /ID:\WorkSpace\OpenSource\ZLMediaKit\build /ID:\WorkSpace\OpenSource\ZLMediaKit\3rdpart /ID:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\wepoll /ID:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src /Zi /nologo /W3 /WX- /diagnostics:column /Od /Ob0 /D _MBCS /D WIN32 /D _WINDOWS /D WIN32_LEAN_AND_MEAN /D MP4V2_NO_STDINT_DEFS /D _CRT_SECURE_NO_WARNINGS /D _WINSOCK_DEPRECATED_NO_WARNINGS /D DBUG_OFF /D SOCKET_DEFAULT_BUF_SIZE=262144 /D HAS_EPOLL /D "CMAKE_INTDIR=\"Debug\"" /Gm- /EHsc /RTC1 /MTd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /Fo"zltoolkit.dir\Debug\\" /Fd"D:\WorkSpace\OpenSource\ZLMediaKit\release\windows\Debug\Debug\zltoolkit.pdb" /external:W0 /Gd /TP /wd4566 /wd4819 /errorReport:prompt  /external:I "D:/Software/ffmpeg-master-latest-win64-gpl-shared/include" /utf-8 D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Network\Buffer.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Network\BufferSock.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Network\Server.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Network\Session.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Network\Socket.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Network\TcpClient.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Network\TcpServer.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Network\UdpServer.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Network\sockutil.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Poller\EventPoller.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Poller\Pipe.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Poller\PipeWrap.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Poller\SelectWrap.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Poller\Timer.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Thread\TaskExecutor.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Thread\WorkThreadPool.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\CMD.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\File.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\MD5.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\NoticeCenter.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\SHA1.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\SSLBox.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\SSLUtil.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\SqlPool.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\base64.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\local_time.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\logger.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\mini.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\strptime_win.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\util.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\ZLToolKit\src\Util\uv_errno.cpp D:\WorkSpace\OpenSource\ZLMediaKit\3rdpart\wepoll\sys\epoll.cpp"#;
         let (_project, compiler, commands) = parse_commands_by_line(line);
         assert!(compiler.is_empty());
         println!("commands {:#?}", commands);
@@ -428,9 +445,18 @@ mod tests {
 
     #[test]
     fn parse_commands_with_define_string_value() {
-        let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /D "QT_TESTCASE_BUILDDIR="E:/TestFuture/GammaRay/GammaRayTool/build_enable"" "boss_admin.cpp" "#;
+        let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /D "QT_TESTCASE_BUILDDIR="E:/TestFuture/GammaRay/GammaRayTool/build_enable"" "boss_admin.cpp" "#;
         let (_project, compiler, commands) = parse_commands_by_line(line);
         assert!(compiler.is_empty());
         println!("commands {:#?}", commands);
     }
+    // /external:W0 /Gd /TP /wd4566 /wd4819 /errorReport:prompt /external:I "D:/Software/ffmpeg-master-latest-win64-gpl-shared/include" 
+    
+    #[test]
+    fn split_space_test() {
+        let line = r#"/external:W0 /Gd /TP /wd4566 /wd4819 /errorReport:prompt  /external:I "D:/Software/ffmpeg-master-latest-win64-gpl-shared/include""#;
+        let split = line.split(&[' ', '\u{A0}']).collect::<Vec<&str>>();
+        println!("split {:#?}", split);
     }
+
+}

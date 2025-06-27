@@ -45,27 +45,40 @@ pub async fn register_fingerprint_to_capation(rt: tokio::runtime::Handle, common
 
     let mut fingerprint = crate::fingerprint::gather::SystemInfo::new();
 
+    let weak_common = common.clone();
+
     let _ = rt.spawn(async move {
+        let mut count = 0;
         loop {
-    
+            
             let (cpu_usage, memory_used) = crate::fingerprint::gather::SystemInfo::fetch_cpu_and_memory_usage();
-            
-            fingerprint.cpu_usage = cpu_usage;
-            fingerprint.memory_usage = ((memory_used * 100 as f32 / fingerprint.memory_total) * 1000.0).round() / 1000.0;
-            
-            let info = serde_json::to_string(&fingerprint).unwrap();
-            
-            let con = crate::communicate::notifier::NotificationType::Constitution(info);
-            match arcsender.send(con).await {
-                Ok(_) => {
-                    
-                },
-                Err(err) => {
-                    log::warn!("send notification error: {:#?}", err);
+            if count <= 12 {
+                count += 1;  
+                if let Some(common) = weak_common.upgrade() {
+                    let common = common.lock().unwrap();
+                    if let Some(ref task_manager) = common.tasks {
+                        task_manager.lock().unwrap().usage(cpu_usage, memory_used);
+                    }
                 }
             }
-            
-            tokio::time::sleep(tokio::time::Duration::from_secs(180)).await;
+            else {
+                count = 0;
+                fingerprint.cpu_usage = cpu_usage;
+                fingerprint.memory_usage = ((memory_used * 100 as f32 / fingerprint.memory_total) * 1000.0).round() / 1000.0;
+                
+                let info = serde_json::to_string(&fingerprint).unwrap();
+                
+                let con = crate::communicate::notifier::NotificationType::Constitution(info);
+                match arcsender.send(con).await {
+                    Ok(_) => {
+                        
+                    },
+                    Err(err) => {
+                        log::warn!("send notification error: {:#?}", err);
+                    }
+                }   
+            }
+            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
         }
     });
     //handle.await.unwrap();

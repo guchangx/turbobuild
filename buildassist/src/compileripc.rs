@@ -54,9 +54,9 @@ impl SocketClient {
                 stream.flush().unwrap();
 
                 let mut data = Vec::new();
-                let mut buffer = [0 as u8; 256];
                 let mut ret = Ok(0);
                 loop {
+                    let mut buffer = [0 as u8; 256];
                     match stream.read(&mut buffer) {
                         Ok(size) => {
                             if size == 0 {
