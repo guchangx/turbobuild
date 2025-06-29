@@ -311,8 +311,6 @@ impl MSVC {
     
     async fn handle_compile_by_filestream(&self, fileout: &mut FileOut, compiler_input: &CompilerInput, addr: &str, compiler_commands: &Vec<std::ffi::OsString>) 
         -> CompilerOutput {
-        
-        let project_name = &compiler_input.project;
 
         let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, &compiler_input.compiler_working_dir);
 
@@ -517,9 +515,9 @@ async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream
 
     for file in source_files.to_owned() {
 
-        match precompiled_result.clone() {
+        match &precompiled_result {
             PrecompiledResult::PathWithPCResultName(path) => {
-                intermediate = path;
+                intermediate = path.to_owned();
                 intermediate.set_extension("i");
             },
             PrecompiledResult::PathWithoutPCResultName(path) => {
