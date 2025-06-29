@@ -177,6 +177,10 @@ mod tests {
             memory: 16.0,
             running:0,
             max:2,
+            usage: Usage {
+                cpu: 0.0,
+                memory: 0.0,
+            },
         };
         tasks.add(&vec![task]);
         
@@ -188,6 +192,10 @@ mod tests {
             memory: 16.0,
             running:0,
             max:4,
+            usage: Usage {
+                cpu: 0.0,
+                memory: 0.0,
+            },
         };
         tasks.add(&vec![task]);
         
