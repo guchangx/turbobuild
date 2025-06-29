@@ -127,14 +127,19 @@ impl TasksManager {
     }
 
     pub fn schedule(&mut self) -> &str {
-
-        let iter = self.tasks.iter_mut().filter(|item| item.running < item.max && item.usage.cpu <= 0.95).min_by(|x, y| x.running.cmp(&y.running));
-        if let Some(item) = iter {
-            item.running += 1;    
-            return item.addr.as_str();    
+        if self.tasks.len() == 1 {
+            self.tasks.first_mut().unwrap().running += 1;
+            return self.tasks.first().unwrap().addr.as_str();
         }
         else {
-            return "";    
+            let iter = self.tasks.iter_mut().filter(|item| item.running < item.max && item.usage.cpu <= 0.95).min_by(|x, y| x.running.cmp(&y.running));
+            if let Some(item) = iter {
+                item.running += 1;    
+                return item.addr.as_str();    
+            }
+            else {
+                return "";    
+            }            
         }
     }
     
