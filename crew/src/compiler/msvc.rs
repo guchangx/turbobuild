@@ -515,9 +515,9 @@ async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream
 
     for file in source_files.to_owned() {
 
-        match precompiled_result.clone() {
+        match &precompiled_result {
             PrecompiledResult::PathWithPCResultName(path) => {
-                intermediate = path;
+                intermediate = path.to_owned();
                 intermediate.set_extension("i");
             },
             PrecompiledResult::PathWithoutPCResultName(path) => {
