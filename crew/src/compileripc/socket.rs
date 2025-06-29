@@ -61,10 +61,10 @@ impl Receiver {
 
                         let solution = input["solution"].as_str().unwrap();
                         let project = input["project"].as_str().unwrap();
-                        let compiler = input["compiler_path"].as_str().unwrap();
-                        let working = input["compiler_working_dir"].as_str().unwrap();
-                        let commands = input["compiler_commands"].as_array().unwrap();
-                        let r#type = input["build_and_compiler_type"].as_str().unwrap();
+                        let compiler = input["compiler"].as_str().unwrap();
+                        let working = input["working_dir"].as_str().unwrap();
+                        let commands = input["commands"].as_array().unwrap();
+                        let r#type = input["type"].as_str().unwrap();
                         
                         let input = crate::compiler::model::CompilerInput {
                             solution: std::ffi::OsString::from(solution),
