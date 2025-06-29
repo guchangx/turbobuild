@@ -502,20 +502,20 @@ fn exact_compiler_object_file(project: std::borrow::Cow<str>, mut arg: std::borr
     let replica = tools::utils::access_replica_dir();
     let replica = std::path::PathBuf::from(replica);
 
-    let split = |pdb: std::path::PathBuf, project: std::borrow::Cow<str>| {
+    let split = |obj: std::path::PathBuf, project: std::borrow::Cow<str>| {
         if project.is_empty() {
-            return pdb;
+            return obj;
         }
         else {
         
-            let components = pdb.components().collect::<Vec<_>>();
+            let components = obj.components().collect::<Vec<_>>();
             if let Some(index) = components.iter().position(|item| item.as_os_str().to_string_lossy() == project) {
                 let result: std::path::PathBuf = components[index + 1..].iter().collect();
                 let path = replica.join("Project").join(project.into_owned()).join(result);
                 return path;
             }
             else {
-                return pdb;
+                return obj;
             }            
         }
     };
@@ -528,7 +528,8 @@ fn exact_compiler_object_file(project: std::borrow::Cow<str>, mut arg: std::borr
             return GeneratedObject::PathWithObjName(path);
         }
         else {
-            let path = replica.join("Project").join(project.into_owned()).join(path);
+            let path = working_dir.join(path);
+            let path = split(path, project.clone());
             return GeneratedObject::PathWithObjName(path);
         }
     }
@@ -636,7 +637,7 @@ fn parse_action_from_commands(compiler_input: &CompilerInput) -> CompileAction {
             else if command.starts_with("/Fo") {
                 obj = exact_compiler_object_file(solution_name.to_string_lossy(), command, &working_dir);
             }
-            else if command.to_lowercase().contains(".i") || command.to_lowercase().contains(".cpp") || command.to_lowercase().contains(".c") || command.to_lowercase().contains(".cc") {
+            else if command.to_lowercase().ends_with(".i") || command.to_lowercase().ends_with(".cpp") || command.to_lowercase().ends_with(".c") || command.to_lowercase().ends_with(".cc") {
                 let source = command.replace(r#"""#, "");
                 let mut index = source.rfind(r"\");
                 if index.is_none() {
