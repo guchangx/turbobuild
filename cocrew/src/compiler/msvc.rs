@@ -120,13 +120,14 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput, 
     }
 
     log::debug!("origin working dir: {:?}", compiler_input.compiler_working_dir);
-    let replica_working_dir = redirect_working_dir(&compiler_input.compiler_working_dir, &compiler_input.project);
+    let replica_working_dir = redirect_working_dir(&compiler_input.compiler_working_dir, &compiler_input.solution);
 
     log::debug!("orgin compiler: {:?}", compiler_input.compiler_path);
     let replica_compiler = redirect_compiler_path(compiler_input.compiler_path.clone());
 
     if replica_compiler.is_some() {
         let mut input = CompilerInput::default();
+        input.solution = compiler_input.solution.clone();
         input.project = compiler_input.project.clone();
         input.compiler_path = replica_compiler.unwrap();
         input.compiler_working_dir = replica_working_dir.unwrap();
@@ -156,7 +157,10 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         stdout: out_sender,
         stderr: err_sender,
     };
+    
+    let solution_name = compiler_input.solution.clone();
     let project_name = compiler_input.project.clone();
+
     let compiler_path = compiler_input.compiler_path.clone();
     let replica_working_dir = compiler_input.compiler_working_dir.clone();
     let compiler_commands = compiler_input.compiler_commands.clone();
@@ -167,7 +171,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
 
     let out_stream = out_err_stream.stdout.clone();
 
-    let project_name_ = project_name.clone();
+    let solution_name_ = solution_name.clone();
     let origin_working_dir_ = origin_working_dir.clone();
     let generated_object_ = generated_object.clone();
 
@@ -184,7 +188,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
             let line = String::from_utf8_lossy(&data);
             log::info!("stream stdout: {:?}", line);
 
-            let objfile = pre_return_local_compile_result_objfiles(&line, generated_object_.clone(), &project_name_, &origin_working_dir_, &out_stream);
+            let objfile = pre_return_local_compile_result_objfiles(&line, generated_object_.clone(), &solution_name_, &origin_working_dir_, &out_stream);
             if let Some(objfile) = objfile {
                 unready_objfiles_.lock().unwrap().insert(objfile.0, objfile.1);
             }
@@ -206,7 +210,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         drop(err_stream);
     });
 
-    let (status, stdout, stderr) = start_local_compiler(&project_name, &compiler_path, &replica_working_dir, &compiler_commands, &stdout_err_stream);
+    let (status, stdout, stderr) = start_local_compiler(&solution_name, &project_name, &compiler_path, &replica_working_dir, &compiler_commands, &stdout_err_stream);
 
     drop(stdout_err_stream);
 
@@ -221,14 +225,14 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         if unready_objfiles.lock().unwrap().is_empty() {
             let out_stream = out_err_stream.stdout.clone();
             for line in files {
-                let _ = pre_return_local_compile_result_objfiles(&std::borrow::Cow::from(line), generated_object.clone(), &project_name, &origin_working_dir, &out_stream);
+                let _ = pre_return_local_compile_result_objfiles(&std::borrow::Cow::from(line), generated_object.clone(), &solution_name, &origin_working_dir, &out_stream);
             }
             drop(out_stream);
         }
         else {
-            return_local_compile_result_objfiles(unready_objfiles, &project_name, &origin_working_dir, out_err_stream);
+            return_local_compile_result_objfiles(unready_objfiles, &solution_name, &origin_working_dir, out_err_stream);
         }
-        return_local_compile_result_pdbfiles(program_database, &project_name, &origin_working_dir, out_err_stream);
+        return_local_compile_result_pdbfiles(program_database, &solution_name, &origin_working_dir, out_err_stream);
     }
     else {
         let lines: Vec<&str> = compile_output.lines().collect();
@@ -247,7 +251,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     return (result, None);
 }
 
-fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, generated_object: GeneratedObject, project_name: &std::ffi::OsString, 
+fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, generated_object: GeneratedObject, solution_name: &std::ffi::OsString, 
                                                 origin_working_dir: &std::ffi::OsString, out_stream: &std::sync::mpsc::Sender<CompiledResults>) 
                                                 -> std::option::Option<(std::string::String, std::path::PathBuf)> {
 
@@ -287,7 +291,7 @@ fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, ge
                 let mut file = std::io::BufReader::new(file);
                 let _ = file.read_to_end(&mut contents).unwrap();
 
-                let origin = repair_original_path(&project_name, &origin_working_dir, &result);        
+                let origin = repair_original_path(&solution_name, &origin_working_dir, &result);        
 
                 obj = Some((origin, contents));
             },
@@ -324,14 +328,14 @@ fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, ge
     return unready_objfiles;
 }
 
-fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<std::string::String, std::path::PathBuf>>>, project_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
+fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<std::string::String, std::path::PathBuf>>>, solution_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
     
     log::trace!("unready obj files: {:?}", objfiles.lock().unwrap());
     let objfiles: Vec<_> = objfiles.lock().unwrap().iter().map(|(k, v)|(k.clone(), v.clone())).collect();
     for (line, objfile) in objfiles {
 
         let out_stream = out_err_stream.stdout.clone();
-        let project_name_ = project_name.clone();
+        let solution_name_ = solution_name.clone();
         let origin_working_dir_ = origin_working_dir.clone();
 
         let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
@@ -346,7 +350,7 @@ fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mute
                     let mut file = std::io::BufReader::new(file);
                     let _ = file.read_to_end(&mut contents).unwrap();
 
-                    let origin = repair_original_path(&project_name_, &origin_working_dir_, &objfile);        
+                    let origin = repair_original_path(&solution_name_, &origin_working_dir_, &objfile);        
 
                     obj = Some((origin, contents));
                 },
@@ -379,7 +383,7 @@ fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mute
     log::trace!("unready obj file end, send out stream end.");
 }
 
-fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, project_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
+fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, solution_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
     let mut result = std::path::PathBuf::from("");
     match &program_database {
         ProgramDataBase::PathWithPDBName(path) => {
@@ -406,7 +410,7 @@ fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, proje
                 let mut contents = Vec::new();
                 let mut file = std::io::BufReader::new(file);
                 let _ = file.read_to_end(&mut contents).unwrap();
-                let origin = repair_original_path(&project_name, &origin_working_dir, &result);        
+                let origin = repair_original_path(&solution_name, &origin_working_dir, &result);        
                 pdb = Some((origin, contents));
             },
             Err(error) => {
@@ -425,7 +429,7 @@ fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, proje
                 let mut contents = Vec::new();
                 let mut file = std::io::BufReader::new(file);
                 let _ = file.read_to_end(&mut contents).unwrap();
-                let origin = repair_original_path(&project_name, &origin_working_dir, &result);     
+                let origin = repair_original_path(&solution_name, &origin_working_dir, &result);     
                 idb = Some((origin, contents));
             },
             Err(error) => {
@@ -550,20 +554,20 @@ enum ProgramDataBase {
     PathWithoutPDBName(std::path::PathBuf),
 }
 
-fn exact_compile_pdb_path(project: std::borrow::Cow<str>, mut arg: std::borrow::Cow<str>, working_dir: &std::path::PathBuf) -> ProgramDataBase {
+fn exact_compile_pdb_path(solution: std::borrow::Cow<str>, mut arg: std::borrow::Cow<str>, working_dir: &std::path::PathBuf) -> ProgramDataBase {
 
     let replica = tools::utils::access_replica_dir();
     let replica = std::path::PathBuf::from(replica);
 
-    let split = |pdb: std::path::PathBuf, project: std::borrow::Cow<str>| {
-        if project.is_empty() {
+    let split = |pdb: std::path::PathBuf, solution: std::borrow::Cow<str>| {
+        if solution.is_empty() {
             return pdb;
         }
         else {
             let components = pdb.components().collect::<Vec<_>>();
-            if let Some(index) = components.iter().position(|item| item.as_os_str().to_string_lossy() == project) {
+            if let Some(index) = components.iter().position(|item| item.as_os_str().to_string_lossy() == solution) {
                 let result: std::path::PathBuf = components[index + 1..].iter().collect();
-                let path = replica.join("Project").join(project.into_owned()).join(result);
+                let path = replica.join("Project").join(solution.into_owned()).join(result);
                 return path;
             }
             else {
@@ -577,26 +581,26 @@ fn exact_compile_pdb_path(project: std::borrow::Cow<str>, mut arg: std::borrow::
     if pdb.ends_with(".pdb") {
         let path = std::path::PathBuf::from(pdb);
         if path.has_root() {
-            let path = split(path, project.clone());
-            let path = replica.join("Project").join(project.into_owned()).join(path);
+            let path = split(path, solution.clone());
+            let path = replica.join("Project").join(solution.into_owned()).join(path);
             return ProgramDataBase::PathWithPDBName(path);
         }
         else {
-            let middle = split(working_dir.to_owned(), project.clone());
-            let path = replica.join("Project").join(project.into_owned()).join(middle).join(path);
+            let middle = split(working_dir.to_owned(), solution.clone());
+            let path = replica.join("Project").join(solution.into_owned()).join(middle).join(path);
             return ProgramDataBase::PathWithPDBName(path);
         }
     }
     else {
         let path = std::path::PathBuf::from(pdb);
         if path.has_root() {
-            let path = split(path, project.clone());
-            let path = replica.join("Project").join(project.into_owned()).join(path);
+            let path = split(path, solution.clone());
+            let path = replica.join("Project").join(solution.into_owned()).join(path);
             return ProgramDataBase::PathWithoutPDBName(path);
         }
         else {
-            let middle = split(working_dir.to_owned(), project.clone());
-            let path = replica.join("Project").join(project.into_owned()).join(middle).join(path);
+            let middle = split(working_dir.to_owned(), solution.clone());
+            let path = replica.join("Project").join(solution.into_owned()).join(middle).join(path);
             return ProgramDataBase::PathWithoutPDBName(path);
         }
     }
@@ -610,7 +614,7 @@ struct CompileAction {
 
 fn parse_action_from_commands(compiler_input: &CompilerInput) -> CompileAction {
 
-    let project_name = compiler_input.project.clone();
+    let solution_name = compiler_input.solution.clone();
 
     let mut pdb = ProgramDataBase::NonePDBPath;
     let mut obj = GeneratedObject::NoneObjPath;
@@ -625,13 +629,13 @@ fn parse_action_from_commands(compiler_input: &CompilerInput) -> CompileAction {
         for command in &compiler_input.compiler_commands {
             let command = command.to_string_lossy();
             if command.starts_with("/Fd") {
-                pdb = exact_compile_pdb_path(project_name.to_string_lossy(), command, &working_dir);
+                pdb = exact_compile_pdb_path(solution_name.to_string_lossy(), command, &working_dir);
             }
             else if command.starts_with("/Zi") {
                 default_pdb = true;
             }
             else if command.starts_with("/Fo") {
-                obj = exact_compiler_object_file(project_name.to_string_lossy(), command, &working_dir);
+                obj = exact_compiler_object_file(solution_name.to_string_lossy(), command, &working_dir);
             }
             else if command.to_lowercase().ends_with(".i") || command.to_lowercase().ends_with(".cpp") || command.to_lowercase().ends_with(".c") || command.to_lowercase().ends_with(".cc") {
                 let source = command.replace(r#"""#, "");
@@ -663,7 +667,7 @@ fn parse_action_from_commands(compiler_input: &CompilerInput) -> CompileAction {
         if pdb == ProgramDataBase::NonePDBPath && default_pdb {
             let replica = tools::utils::access_replica_dir();
             let replica = std::path::PathBuf::from(replica);
-            pdb = ProgramDataBase::PathWithPDBName(replica.join("Project").join(project_name).join("vc143.pdb"));
+            pdb = ProgramDataBase::PathWithPDBName(replica.join("Project").join(solution_name).join("vc143.pdb"));
         }
     }
     else {
@@ -672,7 +676,7 @@ fn parse_action_from_commands(compiler_input: &CompilerInput) -> CompileAction {
     return CompileAction { program_database: pdb, generated_object: obj, source_files: sourcefiles };
 }
 
-fn start_local_compiler_with_inject(project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, 
+fn start_local_compiler_with_inject(solution: &std::ffi::OsString, project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, 
                             compiler_commands: &Vec<std::ffi::OsString>, out_err_stream: &OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     
     let line: String = compiler_commands.clone().into_iter()
@@ -681,23 +685,24 @@ fn start_local_compiler_with_inject(project: &std::ffi::OsString, compiler_path:
 
     let line =  format!(r#""{}" {}"#, compiler_path.to_string_lossy(), line);
 
-    let (status, stdout, stderr) = crate::detours::redirect::msvc_detours(project.clone().into_string().unwrap(), compiler_path.clone().into_string().unwrap(), 
+    let (status, stdout, stderr) = crate::detours::redirect::msvc_detours(solution.clone().into_string().unwrap(), project.clone().into_string().unwrap(), compiler_path.clone().into_string().unwrap(), 
                     line, working_dir.clone().into_string().unwrap(), out_err_stream);
 
     return (status, stdout, stderr);
 }
 
-fn start_local_compiler(project_name: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, out_err_stream: &OutAndErrStream) 
+fn start_local_compiler(solution: &std::ffi::OsString, project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, out_err_stream: &OutAndErrStream) 
                     -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
 
-    log::trace!("project name: {:?}", project_name);
+    log::trace!("solution: {:?}", solution);
+    log::trace!("project: {:?}", project);
     log::trace!("working dir: {:?}", working_dir);
     log::trace!("compiler path: {:?}", compiler_path);
     log::trace!("compile content: {:?}", compiler_commands);
 
     let start = std::time::Instant::now();
     
-    let (status, stdout, stderr) = start_local_compiler_with_inject(project_name, compiler_path, working_dir, compiler_commands, out_err_stream);
+    let (status, stdout, stderr) = start_local_compiler_with_inject(solution, project, compiler_path, working_dir, compiler_commands, out_err_stream);
     
     let elapsed = start.elapsed();
     log::info!("compile file with inject elapsed time: {:?}.", elapsed);
@@ -803,17 +808,17 @@ pub fn redirect_stdout_log() {
     }}
 }
 
-fn repair_original_path(project: &std::ffi::OsString, working_dir: &std::ffi::OsString, path: &std::path::PathBuf) -> std::ffi::OsString {
+fn repair_original_path(solution: &std::ffi::OsString, working_dir: &std::ffi::OsString, path: &std::path::PathBuf) -> std::ffi::OsString {
 
     //get the original .obj/.pdb file path
     let components = path.components().collect::<Vec<_>>();
-    if let Some(index) = components.iter().position(|item| item.as_os_str().to_string_lossy() == project.to_string_lossy()) {
+    if let Some(index) = components.iter().position(|item| item.as_os_str().to_string_lossy() == solution.to_string_lossy()) {
         let result: std::path::PathBuf = components[index + 1..].iter().collect();
         
         let base = std::path::PathBuf::from(working_dir);
 
         let base = base.components().collect::<Vec<_>>();
-        if let Some(index) = base.iter().position(|item| item.as_os_str().to_string_lossy() == project.to_string_lossy()) {
+        if let Some(index) = base.iter().position(|item| item.as_os_str().to_string_lossy() == solution.to_string_lossy()) {
             let base = base[..index + 1].iter().collect::<std::path::PathBuf>();
             
             let path = base.join(result);
@@ -846,8 +851,8 @@ fn redirect_compiler_path(compiler: std::ffi::OsString) -> Option<std::ffi::OsSt
     };
 } 
 
-fn redirect_working_dir(working_dir: &std::ffi::OsString, project: &std::ffi::OsString) -> Option<std::ffi::OsString> {
-    if let Some(index) = working_dir.to_string_lossy().find(project.to_str().unwrap()) {
+fn redirect_working_dir(working_dir: &std::ffi::OsString, solution: &std::ffi::OsString) -> Option<std::ffi::OsString> {
+    if let Some(index) = working_dir.to_string_lossy().find(solution.to_str().unwrap()) {
         let dir = tools::utils::access_working_path("Replica").unwrap_or_default();
         let path = std::path::PathBuf::from(format!(r#"{}\Project\{}"#, dir, working_dir.to_string_lossy().to_string().split_off(index)));
         if std::fs::exists(&path).unwrap() {
@@ -944,7 +949,7 @@ mod tests {
             stderr: err_sender,
         };
 
-        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), 
+        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), &std::ffi::OsString::new(),
             &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, &out_err_stream);
         
         drop(out_err_stream);
@@ -1013,7 +1018,7 @@ mod tests {
             stderr: err_sender,
         };
 
-        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), 
+        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), &std::ffi::OsString::new(), 
             &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, &out_err_stream);
         assert!(status == 0);
         println!("compile .i file stdout: {}", String::from_utf8_lossy(&stdout));
@@ -1050,7 +1055,7 @@ mod tests {
             stderr: err_sender,
         };
 
-        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("GammaRayTool"), 
+        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("GammaRayTool"), &std::ffi::OsString::new(),
             &complier_path.into_os_string(), &working_dir, &compiler_commands, &stdout_err_stream);
         log::info!("stdout: {}", String::from_utf8_lossy(&stdout));
         log::info!("stderr: {}", String::from_utf8_lossy(&stderr));
@@ -1099,7 +1104,7 @@ mod tests {
             stderr: err_sender,
         };
 
-        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("llvm-project"), 
+        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("llvm-project"), &std::ffi::OsString::from(""), 
             &complier_path.into_os_string(), &working_dir, &compiler_commands, &stdout_err_stream);
         log::info!("stdout: {}", String::from_utf8_lossy(&stdout));
         log::info!("stderr: {}", String::from_utf8_lossy(&stderr));

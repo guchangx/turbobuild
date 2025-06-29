@@ -10,8 +10,8 @@ impl Model {
     pub fn fetch_local_replica_project_path(origin_file_path: &str) -> Option<String> {
         
         if let Some(replica_dir) = crate::REPLICADIR.get() {
-            if let Some(project_name) = crate::PROJECTNAME.get() {
-                if let Some(point) = origin_file_path.find(project_name) {
+            if let Some(solution_name) = crate::SOLUTIONNAME.get() {
+                if let Some(point) = origin_file_path.find(solution_name) {
                     let tail = origin_file_path[point..].to_string();
     
                     if origin_file_path.contains("\\??\\")
@@ -96,7 +96,7 @@ pub fn replace_dir(path: &mut String) -> bool {
     else if path.starts_with(r"\\??\\pipe\\") {
         return false;
     }
-    else if crate::PROJECTNAME.get().is_some() && path.contains(crate::PROJECTNAME.get().unwrap()) {
+    else if crate::SOLUTIONNAME.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
         let modified = Model::fetch_local_replica_project_path(&path);
         if let Some(modified) = modified {
             *path = modified;

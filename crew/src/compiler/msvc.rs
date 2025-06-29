@@ -242,7 +242,7 @@ impl MSVC {
             
             }
             else {
-                log::trace!("request remote compile and sync back failed: {:?} {:?}", output.out, output.err);
+                //log::trace!("request remote compile and sync back failed: {:?} {:?}", output.out, output.err);
             }
             return output;
         }
@@ -560,8 +560,9 @@ async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream
 
     let file = crate::communicate::package::ArchiveArgs {
         file_type:  crate::communicate::package::FileType::PrecompiledSrcFiles,
-        name: source_files.join(",").into(),
+        solution: compiler_input.solution.to_string_lossy().to_string(),
         project: compiler_input.project.to_string_lossy().to_string(),
+        name: source_files.join(",").into(),
         path: intermediate.to_string_lossy().to_string(),    
         content: content.clone(),
     };

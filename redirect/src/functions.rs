@@ -458,7 +458,7 @@ pub unsafe fn kernelbase_create_process_a(
             
             if ret == winapi::shared::minwindef::TRUE {
                 if let Some(stdin_write) = stdin_write_handle {
-                    pass_project_and_replica_to_redriect(stdin_write, crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
+                    pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
                 }
 
                 return (*lp_process_information).hProcess as winapi::um::winnt::HANDLE;
@@ -643,7 +643,7 @@ pub unsafe fn kernelbase_create_process_w(
                 winapi::um::handleapi::CloseHandle(h_stdin_read);
 
                 if let Some(stdin_write) = stdin_write_handle {
-                    pass_project_and_replica_to_redriect(stdin_write, crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
+                    pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
                 }
 
                 return (*lp_process_information).hProcess as winapi::um::winnt::HANDLE;
@@ -877,9 +877,9 @@ pub unsafe fn nt_create_file(
     return nt_status;
 }
 
-pub unsafe fn pass_project_and_replica_to_redriect(handle: winapi::shared::ntdef::HANDLE, project: &str, replica: &str) {
+pub unsafe fn pass_project_and_replica_to_redriect(handle: winapi::shared::ntdef::HANDLE, solution: &str, project: &str, replica: &str) {
     if !project.is_empty() {
-        let arg = format!("project:{}\nreplica:{}\n", project, replica);
+        let arg = format!("solution:{}\nproject:{}\nreplica:{}\n", solution, project, replica);
         let mut bytes: winapi::shared::minwindef::DWORD = 0;
         let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
         let ret = winapi::um::fileapi::WriteFile(

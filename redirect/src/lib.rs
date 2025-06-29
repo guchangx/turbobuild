@@ -44,6 +44,7 @@ static  PROJECTNAME: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std
 });
 */
 
+static SOLUTIONNAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static PROJECTNAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /* 
@@ -160,7 +161,12 @@ fn read_project_property_from_stdin() {
         for line in handle.lines() {
             log!(trace, "read stdin pipe to string: {:?}", line);
             let arg = line.unwrap();
-            if arg.starts_with("project") {
+            if arg.starts_with("solution") {
+                //solution:xxxxxxx or solution xxxxxx 
+                let (_, name) = arg.split_at("solution".len() + 1);
+                SOLUTIONNAME.set(name.to_string()).unwrap();
+            }
+            else if arg.starts_with("project") {
                 //project:xxxxxxx or project xxxxxx 
                 let (_, name) = arg.split_at("project".len() + 1);
                 //*PROJECTNAME.lock().unwrap() = Some(name.to_string());
