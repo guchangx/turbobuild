@@ -28,10 +28,10 @@ impl SocketClient {
         
         let addr = "localhost:22403".to_socket_addrs().unwrap().next().unwrap();
         
-        match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(1)) {
+        match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(3)) {
             Ok(mut stream) => {
                 stream.set_nodelay(true).unwrap();
-                stream.set_write_timeout(Some(std::time::Duration::from_secs(1))).unwrap();
+                stream.set_write_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
                 stream.set_read_timeout(Some(std::time::Duration::from_secs(360))).unwrap();
 
                 let commands: Vec<_> = compiler_input.compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();

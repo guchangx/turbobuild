@@ -833,7 +833,7 @@ pub unsafe fn nt_create_file(
                     //crate::log!(debug, "nt_create_file re hook: {:?}", crate::utils::convert::lpwstr_2_string((*(*object_attributes).ObjectName).Buffer).unwrap());
                     //crate::log!(debug, "nt_create_file re hook: {:?}", crate::utils::convert::lpwstr_2_string(object_name_source_wide_char.as_ptr()).unwrap());
 
-                    let nt_status = zw_create_file(
+                    let mut nt_status = zw_create_file(
                         file_handle,
                         access_mask,
                         object_attributes,
@@ -852,7 +852,25 @@ pub unsafe fn nt_create_file(
 
                         }
                         else {
-                            crate::log!(error, "zw_create_file failed! error_code: {:#X} path: {}", nt_status, name);   
+                            crate::log!(error, "zw_create_file failed! error_code: {:#X} path: {}", nt_status, name);
+                            
+                            winapi::um::synchapi::Sleep(150 * 1000);
+
+                            if nt_status == winapi::shared::ntstatus::STATUS_SHARING_VIOLATION {
+                                nt_status = zw_create_file(
+                                    file_handle,
+                                    access_mask,
+                                    object_attributes,
+                                    io_status_block,
+                                    allocation_size,
+                                    file_attributes,
+                                    share_access,
+                                    create_disposition,
+                                    create_options,
+                                    ea_buffer,
+                                    ea_length
+                                );
+                            }
                         }
                     }
                     return nt_status;

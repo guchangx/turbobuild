@@ -188,10 +188,15 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
             let line = String::from_utf8_lossy(&data);
             log::info!("stream stdout: {:?}", line);
 
-            let objfile = pre_return_local_compile_result_objfiles(&line, generated_object_.clone(), &solution_name_, &origin_working_dir_, &out_stream);
-            if let Some(objfile) = objfile {
-                unready_objfiles_.lock().unwrap().insert(objfile.0, objfile.1);
-            }
+            line.lines().for_each(|item| {
+                if !item.is_empty() {
+                    let item = std::borrow::Cow::from(item);
+                    let objfile = pre_return_local_compile_result_objfiles(&item, generated_object_.clone(), &solution_name_, &origin_working_dir_, &out_stream);
+                    if let Some(objfile) = objfile {
+                        unready_objfiles_.lock().unwrap().insert(objfile.0, objfile.1);
+                    }
+                }
+            });
         }
 
         drop(out_stream);
