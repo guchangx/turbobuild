@@ -26,8 +26,7 @@ pub enum OutType {
     File(FileOut),
 }
 
-//TODO common param in func should be move in msvc struct
-use std::{io::Read, ops::{Add, Index}, sync::Arc};
+use std::{io::Read, ops::Index};
 use crate::compiler::model::{CompilerInput, CompilerOutput, CompiledResults, PrecompiledSource};
 use std::io::BufRead;
 
@@ -189,7 +188,7 @@ impl MSVC {
     }
 
     //Discarded function
-    async fn request_dist_compile_from_file(&self, precompiled_result: &PrecompiledResult, addr: &str, source_files: Vec<String>, compiler_input: &CompilerInput)
+    async fn _request_dist_compile_from_file(&self, precompiled_result: &PrecompiledResult, addr: &str, source_files: Vec<String>, compiler_input: &CompilerInput)
         -> CompilerOutput {
         let now = std::time::Instant::now();
 
@@ -210,7 +209,7 @@ impl MSVC {
             path: std::ffi::OsString::new(),
         };
 
-        let output = self.request_dist_compile_from_stdout(&addr, &input, &precompiled_suorce).await;
+        let output = self.request_dist_compile(&addr, &input, &precompiled_suorce).await;
         log::debug!("request dist compile with precompiled source files. count: {:?}, addr: {:?}, elapsed time {:?}", len, addr, now.elapsed());
         return output;
     }
@@ -225,13 +224,12 @@ impl MSVC {
             path: std::ffi::OsString::new(),
         };
 
-        let output = self.request_dist_compile_from_stdout(&addr, &compiler_input, &precompiled_source).await;
+        let output = self.request_dist_compile(&addr, &compiler_input, &precompiled_source).await;
         log::debug!("request dist compile with precompiled source files elapsed time {:?}", now.elapsed());
         return output;
     }
 
-    //TODO: should remove 'from_stdout'
-    async fn request_dist_compile_from_stdout(&self, addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
+    async fn request_dist_compile(&self, addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
     
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
         log::debug!("in commands compiler version: {:?}, addr: {:?}", cversion, addr);

@@ -65,8 +65,7 @@ pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE
     CloseHandle(handle);
 }
 
-pub fn msvc_detours(solution: String, project: String, app_path: String, command: String, workding_directory: String, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
-    //TODO workding_directory should be also use redirect.
+pub fn msvc_detours(solution: String, project: String, app_path: String, command: String, workding_dir: String, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
      
     unsafe {
         let lpApplicationName = app_path.as_str();
@@ -83,7 +82,7 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
         let commandLine = std::ffi::OsStr::new(lpCommandLine);
         let mut commandLineWideChars: Vec<u16> = commandLine.encode_wide().chain(std::iter::once(0)).collect();
         
-        let lpCurrentDirectory = std::ffi::OsStr::new(&workding_directory);
+        let lpCurrentDirectory = std::ffi::OsStr::new(&workding_dir);
         let currentDirectoryWideChars: Vec<u16> = lpCurrentDirectory.encode_wide().chain(std::iter::once(0)).collect();
 
         let redirect_dll_path = &*REDIRECT_DLL_PATH;

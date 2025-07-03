@@ -9,8 +9,6 @@ pub struct CompilerInput {
     pub build_and_compiler_type: std::ffi::OsString,
 }
 
-//TODO: should fetch build index, but it is not ideal way to do it.
-
 pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMap<String, String>) 
     -> (Option<std::ffi::OsString>, Option<std::ffi::OsString>, Option<std::ffi::OsString>) {
 
@@ -248,10 +246,9 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
         line_.push_str(line);
     }
 
-    //TODO: project name mybe fetch form solution name.
     let mut line__ = String::new();
     let mut project = String::new();
-    let assist = "BuildAssistProjectName:";
+    let assist = "BuildAssistSolutionName:";
     if let Some(start) = line_.find(assist) {
         let delimiter = " ";
         if let Some(end) = line_[start..].find(delimiter) {
@@ -388,7 +385,7 @@ fn parse_project_name_from_source_path(path: &String) -> std::ffi::OsString {
     }
 }
 */
-//TODO should fetch object name, but it is not ideal way to do it.
+
 #[cfg(test)]
 mod tests {
     use super::*;
