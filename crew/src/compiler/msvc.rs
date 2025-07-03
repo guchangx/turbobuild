@@ -96,7 +96,7 @@ impl MSVC {
                     // dist with preprocessed source
                     let now = std::time::Instant::now();
                     let output = self.request_multi_dist_once_compile(&compiler_input).await;
-                    log::trace!("request_multi_dist_sync_once_compile elaspsed time: {:?}", now.elapsed());
+                    log::trace!("request_multi_dist_sync_once_compile: {:?} elaspsed time: {:?}", compiler_input.project, now.elapsed());
                     //let output = request_dist_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
                     compiler_output.set(output);
                 }
@@ -216,23 +216,19 @@ impl MSVC {
     
     async fn request_dist_compile_with_command(&self, addr: &str, compiler_input: CompilerInput)
         -> CompilerOutput {
-
-        let now = std::time::Instant::now();
-
         let precompiled_source = crate::compiler::model::PrecompiledSource {
             contents: None,
             path: std::ffi::OsString::new(),
         };
 
         let output = self.request_dist_compile(&addr, &compiler_input, &precompiled_source).await;
-        log::debug!("request dist compile with precompiled source files elapsed time {:?}", now.elapsed());
         return output;
     }
 
     async fn request_dist_compile(&self, addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
     
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
-        log::debug!("in commands compiler version: {:?}, addr: {:?}", cversion, addr);
+        log::debug!("{:?} in commands compiler version: {:?}, addr: {:?}", input.project, cversion, addr);
         if self.sender.lock().unwrap().check(addr, &cversion) {
             
             let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled, &self.runtime).await;
@@ -1039,7 +1035,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
         log::warn!("compiler commands and context is all empty, so do nothing.")
     }
 
-    log::debug!("communicate distribute compile elapsed: {:?}", now.elapsed());
+    log::debug!("communicate distribute compile: {:?} elapsed:{:?}", input.project, now.elapsed());
 
     return output;
 }

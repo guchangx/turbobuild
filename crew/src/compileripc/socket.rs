@@ -127,7 +127,7 @@ impl Receiver {
                             };
                         }
 
-                        log::info!("assistbuild request compile done. from: {:?}", stream.lock().await.peer_addr().unwrap());
+                        log::info!("assistbuild request compile {} done. from: {:?}", project, stream.lock().await.peer_addr().unwrap());
 
                         let _ = stream.lock().await.shutdown().await;
                         break;

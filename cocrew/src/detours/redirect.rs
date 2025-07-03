@@ -261,7 +261,7 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                 winapi::um::handleapi::CloseHandle(lpProcessInformation.hThread as _);
                 winapi::um::handleapi::CloseHandle(lpProcessInformation.hProcess as _);
 
-                log::info!("msvc detours end with exit code {}", code);
+                log::info!("msvc detours {} end with exit code {}", project, code);
 
 
                 return (code, std::sync::Arc::new(stdout), std::sync::Arc::new(stderr));

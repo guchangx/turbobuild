@@ -172,6 +172,8 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     let out_stream = out_err_stream.stdout.clone();
 
     let solution_name_ = solution_name.clone();
+    let project_name_ = project_name.clone();
+    let project_name__ = project_name_.clone();
     let origin_working_dir_ = origin_working_dir.clone();
     let generated_object_ = generated_object.clone();
 
@@ -182,11 +184,10 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
 
         while let Ok(data) = out_receiver.recv() {
-
             stream_objfiles.lock().unwrap().push(data.clone());
 
             let line = String::from_utf8_lossy(&data);
-            log::info!("stream stdout: {:?}", line);
+            log::info!("{:?} stream stdout: {:?}", &project_name_, line);
 
             line.lines().for_each(|item| {
                 if !item.is_empty() {
@@ -200,18 +201,18 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         }
 
         drop(out_stream);
-        log::info!("stream stdout end");
+        log::info!("stream stdout end {:?}", &project_name_);
     });
 
     let err_stream = out_err_stream.stderr.clone();
 
     let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
         while let Ok(data) = err_receiver.recv() {
-            log::info!("stream stderr: {:?}", String::from_utf8_lossy(&data));
+            log::info!("{:?} stream stderr: {:?}",  &project_name__, String::from_utf8_lossy(&data));
 
             //let _ = err_stream.send(data);
         }
-        log::info!("stream stderr end");
+        log::info!("stream stderr end {:?}", &project_name__);
         drop(err_stream);
     });
 

@@ -70,12 +70,12 @@ impl Receiver {
 
                 let name = request.name;
                 let path = request.path;
+                let project = request.project;
                 
-                log::debug!("transmit file handle name: {}, path: {}", name, path);
+                log::debug!("{} transmit file handle name: {}, path: {}", project, name, path);
         
                 let file_type = request.file_type;
                 let solution = request.solution;
-                let project = request.project;
                 let content = request.content;
                 
                 if file_type == package::FileType::Toolchain as i32 {

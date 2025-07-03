@@ -241,8 +241,7 @@ impl Sender {
                 while let Some(stream) = response_stream.next().await {
                     match stream {
                         Ok(stream) => {
-                            log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
-
+                            //log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
                         }
                         Err(err) => {
                             log::error!("transmit file {} failed: {:?}", host, err);
