@@ -14,13 +14,16 @@ fn main() -> std::process::ExitCode {
 }
 
 fn fetch_and_dist_compiler_commands() -> std::result::Result<(), ()> {
-    //println!("{} buildassist compile start.", crate::compileripc::current_datetime());
     let start = std::time::Instant::now();
+    let time = crate::compileripc::current_datetime();
+    let mut project = String::new();
     #[allow(unused_assignments)]
     let mut result = Ok(());
     let commands = commands::fetch_compiler_commands();
     match commands {
         Some(commands) => {
+            project = format!("{:?} {:?}", commands.project, commands.index);
+            println!("{} buildassist start: {:?}", time, project);
             let client = compileripc::SocketClient::new();
             match client.request_compile(commands) {
                 Ok(_) => {
@@ -36,6 +39,6 @@ fn fetch_and_dist_compiler_commands() -> std::result::Result<(), ()> {
             result = Err(());
         },
     }
-    println!("{} buildassist compile {:?}. elapsed: {:?}.", crate::compileripc::current_datetime(), result, start.elapsed());
+    println!("{} buildassist end: {:?} {:?} elapsed: {:?}.", crate::compileripc::current_datetime(), project, result, start.elapsed());
     return result;
 }

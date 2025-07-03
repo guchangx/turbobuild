@@ -2,6 +2,7 @@
 pub struct CompilerInput {
     pub solution: std::ffi::OsString,
     pub project: std::ffi::OsString,
+    pub index: String,
     pub compiler_path: std::ffi::OsString,
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
@@ -10,7 +11,7 @@ pub struct CompilerInput {
 }
 
 pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMap<String, String>) 
-    -> (Option<std::ffi::OsString>, Option<std::ffi::OsString>, Option<std::ffi::OsString>) {
+    -> (Option<std::ffi::OsString>, Option<std::ffi::OsString>, String, Option<std::ffi::OsString>) {
 
     let mut solution= None;
     if let Some(sln) = environment.get("VSTEL_SolutionPath") {
@@ -40,6 +41,11 @@ pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMa
         std::path::PathBuf::from(proj).file_stem().map(|stem| {
             project = Some(stem.to_owned());
         });
+    }
+
+    let mut index = String::new();
+    if let Some(id) = environment.get("VSTEL_ProjectID") {
+        index = id.to_owned();
     }
 
     let mut compiler = String::new();
@@ -95,7 +101,7 @@ pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMa
         }
     }
 
-    return (solution, project, if compiler.is_empty() {None} else { Some(std::ffi::OsString::from(compiler))});
+    return (solution, project, index, if compiler.is_empty() {None} else { Some(std::ffi::OsString::from(compiler))});
 }
 
 pub fn fetch_compiler_commands() -> Option<CompilerInput> {
@@ -105,13 +111,7 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
         environment.insert(key, value);
     }
 
-    if let Some(project) = environment.get("VSTEL_MSBuildProjectFullPath") { 
-        std::path::PathBuf::from(project).file_stem().map(|stem| {
-            println!("assistbuild project: {:?} {:?}", stem, environment.get("VSTEL_ProjectID"));
-        });
-    }
-
-    let (solution_, project_, compiler_) = fetch_compiler_args_path_from_envs(&environment);
+    let (solution_, project_, index, compiler_) = fetch_compiler_args_path_from_envs(&environment);
 
     let commandline = std::env::args_os();
     let mut commands: Vec<std::ffi::OsString> = commandline.collect();
@@ -121,10 +121,10 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
         let (project, compiler, commands) = fetch_and_parse_commands_for_msbuild(&mut commands);
         match commands {
             Some(commands) => {
-
                 let input = CompilerInput {
                     solution: solution_.unwrap_or_else(|| std::ffi::OsString::from("")),
                     project: if project.is_empty() { project_.unwrap() } else { std::ffi::OsString::from(project) },
+                    index: index,
                     compiler_path: if compiler.is_empty() { compiler_.unwrap() } else { std::ffi::OsString::from(compiler) },
                     compiler_working_dir: std::ffi::OsString::from(working_dir),
                     compiler_commands: commands,
@@ -144,6 +144,7 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
         let input = CompilerInput {
             solution: std::ffi::OsString::from(""),
             project: std::ffi::OsString::from(""),
+            index: String::new(),
             compiler_path: compiler_path,
             compiler_working_dir: std::ffi::OsString::from(working_dir),
             compiler_commands: commands,
@@ -179,7 +180,7 @@ fn fetch_compiler_parameters_from_response_file(compiler_response_file: String) 
                 break;
             }
         }
-        println!("{} read compiler args: {}", crate::compileripc::current_datetime(), commands);
+        //println!("{} read compiler args: {}", crate::compileripc::current_datetime(), commands);
         return Some(commands);
     }
     else {

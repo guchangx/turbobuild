@@ -11,6 +11,7 @@ impl SocketClient {
         
         }
     }
+
     //TODO: should send compile failed message to IDE
     //The VS format of the output should be:
     //{ filename(line-number [, column-number]) | tool-name } : [ any-text ] {error | warning} code-type-and-number : localizable-string [ any-text ]
@@ -21,6 +22,7 @@ impl SocketClient {
     //For example:
     //C:\sourcefile.cpp(134) : error C2143: syntax error : missing ';' before '}'
     //LINK : fatal error LNK1104: cannot open file 'some-library.lib'
+
     pub fn request_compile(&self, compiler_input: crate::commands::CompilerInput) -> Result<i32, ()> {
 
         let process_id = std::process::id();
@@ -51,14 +53,14 @@ impl SocketClient {
                 stream.flush().unwrap();
 
                 let mut data = Vec::new();
-                let mut ret = Ok(0);
+                let ret = Ok(0);
                 loop {
                     let mut buffer = [0 as u8; 256];
                     match stream.read(&mut buffer) {
                         Ok(size) => {
                             if size == 0 {
                                 data.clear();
-                                println!("{} read form turbobuild done.", current_datetime());
+                                //println!("{} read form turbobuild done.", current_datetime());
                                 break;
                             }
                             else if size == buffer.len() {
@@ -69,14 +71,13 @@ impl SocketClient {
                                     buffer[0..size].lines().for_each(|line| {
                                         if let Ok(file) = line {
                                             if file.trim_end().ends_with(".i") || file.trim_end().ends_with(".cpp") || file.trim_end().ends_with(".cc") || file.trim_end().ends_with(".cxx") {
-                                                println!("{} read form turbobuild: {}", current_datetime(), file);
+                                                println!("{}", file);
                                             }
-                                            else if file.eq("waiting...") {
-                                                println!("{} read form turbobuild: {}", current_datetime(), file);
+                                            else if file.eq("waiting...") || file.eq("Generating Code...") {
+                                                println!("{}", file);
                                             }
                                             else {
-                                                ret = Err(());
-                                                eprintln!("{} read error form turbobuild: {}", current_datetime(), file);
+                                                eprintln!("{}", file);
                                             }
                                         }
                                     });   
@@ -86,15 +87,13 @@ impl SocketClient {
                                     data[..].lines().for_each(|line| {
                                         if let Ok(file) = line {
                                             if file.trim_end().ends_with(".i") || file.trim_end().ends_with(".cpp") || file.trim_end().ends_with(".cc") || file.trim_end().ends_with(".cxx") {
-                                                println!("{} read form turbobuild: {}", current_datetime(), file);
+                                                println!("{}", file);
                                             }
-                                            else if file.eq("waiting...") {
-                                                println!("{} read form turbobuild: {}", current_datetime(), file);
+                                            else if file.eq("waiting...") || file.eq("Generating Code...") {
+                                                println!("{}", file);
                                             }
                                             else {
-                                                //fatal error
-                                                ret = Err(());
-                                                eprintln!("{} read error form turbobuild: {}", current_datetime(), file);
+                                                eprintln!("{}", file);
                                             }
                                         }
                                     });
@@ -106,7 +105,6 @@ impl SocketClient {
                                 println!("{} read from turbobuild server timeout value {:?}.", current_datetime(), stream.read_timeout());
                             }
                             println!("{} read from turbobuild server failed: {:?}. task id: {}-{:?}", current_datetime(), err, process_id, thread_id);
-                            ret = Err(());
                             break;
                         }
                     }
