@@ -16,6 +16,7 @@ pub enum NotificationType {
     Constitution(String),
 }
 
+use tokio_stream::StreamExt;
 static PORT:i32 = 18912;
 
 impl NotificationSender {
@@ -34,7 +35,7 @@ impl NotificationSender {
         if !addr.is_empty() {
             ip.clone_from(&addr);
         }
-        
+
         match notify::communicate_client::CommunicateClient::connect(format!("http://{}:{}", ip, PORT)).await {
             Ok(mut client) => {
                 let (tx, rx) = tokio::sync::mpsc::channel(128);
@@ -103,7 +104,7 @@ impl NotificationSender {
                 while let Some(notification_type) = receiver.recv().await {
                     match  notification_type {
                         NotificationType::Resource(message) => {
-                            sequence.store(1, std::sync::atomic::Ordering::Relaxed);
+                            sequence.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let request  = notify::NotifyRequest {
                                 r#type: notify::Type::Checkresource as i32,
                                 message: message,
@@ -121,7 +122,7 @@ impl NotificationSender {
                             }
                         },
                         NotificationType::Constitution(message) => {
-                            sequence.store(1, std::sync::atomic::Ordering::Relaxed);
+                            sequence.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             let request = notify::NotifyRequest {
                                 r#type: notify::Type::Keepalive as i32,
                                 message: message,
@@ -143,7 +144,7 @@ impl NotificationSender {
                 }
                 
                 let unregister = self.gather_fingerprint();
-                sequence.store(1, std::sync::atomic::Ordering::Relaxed);
+                sequence.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let request = notify::NotifyRequest {
                     r#type: notify::Type::Unregister as i32,
                     message: unregister,
@@ -262,5 +263,43 @@ impl NotificationSender {
         };
         let register = serde_json::to_string(&register_info).unwrap();
         return register;
+    }
+
+    pub async fn notify_once(message: String) {
+
+        match crate::communicate::notifier::notify::communicate_client::CommunicateClient::connect(format!("http://{}:{}", "localhost", crate::communicate::notifier::PORT)).await {
+            Ok(mut client) => {
+    
+                let request = crate::communicate::notifier::notify::NotifyRequest {
+                    r#type: crate::communicate::notifier::notify::Type::Checkresource as i32,
+                    message: message,
+                    sequence: 0,
+                };
+    
+                let request_stream = tokio_stream::once(request);
+    
+                match client.notify(request_stream).await {
+                    Ok(response) => {
+                        let mut response_stream = response.into_inner();
+                        while let Some(response) = response_stream.next().await {
+                            match response {
+                                Ok(_) => {
+                                 
+                                },
+                                Err(status) => {
+                                    log::error!("notify once message error: {:?}", status);
+                                }
+                            }
+                        }
+                    },
+                    Err(status) => {
+                        log::error!("notify once message error: {:?}", status);
+                    }
+                }
+            }
+            Err(err) => {
+                log::error!("can't connect captain host: {}:{}, error: {:?}", "localhost", crate::communicate::notifier::PORT, err);
+            }
+        };
     }
 }

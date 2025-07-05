@@ -84,8 +84,7 @@ impl Receiver {
                         let path = project.access_replica_toolchain_path();
             
                         Self::extract(&path, &content).await;
-                        //TODO: report resource again to captain. 
-        
+
                     }
                     else {
                         log::error!("package toolchain is not end with .zip {}", path);
