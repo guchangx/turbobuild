@@ -227,12 +227,36 @@ impl Property {
                         tokio::spawn(async move {
                             Self::sync_compiler_toolchain(path.to_str().unwrap(), &item.addr).await;
                             log::info!("sync compiler toolchain {} to {} finished.", version_, item.addr);
+
+                            let version_x64 = CompilerVersion {
+                                version: version_.clone(),
+                                host: Arch::x64,
+                                target: Arch::x64,
+                            };
+                            
+                            let version_x84 = CompilerVersion {
+                                version: version_,
+                                host: Arch::x64,
+                                target: Arch::x86,
+                            };
+
+                            let resource = CrewsResource {
+                                username: item.username,
+                                aliasname: item.aliasname, 
+                                devicename: item.devicename,
+                                addr: item.addr,
+                                compiler_versions: [version_x64, version_x84].to_vec(),
+                            };
+
+                            let info = serde_json::to_string(&resource).unwrap();
+                            log::info!("report synced crew resource: {:?}", info);
+                            crate::communicate::notifier::NotificationSender::notify_once(info).await;
                         });
                     }
                 }
             }
             else {
-                log::info!("check resource addr: {} has msvc {}, no need to sync.", item.addr, version);
+                log::info!("check resource addr: {} has msvc {}, not need to sync.", item.addr, version);
             }
         }
     }

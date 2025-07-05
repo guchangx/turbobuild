@@ -222,6 +222,14 @@ impl ResourceList {
         if !self.crews.iter().any(|item| item.addr == crew.addr && item.devicename == crew.devicename && item.username == crew.username) {
             self.add(crew);
         }
+        else {
+            self.crews.iter_mut().for_each(|item| {
+                if item.addr == crew.addr && item.devicename == crew.devicename && item.username == crew.username {
+                    item.aliasname = crew.aliasname.clone();
+                    item.compiler_versions = crew.compiler_versions.clone();
+                }
+            });
+        }
     }
 
     pub fn remove(&mut self, addr: &str, username: &str, devicename: &str) -> bool {
