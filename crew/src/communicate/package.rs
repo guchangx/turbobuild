@@ -94,7 +94,7 @@ impl Sender {
         }
         
         let channel = tonic::transport::Endpoint::from_shared(std::format!("http://{}:19302", host)).unwrap()
-            .connect_timeout(std::time::Duration::from_secs(15))
+            .connect_timeout(std::time::Duration::from_secs(30))
             .connect()
             .await
             .expect("Failed to connect to the server");
@@ -268,6 +268,7 @@ impl Sender {
 
     //TODO should think split dist compiler command or ziped precompilre sourcefile.
     async fn dist_compile(&mut self, compiled: PrecompiledFile<'_>) -> CompileRecv {
+        let project = compiled.project.clone();
         let request = tonic::Request::new(pack::CompileTrRequest {
             solution: compiled.solution,
             project: compiled.project,
@@ -360,10 +361,10 @@ impl Sender {
                     let _ = handle.await;
                 }
 
-                log::info!("send precompiled sourcefile receive response done.");
+                log::info!("send precompiled sourcefile receive response done. {}", project);
             }
             Err(err) => {
-                log::warn!("send precompiled sourcefile failed: {:?}", err);
+                log::warn!("send precompiled sourcefile failed: {:?} {}", err, project);
                 recv.status = 1;
                 recv.err = err.to_string().into_bytes();
             }
