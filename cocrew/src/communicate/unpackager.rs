@@ -126,7 +126,7 @@ impl Receiver {
     
         let commands = request.commands;
         let content = request.content;
-        log::trace!("transmit compile handle project: {}, file: {}, compiler: {}, commands is empty: {}, content size: {}KB.", project, file, compiler, commands.is_empty(), &content.len() / 1024 );
+        log::trace!("transmit compile handle project: {}, file: {}, compiler: {}, commands is empty: {}, content size: {}KB.", &project, file, compiler, commands.is_empty(), &content.len() / 1024 );
 
         if file.is_empty() {
 
@@ -134,7 +134,7 @@ impl Receiver {
 
             let compiler_input = crew::compiler::model::CompilerInput {
                 solution: std::ffi::OsString::from(solution),
-                project: std::ffi::OsString::from(project),
+                project: std::ffi::OsString::from(project.clone()),
                 compiler_path: std::ffi::OsString::from(compiler),
                 compiler_working_dir: std::ffi::OsString::from(&request.working_dir),
                 compiler_commands: commands.iter().map(|item| std::ffi::OsString::from(item)).collect(),
@@ -154,7 +154,7 @@ impl Receiver {
             };
             handle.await.unwrap();
             Self::cocrew_execute(&compiler_input, output_callback).await;
-            log::debug!("transmit compile task handle execute done, return file: {}", file);
+            log::debug!("transmit compile task handle execute done, {} return file: {}", &project.clone(), file);
         } 
         else if !content.is_empty() {
             let ret = Self::storage(&project, &file, &content).await;
