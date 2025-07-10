@@ -2,13 +2,27 @@ use std::io::{BufRead, Read, Write};
 use std::net::ToSocketAddrs;
 
 pub struct SocketClient {
+    pub stream: std::option::Option<std::net::TcpStream>,
 }
 
 impl SocketClient {
 
     pub fn new() -> Self {
-        Self {
-        
+        let addr = "localhost:22403".to_socket_addrs().unwrap().next().unwrap();
+        match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(3)) {
+            Ok(client) => {
+                Self {
+                    stream: Some(client),
+                }
+            },
+            Err(err) => {
+                let kind = err.kind();
+                let message = err.to_string();
+                println!("{} buildassist connect {} failed: {:?}, {}.", current_datetime(), addr, kind, message);
+                Self {
+                    stream: None,
+                } 
+            },
         }
     }
 
@@ -23,20 +37,17 @@ impl SocketClient {
     //C:\sourcefile.cpp(134) : error C2143: syntax error : missing ';' before '}'
     //LINK : fatal error LNK1104: cannot open file 'some-library.lib'
 
-    pub fn request_compile(&self, compiler_input: crate::commands::CompilerInput) -> Result<i32, ()> {
+    pub fn request_compile(&self, compiler_input: &crate::commands::CompilerInput) -> Result<i32, ()> {
 
-        let process_id = std::process::id();
-        let thread_id = std::thread::current().id();
-        
-        let addr = "localhost:22403".to_socket_addrs().unwrap().next().unwrap();
-        
-        match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(3)) {
-            Ok(mut stream) => {
+        let now = std::time::Instant::now();
+
+        match self.stream.as_ref() {
+            Some(mut stream) => {
                 stream.set_nodelay(true).unwrap();
                 stream.set_write_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
                 stream.set_read_timeout(Some(std::time::Duration::from_secs(360))).unwrap();
 
-                let commands: Vec<_> = compiler_input.compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
+                let commands: Vec<_> = compiler_input.compiler_commands.clone().into_iter().map(|item| item.into_string().unwrap()).collect();
     
                 let buffer = format!(
                     r#"{{"solution": {:?}, "project": {:?}, "compiler": {:?}, "working_dir": {:?}, "commands": {:?}, "type": "{}"}}"#,
@@ -48,7 +59,7 @@ impl SocketClient {
                     compiler_input.build_and_compiler_type.to_string_lossy()
                 );
 
-                println!("{} send to turbobuild: {}, task id: {}-{:?}", current_datetime(), buffer, process_id, thread_id);
+                println!("{} send to turbobuild: {}", current_datetime(), buffer);
                 let _size = stream.write_all(buffer.as_bytes());
                 stream.flush().unwrap();
 
@@ -104,7 +115,7 @@ impl SocketClient {
                             if err.kind() == std::io::ErrorKind::TimedOut {
                                 println!("{} read from turbobuild server timeout value {:?}.", current_datetime(), stream.read_timeout());
                             }
-                            println!("{} read from turbobuild server failed: {:?}. task id: {}-{:?}", current_datetime(), err, process_id, thread_id);
+                            println!("{} read from turbobuild server failed: {:?}.", current_datetime(), err);
                             break;
                         }
                     }
@@ -112,10 +123,8 @@ impl SocketClient {
                 stream.shutdown(std::net::Shutdown::Both).unwrap();
                 return ret;
             },
-            Err(err) => {
-                let kind = err.kind();
-                let message = err.to_string();
-                println!("buildassist connect {} failed: {:?}, {}. task id: {}-{:?}", addr, kind, message, process_id, thread_id);
+            None => {
+                //println!("connect {} faile. elapsed: {:?}", "localhost:22403", now.elapsed());
                 return Err(());
             },
         }
