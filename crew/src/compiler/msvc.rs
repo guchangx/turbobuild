@@ -168,22 +168,22 @@ impl MSVC {
                         match fileout.child.wait() {
                             Ok(exit) => {
                                 let code = exit.code().unwrap_or(-1);
-                                log::info!("precompile status code: {:?}, elapsed time: {:?}", code, now.elapsed());
+                                log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input.project, code, now.elapsed());
                             },
                             Err(err) => {
-                                log::info!("precompile status code: {:?}, elapsed time: {:?}", err, now.elapsed());
+                                log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input.project, err, now.elapsed());
                             }
                         }
                     },
                 }
             },
             Err(err) => {
-                log::warn!("precompile failed: {:?}", err);
+                log::warn!("precompile {:?} failed: {:?}", compiler_input.project, err);
                 output.status = 1;
             },
         }
 
-        log::debug!("local precompile and dist file and commmand done. elaspsed time: {:?}", now.elapsed());
+        log::debug!("local {:?} precompile and dist file and commmand done. elaspsed time: {:?}", compiler_input.project, now.elapsed());
         return output;
     }
 
@@ -1127,9 +1127,9 @@ fn start_local_compiler_by_file(compiler_path: &std::ffi::OsString, working_dir:
     
     use std::process::Stdio;
 
-    log::trace!("local compile working dir: {:?}", working_dir);
-    log::trace!("compiler path: {:?}", compiler_path);
-    log::trace!("compiler commands: {:?}", compiler_commands);
+    log::trace!("working: {:?}", working_dir);
+    log::trace!("compiler: {:?}", compiler_path);
+    log::trace!("commands: {:?}", compiler_commands);
 
     let start = std::time::Instant::now();
     let mut process = std::process::Command::new(compiler_path);
