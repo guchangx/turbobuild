@@ -39,7 +39,7 @@ static REDIRECT_DLL_PATH: std::sync::LazyLock<Option<std::ffi::CString>> = std::
 
 pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE, solution: &str, project: &str) {
     if !solution.is_empty() {
-        let arg = format!("solution:{}\nproject:{}\nreplica:{}\n", solution, project, tools::utils::access_replica_dir());
+        let arg = format!("solution:{}\r\nproject:{}\r\nreplica:{}\r\n", solution, project, tools::utils::access_replica_dir());
         let mut bytes: winapi::shared::minwindef::DWORD = 0;
         let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
         let ret = winapi::um::fileapi::WriteFile(
