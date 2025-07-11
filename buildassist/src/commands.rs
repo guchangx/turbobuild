@@ -43,6 +43,15 @@ pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMa
         });
     }
 
+    if let Some(proj) = environment.get("=D:") {
+        project = Some(std::ffi::OsString::from(proj));
+        if solution.is_none() {
+            std::path::PathBuf::from(proj).file_stem().map(|stem| {
+                solution = Some(stem.to_owned());
+            });
+        }
+    }
+
     let mut index = String::new();
     if let Some(id) = environment.get("VSTEL_ProjectID") {
         index = id.to_owned();
@@ -142,8 +151,8 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
      else {
         let (compiler_path, commands) = fetch_and_parse_commands_for_cmake(&mut commands);
         let input = CompilerInput {
-            solution: std::ffi::OsString::from(""),
-            project: std::ffi::OsString::from(""),
+            solution: solution_.unwrap(),
+            project: project_.unwrap(),
             index: String::new(),
             compiler_path: compiler_path,
             compiler_working_dir: std::ffi::OsString::from(working_dir),
@@ -192,7 +201,10 @@ fn fetch_compiler_parameters_from_response_file(compiler_response_file: String) 
 
 fn fetch_and_parse_commands_for_cmake(input_commands: &mut Vec<std::ffi::OsString>) -> (std::ffi::OsString, Vec<std::ffi::OsString>) {
     input_commands.remove(0);
+    input_commands.retain(|item| item != "/showIncludes" ||  item != "/showincludes");
     let local_compiler_path = input_commands.remove(0);
+
+    println!("{} fetch compiler params: {:?} {:?}", crate::compileripc::current_datetime(), local_compiler_path, input_commands);
     return (local_compiler_path, input_commands.clone());
 }
 

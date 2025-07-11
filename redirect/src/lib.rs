@@ -162,20 +162,18 @@ fn read_project_property_from_stdin() {
             log!(trace, "read stdin pipe to string: {:?}", line);
             let arg = line.unwrap();
             if arg.starts_with("solution") {
-                //solution:xxxxxxx or solution xxxxxx 
-                let (_, name) = arg.split_at("solution".len() + 1);
-                SOLUTIONNAME.set(name.to_string()).unwrap();
+                //solution:xxxxxxx or solution xxxxxx
+                let (_, sln) = arg.split_at("solution".len() + 1);
+                SOLUTIONNAME.set(String::from(&sln[0..sln.len()])).unwrap();
             }
             else if arg.starts_with("project") {
                 //project:xxxxxxx or project xxxxxx 
-                let (_, name) = arg.split_at("project".len() + 1);
-                //*PROJECTNAME.lock().unwrap() = Some(name.to_string());
-                PROJECTNAME.set(name.to_string()).unwrap();
+                let (_, proj) = arg.split_at("project".len() + 1);
+                PROJECTNAME.set(String::from(&proj[0..proj.len()])).unwrap();
             }
             else if arg.starts_with("replica") {
                 let (_, dir) = arg.split_at("replica".len() + 1);
-                //*REPLICADIR.lock().unwrap() = Some(dir.to_string());
-                REPLICADIR.set(dir.to_string()).unwrap();
+                REPLICADIR.set(String::from(&dir[0..dir.len()])).unwrap();
             }
         }
     //});

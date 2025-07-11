@@ -323,6 +323,9 @@ impl MSVC {
             {
     
             }
+            else if file.starts_with("Note: including file:") {
+            
+            }
             else {
                 let runtime = self.runtime.clone();
                 let precompiled_result_path = actions.precompiled_result_file.clone();
@@ -353,12 +356,15 @@ impl MSVC {
 
             drop(stream);
     
-            //TODO: should be use ref of compiler_input.
-            let mut compiler_input = compiler_input.clone();
+            let mut compiler_input = compiler_input.to_owned();
             let mut commands = tidyup_commands_for_precompile(compiler_commands);
             commands.append(&mut files);
             compiler_input.compiler_commands = commands;
-    
+
+            if compiler_input.compiler_path.to_string_lossy().contains("~1") {
+                compiler_input.compiler_path = winapi_get_long_path_name(&compiler_input.compiler_path);
+            }
+
             notify.notified().await;
 
             let output = self.request_dist_compile_with_command(&addr, compiler_input.clone()).await;
@@ -368,6 +374,25 @@ impl MSVC {
     
 }
 
+fn winapi_get_long_path_name(path: &std::ffi::OsString) -> std::ffi::OsString {
+    use std::os::windows::ffi::OsStrExt;
+    unsafe {
+        let wide_path: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
+        
+        let mut buffer: Vec<u16> = vec![0; winapi::shared::minwindef::MAX_PATH as usize];
+        let len = winapi::um::fileapi::GetLongPathNameW(
+            wide_path.as_ptr(),
+            buffer.as_mut_ptr(),
+            buffer.len() as u32
+        );
+        
+        if len > buffer.len() as u32 || len == 0 {
+            return path.clone();
+        }
+        buffer.truncate(len as usize);
+        return std::ffi::OsString::from(String::from_utf16_lossy(&buffer));
+    }
+}
 
 async fn handle_compile_by_stdstream(mut stdout: StdOut) {
 
@@ -546,10 +571,32 @@ async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream
 
     if intermediate.is_file() {
         intermediate = intermediate.parent().map_or_else(|| std::path::PathBuf::from(""), |parent| parent.to_path_buf());
-        intermediate.set_extension("zip");
+        match intermediate.extension() {
+            Some(ext) => {
+                if ext == "dir" {
+                    let mut dir = intermediate.into_os_string();
+                    dir.push(".zip");
+                    intermediate = std::path::PathBuf::from(dir);
+                }
+            },
+            None => {
+                intermediate.set_extension("zip");
+            }
+        }
     }   
     else {
-        intermediate.set_extension("zip");
+        match intermediate.extension() {
+            Some(ext) => {
+                if ext == "dir" {
+                    let mut dir = intermediate.into_os_string();
+                    dir.push(".zip");
+                    intermediate = std::path::PathBuf::from(dir);
+                }
+            },
+            None => {
+                intermediate.set_extension("zip");
+            }
+        }
     }
 
     let file = crate::communicate::package::ArchiveArgs {
@@ -611,8 +658,8 @@ fn request_local_precompile(compiler_path: &std::ffi::OsString, compiler_working
         commands.insert(0, std::ffi::OsString::from(r"/P"));
 
         if let Some(arg) = compiler_commands.iter().find(|arg| {
-            let arg = arg.to_string_lossy();
-            return arg.starts_with("/Fo") && (arg.ends_with(".obj") || arg.ends_with("\\"));
+                let arg = arg.to_string_lossy();
+                return arg.starts_with("/Fo") && (arg.ends_with(".obj") || arg.ends_with("\\"));
             }) {
             let path = arg.to_string_lossy().replace("/Fo", "/Fi").replace(".obj", ".i").replace("\\\\", "\\");
             commands.insert(1, std::ffi::OsString::from(path));
@@ -669,14 +716,14 @@ fn parse_version_from_path(path: &str) -> Option<crate::replica::toolchain::Comp
     let path = std::path::PathBuf::from(path);
 
     let mut iter = path.components().skip_while(|&item| {
-            let item = item.as_os_str().to_string_lossy();
-            let vec = item.split('.').collect::<Vec<&str>>();
-            if vec.len() >= 3 {
-                return false;
-            }
-            else {
-                return true;                
-            }
+        let item = item.as_os_str().to_string_lossy();
+        let vec = item.split('.').collect::<Vec<&str>>();
+        if vec.len() >= 3 {
+            return false;
+        }
+        else {
+            return true;
+        }
     });
     
     if let Some(version) = iter.next() {
@@ -1581,7 +1628,7 @@ fn tidyup_commands_for_precompile(compiler_commands: &Vec<std::ffi::OsString>) -
         cxx = item.ends_with(".cpp") || item.ends_with(".cxx") || item.ends_with(".cc");
         c = item.ends_with(".c");
 
-        let removed = item == "/p" || item.starts_with("/fi") ||item == "/P" || item.starts_with("/Fi");
+        let removed = item == "/p" || item.starts_with("/fi") || item == "/P" || item.starts_with("/Fi") || item.starts_with("/showincludes") || item.starts_with("showIncludes");
         return !(cxx || c || removed);
 
     }).map(|item| item.to_owned()).collect();
@@ -2136,6 +2183,9 @@ mod tests {
         let version = parse_version_from_path(line);
         println!("verson: {:?}", version);
 
+        let line = "C:\\PROGRA~1\\MICROS~2\\2022\\ENTERP~1\\VC\\Tools\\MSVC\\1437~1.328\\bin\\Hostx64\\x64\\cl.exe";
+        let version = parse_version_from_path(line);
+        println!("verson: {:?}", version);
     }
 
     #[test]
