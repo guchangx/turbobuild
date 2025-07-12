@@ -87,7 +87,7 @@ mod integration_tests {
                     path,
                     current_crate_dir.join("draft").to_string_lossy(),
                     commands,
-                    std::ffi::OsString::from("MSBuild").to_string_lossy()
+                    std::ffi::OsString::from("msbuild").to_string_lossy()
                 );
     
                 println!("it send to turbobuild: {}", data);
@@ -228,7 +228,7 @@ mod integration_tests {
                     path,
                     current_crate_dir.join("draft").to_string_lossy(),
                     commands,
-                    std::ffi::OsString::from("MSBuild").to_string_lossy()
+                    std::ffi::OsString::from("msbuild").to_string_lossy()
                 );
     
                 println!("it send to turbobuild: {}", data);

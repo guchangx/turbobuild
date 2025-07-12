@@ -120,7 +120,7 @@ impl MSVC {
 
         let mut commands = compiler_input.compiler_commands.clone();
     
-        if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild") {
+        if compiler_input.build_and_compiler_type.to_string_lossy().contains("msbuild") {
             let env =  &self.work_env;
     
             for include in &env.winkits_includes_path {
@@ -137,7 +137,7 @@ impl MSVC {
     
             return commands;
         }
-        else if  compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
+        else if  compiler_input.build_and_compiler_type.to_string_lossy().contains("cmake") {
             return commands;
         }
         else {
@@ -202,7 +202,7 @@ impl MSVC {
         
         let mut input = CompilerInput::from(compiler_input.clone());
         input.compiler_commands =  commands.to_owned();
-        input.build_and_compiler_type = std::ffi::OsString::from("MSBuild_Precompile");
+        input.build_and_compiler_type = std::ffi::OsString::from("msbuild_precompile");
 
         let precompiled_suorce = crate::compiler::model::PrecompiledSource {
             contents: None,
@@ -306,7 +306,7 @@ impl MSVC {
     async fn handle_compile_by_filestream(&self, fileout: &mut FileOut, compiler_input: &CompilerInput, addr: &str, compiler_commands: &Vec<std::ffi::OsString>) 
         -> CompilerOutput {
 
-        let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), compiler_commands, &compiler_input.compiler_working_dir);
+        let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), compiler_commands, &compiler_input.compiler_working_dir);
 
         while let Some(line) = fileout.out.next() {
             log::debug!("precompile stdout: {:?}", line);
@@ -484,7 +484,7 @@ async fn handle_compile_by_stdstream(mut stdout: StdOut) {
                 compiler_path: compiler_path.to_owned(),
                 compiler_working_dir: compiler_working_dir.to_owned(),
                 compiler_commands: commands.to_owned(),
-                build_and_compiler_type: std::ffi::OsString::from("MSBuild Precompile")
+                build_and_compiler_type: std::ffi::OsString::from("msbuild precompile")
             };
 
             let precompiled_suorce = PrecompiledSource {
@@ -1038,7 +1038,7 @@ fn request_dist_compile_with_source_and_include(working_param: &crate::platform:
 
     let mut input = msvc_compile_input.to_owned();
     //input.env_input = Some(env_input.clone());
-    input.build_and_compiler_type = std::ffi::OsString::from("MSBuild Dist");
+    input.build_and_compiler_type = std::ffi::OsString::from("msbuild_dist");
 
     return CompilerOutput::default();
 }
@@ -1387,7 +1387,7 @@ fn parse_compiler_input_command(compiler_input: CompilerInput, working_compiler_
     let mut args = Vec::new();
     let mut compiler_path = std::ffi::OsString::new();
     let commands_iter = compile_commands.iter().map(|arg| arg.to_str().unwrap().to_owned());
-    if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild") {
+    if compiler_input.build_and_compiler_type.to_string_lossy().contains("msbuild") {
         let mut commands = commands_iter.last().unwrap();
 
         args = extract_macro_contain_space_arg(&mut commands);
@@ -1415,7 +1415,7 @@ fn parse_compiler_input_command(compiler_input: CompilerInput, working_compiler_
         
         return (args, compiler_path);
     }
-    else if  compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
+    else if  compiler_input.build_and_compiler_type.to_string_lossy().contains("cmake") {
         compiler_path = compiler_input.compiler_path;
         return (args, compiler_path);
     }
@@ -1428,9 +1428,9 @@ fn fetch_compile_source_file(build_and_compiler_type: &std::ffi::OsString, compi
                                     -> Option<std::collections::HashMap<String, std::path::PathBuf>> {
 
     let working_dir = std::path::PathBuf::from(working_dir);
-    if build_and_compiler_type.to_string_lossy().contains("MSBuild")
-        || build_and_compiler_type.to_string_lossy().contains("CMake")
-        || build_and_compiler_type.to_string_lossy().contains("Dist") {
+    if build_and_compiler_type.to_string_lossy().contains("msbuild")
+        || build_and_compiler_type.to_string_lossy().contains("cmake")
+        || build_and_compiler_type.to_string_lossy().contains("dist") {
         let mut sourcefile: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
         
         for command in compiler_commands {
@@ -1517,9 +1517,9 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
     let mut object_file = GeneratedObject::NoneObjPath;
     let mut pdb_file = ProgramDataBase::NonePDBPath;
 
-    if build_and_compiler_type.to_string_lossy().contains("MSBuild")
-        || build_and_compiler_type.to_string_lossy().contains("CMake")
-        || build_and_compiler_type.to_string_lossy().contains("Dist") {
+    if build_and_compiler_type.to_string_lossy().contains("msbuild")
+        || build_and_compiler_type.to_string_lossy().contains("cmake")
+        || build_and_compiler_type.to_string_lossy().contains("dist") {
 
         for command in compiler_commands {
             let mut command = command.to_string_lossy();
@@ -1677,9 +1677,9 @@ fn exact_compile_object_file(mut arg: std::borrow::Cow<str>, working_dir: &std::
 
 fn fetch_compile_object_file(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> GeneratedObject {
 
-    if build_and_compiler_type.to_string_lossy().contains("MSBuild")
-        || build_and_compiler_type.to_string_lossy().contains("CMake") 
-        || build_and_compiler_type.to_string_lossy().contains("Dist") {
+    if build_and_compiler_type.to_string_lossy().contains("msbuild")
+        || build_and_compiler_type.to_string_lossy().contains("cmake") 
+        || build_and_compiler_type.to_string_lossy().contains("dist") {
         
         let working_dir = std::path::PathBuf::from(working_dir);
 
@@ -1731,9 +1731,9 @@ fn exact_compile_pdb_file(mut arg: std::borrow::Cow<str>, working_dir: &std::pat
 }
 
 fn fetch_compile_pdb_path(build_and_compiler_type: std::ffi::OsString, compiler_commands: Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> (ProgramDataBase, bool) {
-    if build_and_compiler_type.to_string_lossy().contains("MSBuild")
-        || build_and_compiler_type.to_string_lossy().contains("CMake") 
-        || build_and_compiler_type.to_string_lossy().contains("Dist") {
+    if build_and_compiler_type.to_string_lossy().contains("msbuild")
+        || build_and_compiler_type.to_string_lossy().contains("cmake") 
+        || build_and_compiler_type.to_string_lossy().contains("dist") {
         
         let working_dir = std::path::PathBuf::from(working_dir);
 
@@ -1762,9 +1762,9 @@ enum PrecompiledResult {
 }
 
 fn fetch_precompiled_result_file(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> PrecompiledResult {
-    if build_and_compiler_type.to_string_lossy().contains("MSBuild")
-        || build_and_compiler_type.to_string_lossy().contains("CMake") 
-        || build_and_compiler_type.to_string_lossy().contains("Dist") {
+    if build_and_compiler_type.to_string_lossy().contains("msbuild")
+        || build_and_compiler_type.to_string_lossy().contains("cmake") 
+        || build_and_compiler_type.to_string_lossy().contains("dist") {
         
         let working_dir = std::path::PathBuf::from(working_dir);
 
@@ -2304,7 +2304,7 @@ mod tests {
     #[test]
     fn parse_action_from_commands_test() {
         let compiler_commands = ["/c", "/I", "G:\\OpenSource\\llvm-project\\build\\lib\\Target\\PowerPC", "/Zi", "/nologo", "/W4", "/WX-", "/diagnostics:column", "/MP", "/Od", "/Ob0", "/Oi", "/D", "_UNICODE", "/D", "UNICODE", "/D", "WIN32", "/D", "_WINDOWS", "/D", "_HAS_EXCEPTIONS=0", "/D", "GTEST_HAS_RTTI=0", "/D", "LLVM_BUILD_STATIC", "/D", "_CRT_SECURE_NO_DEPRECATE", "/D", "_CRT_SECURE_NO_WARNINGS", "/D", "_SCL_SECURE_NO_WARNINGS", "/D", "UNICODE", "/D", "_UNICODE", "/D", "__STDC_CONSTANT_MACROS", "/D", "__STDC_FORMAT_MACROS", "/D", "__STDC_LIMIT_MACROS", "/D", "CMAKE_INTDIR=\\\"Debug\\\"", "/Zc:preprocessor", "/Gm-", "/RTC1", "/MDd", "/GS", "/fp:precise", "/Zc:wchar_t", "/Zc:forScope", "/Zc:inline", "/GR-", "/std:c++17", "/permissive-", "/FoLLVMExegesisTests.dir\\Debug\\/X86/BenchmarkResultTest.cpp.obj", "/FdLLVMExegesisTests.dir\\Debug\\vc143.pdb", "/external:W4", "/Gd", "/TP", "/wd4141", "/wd4146",  "/wd4204", "/wd4577", "/wd4091", "/wd4592", "/wd4319", "/wd4709", "/errorReport:prompt", "/we4238", "/bigobj", "-w14062", "/Gw", "/EHs-c-", "G:\\OpenSource\\llvm-project\\llvm\\unittests\\tools\\llvm-exegesis\\X86\\BenchmarkResultTest.cpp"].iter().map(|item|std::ffi::OsString::from(item)).collect::<Vec<_>>();
-        let actions = parse_action_from_commands(&std::ffi::OsString::from("MSBuild"), &compiler_commands, &std::ffi::OsString::from("G:\\OpenSource\\llvm-project\\build\\unittests\\tools\\llvm-exegesis"));
+        let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &compiler_commands, &std::ffi::OsString::from("G:\\OpenSource\\llvm-project\\build\\unittests\\tools\\llvm-exegesis"));
         println!("[parsed actions: {:?}", actions);
     }
 }
