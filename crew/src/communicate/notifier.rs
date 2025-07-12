@@ -18,6 +18,7 @@ pub enum NotificationType {
 
 use tokio_stream::StreamExt;
 static PORT:i32 = 18912;
+static ADDR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 impl NotificationSender {
 
@@ -35,6 +36,7 @@ impl NotificationSender {
         if !addr.is_empty() {
             ip.clone_from(&addr);
         }
+        ADDR.set(ip.to_string()).unwrap();
 
         match notify::communicate_client::CommunicateClient::connect(format!("http://{}:{}", ip, PORT)).await {
             Ok(mut client) => {
@@ -267,7 +269,7 @@ impl NotificationSender {
 
     pub async fn notify_once(message: String) {
 
-        match crate::communicate::notifier::notify::communicate_client::CommunicateClient::connect(format!("http://{}:{}", "localhost", crate::communicate::notifier::PORT)).await {
+        match crate::communicate::notifier::notify::communicate_client::CommunicateClient::connect(format!("http://{}:{}", ADDR.get().unwrap(), crate::communicate::notifier::PORT)).await {
             Ok(mut client) => {
     
                 let request = crate::communicate::notifier::notify::NotifyRequest {

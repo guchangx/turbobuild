@@ -10,8 +10,8 @@ pub async fn request_compile(compiler_input: CompilerInput, runtime: std::sync::
                             distor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) 
                             -> CompilerOutput {
                     
-    if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
-        || compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake") {
+    if compiler_input.build_and_compiler_type.to_string_lossy().contains("msbuild")
+        || compiler_input.build_and_compiler_type.to_string_lossy().contains("cmake") {
             
         let msvc = crate::compiler::msvc::MSVC {
             work_env: if env.is_some() { env.unwrap() } else { crate::platform::windows::WindowsCompilerEnv::default() },

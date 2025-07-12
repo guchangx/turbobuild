@@ -627,9 +627,9 @@ fn parse_action_from_commands(compiler_input: &CompilerInput) -> CompileAction {
     let mut sourcefiles: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
     let working_dir = std::path::PathBuf::from(compiler_input.compiler_working_dir.clone());
 
-    if compiler_input.build_and_compiler_type.to_string_lossy().contains("MSBuild")
-        || compiler_input.build_and_compiler_type.to_string_lossy().contains("CMake") 
-        || compiler_input.build_and_compiler_type.to_string_lossy().contains("Dist") {
+    if compiler_input.build_and_compiler_type.to_string_lossy().contains("msbuild")
+        || compiler_input.build_and_compiler_type.to_string_lossy().contains("cmake") 
+        || compiler_input.build_and_compiler_type.to_string_lossy().contains("dist") {
         
         let mut default_pdb = false;
         for command in &compiler_input.compiler_commands {
