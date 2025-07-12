@@ -1130,10 +1130,9 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
                         let lines:Vec<&str> = stderr_context.lines().collect();
                         let (files, warning_or_message) = filter_compiler_warning_and_error(lines);
                         
-                        log::trace!("compile local file count {:?} success, elapsed time: {:?}, file: {:?}, warning: {:?}, stderr: {:?}", files.len(), elapsed, files, warning_or_message, stderr_context);
+                        log::trace!("compile local file count {:?} success, elapsed time: {:?}, file: {:?}, warning: {:?}, stderr: {:?}, stdout: {:?}", files.len(), elapsed, files, warning_or_message, stderr_context, output_context);
                 
                         return (output.status.code().expect("process exit code unwrap failed.") as u32, std::sync::Arc::new(output.stdout), std::sync::Arc::new(output.stderr));
-                        //TODO shoud not be used Arc wrap
                     }
                     else {
                         let output_context = String::from_utf8_lossy(&output.stdout);  //error

@@ -39,8 +39,6 @@ impl SocketClient {
 
     pub fn request_compile(&self, compiler_input: &crate::commands::CompilerInput) -> Result<i32, ()> {
 
-        let now = std::time::Instant::now();
-
         match self.stream.as_ref() {
             Some(mut stream) => {
                 stream.set_nodelay(true).unwrap();
@@ -124,7 +122,6 @@ impl SocketClient {
                 return ret;
             },
             None => {
-                //println!("connect {} faile. elapsed: {:?}", "localhost:22403", now.elapsed());
                 return Err(());
             },
         }
