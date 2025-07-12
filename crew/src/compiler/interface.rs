@@ -11,7 +11,8 @@ pub async fn request_compile(compiler_input: CompilerInput, runtime: std::sync::
                             -> CompilerOutput {
                     
     if compiler_input.build_and_compiler_type.to_string_lossy().contains("msbuild")
-        || compiler_input.build_and_compiler_type.to_string_lossy().contains("cmake") {
+        || compiler_input.build_and_compiler_type.to_string_lossy().contains("cmake")
+        || compiler_input.build_and_compiler_type.to_string_lossy().contains("clang_cl") {
             
         let msvc = crate::compiler::msvc::MSVC {
             work_env: if env.is_some() { env.unwrap() } else { crate::platform::windows::WindowsCompilerEnv::default() },
@@ -21,10 +22,10 @@ pub async fn request_compile(compiler_input: CompilerInput, runtime: std::sync::
         let output = msvc.request_compile(compiler_input);
         return output;
     }
-    else if compiler_input.build_and_compiler_type == "Clang" {
+    else if compiler_input.build_and_compiler_type == "clang" {
         return CompilerOutput::default();
     }
-    else if compiler_input.build_and_compiler_type == "GCC" {
+    else if compiler_input.build_and_compiler_type == "gcc" {
         return CompilerOutput::default(); 
     }
     else {

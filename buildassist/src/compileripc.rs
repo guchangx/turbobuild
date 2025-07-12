@@ -89,7 +89,7 @@ impl SocketClient {
                                                 eprintln!("{}", file);
                                             }
                                         }
-                                    });   
+                                    });
                                 }
                                 else {
                                     data.extend_from_slice(&buffer[0..size]);

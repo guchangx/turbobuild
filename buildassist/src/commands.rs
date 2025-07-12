@@ -127,6 +127,7 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
 
     let commandline = std::env::args_os();
     let mut commands: Vec<std::ffi::OsString> = commandline.collect();
+
     let working_dir = std::env::current_dir().unwrap();
 
     if solution_.is_none() {
@@ -166,7 +167,7 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
             if let Some(project) = parse_commands_for_ninja(&commands) {
                 project_ = Some(project);
             }
-            bc_type = String::from("ninja_clang");
+            bc_type = String::from("ninja_clang_cl");
         }
 
         let input = CompilerInput {
@@ -218,9 +219,13 @@ fn fetch_compiler_parameters_from_response_file(compiler_response_file: String) 
 }
 
 fn fetch_and_parse_commands_for_cmake(input_commands: &mut Vec<std::ffi::OsString>) -> (std::ffi::OsString, Vec<std::ffi::OsString>) {
-    input_commands.remove(0);
-    input_commands.retain(|item| item != "/showIncludes" ||  item != "/showincludes");
+    if input_commands[0].to_string_lossy().ends_with("buildassist.exe") {
+        input_commands.remove(0);
+    }
+    
     let local_compiler_path = input_commands.remove(0);
+
+    input_commands.retain(|item| !item.to_string_lossy().starts_with("/showIncludes"));
 
     println!("{} fetch compiler params: {:?} {:?}", crate::compileripc::current_datetime(), local_compiler_path, input_commands);
     return (local_compiler_path, input_commands.clone());
@@ -378,13 +383,11 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
 }
 
 fn parse_commands_for_ninja(commands: &Vec<std::ffi::OsString>) -> Option<std::ffi::OsString> {
-    let mut project = None;
+    let mut project: Option<std::ffi::OsString> = None;
     commands.iter().find(|item| {
         if item.to_string_lossy().starts_with("/Fo") {
-            std::path::PathBuf::from(item).parent().map(|parent| {
-                parent.file_stem().map(|dir| {
-                    project = Some(dir.to_owned());
-                });
+            std::path::PathBuf::from(item).file_stem().map(|dir| {
+                project = Some(dir.to_owned());
             });
             return true
         }
@@ -463,7 +466,6 @@ mod tests {
         assert_eq!(commands.len(), 8);
     }
 
-
     #[test]
     fn parse_commands_other() {
         let line = r#"/c /I"D:\Webex\build_x64\spark-client-framework" /I"D:\Webex\spark-client-framework\." /I"D:\Webex\spark-client-framework\.." /I"D:\Webex\spark-client-framework\thirdparty\nlohmann\include" /Zi /W3 /WX /diagnostics:column /MP /O2 /Ob2 /Os /D UNICODE /D WIN32 /D NDEBUG /D _UNICODE /D bwc_EXPORTS /D CMAKE_BUILD /D "CMAKE_INTDIR=\"Release\"" /Gm- /EHsc /MD /GS /guard:cf /Gy /Qpar /fp:precise /Qspectre /Zc:wchar_t /Zc:forScope /Zc:inline /GR /std:c++17 /Fo"BwcCore.dir\Release\\" /Fd"BwcCore.dir\Release\BwcCore.pdb" /external:W3 /Gd /TP /errorReport:prompt /we4700 /Zc:__cplusplus /bigobj /F2000000 "D:\Webex\spark-client-framework\BroadWorksCalling\bwc\Source\boss_admin.cpp" "#;
@@ -487,4 +489,17 @@ mod tests {
         assert!(compiler.is_empty());
         println!("commands {:#?}", commands);
     }
+
+    #[test]
+    fn fetch_and_parse_commands_for_cmake_test() {
+        let mut input = vec![
+            std::ffi::OsString::from("buildassist.exe"),
+            std::ffi::OsString::from("clang-cl.exe"),
+            std::ffi::OsString::from("/nologo"),
+            std::ffi::OsString::from("/showIncludes")
+        ];
+        let out = fetch_and_parse_commands_for_cmake(&mut input);
+        println!("commands {:#?}", out);
     }
+
+}

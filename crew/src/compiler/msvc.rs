@@ -153,7 +153,28 @@ impl MSVC {
         let working_dir = &compiler_input.compiler_working_dir;
         let compiler_commands = &compiler_input.compiler_commands;
 
-        let outtype = request_local_precompile(&compiler_input.compiler_path, working_dir, &self.merge_sdk_includes_into_commands(&compiler_commands), false);
+        let mut precomiler_commands= compiler_input.compiler_commands.clone();
+        if compiler_input.build_and_compiler_type.to_string_lossy().contains("clang_cl") {
+            for i in 0 .. precomiler_commands.len() {
+                if precomiler_commands[i].to_string_lossy().to_lowercase() == "/c" {
+                    precomiler_commands.remove(i);
+                    break;
+                }
+            }
+
+            for i in 0 .. precomiler_commands.len() {
+                if precomiler_commands[i].to_string_lossy() == "/showIncludes" {
+                    precomiler_commands.remove(i);
+                    break;
+                }
+            }
+        }
+        else {
+            precomiler_commands = self.merge_sdk_includes_into_commands(&compiler_commands);
+        }
+
+        let outtype = request_local_precompile(&compiler_input.compiler_path, working_dir, &precomiler_commands, false);
+
         match outtype {
             Ok(out) => {
                 match out {
@@ -315,6 +336,8 @@ impl MSVC {
         let mut handles = Vec::new();
         let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
 
+        let mut errors = Vec::new();
+
         while let Some(line) = fileout.err.next() {
             log::debug!("precompile stderr: {:?}", line);
 
@@ -323,8 +346,12 @@ impl MSVC {
             {
     
             }
-            else if file.starts_with("Note: including file:") {
-            
+            else if file.contains(" error: ") {
+                errors.push(file);
+            }
+            //including file
+            else if file.starts_with("Note: ") {
+
             }
             else {
                 let runtime = self.runtime.clone();
@@ -343,6 +370,7 @@ impl MSVC {
         if handles.is_empty() {
             log::warn!("no precompiled source file found in precompile output.");
             let mut out = CompilerOutput::default();
+            out.err = std::sync::Arc::new(errors.join("\n").into_bytes());
             out.status = 1;
             return out;
         }
@@ -1172,17 +1200,26 @@ fn start_local_compiler_by_file(compiler_path: &std::ffi::OsString, working_dir:
     -> std::io::Result<(OutStreamByFile, ErrStreamByFile, std::process::Child)> {
     
     use std::process::Stdio;
+    
+    let mut compiler = std::ffi::OsString::new();
+
+    if !std::path::PathBuf::from(compiler_path).is_absolute() {
+        compiler = std::path::PathBuf::from(working_dir).join(compiler_path).into_os_string();
+    }
 
     log::trace!("working: {:?}", working_dir);
-    log::trace!("compiler: {:?}", compiler_path);
+    log::trace!("compiler: {:?}", compiler);
     log::trace!("commands: {:?}", compiler_commands);
 
     let start = std::time::Instant::now();
-    let mut process = std::process::Command::new(compiler_path);
+    let mut process = std::process::Command::new(compiler);
 
     for item in compiler_commands {
         if item.to_string_lossy().contains(" ") {
-            process.arg(item);    
+            process.arg(item);
+        }
+        else if item.to_string_lossy().starts_with("-D") && item.to_string_lossy().contains(r#"=""#) {
+            process.arg(item);
         }
         else {
             use std::os::windows::process::CommandExt;
@@ -1627,7 +1664,7 @@ fn tidyup_commands_for_precompile(compiler_commands: &Vec<std::ffi::OsString>) -
         cxx = item.ends_with(".cpp") || item.ends_with(".cxx") || item.ends_with(".cc");
         c = item.ends_with(".c");
 
-        let removed = item == "/p" || item.starts_with("/fi") || item == "/P" || item.starts_with("/Fi") || item.starts_with("/showincludes") || item.starts_with("showIncludes");
+        let removed = item == "/p" || item.starts_with("/fi") || item == "/P" || item.starts_with("/Fi") || item.starts_with("/showincludes") || item.starts_with("/showIncludes");
         return !(cxx || c || removed);
 
     }).map(|item| item.to_owned()).collect();
@@ -2305,5 +2342,31 @@ mod tests {
         let compiler_commands = ["/c", "/I", "G:\\OpenSource\\llvm-project\\build\\lib\\Target\\PowerPC", "/Zi", "/nologo", "/W4", "/WX-", "/diagnostics:column", "/MP", "/Od", "/Ob0", "/Oi", "/D", "_UNICODE", "/D", "UNICODE", "/D", "WIN32", "/D", "_WINDOWS", "/D", "_HAS_EXCEPTIONS=0", "/D", "GTEST_HAS_RTTI=0", "/D", "LLVM_BUILD_STATIC", "/D", "_CRT_SECURE_NO_DEPRECATE", "/D", "_CRT_SECURE_NO_WARNINGS", "/D", "_SCL_SECURE_NO_WARNINGS", "/D", "UNICODE", "/D", "_UNICODE", "/D", "__STDC_CONSTANT_MACROS", "/D", "__STDC_FORMAT_MACROS", "/D", "__STDC_LIMIT_MACROS", "/D", "CMAKE_INTDIR=\\\"Debug\\\"", "/Zc:preprocessor", "/Gm-", "/RTC1", "/MDd", "/GS", "/fp:precise", "/Zc:wchar_t", "/Zc:forScope", "/Zc:inline", "/GR-", "/std:c++17", "/permissive-", "/FoLLVMExegesisTests.dir\\Debug\\/X86/BenchmarkResultTest.cpp.obj", "/FdLLVMExegesisTests.dir\\Debug\\vc143.pdb", "/external:W4", "/Gd", "/TP", "/wd4141", "/wd4146",  "/wd4204", "/wd4577", "/wd4091", "/wd4592", "/wd4319", "/wd4709", "/errorReport:prompt", "/we4238", "/bigobj", "-w14062", "/Gw", "/EHs-c-", "G:\\OpenSource\\llvm-project\\llvm\\unittests\\tools\\llvm-exegesis\\X86\\BenchmarkResultTest.cpp"].iter().map(|item|std::ffi::OsString::from(item)).collect::<Vec<_>>();
         let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &compiler_commands, &std::ffi::OsString::from("G:\\OpenSource\\llvm-project\\build\\unittests\\tools\\llvm-exegesis"));
         println!("[parsed actions: {:?}", actions);
+    }
+    #[test]
+    fn start_local_clang_cl_test() {
+        
+        let compiler_path = "..\\..\\third_party\\llvm-build\\Release+Asserts\\bin\\clang-cl.exe";
+        let working_dir = "G:\\Chromium\\chromium\\src\\out\\Default";
+
+
+        let mut process = std::process::Command::new(compiler_path);
+
+
+        let child = process.current_dir(working_dir)    
+                                .stdout( std::process::Stdio::piped())
+                                .stderr( std::process::Stdio::piped())
+                                .spawn();
+        
+        match child {
+            Ok(mut child) => {
+                let status = child.wait().expect("failed to wait on child");
+                let code = status.code();
+                println!("status code: {:?}", code);
+            },
+            Err(e) => {
+                println!("failed to start process: {}", e);
+            }
+        }
     }
 }
