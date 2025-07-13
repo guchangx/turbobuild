@@ -190,6 +190,7 @@ impl MSVC {
                             Ok(exit) => {
                                 let code = exit.code().unwrap_or(-1);
                                 log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input.project, code, now.elapsed());
+
                             },
                             Err(err) => {
                                 log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input.project, err, now.elapsed());
@@ -250,8 +251,7 @@ impl MSVC {
     
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
         log::debug!("{:?} in commands compiler version: {:?}, addr: {:?}", input.project, cversion, addr);
-        if self.sender.lock().unwrap().check(addr, &cversion) {
-            
+        if input.build_and_compiler_type.to_string_lossy().contains("clang_cl") {
             let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled, &self.runtime).await;
             if output.status == 0 {
             
@@ -262,8 +262,22 @@ impl MSVC {
             return output;
         }
         else {
-            log::error!("dist compile failed. addr: {} no available remote compiler {:?}", addr, cversion);
-            return CompilerOutput::default();
+            if self.sender.lock().unwrap().check(addr, &cversion) {
+            
+                let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled, &self.runtime).await;
+                if output.status == 0 {
+                
+                }
+                else {
+                    //log::trace!("request remote compile and sync back failed: {:?} {:?}", output.out, output.err);
+                }
+                return output;
+            }
+            else {
+                log::error!("dist compile failed. addr: {} no available remote compiler {:?}", addr, cversion);
+    
+                return CompilerOutput::default();
+            }
         }
     }
     
@@ -368,11 +382,43 @@ impl MSVC {
         }
         
         if handles.is_empty() {
-            log::warn!("no precompiled source file found in precompile output.");
-            let mut out = CompilerOutput::default();
-            out.err = std::sync::Arc::new(errors.join("\n").into_bytes());
-            out.status = 1;
-            return out;
+
+            if compiler_input.build_and_compiler_type.to_string_lossy().contains("clang_cl") {
+
+                let mut files = Vec::new();
+                match &actions.precompiled_result_file {
+                    crate::compiler::msvc::PrecompiledResult::PathWithPCResultName(file) => {
+                        files = transmit_precompiled_source_file(&compiler_input, stream, actions.precompiled_result_file.clone(), &vec![file.to_string_lossy().to_string()], &self.runtime).await;
+                    },
+                    _ => {
+                        log::warn!("no precompiled result file found in command parse. {:?}", &actions.precompiled_result_file);
+                    },
+                };
+
+                let mut compiler_input = compiler_input.to_owned();
+                let mut commands = tidyup_commands_for_precompile(compiler_commands);
+                commands.append(&mut files);
+                compiler_input.compiler_commands = commands;
+
+                if !std::path::PathBuf::from(&compiler_input.compiler_path).is_absolute() {
+                    compiler_input.compiler_path = std::path::PathBuf::from(&compiler_input.compiler_working_dir).join(&compiler_input.compiler_path).into_os_string();
+                }
+    
+                notify.notified().await;
+    
+                let output = self.request_dist_compile_with_command(&addr, compiler_input.clone()).await;
+                return output;
+            }
+            else
+            {
+                log::warn!("{:?} no precompiled source file found in precompile output.", compiler_input.project);
+                drop(stream);
+
+                let mut out = CompilerOutput::default();
+                out.err = std::sync::Arc::new(errors.join("\n").into_bytes());
+                out.status = 1;
+                return out;
+            }
         }
         else
         {
@@ -389,8 +435,10 @@ impl MSVC {
             commands.append(&mut files);
             compiler_input.compiler_commands = commands;
 
-            if compiler_input.compiler_path.to_string_lossy().contains("~1") {
-                compiler_input.compiler_path = winapi_get_long_path_name(&compiler_input.compiler_path);
+            if compiler_input.build_and_compiler_type.to_string_lossy().contains("msvc") {
+                if compiler_input.compiler_path.to_string_lossy().contains("~1") {
+                    compiler_input.compiler_path = winapi_get_long_path_name(&compiler_input.compiler_path);
+                }
             }
 
             notify.notified().await;
@@ -743,46 +791,61 @@ fn push_project_name_to_precompiled_file_path(path: &std::path::PathBuf, obejct:
 fn parse_version_from_path(path: &str) -> Option<crate::replica::toolchain::CompilerVersion> {
     let path = std::path::PathBuf::from(path);
 
-    let mut iter = path.components().skip_while(|&item| {
-        let item = item.as_os_str().to_string_lossy();
-        let vec = item.split('.').collect::<Vec<&str>>();
-        if vec.len() >= 3 {
-            return false;
+    let stem = path.file_stem().unwrap();
+    if stem == "cl" {
+        // C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\cl.exe
+        let mut iter = path.components().skip_while(|&item| {
+            let item = item.as_os_str().to_string_lossy();
+            let vec = item.split('.').collect::<Vec<&str>>();
+            if vec.len() >= 3 {
+                return false;
+            }
+            else {
+                return true;
+            }
+        });
+        
+        if let Some(version) = iter.next() {
+            
+            let mut cversion = crate::replica::toolchain::CompilerVersion {
+                version: version.as_os_str().to_string_lossy().to_string(),
+                host: crate::replica::toolchain::Arch::unknown,
+                target: crate::replica::toolchain::Arch::unknown,
+            };
+            
+            iter.next();
+    
+            if let Some(host) = iter.next() {
+                let host = host.as_os_str().to_str().unwrap();
+                let host = crate::replica::toolchain::Arch::format(host);
+                cversion.host = host;
+            } 
+            
+            if let Some(target) = iter.next() {
+                let target = target.as_os_str().to_str().unwrap();
+                let target = crate::replica::toolchain::Arch::format(target);
+                cversion.target = target;
+            }
+            
+            return Some(cversion);
         }
         else {
-            return true;
+            return None;
         }
-    });
-    
-    if let Some(version) = iter.next() {
-        
-        let mut cversion = crate::replica::toolchain::CompilerVersion {
-            version: version.as_os_str().to_string_lossy().to_string(),
-            host: crate::replica::toolchain::Arch::unknown,
+    }
+    else if stem == "clang-cl" {
+        // \\third_party\\llvm-build\\Release+Asserts\\bin\\clang-cl.exe
+        let cversion = crate::replica::toolchain::CompilerVersion {
+            version: "clang-cl.exe".to_string(),
+            host: crate::replica::toolchain::Arch::x64,
             target: crate::replica::toolchain::Arch::unknown,
         };
-        
-        iter.next();
-
-        if let Some(host) = iter.next() {
-            let host = host.as_os_str().to_str().unwrap();
-            let host = crate::replica::toolchain::Arch::format(host);
-            cversion.host = host;
-        } 
-        
-        if let Some(target) = iter.next() {
-            let target = target.as_os_str().to_str().unwrap();
-            let target = crate::replica::toolchain::Arch::format(target);
-            cversion.target = target;
-        }
-        
         return Some(cversion);
     }
     else {
         return None;
     }
 
-    //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\cl.exe
 }
 
 fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_dir: &std::ffi::OsString, 
@@ -1664,7 +1727,10 @@ fn tidyup_commands_for_precompile(compiler_commands: &Vec<std::ffi::OsString>) -
         cxx = item.ends_with(".cpp") || item.ends_with(".cxx") || item.ends_with(".cc");
         c = item.ends_with(".c");
 
-        let removed = item == "/p" || item.starts_with("/fi") || item == "/P" || item.starts_with("/Fi") || item.starts_with("/showincludes") || item.starts_with("/showIncludes");
+        let removed = item == "/p" || item.starts_with("/fi") || item == "/P" || item.starts_with("/Fi") 
+            || item.starts_with("/showincludes") || item.starts_with("/showIncludes") 
+            || item.starts_with("-imsvc");
+
         return !(cxx || c || removed);
 
     }).map(|item| item.to_owned()).collect();

@@ -24,11 +24,7 @@ pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMa
                         solution = Some(stem.to_owned());
                     }
                     else {
-                        parent.parent().map(|grandparent| {
-                            grandparent.file_stem().map(|stem| {
-                                solution = Some(stem.to_owned());
-                            });
-                        });
+                        solution = Some(dir.to_owned());
                     }
                 });
             });
@@ -133,7 +129,7 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
     if solution_.is_none() {
         if let Some(dir) = working_dir.file_name() {
             solution_ = Some(dir.to_owned());
-        }   
+        }
     }
 
     if commands.len() <= 2  && commands.last().unwrap().to_string_lossy().ends_with(".rsp") {
@@ -164,8 +160,10 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
         //ninja clang
         let mut bc_type  = String::from("cmake_msvc"); 
         if compiler_path.to_string_lossy().ends_with("clang-cl.exe") {
-            if let Some(project) = parse_commands_for_ninja(&commands) {
-                project_ = Some(project);
+            if project_.is_none() {
+                if let Some(project) = parse_commands_for_ninja(&commands) {
+                    project_ = Some(project);
+                }
             }
             bc_type = String::from("ninja_clang_cl");
         }

@@ -362,7 +362,6 @@ impl Receiver {
 
     //create dir for .pdb, if parent dir not exist, .pdb file can not be generated.
     pub async fn check_dir_exists(solution: &String, working_dir: &String, commands: &Vec<String>) -> tokio::task::JoinHandle<()> {
-        log::debug!("check dir exists for project: {}, commands: {:?}", solution, commands);
 
         let solution = solution.clone();
         let commands = commands.clone();

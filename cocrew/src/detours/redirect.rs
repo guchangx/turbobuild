@@ -262,19 +262,28 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                 winapi::um::handleapi::CloseHandle(lpProcessInformation.hProcess as _);
 
                 log::info!("msvc detours {} end with exit code {}", project, code);
+                if !hStdOutputRead.is_null() {
+                    winapi::um::handleapi::CloseHandle(hStdOutputRead);
+                }
 
+                if !hStdErrorRead.is_null() {
+                    winapi::um::handleapi::CloseHandle(hStdErrorRead);
+                }
 
                 return (code, std::sync::Arc::new(stdout), std::sync::Arc::new(stderr));
             }
             else {
+                if !hStdOutputRead.is_null() {
+                    winapi::um::handleapi::CloseHandle(hStdOutputRead);
+                }
+                if !hStdErrorRead.is_null() {
+                    winapi::um::handleapi::CloseHandle(hStdErrorRead);
+                }
+
                 let code = winapi::um::errhandlingapi::GetLastError();
                 log::error!("DetourCreateProcessWithDllExW failed! error code: {}. error message: {}.", code, tools::utils::get_winapi_error_message(code));
                 return (code, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
             }
-
-            winapi::um::handleapi::CloseHandle(hStdOutputRead);
-            winapi::um::handleapi::CloseHandle(hStdErrorRead);
-
         }
         else
         {

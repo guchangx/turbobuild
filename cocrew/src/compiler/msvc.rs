@@ -853,7 +853,15 @@ fn redirect_compiler_path(compiler: std::ffi::OsString) -> Option<std::ffi::OsSt
                 return None;
             }
         },
-        None => return None,
+        None => {
+            if compiler.to_string_lossy().contains("clang-cl") {
+                return Some(compiler);
+            }
+            else {
+                log::warn!("redirect compiler path not found MSVC not find clang-cl, so return None.");
+                return None;
+            }
+        },
     };
 } 
 

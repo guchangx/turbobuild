@@ -229,7 +229,7 @@ macro_rules! log {
 }
 
 fn uninit_custom_resource() {
-
+    log!(info, "uninit custom resource");
 }
 
 use std::io::BufRead;

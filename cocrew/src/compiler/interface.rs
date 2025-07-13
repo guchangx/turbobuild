@@ -10,7 +10,8 @@ pub fn cocrew_build(compiler_input: CompilerInput, out_err_stream: crate::compil
             
     log::info!("build and compiler type: {:?}", compiler_input.build_and_compiler_type);
     if compiler_input.build_and_compiler_type.to_string_lossy().contains("msbuild")
-        || compiler_input.build_and_compiler_type.to_string_lossy().contains("cmake")  {
+        || compiler_input.build_and_compiler_type.to_string_lossy().contains("cmake")
+        || compiler_input.build_and_compiler_type.to_string_lossy().contains("clang_cl") {
 
         let msvc = super::msvc::MSVC {version: "".to_string(), out_err_stream};
         
