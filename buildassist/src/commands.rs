@@ -18,13 +18,15 @@ pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMa
         let sln = std::path::PathBuf::from(sln);
         sln.file_stem().map(|stem| {
             solution = Some(stem.to_owned());
+
             sln.parent().map(|parent| {
-                parent.file_stem().map(|dir| {
-                    if dir == stem {
+                parent.components().find(|item| {
+                    if item.as_os_str().to_string_lossy().to_lowercase() == stem.to_string_lossy().to_lowercase() {
                         solution = Some(stem.to_owned());
+                        return true;
                     }
                     else {
-                        solution = Some(dir.to_owned());
+                        return false;
                     }
                 });
             });

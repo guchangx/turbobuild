@@ -80,6 +80,9 @@ pub fn replace(path: &mut String) -> bool {
             return false;
         }
     }
+    else if path.ends_with("warning_suppression.txt") {
+        return false;
+    }
     else {
         return false;
     }

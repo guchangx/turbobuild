@@ -17,14 +17,14 @@ pub static mut CREATE_PROCESS_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut s
 const PIPE_PREFIX_CONTENT_W: &[u16] = &['\\' as u16, '\\' as u16, '.' as u16, '\\' as u16, 'p' as u16, 'i' as u16, 'p' as u16, 'e' as u16, '\\' as u16];  //\\.\\pipe\\ or \\??\\pipe\\
 
 pub unsafe fn start_with_pipe_w(lp_file_name: *const u16) -> bool {
-    if lp_file_name.is_null() {
+    if lp_file_name.is_null() || lp_file_name == 0 as *const u16{
         return false;
     } 
     else {
         let len = PIPE_PREFIX_CONTENT_W.len() as isize;
         for i in 0..len {
             let uchar = *lp_file_name.offset(i as isize);
-            if uchar != PIPE_PREFIX_CONTENT_W[i as usize] && uchar == 0 {
+            if uchar != PIPE_PREFIX_CONTENT_W[i as usize] {
                 return false;
             }
         }
@@ -207,7 +207,6 @@ pub unsafe fn create_file_w(
 
 }
 
-
 pub unsafe fn kernelbase_create_file_a(
     lp_file_name: LPCSTR,
     dw_desired_access: DWORD,
@@ -294,7 +293,7 @@ pub unsafe fn kernelbase_create_file_w(
     dw_flags_and_attributes: DWORD,
     h_template_file: HANDLE,
 ) -> HANDLE {
-    
+
     if start_with_pipe_w(lp_file_name) {
         let create_file_w_inner: extern "C" fn (
             lp_file_name: LPCWSTR,
@@ -962,6 +961,12 @@ mod tests {
 
 
         let pipe = std::ffi::CString::new(r"").unwrap();
+        unsafe {
+            let result = start_with_pipe_w(pipe.as_ptr() as *const u16);
+            assert_eq!(result, false);
+        }
+
+        let pipe = std::ffi::CString::new(r"../../build/config/warning_suppression.txt").unwrap();
         unsafe {
             let result = start_with_pipe_w(pipe.as_ptr() as *const u16);
             assert_eq!(result, false);

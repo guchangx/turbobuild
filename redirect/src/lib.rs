@@ -54,16 +54,20 @@ static  REPLICADIR: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std:
 */
 
 static REPLICADIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static STDOUT_LOG_HANDLE: std::sync::LazyLock<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 
 unsafe fn redirect_stdout_log_2_cocrew() {
 
     use std::os::windows::ffi::OsStrExt;
-    RUNTIME.lock().unwrap().spawn(async move {
+    let handle = RUNTIME.lock().unwrap().spawn(async move {
+
         let name = std::ffi::OsString::from("\\\\.\\pipe\\redirect_stdout_log_pipe");
         let name = name.encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
     
-        if  winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 300) == winapi::shared::minwindef::TRUE {
-        
+        let mut rx = crate::LOGGER.rx.lock().unwrap().take().unwrap();
+
+        if winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 300) == winapi::shared::minwindef::TRUE {
+
             for _ in 0..3 {
                 let pipe = winapi::um::fileapi::CreateFileW(name.as_ptr(), winapi::um::winnt::GENERIC_WRITE,
                 0,
@@ -71,17 +75,15 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                 winapi::um::fileapi::OPEN_EXISTING, 
                 winapi::um::winnt::FILE_ATTRIBUTE_NORMAL, 
                 winapi::shared::ntdef::NULL);
-     
+
                 if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
                     let handle = tools::ptr::HandleBox::new(pipe);
                     
-                    let mut rx = crate::LOGGER.rx.lock().unwrap().take().unwrap();
-
                     loop {
                         let message = rx.recv().await;
+
                         match message {
                             Some(message) => {
-
                                 let mut bytes: winapi::shared::minwindef::DWORD = 0;
                                 let result = winapi::um::fileapi::WriteFile(
                                     handle.get().to_owned(),
@@ -90,7 +92,7 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                                     &mut bytes,
                                     std::ptr::null_mut()
                                 );
-                
+
                                 if result == winapi::shared::minwindef::FALSE || bytes == 0 {
                                     let error = winapi::um::errhandlingapi::GetLastError();
                                     if error == winapi::shared::winerror::ERROR_BROKEN_PIPE || error == winapi::shared::winerror::ERROR_NO_DATA {
@@ -134,22 +136,20 @@ unsafe fn redirect_stdout_log_2_cocrew() {
             println!("WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
         }
         
-        let mut rx: Option<tokio::sync::mpsc::Receiver<String>> = None;
-        {
-            rx = crate::LOGGER.rx.lock().unwrap().take();
-        }
-        
-        if let Some(mut rx) = rx {
-            loop {
-                match rx.recv().await {
-                    Some(_) => {
-                    },
-                    None => break,
-                }
+        loop {
+            match rx.try_recv() {
+                Ok(message) => {
+                    log!(info, "redirect_stdout_log_2_cocrew: received message: {}", message);
+                },
+                Err(err) => break,
             }
         }
-
+        rx.close();
+        
+        return ();
     });
+
+    *STDOUT_LOG_HANDLE.lock().unwrap() = Some(handle);
 }
 
 fn read_project_property_from_stdin() {
@@ -222,14 +222,15 @@ macro_rules! log {
             };
 
             if level >= crate::LOGGER_LEVEL {
-                crate::logger::Logger::$level(format!("{}:{} {}", file!().split(r"\").last().unwrap_or("<unnamed>"), line!(), format!($($arg)*)))
+                let message = format!("{}:{} {}", file!().split(r"\").last().unwrap_or("<unnamed>"), line!(), format!($($arg)*));
+                crate::logger::Logger::$level(message.clone());
             }
         }
     };
 }
 
 fn uninit_custom_resource() {
-    log!(info, "uninit custom resource");
+    log!(info, "uninit custom resource. receive is closed: {}", LOGGER.tx.is_closed());
 }
 
 use std::io::BufRead;

@@ -1220,4 +1220,73 @@ mod tests {
 
         //_handle.join().unwrap();
     }
+
+    #[test]
+    fn clang_compile_sourcefile_with_inject_test() {
+        println!("run clang-cl .c file compile test with inject");
+        tools::logger::init_once_logger();
+        
+        std::thread::spawn(||{
+            redirect_stdout_log();
+        });
+
+        let win_compile_env = crew::platform::windows::WindowsCompilerEnv::default();
+        let compiler_path = std::path::PathBuf::from("G:\\Chromium\\chromium\\src\\out\\Default\\..\\..\\third_party\\llvm-build\\Release+Asserts\\bin\\clang-cl.exe");
+        let working_dir = std::ffi::OsString::from("D:\\turbobuild\\draft");
+
+        println!("draft dir: {}", working_dir.to_string_lossy());
+
+        let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
+
+        compiler_commands.push(std::ffi::OsString::from("/c"));
+        compiler_commands.push(std::ffi::OsString::from("/nologo"));
+        compiler_commands.push(std::ffi::OsString::from("/EHs"));
+        compiler_commands.push(std::ffi::OsString::from("/MD"));
+        compiler_commands.push(std::ffi::OsString::from("/GS"));
+        compiler_commands.push(std::ffi::OsString::from("/guard:cf"));
+        compiler_commands.push(std::ffi::OsString::from("/Gy"));
+        compiler_commands.push(std::ffi::OsString::from("/fp:precise"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
+        compiler_commands.push(std::ffi::OsString::from("/GR"));
+        compiler_commands.push(std::ffi::OsString::from("--warning-suppression-mappings=../../build/config/warning_suppression.txt"));
+
+        for sdk_include in win_compile_env.winkits_includes_path {
+            compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {:#?}"#, sdk_include)));
+        }
+        
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {:#?}"#, win_compile_env.msvc_includes_path)));
+        compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
+
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, working_dir.to_string_lossy())));
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, working_dir.to_string_lossy())));
+
+        let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+        let (err_sender, err_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+    
+        let task = std::thread::spawn(move || {
+            while let Ok(data) = out_receiver.recv() {
+                println!("stream stdout: {:?}", String::from_utf8_lossy(&data));
+            }
+        
+            while let Ok(data) = err_receiver.recv() {
+                println!("stream stderr: {:?}", String::from_utf8_lossy(&data));
+            }
+        });
+
+        let out_err_stream = crate::compiler::msvc::OutAndErrStream {
+            stdout: out_sender,
+            stderr: err_sender,
+        };
+
+        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), &std::ffi::OsString::new(),
+            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, &out_err_stream);
+        
+        drop(out_err_stream);
+
+        task.join().unwrap();
+        assert!(status == 0);
+        println!("compile stdout: {}", String::from_utf8_lossy(&stdout));
+        println!("compile stderr: {}", String::from_utf8_lossy(&stderr));
+    }
 }
