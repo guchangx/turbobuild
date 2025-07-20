@@ -120,16 +120,38 @@ impl Receiver {
     async fn transmit_task_handle(&self, request: package::CompileTrRequest, tx: tokio::sync::mpsc::Sender<Result<package::CompileTrResponse, tonic::Status>>) {
 
         let solution = request.solution;
+        let solution_ = solution.clone();
         let project = request.project;
         let file = request.file;
         let compiler = request.compiler;
+        let compiler_ = compiler.clone();
     
         let commands = request.commands;
         let content = request.content;
         log::trace!("transmit compile handle project: {}, file: {}, compiler: {}, commands is empty: {}, content size: {}KB.", &project, file, compiler, commands.is_empty(), &content.len() / 1024 );
 
-        if file.is_empty() {
+        if !content.is_empty() && !file.is_empty() {
+            let ret = Self::storage(&solution_, &file, &content).await;
 
+            let mut reply = package::CompileTrResponse {
+                progress: package::CompileProgress::Filetransfer.into(),
+                out: Vec::new(),
+                err: Vec::new(),
+                results: Vec::new(),
+                status: 0,
+                tips: "transmit do save file success.".to_string(),
+            };
+
+            if ret.is_err() {
+                reply.status = 1;
+                reply.tips = ret.unwrap_err();
+            }
+
+            tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("tx send failed: {:?}", err));
+        }
+
+        if !compiler.is_empty() && !commands.is_empty() {
+            
             let handle = Self::check_dir_exists(&solution, &request.working_dir, &commands).await;
 
             let compiler_input = crew::compiler::model::CompilerInput {
@@ -155,27 +177,9 @@ impl Receiver {
             handle.await.unwrap();
             Self::cocrew_execute(&compiler_input, output_callback).await;
             log::debug!("transmit compile task handle execute done, {} return file: {}", &project.clone(), file);
-        } 
-        else if !content.is_empty() {
-            let ret = Self::storage(&project, &file, &content).await;
-
-            let mut reply = package::CompileTrResponse {
-                progress: package::CompileProgress::Filetransfer.into(),
-                out: Vec::new(),
-                err: Vec::new(),
-                results: Vec::new(),
-                status: 0,
-                tips: "transmit do save file success.".to_string(),
-            };
-
-            if ret.is_err() {
-                reply.status = 1;
-                reply.tips = ret.unwrap_err();
-            }
-
-            tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("tx send failed: {:?}", err));
         }
-        else {
+
+        if compiler_.is_empty() || commands.is_empty() {
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Filetransfer.into(),
                 out: Vec::new(),
@@ -196,14 +200,13 @@ impl Receiver {
             return Err("project or path param is empty, so do nothing".to_string());
         }
         else {
-            let project = crew::replica::project::Property::new(solution, path);
+            let project: crew::replica::project::Property = crew::replica::project::Property::new(solution, path);
             let path = project.fetch_local_replica_project_path();
     
             if path.extension() == Some(&std::ffi::OsStr::new("zip")) {
                 Self::extract(&path.to_str().unwrap(), &content).await;
             }
             else {
-                
                 let mut file = std::fs::File::create(&path).unwrap();
                 match file.write_all(&content) {
                     Ok(_) => {

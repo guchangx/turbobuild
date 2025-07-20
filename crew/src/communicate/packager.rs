@@ -156,6 +156,39 @@ impl Packager {
         return content;
     }
 
+    pub fn pack_separate_file<'a>(path: &str)  -> (std::borrow::Cow<'a, [u8]>, std::ffi::OsString) {
+        let mut cursor = std::io::Cursor::new(Vec::new());
+
+        let mut zip = zip::ZipWriter::new(&mut cursor);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Zstd);
+
+        if let Ok(mut file) = std::fs::File::open(path) {
+            let mut buffer = Vec::new();
+            
+            let path = std::path::PathBuf::from(path);
+            path.file_name().map(|name| {
+                zip.start_file(name.to_string_lossy(), options.to_owned()).unwrap();
+            });
+
+            file.read_to_end(&mut buffer).unwrap();
+            zip.write_all(&buffer[..]).unwrap();
+            buffer.clear();
+
+            let content = zip.finish().unwrap();
+            let file = content.to_owned().into_inner();
+            let content = std::borrow::Cow::from(file);
+
+            let mut path = path.parent().unwrap().to_path_buf();
+            path.set_extension("zip");
+
+            return (content, path.into_os_string());
+        }
+        else {
+            return (std::borrow::Cow::from(Vec::new()), std::ffi::OsString::new());
+        }
+    }
+
     fn pack_dir<'a>(dir: &str, _name: &str) -> std::borrow::Cow<'a, [u8]> {
         let mut path = std::path::PathBuf::from(dir);
 

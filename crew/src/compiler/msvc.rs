@@ -236,14 +236,10 @@ impl MSVC {
         return output;
     }
     
-    async fn request_dist_compile_with_command(&self, addr: &str, compiler_input: CompilerInput)
+    async fn request_dist_compile_with_command(&self, addr: &str, compiler_input: CompilerInput, requires: &crate::compiler::model::PrecompiledSource)
         -> CompilerOutput {
-        let precompiled_source = crate::compiler::model::PrecompiledSource {
-            contents: None,
-            path: std::ffi::OsString::new(),
-        };
 
-        let output = self.request_dist_compile(&addr, &compiler_input, &precompiled_source).await;
+        let output = self.request_dist_compile(&addr, &compiler_input, &requires).await;
         return output;
     }
 
@@ -405,8 +401,23 @@ impl MSVC {
                 }
     
                 notify.notified().await;
+
+                let mut requires = crate::compiler::model::PrecompiledSource {
+                    contents: None,
+                    path: std::ffi::OsString::new(),
+                };
+
+                let requires_params = commands_dist_parameters_requires(&compiler_input);
+                if !requires_params.is_empty() {
+                    let (contents, path) = crate::communicate::packager::Packager::pack_separate_file(&requires_params.to_str().unwrap());
+                
+                    requires = crate::compiler::model::PrecompiledSource {
+                        contents: Some(contents.to_vec()),
+                        path: path,
+                    };
+                }
     
-                let output = self.request_dist_compile_with_command(&addr, compiler_input.clone()).await;
+                let output = self.request_dist_compile_with_command(&addr, compiler_input.clone(), &requires).await;
                 return output;
             }
             else
@@ -434,20 +445,34 @@ impl MSVC {
             let mut commands = tidyup_commands_for_precompile(compiler_commands);
             commands.append(&mut files);
             compiler_input.compiler_commands = commands;
-
+            
+            let mut requires = crate::compiler::model::PrecompiledSource {
+                contents: None,
+                path: std::ffi::OsString::new(),
+            };
             if compiler_input.build_and_compiler_type.to_string_lossy().contains("msvc") {
                 if compiler_input.compiler_path.to_string_lossy().contains("~1") {
                     compiler_input.compiler_path = winapi_get_long_path_name(&compiler_input.compiler_path);
                 }
             }
+            else if compiler_input.build_and_compiler_type.to_string_lossy().contains("clang_cl") {
+                let requires_params = commands_dist_parameters_requires(&compiler_input);
+                if !requires_params.is_empty() {
+                    let (contents, path) = crate::communicate::packager::Packager::pack_separate_file(&requires_params.to_str().unwrap());
+                
+                    requires = crate::compiler::model::PrecompiledSource {
+                        contents: Some(contents.to_vec()),
+                        path: path,
+                    };
+                }
+            }
 
             notify.notified().await;
 
-            let output = self.request_dist_compile_with_command(&addr, compiler_input.clone()).await;
+            let output = self.request_dist_compile_with_command(&addr, compiler_input.clone(), &requires).await;
             return output;
         }
     }
-    
 }
 
 fn winapi_get_long_path_name(path: &std::ffi::OsString) -> std::ffi::OsString {
@@ -1746,6 +1771,36 @@ fn tidyup_commands_for_precompile(compiler_commands: &Vec<std::ffi::OsString>) -
     return commands;
 }
 
+fn commands_dist_parameters_requires(input: &CompilerInput) -> std::ffi::OsString {
+
+    let txt =  input.compiler_commands.iter().find(|arg| {
+        let arg = arg.to_string_lossy();
+        if arg.starts_with("--warning-suppression-mappings=") {
+            return true;
+        }
+        false
+    });
+
+    let mut extra_requires = std::ffi::OsString::new();
+
+    if let Some(txt) = txt {
+        let txt = txt.to_string_lossy().to_owned();
+        let (_, txt) = txt.split_at("--warning-suppression-mappings=".len());
+        if !txt.is_empty() {
+            let mut path = std::path::PathBuf::from(&txt);
+            if !path.has_root() {
+                path = std::path::PathBuf::from(&input.compiler_working_dir).join(path);
+                let path = std::ffi::OsString::from(path.to_str().unwrap());
+                extra_requires = path;
+            }
+            if path.exists() {
+                log::debug!("pickup extra requires for precompile: {:?}", path);
+            }
+        }
+    }
+    return extra_requires;
+}
+
 #[derive(Debug)]
 enum GeneratedObject {
     NoneObjPath,
@@ -2432,6 +2487,26 @@ mod tests {
             },
             Err(e) => {
                 println!("failed to start process: {}", e);
+            }
+        }
+    }
+
+    #[test]
+    fn test_zip_separate_file() {
+        let (contents, path) = crate::communicate::packager::Packager::pack_separate_file("G:\\Chromium\\chromium\\src\\out\\Default\\../../build/config/warning_suppression.txt");
+        
+        let dir = "D:\\turbobuild\\target\\debug\\Replica\\Project\\Default";
+        let cursor = std::io::Cursor::new(contents);
+        let mut zip = zip::ZipArchive::new(cursor).unwrap();
+        zip.file_names()
+            .for_each(|name| println!("zip file name: {}", name));
+
+        match zip.extract(dir) {
+            Ok(_) => {
+                println!("extract zip file done: {} {:?}", dir, zip.file_names().collect::<Vec<&str>>());
+            },
+            Err(err) => {
+                println!("extract zip file failed. {} {} {:?}", dir, err, zip.file_names().collect::<Vec<&str>>());
             }
         }
     }

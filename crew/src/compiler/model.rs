@@ -38,6 +38,7 @@ pub struct PrecompiledSource {
     pub contents: Option<Vec<u8>>,
     pub path: std::ffi::OsString, 
 }
+
 #[derive(Debug, Clone, Default)]
 pub struct CompilerOutput {
     pub status: u32,
