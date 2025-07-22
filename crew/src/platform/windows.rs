@@ -3,7 +3,7 @@
 pub struct WindowsCompilerEnv {
     pub winkits_includes_path: Vec<std::ffi::OsString>,
     pub compiler_path: std::path::PathBuf,
-    pub msvc_includes_path: std::path::PathBuf,
+    pub msvc_includes_path: Vec<std::ffi::OsString>,
     pub msvc_version: String,
     pub env_args: String,
 }
@@ -11,7 +11,7 @@ pub struct WindowsCompilerEnv {
 impl Default for WindowsCompilerEnv {
     fn default() -> Self {
         let winsdk_includes = get_winsdk_includes_path().unwrap();
-        let local_msvc_includes = get_local_msvc_include_files_path().unwrap();
+        let local_msvc_includes = get_local_msvc_include_files_path();
         let local_msvc_install = get_local_msvc_bin_path().unwrap();
         let msvc_version = get_msvc_version().unwrap();
         Self { 
@@ -202,16 +202,23 @@ fn get_local_msvc_path() -> Option<std::path::PathBuf> {
     }
 }
 
-fn get_local_msvc_include_files_path() -> Option<std::path::PathBuf> {
+fn get_local_msvc_include_files_path() -> Vec<std::ffi::OsString> {
 
+    let mut includes = Vec::new();
     match get_local_msvc_path() {
         Some(msvc_path) => {
             let msvc_include_files_path = msvc_path.join("include");
-            return Some(msvc_include_files_path);
+            includes.push(msvc_include_files_path.into_os_string());
+
+            msvc_path.join("atlmfc").exists().then(|| {
+                includes.push(msvc_path.join("atlmfc").join("include").into_os_string());
+            });
+
+            return includes;
         },
         None => {
             println!("get_local_msvc_path return none");
-            return None;
+            return includes;
         },
     }
 }

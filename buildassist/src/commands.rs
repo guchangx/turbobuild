@@ -15,20 +15,23 @@ pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMa
 
     let mut solution= None;
     if let Some(sln) = environment.get("VSTEL_SolutionPath") {
+
         let sln = std::path::PathBuf::from(sln);
         sln.file_stem().map(|stem| {
-            solution = Some(stem.to_owned());
 
             sln.parent().map(|parent| {
-                parent.components().find(|item| {
-                    if item.as_os_str().to_string_lossy().to_lowercase() == stem.to_string_lossy().to_lowercase() {
+                let mut peekable = parent.components().peekable();
+                
+                while let Some(component) = peekable.next() {
+                    if component.as_os_str().to_string_lossy().to_lowercase() == stem.to_string_lossy().to_lowercase() {
                         solution = Some(stem.to_owned());
-                        return true;
+                        break;
                     }
-                    else {
-                        return false;
+                    else if peekable.peek().is_none() {
+                        solution = Some(component.as_os_str().to_os_string());
+                        break;
                     }
-                });
+                }
             });
         });
     }

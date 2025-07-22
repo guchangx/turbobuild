@@ -128,7 +128,7 @@ impl Receiver {
     
         let commands = request.commands;
         let content = request.content;
-        log::trace!("transmit compile handle project: {}, file: {}, compiler: {}, commands is empty: {}, content size: {}KB.", &project, file, compiler, commands.is_empty(), &content.len() / 1024 );
+        log::trace!("transmit compile handle project: {}, file: {}, compiler: {}, commands size: {}, content size: {}KB.", &project, file, compiler, commands.len(), &content.len() / 1024 );
 
         if !content.is_empty() && !file.is_empty() {
             let ret = Self::storage(&solution_, &file, &content).await;
@@ -393,7 +393,7 @@ impl Receiver {
                                 return Some(path);
                             }
                             else {
-                                log::error!("not find project in path: {:?} solution: {}.", pdb, solution);
+                                log::error!("not find solution in path: {:?} solution: {}.", pdb, solution);
                                 return None;
                             }            
                         }

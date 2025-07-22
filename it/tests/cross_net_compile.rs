@@ -61,8 +61,11 @@ mod integration_tests {
                 compiler_commands.push(std::ffi::OsString::from("/GR"));
                 compiler_commands.push(std::ffi::OsString::from("/TP"));
                 compiler_commands.push(std::ffi::OsString::from("/Zi"));
-                compiler_commands.push(std::ffi::OsString::from("/I"));
-                compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+
+                for include in &env.msvc_includes_path {
+                    compiler_commands.push(std::ffi::OsString::from("/I"));
+                    compiler_commands.push(std::ffi::OsString::from(format!("{}", include.to_string_lossy())));
+                }
 
                 for sdk_include in env.winkits_includes_path {
                     compiler_commands.push(std::ffi::OsString::from("/I"));
@@ -187,8 +190,11 @@ mod integration_tests {
                 compiler_commands.push(std::ffi::OsString::from("/TP"));
                 compiler_commands.push(std::ffi::OsString::from("/Zi"));
                 compiler_commands.push(std::ffi::OsString::from("/EHsc"));
-                compiler_commands.push(std::ffi::OsString::from("/I"));
-                compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+
+                for include in &env.msvc_includes_path {
+                    compiler_commands.push(std::ffi::OsString::from("/I"));
+                    compiler_commands.push(std::ffi::OsString::from(format!("{}", include.to_string_lossy())));
+                }
 
                 for sdk_include in env.winkits_includes_path {
                     compiler_commands.push(std::ffi::OsString::from("/I"));

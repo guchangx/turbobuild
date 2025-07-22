@@ -130,9 +130,11 @@ impl MSVC {
                 }
             }
 
-            if commands.iter().find(|&item| item.to_string_lossy().contains(&env.msvc_includes_path.to_string_lossy().to_string())).is_none() {
-                commands.push(std::ffi::OsString::from("/I"));
-                commands.push(std::ffi::OsString::from(format!("{}", self.work_env.msvc_includes_path.to_string_lossy())));
+            for include in &env.msvc_includes_path {
+                if commands.iter().find(|&item| item.to_string_lossy().contains(&include.to_string_lossy().to_string())).is_none() {
+                    commands.push(std::ffi::OsString::from("/I"));
+                    commands.push(std::ffi::OsString::from(format!("{}", include.to_string_lossy())));
+                }
             }
     
             return commands;
@@ -326,9 +328,11 @@ impl MSVC {
             }
         }
 
-        if !commands.contains(&self.work_env.msvc_includes_path.clone().into_os_string()) {
-            commands.push(std::ffi::OsString::from("/I"));
-            commands.push(std::ffi::OsString::from(format!("{}", self.work_env.msvc_includes_path.to_string_lossy())));
+        for path in &self.work_env.msvc_includes_path {
+            if !commands.contains(&path) {
+                commands.push(std::ffi::OsString::from("/I"));
+                commands.push(std::ffi::OsString::from(format!("{}", path.to_string_lossy())));
+            }
         }
 
         return commands;
@@ -356,14 +360,17 @@ impl MSVC {
             {
     
             }
-            else if file.contains(" error: ") {
+            else if file.starts_with("Microsoft (R) ") || file.starts_with("Copyright (C) ") {
+
+            }
+            else if file.contains(" error: ") || file.contains(": fatal error ") {
                 errors.push(file);
             }
             //including file
             else if file.starts_with("Note: ") {
 
             }
-            else {
+            else if !file.is_empty() {
                 let runtime = self.runtime.clone();
                 let precompiled_result_path = actions.precompiled_result_file.clone();
                 let stream = stream.clone();
@@ -1147,7 +1154,7 @@ fn request_dist_compile_with_source_and_include(working_param: &crate::platform:
     let env_input = crate::platform::windows::WindowsCompilerEnv {
          winkits_includes_path: vec![win_kits_include_dir],
          compiler_path: std::path::PathBuf::from(dist_msvc_compiler_path.clone()),
-         msvc_includes_path: std::path::PathBuf::from(dist_msvc_include_path),
+         msvc_includes_path: vec![dist_msvc_include_path],
          msvc_version: String::new(),
          env_args: String::new(),
     };
@@ -1289,7 +1296,7 @@ fn start_local_compiler_by_file(compiler_path: &std::ffi::OsString, working_dir:
     
     use std::process::Stdio;
     
-    let mut compiler = std::ffi::OsString::new();
+    let mut compiler = compiler_path.to_owned();
 
     if !std::path::PathBuf::from(compiler_path).is_absolute() {
         compiler = std::path::PathBuf::from(working_dir).join(compiler_path).into_os_string();
@@ -1530,12 +1537,12 @@ fn parse_compiler_input_command(compiler_input: CompilerInput, working_compiler_
             instruct += include.to_str().unwrap();
             args.push(std::ffi::OsString::from(instruct));
         }
-    
-        let msvc_includes = working_compiler_env.msvc_includes_path.display().to_string();
-    
-        let mut instruct = String::from("/I");
-        instruct += &msvc_includes;
-        args.push(std::ffi::OsString::from(instruct));
+
+        for include in working_compiler_env.msvc_includes_path.iter() {
+            let mut instruct = "/I".to_string();
+            instruct += include.to_str().unwrap();
+            args.push(std::ffi::OsString::from(instruct));
+        }
         
         return (args, compiler_path);
     }
@@ -2012,10 +2019,12 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/DTEST_DEFINE_NEW"));
         compiler_commands.push(std::ffi::OsString::from("/D"));
         compiler_commands.push(std::ffi::OsString::from(r#""CMAKE_INTDIR=\"Debug\"""#));
-        
-        compiler_commands.push(std::ffi::OsString::from("/I"));
-        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
-        
+
+        for include in &env.msvc_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", include.to_string_lossy())));
+        }
+
         for sdk_include in env.winkits_includes_path {
             compiler_commands.push(std::ffi::OsString::from("/I"));
             compiler_commands.push(std::ffi::OsString::from(format!("{}", sdk_include.to_str().unwrap())));
@@ -2062,9 +2071,11 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/W4"));
         compiler_commands.push(std::ffi::OsString::from("/DTEST_DEFINE_NEW"));
         
-        compiler_commands.push(std::ffi::OsString::from("/I"));
-        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
-        
+        for include in &env.msvc_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", include.to_string_lossy())));
+        }
+
         for sdk_include in env.winkits_includes_path {
             compiler_commands.push(std::ffi::OsString::from("/I"));
             compiler_commands.push(std::ffi::OsString::from(format!("{}", sdk_include.to_str().unwrap())));
@@ -2110,10 +2121,12 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/D"));
         compiler_commands.push(std::ffi::OsString::from("/W4"));
         compiler_commands.push(std::ffi::OsString::from("/DTEST_DEFINE_NEW"));
-        
-        compiler_commands.push(std::ffi::OsString::from("/I"));
-        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
-        
+
+        for include in &env.msvc_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", include.to_string_lossy())));
+        }
+
         for sdk_include in env.winkits_includes_path {
             compiler_commands.push(std::ffi::OsString::from("/I"));
             compiler_commands.push(std::ffi::OsString::from(format!("{}", sdk_include.to_str().unwrap())));
@@ -2159,8 +2172,10 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/GR"));
         compiler_commands.push(std::ffi::OsString::from("/TC"));
         
-        compiler_commands.push(std::ffi::OsString::from("/I"));
-        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+        for include in &env.msvc_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", include.to_string_lossy())));
+        }
         
         for sdk_include in env.winkits_includes_path {
             compiler_commands.push(std::ffi::OsString::from("/I"));
@@ -2207,8 +2222,10 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/GR"));
         compiler_commands.push(std::ffi::OsString::from("/TC"));
         
-        compiler_commands.push(std::ffi::OsString::from("/I"));
-        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+        for include in &env.msvc_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", include.to_string_lossy())));
+        }
         
         for sdk_include in env.winkits_includes_path {
             compiler_commands.push(std::ffi::OsString::from("/I"));
@@ -2255,8 +2272,10 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/GR"));
         compiler_commands.push(std::ffi::OsString::from("/TC"));
         
-        compiler_commands.push(std::ffi::OsString::from("/I"));
-        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+        for include in &env.msvc_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", include.to_string_lossy())));
+        }
         
         for sdk_include in env.winkits_includes_path {
             compiler_commands.push(std::ffi::OsString::from("/I"));
@@ -2412,8 +2431,10 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/GR"));
         compiler_commands.push(std::ffi::OsString::from("/TC"));
         
-        compiler_commands.push(std::ffi::OsString::from("/I"));
-        compiler_commands.push(std::ffi::OsString::from(format!("{}", env.msvc_includes_path.to_str().unwrap())));
+        for include in &env.msvc_includes_path {
+            compiler_commands.push(std::ffi::OsString::from("/I"));
+            compiler_commands.push(std::ffi::OsString::from(format!("{}", include.to_string_lossy())));
+        }
         
         for sdk_include in env.winkits_includes_path {
             compiler_commands.push(std::ffi::OsString::from("/I"));
