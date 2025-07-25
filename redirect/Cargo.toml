@@ -14,7 +14,7 @@ name = "redirect64"
 tools = { path = "../tools" }
 tokio = { version = "1.41.1", features = ["sync", "rt", "rt-multi-thread"] }
 winapi = {version = "0.3.9", features = ["winbase", "handleapi", "minwindef", "consoleapi", "winnt", "memoryapi", "namedpipeapi", "winuser", 
-                            "errhandlingapi", "winerror", "processenv", "synchapi", "debugapi"]}
+                            "errhandlingapi", "winerror", "processenv", "synchapi", "debugapi", "ioapiset"]}
 ntapi = "0.4.1"
 chrono = "0.4.38"
 

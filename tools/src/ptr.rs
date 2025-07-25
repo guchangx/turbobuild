@@ -11,9 +11,8 @@ impl HandleBox {
     pub fn get(&self) -> &winapi::shared::ntdef::HANDLE {
         &self.handle
     }
-
-    #[allow(dead_code)]
-    fn clone(&self) -> Self {
+    
+    pub fn clone(&self) -> Self {
         Self { handle: self.handle.clone() }
     }
 }

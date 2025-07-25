@@ -59,6 +59,16 @@ static STDOUT_LOG_HANDLE: std::sync::LazyLock<std::sync::Mutex<Option<tokio::tas
 unsafe fn redirect_stdout_log_2_cocrew() {
 
     use std::os::windows::ffi::OsStrExt;
+    let iocp = winapi::um::ioapiset::CreateIoCompletionPort(
+        winapi::um::handleapi::INVALID_HANDLE_VALUE,
+        std::ptr::null_mut(),
+        0,
+        0
+    );
+
+    let iocp_handle = tools::ptr::HandleBox::new(iocp);
+    let iocp_handle_ = iocp_handle.clone();
+
     let handle = RUNTIME.lock().unwrap().spawn(async move {
 
         let name = std::ffi::OsString::from("\\\\.\\pipe\\redirect_stdout_log_pipe");
@@ -69,53 +79,78 @@ unsafe fn redirect_stdout_log_2_cocrew() {
         if winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 300) == winapi::shared::minwindef::TRUE {
 
             for _ in 0..3 {
-                let pipe = winapi::um::fileapi::CreateFileW(name.as_ptr(), winapi::um::winnt::GENERIC_WRITE,
-                0,
-                std::ptr::null_mut(),  
-                winapi::um::fileapi::OPEN_EXISTING, 
-                winapi::um::winnt::FILE_ATTRIBUTE_NORMAL, 
-                winapi::shared::ntdef::NULL);
+                let pipe_handle = winapi::um::fileapi::CreateFileW(name.as_ptr(), winapi::um::winnt::GENERIC_WRITE,
+                    0,
+                    std::ptr::null_mut(),  
+                    winapi::um::fileapi::OPEN_EXISTING, 
+                    winapi::um::winbase::FILE_FLAG_OVERLAPPED, 
+                    winapi::shared::ntdef::NULL
+                );
 
-                if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                    let handle = tools::ptr::HandleBox::new(pipe);
-                    
+                if !pipe_handle.is_null() && pipe_handle != winapi::um::handleapi::INVALID_HANDLE_VALUE {
+
+                    let pipe_handle = tools::ptr::HandleBox::new(pipe_handle);
+
+                    if winapi::um::ioapiset::CreateIoCompletionPort(
+                        pipe_handle.get().to_owned(),
+                        iocp_handle.get().to_owned(),
+                        0,
+                        0
+                    ).is_null() {
+                        winapi::um::handleapi::CloseHandle(iocp_handle.get().to_owned());
+                        winapi::um::handleapi::CloseHandle(pipe_handle.get().to_owned());
+                        println!("CreateIoCompletionPort failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
+                        break;
+                    }
+
                     loop {
                         let message = rx.recv().await;
 
                         match message {
                             Some(message) => {
+                                let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
                                 let mut bytes: winapi::shared::minwindef::DWORD = 0;
                                 let result = winapi::um::fileapi::WriteFile(
-                                    handle.get().to_owned(),
+                                    pipe_handle.get().to_owned(),
                                     message.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
                                     message.len() as u32,
                                     &mut bytes,
-                                    std::ptr::null_mut()
+                                    &mut overlapped
                                 );
 
                                 if result == winapi::shared::minwindef::FALSE || bytes == 0 {
                                     let error = winapi::um::errhandlingapi::GetLastError();
-                                    if error == winapi::shared::winerror::ERROR_BROKEN_PIPE || error == winapi::shared::winerror::ERROR_NO_DATA {
+                                    if error == winapi::shared::winerror::ERROR_IO_PENDING {
+                                        
+                                    }
+                                    else if error == winapi::shared::winerror::ERROR_BROKEN_PIPE || error == winapi::shared::winerror::ERROR_NO_DATA {
                                         //break;
                                     }
                                     else {
                                         println!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                                        crate::logger::output_debug_string(&format!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
                                         break;
                                     }
                                 }
-                                unsafe {
-                                    if winapi::shared::minwindef::TRUE == winapi::um::fileapi::FlushFileBuffers(handle.get().to_owned()) {
-
-                                    }
-                                    else {
-                                        println!("FlushFileBuffers failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
-                                    }
-                                };
+                                
+                                //if winapi::shared::minwindef::FALSE == winapi::um::fileapi::FlushFileBuffers(pipe_handle.get().to_owned()) {
+                                //    println!("FlushFileBuffers failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
+                                //}
                             },
-                            None => break,
+                            None => {
+                                break;
+                            }
                         }
                     };
-                    winapi::um::handleapi::CloseHandle(handle.get().to_owned());
+                    
+                    winapi::um::ioapiset::PostQueuedCompletionStatus(
+                        iocp_handle.get().to_owned(), 
+                        0, 
+                        0, 
+                        std::ptr::null_mut()
+                    );
+
+                    winapi::um::handleapi::CloseHandle(pipe_handle.get().to_owned());
                     break;
                 }
                 else {
@@ -139,9 +174,11 @@ unsafe fn redirect_stdout_log_2_cocrew() {
         loop {
             match rx.try_recv() {
                 Ok(message) => {
-                    log!(info, "redirect_stdout_log_2_cocrew: received message: {}", message);
                 },
-                Err(err) => break,
+                Err(err) => {
+                    crate::logger::output_debug_string(&format!("redirect_stdout_log_2_cocrew: failed to receive message: {}", err));
+                    break;
+                },
             }
         }
         rx.close();
@@ -150,6 +187,36 @@ unsafe fn redirect_stdout_log_2_cocrew() {
     });
 
     *STDOUT_LOG_HANDLE.lock().unwrap() = Some(handle);
+
+    let _ = std::thread::spawn(move || {
+        crate::logger::output_debug_string(&format!("GetQueuedCompletionStatus start."));
+        loop {
+            let mut bytes: winapi::shared::minwindef::DWORD = 0;
+            let mut key: usize = 0;
+            let mut overlapped: *mut winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+
+            let result = winapi::um::ioapiset::GetQueuedCompletionStatus(
+                iocp_handle_.get().to_owned(),
+                &mut bytes,
+                &mut key,
+                &mut overlapped,
+                winapi::um::winbase::INFINITE
+            );
+
+            if result == winapi::shared::minwindef::FALSE || bytes == 0 {
+                let error = winapi::um::errhandlingapi::GetLastError();
+                println!("GetQueuedCompletionStatus failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                break;
+            }
+            else {
+                if key == 0 {
+                    break;
+                }
+            }
+        }
+        winapi::um::handleapi::CloseHandle(iocp_handle_.get().to_owned());
+        crate::logger::output_debug_string(&format!("GetQueuedCompletionStatus end."));
+    });
 }
 
 fn read_project_property_from_stdin() {
@@ -230,7 +297,7 @@ macro_rules! log {
 }
 
 fn uninit_custom_resource() {
-    log!(info, "uninit custom resource. receive is closed: {}", LOGGER.tx.is_closed());
+    log!(info, "[{:?}] uninit custom resource. receive is closed: {}", crate::PROJECTNAME.get(), LOGGER.tx.capacity());
 }
 
 use std::io::BufRead;

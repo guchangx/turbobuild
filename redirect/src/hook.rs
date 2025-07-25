@@ -1,7 +1,7 @@
 
 
 pub unsafe fn init_hook() {
-    crate::log!(info, "init compiler hk.");
+    crate::log!(info, "[{:?}] init compiler hk.", crate::PROJECTNAME.get());
 
     crate::functions::CREATE_FILE_A = winapi::um::fileapi::CreateFileA as *mut std::ffi::c_void;
     crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_A), crate::functions::create_file_a as _);
