@@ -1,7 +1,7 @@
 
 pub fn output_debug_string(message: &String) {
     use std::os::windows::ffi::OsStrExt;
-    let message = std::ffi::OsString::from(message);
+    let message = std::ffi::OsString::from(&message);
     let message = message.encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
     unsafe {
         winapi::um::debugapi::OutputDebugStringW(message.as_ptr());
