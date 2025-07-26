@@ -103,7 +103,9 @@ impl Receiver {
 
                         let result = crate::compiler::interface::request_compile(input, runtime.clone(), if work_env.winkits_includes_path.is_empty() {Some(work_env)} else { None }, distor).await;  
                         
-                        stop_tx.send(()).unwrap();
+                        if !stop_tx.is_closed() {
+                            stop_tx.send(()).unwrap();
+                        }
 
                         if !result.out.is_empty() {
                             for line in result.out.lines() {

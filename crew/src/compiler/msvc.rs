@@ -95,7 +95,7 @@ impl MSVC {
                 if true {
                     // dist with preprocessed source
                     let now = std::time::Instant::now();
-                    let output = self.request_multi_dist_once_compile(&compiler_input).await;
+                    let output = self.request_multi_dist_batch_compile(compiler_input.clone()).await;
                     log::trace!("request_multi_dist_sync_once_compile: {:?} elaspsed time: {:?}", compiler_input.project, now.elapsed());
                     //let output = request_dist_compile(&working_parameters.network_client, &compiler_path, &msvc_compile_input.compiler_working_dir, &compiler_commands.clone());
                     compiler_output.set(output);
@@ -236,13 +236,48 @@ impl MSVC {
                     break;
                 }
             }
+            
+            precomiler_commands = self.merge_sdk_includes_into_commands(&compiler_commands.clone());
+
+            let outtype = request_local_precompile(&compiler_path, &working_dir, &precomiler_commands, false);
+
+            match outtype {
+                Ok(out) => {
+                    match out {
+                        crate::compiler::msvc::OutType::Std(_stdout) => {
+                            //handle_compile_by_std(stdout);
+                        },
+                        crate::compiler::msvc::OutType::File(mut fileout) => {
+
+                            let addr = self.sender.lock().unwrap().schedule();
+                            output = self.handle_compile_by_filestream(&mut fileout, compiler_input.clone(), &addr, &compiler_commands.clone()).await;
+
+                            match fileout.child.wait() {
+                                Ok(exit) => {
+                                    let code = exit.code().unwrap_or(-1);
+                                    log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input.project, code, now.elapsed());
+
+                                },
+                                Err(err) => {
+                                    log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input.project, err, now.elapsed());
+                                }
+                            }
+                        },
+                    }
+                },
+                Err(err) => {
+                    log::warn!("precompile {:?} failed: {:?}", compiler_input.project, err);
+                    output.status = 1;
+                },
+            }
+
+            log::debug!("local {:?} precompile and dist file and commmand done. elaspsed time: {:?}", compiler_input.project, now.elapsed());
+            return output;
         }
         else {
-            let mut sources = Vec::new();
-            let mut commands = Vec::new();
+
             let mut handles = Vec::new();
             let mut pdb = std::ffi::OsString::from("");
-
 
             let mut compiler_commands_ = compiler_commands.clone();
             compiler_commands_.retain(|item| {
@@ -256,6 +291,9 @@ impl MSVC {
                 }
             });
 
+            let mut sources = Vec::new();
+            let mut commands = Vec::new();
+
             (sources, commands) = compiler_commands_.iter().partition(|item| {
                 let cmd = item.to_string_lossy().to_lowercase();
 
@@ -267,240 +305,176 @@ impl MSVC {
                 }
             });
 
-            let batch_size = 120;
+            let batch_size: usize = 40;
             let len = sources.len();
+
+            log::debug!("project: [{:?}] sources len: {:?} batch size: {:?}", &compiler_input.project, len, &batch_size);
+
             let mut index = 0;
             if len > batch_size {
                 let mut batch = Vec::new();
                 for (i, source) in sources.iter().enumerate() {
                     batch.push(source);
+                    
                     if (i + 1) % batch_size == 0 || i == len - 1 {
-
-                        if source.len() - i <= batch_size / 3 {
+                        let mut compiler_commands = Vec::new();
+                        let mut last = false;
+                        if len <= batch_size / 3 + i {
                             batch.append(&mut sources[i + 1..].into_iter().collect());
+                            compiler_commands = self.merge_sdk_includes_into_commands(&commands.iter().map(|&item| item.clone()).collect());
+                            compiler_commands.append(&mut batch.iter().map(|&&item| item.clone()).collect());
 
-                            let mut commands = self.merge_sdk_includes_into_commands(&commands.iter().map(|&item| item.clone()).collect());
-                        
-                            commands.append(&mut batch.iter().map(|&&item| item.clone()).collect());
-
-                            if index == 0 {
-                                if !pdb.is_empty() {
-                                    commands.push(pdb.clone());
-                                }
-                            }
-                            else {
-                                let pdb = pdb.to_string_lossy().to_string();
-                                if pdb.ends_with(".pdb") {
-                                    let path = format!("{}_tb_{}.pdb", &pdb[..pdb.len()-4], index);
-                                    commands.push(path.into());
-                                }
-                                else {
-                                    let path = format!("{}/{}_tb_{}.pdb", pdb, "vc143", index);
-                                    commands.push(path.into());
-                                }
-                            }
-
-                            let self_ = self.clone();
-
-                            let compiler = compiler_input.compiler_path.clone();
-                            let working_dir = working_dir.clone();
-                            let compiler_input_ =  CompilerInput { 
-                                solution: compiler_input.solution.clone(), 
-                                project: compiler_input.project.clone(), 
-                                compiler_path: compiler.clone(),
-                                compiler_working_dir: working_dir.clone(),
-                                compiler_commands: commands.clone(),
-                                build_and_compiler_type: compiler_input.build_and_compiler_type.clone(),
-                            };
-
-                            let handle = self.runtime.spawn(async move {
-
-                                let mut output = CompilerOutput::default();
-
-                                let outtype = request_local_precompile(&compiler, &working_dir, &commands, false);
-
-                                match outtype {
-                                    Ok(out) => {
-                                        match out {
-                                            crate::compiler::msvc::OutType::Std(_stdout) => {
-                                                //handle_compile_by_std(stdout);
-                                            },
-                                            crate::compiler::msvc::OutType::File(mut fileout) => {
-
-                                                let addr = self_.sender.lock().unwrap().schedule();
-                                                
-                                                output = self_.handle_compile_by_filestream(&mut fileout, compiler_input_.clone(), &addr, &commands).await;
-
-                                                match fileout.child.wait() {
-                                                    Ok(exit) => {
-                                                        let code = exit.code().unwrap_or(-1);
-                                                        log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input_.project, code, now.elapsed());
-
-                                                    },
-                                                    Err(err) => {
-                                                        log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input_.project, err, now.elapsed());
-                                                    }
-                                                }
-                                            },
-                                        }
-                                    },
-                                    Err(err) => {
-                                        log::warn!("precompile {:?} failed: {:?}", compiler_input_.project, err);
-                                        output.status = 1;
-                                    },
-                                }
-                                return output;
-                            });
-                            handles.push(handle);
-
-                            break;
+                            last = true;
                         } 
                         else {
+                            compiler_commands = self.merge_sdk_includes_into_commands(&commands.iter().map(|&item| item.clone()).collect());
+                            compiler_commands.append(&mut batch.iter().map(|&&item| item.clone()).collect());
+                        }
 
-                            let mut commands = self.merge_sdk_includes_into_commands(&commands.iter().map(|&item| item.clone()).collect());
-                        
-                            commands.append(&mut batch.iter().map(|&&item| item.clone()).collect());
-
-                            if index == 0 {
-                                if !pdb.is_empty() {
-                                    commands.push(pdb.clone());
-                                }
+                        if index == 0 {
+                            if !pdb.is_empty() {
+                                compiler_commands.push(pdb.clone());
+                            }
+                        }
+                        else {
+                            let pdb = pdb.to_string_lossy().to_string();
+                            if pdb.ends_with(".pdb") {
+                                let path = format!("{}_tb_{}.pdb", &pdb[..pdb.len()-4], index);
+                                compiler_commands.push(path.into());
                             }
                             else {
-                                let pdb = pdb.to_string_lossy().to_string();
-                                if pdb.ends_with(".pdb") {
-                                    let path = format!("{}_tb_{}.pdb", &pdb[..pdb.len()-4], index);
-                                    commands.push(path.into());
-                                }
-                                else {
-                                    let path = format!("{}/{}_tb_{}.pdb", pdb, "vc143", index);
-                                    commands.push(path.into());
-                                }
+                                let path = format!("{}/{}_tb_{}.pdb", pdb, "vc143", index);
+                                compiler_commands.push(path.into());
                             }
+                        }
 
-                            let self_ = self.clone();
+                        let self_ = self.clone();
 
-                            let compiler = compiler_input.compiler_path.clone();
-                            let working_dir = working_dir.clone();
-                            let compiler_input_ =  CompilerInput { 
-                                solution: compiler_input.solution.clone(), 
-                                project: compiler_input.project.clone(), 
-                                compiler_path: compiler.clone(),
-                                compiler_working_dir: working_dir.clone(),
-                                compiler_commands: commands.clone(),
-                                build_and_compiler_type: compiler_input.build_and_compiler_type.clone(),
-                            };
+                        let working_dir = working_dir.clone();
+                        let compiler_path_ = compiler_path.clone();
 
-                            let handle = self.runtime.spawn(async move {
+                        let compiler_input_ =  CompilerInput {
+                            solution: compiler_input.solution.clone(), 
+                            project: compiler_input.project.clone(), 
+                            compiler_path: compiler_path.clone(),
+                            compiler_working_dir: working_dir.clone(),
+                            compiler_commands: compiler_commands.clone(),
+                            build_and_compiler_type: compiler_input.build_and_compiler_type.clone(),
+                        };
 
-                                let mut output = CompilerOutput::default();
-                                let outtype = request_local_precompile(&compiler, &working_dir, &commands, false);
+                        let handle = self.runtime.spawn(async move {
 
-                                match outtype {
-                                    Ok(out) => {
-                                        match out {
-                                            crate::compiler::msvc::OutType::Std(_stdout) => {
-                                                //handle_compile_by_std(stdout);
-                                            },
-                                            crate::compiler::msvc::OutType::File(mut fileout) => {
+                            let mut output = CompilerOutput::default();
 
-                                                let addr = self_.sender.lock().unwrap().schedule();
-                                                
-                                                output = self_.handle_compile_by_filestream(&mut fileout, compiler_input_.clone(), &addr, &commands).await;
+                            let outtype = request_local_precompile(&compiler_path_, &working_dir, &compiler_commands.clone(), false);
 
-                                                match fileout.child.wait() {
-                                                    Ok(exit) => {
-                                                        let code = exit.code().unwrap_or(-1);
-                                                        log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input_.project, code, now.elapsed());
+                            match outtype {
+                                Ok(out) => {
+                                    match out {
+                                        crate::compiler::msvc::OutType::Std(_stdout) => {
+                                            //handle_compile_by_std(stdout);
+                                        },
+                                        crate::compiler::msvc::OutType::File(mut fileout) => {
 
-                                                    },
-                                                    Err(err) => {
-                                                        log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input_.project, err, now.elapsed());
-                                                    }
+                                            let addr = self_.sender.lock().unwrap().schedule();
+                                            
+                                            output = self_.handle_compile_by_filestream(&mut fileout, compiler_input_.clone(), &addr, &compiler_commands.clone()).await;
+
+                                            match fileout.child.wait() {
+                                                Ok(exit) => {
+                                                    let code = exit.code().unwrap_or(-1);
+                                                    log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input_.project, code, now.elapsed());
+
+                                                },
+                                                Err(err) => {
+                                                    log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input_.project, err, now.elapsed());
                                                 }
-                                            },
-                                        }
-                                    },
-                                    Err(err) => {
-                                        log::warn!("precompile {:?} failed: {:?}", compiler_input_.project, err);
-                                        output.status = 1;
-                                    },
-                                }
-                                return output;
-                            });
+                                            }
+                                        },
+                                    }
+                                },
+                                Err(err) => {
+                                    log::warn!("precompile {:?} failed: {:?}", compiler_input_.project, err);
+                                    output.status = 1;
+                                },
+                            }
+                            return output;
+                        });
+                        handles.push(handle);
 
-                            handles.push(handle);
+                        index += 1;
+                        batch.clear();
+
+                        if last {
+                            break;
                         }
                     }
-                    index += 1;
                 }
 
                 //wait for all tasks to complete
-                let output = tokio::task::block_in_place(|| {
-                    let mut output = CompilerOutput::default();
-                    let mut out: Vec<u8> = Vec::new();
-                    let mut err: Vec<u8> = Vec::new();
 
-                    for handle in handles {
-                        let result = self.runtime.block_on(handle);
-                        match result {
-                            Ok(res) => {
-                                output.status = res.status;
-                                out.extend(res.out.as_ref());
-                                err.extend(res.err.as_ref());
-                            },
-                            Err(err) => {
-                                output.status = 1;
-                                log::error!("request dist compile failed: {:?}", err);
-                            }
+                let mut output = CompilerOutput::default();
+                let mut out: Vec<u8> = Vec::new();
+                let mut err: Vec<u8> = Vec::new();
+
+                for handle in handles {
+                    let result = handle.await;
+                    match result {
+                        Ok(res) => {
+                            output.status = res.status;
+                            out.extend(res.out.as_ref());
+                            err.extend(res.err.as_ref());
+                        },
+                        Err(err) => {
+                            output.status = 1;
+                            log::error!("request dist compile failed: {:?}", err);
                         }
                     }
-                    output.out = std::sync::Arc::new(out);
-                    output.err = std::sync::Arc::new(err);
-
-                    return output;
-                });
+                }
+                output.out = std::sync::Arc::new(out);
+                output.err = std::sync::Arc::new(err);
+                log::trace!("request_multi_dist_batch_compile: {:?} done.", compiler_input.project);
                 return output;
             }
             else {
                 precomiler_commands = self.merge_sdk_includes_into_commands(&compiler_commands.clone());
-            }
-        }
 
-        let outtype = request_local_precompile(&compiler_path, &working_dir, &precomiler_commands, false);
+                let outtype = request_local_precompile(&compiler_path, &working_dir, &precomiler_commands, false);
 
-        match outtype {
-            Ok(out) => {
-                match out {
-                    crate::compiler::msvc::OutType::Std(_stdout) => {
-                        //handle_compile_by_std(stdout);
-                    },
-                    crate::compiler::msvc::OutType::File(mut fileout) => {
-
-                        let addr = self.sender.lock().unwrap().schedule();
-                        output = self.handle_compile_by_filestream(&mut fileout, compiler_input.clone(), &addr, &compiler_commands.clone()).await;
-
-                        match fileout.child.wait() {
-                            Ok(exit) => {
-                                let code = exit.code().unwrap_or(-1);
-                                log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input.project, code, now.elapsed());
-
+                match outtype {
+                    Ok(out) => {
+                        match out {
+                            crate::compiler::msvc::OutType::Std(_stdout) => {
+                                //handle_compile_by_std(stdout);
                             },
-                            Err(err) => {
-                                log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input.project, err, now.elapsed());
-                            }
+                            crate::compiler::msvc::OutType::File(mut fileout) => {
+
+                                let addr = self.sender.lock().unwrap().schedule();
+                                output = self.handle_compile_by_filestream(&mut fileout, compiler_input.clone(), &addr, &compiler_commands.clone()).await;
+
+                                match fileout.child.wait() {
+                                    Ok(exit) => {
+                                        let code = exit.code().unwrap_or(-1);
+                                        log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input.project, code, now.elapsed());
+
+                                    },
+                                    Err(err) => {
+                                        log::info!("precompile {:?} status code: {:?}, elapsed time: {:?}", compiler_input.project, err, now.elapsed());
+                                    }
+                                }
+                            },
                         }
                     },
+                    Err(err) => {
+                        log::warn!("precompile {:?} failed: {:?}", compiler_input.project, err);
+                        output.status = 1;
+                    },
                 }
-            },
-            Err(err) => {
-                log::warn!("precompile {:?} failed: {:?}", compiler_input.project, err);
-                output.status = 1;
-            },
-        }
 
-        log::debug!("local {:?} precompile and dist file and commmand done. elaspsed time: {:?}", compiler_input.project, now.elapsed());
-        return output;
+                log::debug!("local {:?} precompile and dist file and commmand done. elaspsed time: {:?}", compiler_input.project, now.elapsed());
+                return output;
+            }
+        }
     }
 
     //Discarded function
