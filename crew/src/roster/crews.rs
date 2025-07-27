@@ -114,7 +114,7 @@ impl TasksManager {
     
     pub fn add(&mut self, tasks: &Vec<Task>) {
         for task in tasks {
-            if let Some(existing) = self.tasks.iter_mut().find(|t| t.username == task.username && t.devicename == task.devicename) {
+            if let Some(existing) = self.tasks.iter_mut().find(|t| t.username == task.username && t.devicename == task.devicename && t.addr == task.addr) {
                 existing.core = task.core;
                 existing.memory = task.memory;
                 existing.running = task.running;
@@ -132,10 +132,10 @@ impl TasksManager {
             return self.tasks.first().unwrap().addr.as_str();
         }
         else {
-            let iter = self.tasks.iter_mut().filter(|item| item.running < item.max && item.usage.cpu <= 0.95).min_by(|x, y| x.running.cmp(&y.running));
+            let iter = self.tasks.iter_mut().filter(|item| item.running < item.max && item.usage.cpu <= 95.00).min_by(|x, y| x.running.cmp(&y.running));
             if let Some(item) = iter {
                 item.running += 1;    
-                return item.addr.as_str();    
+                return item.addr.as_str();
             }
             else {
                 return "";    
@@ -180,7 +180,7 @@ mod tests {
             addr: "192.168.0.1".to_string(),
             core: 8,
             memory: 16.0,
-            running:0,
+            running: 0,
             max:2,
             usage: Usage {
                 cpu: 0.0,
@@ -195,8 +195,8 @@ mod tests {
             addr: "192.168.0.2".to_string(),
             core: 8,
             memory: 16.0,
-            running:0,
-            max:4,
+            running: 0,
+            max: 4,
             usage: Usage {
                 cpu: 0.0,
                 memory: 0.0,
