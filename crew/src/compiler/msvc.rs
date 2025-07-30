@@ -102,7 +102,7 @@ impl MSVC {
                 }
                 else {
                     //dist with source file and include file
-                    let output = request_dist_compile_with_source_and_include(&self.work_env, &compiler_input);
+                    let output = self.request_dist_compile_with_source_and_include(&compiler_input);
                     compiler_output.set(output);
                 }
             }
@@ -746,6 +746,88 @@ impl MSVC {
             return output;
         }
     }
+
+    async fn request_dist_compile_with_source_and_include(&self, input: &CompilerInput) -> CompilerOutput {
+        log::debug!("request dist compile with source and include file.");
+    
+        let mut sources = input.compiler_commands.clone().into_iter().filter(|item| {
+            let item = item.to_string_lossy().to_lowercase();
+            item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cxx") || item.ends_with(".cc")
+        }).collect::<Vec<_>>();
+
+        let mut set = tokio::task::JoinSet::new();
+        let len = self.sender.lock().unwrap().all().len();
+
+        let mut left = Vec::new();
+        for _ in 0..len {
+            let mut addr = String::new();
+            let mut index = -1;
+            (addr, index, left, sources) = self.sender.lock().unwrap().schedule_for_sources(None, &sources);
+            if !left.is_empty() {
+                let self_ = self.clone();
+                let input_ = input.clone();
+                set.spawn(async move {
+
+                    let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self_.runtime).await;
+
+                    if let Some(stream) = stream {
+                        for file in left {
+
+                            let content = tokio::fs::read(std::path::PathBuf::from(&file)).await.unwrap_or_else(|_| {
+                                log::error!("failed to read file: {:?}", file);
+                                Vec::new()
+                            });
+
+                            let archive = crate::communicate::package::ArchiveArgs {
+                                file_type:  crate::communicate::package::FileType::PrecompiledSrcFiles,
+                                solution: input_.solution.to_string_lossy().to_string(),
+                                project: input_.project.to_string_lossy().to_string(),
+                                name: file.to_string_lossy().to_string(),
+                                path: file.to_string_lossy().to_string(),
+                                content: content.into(),
+                            };
+
+                            stream.send(archive).await;
+                        }
+                    }
+
+                    notify.notified().await;
+
+                    return addr;
+                });
+                left.clear();
+            }
+
+            if sources.is_empty() {
+                break;
+            }
+        }
+
+        while let Some(handle) = set.join_next().await {
+            match handle {
+                Ok(addr) => {
+                    log::debug!("dist compile with source and include file output: {:?}", addr);
+                    
+                    if !sources.is_empty() {
+                        let mut index = -1;
+                        (_, index, _, sources) = self.sender.lock().unwrap().schedule_for_sources(Some(addr), &sources);
+
+                        set.spawn(async move {
+ 
+                            
+                            return "".to_string();
+                        });
+                    }
+                },
+                Err(error) => {
+                    log::error!("dist compile with source and include file error: {:?}", error);
+                }
+            }
+        }
+
+        return CompilerOutput::default();
+    }
+
 }
 
 fn winapi_get_long_path_name(path: &std::ffi::OsString) -> std::ffi::OsString {
@@ -1369,67 +1451,6 @@ fn request_local_compile_by_preprocessed_source(msvc_compile_input: &CompilerInp
                     msvc_compile_input.build_and_compiler_type.clone(), true);
 
     return (output, results);
-}
-
-fn request_dist_compile_with_source_and_include(working_param: &crate::platform::windows::WindowsCompilerEnv, msvc_compile_input: &CompilerInput) -> CompilerOutput {
-    log::debug!("request dist compile with source and include file.");
-    //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin\Hostx64\x64\cl.exe
-    let local_compiler_arch = msvc_compile_input.compiler_path.to_str().unwrap();
-    let compiler_dir = std::path::Path::new(&working_param.compiler_path).join("Hostx64").join(local_compiler_arch);
-
-    log::trace!("vs compiler install dir: {:?}.", compiler_dir);
-
-    let winsdk_path = working_param.winkits_includes_path.first().unwrap();
-
-    let mut dist_msvc_compiler_path: std::ffi::OsString = std::ffi::OsString::from("");
-    let dist_msvc_include_path: std::ffi::OsString = std::ffi::OsString::from("");
-    let win_kits_include_dir: std::ffi::OsString = std::ffi::OsString::from("");
-
-    //(dist_msvc_compiler_path, dist_msvc_include_path, win_kits_include_dir) = sender.dist_kits_and_tool_pre_sync(winsdk_path, compiler_dir.to_str().unwrap());
-
-    if dist_msvc_compiler_path.is_empty() {
-        log::debug!("msvc toolchain sync");
-        let path = std::path::PathBuf::from(compiler_dir.to_str().unwrap());
-        if path.is_dir() {
-            //(dist_msvc_compiler_path, dist_msvc_include_path) = sender.sync_toolchain(&path);
-        }
-    }
-    else {
-        log::debug!("tool chain sync have done");
-    }
-
-    if win_kits_include_dir.is_empty() {
-        log::debug!("windows kits sync");
-        let mut path = std::path::PathBuf::from(winsdk_path);
-        if path.is_dir() && path.pop() {
-            //win_kits_include_dir = sender.sync_windows_kits(&path);
-        }
-    }
-    else {
-        log::debug!("windows kits sync have done");
-    }
-
-    if !dist_msvc_compiler_path.is_empty() {
-        let mut path = std::path::PathBuf::from(dist_msvc_compiler_path);
-        if !path.ends_with("cl.exe") {
-            path.push("cl.exe")
-        }
-        dist_msvc_compiler_path = std::ffi::OsString::from(path);
-    }
-
-    let env_input = crate::platform::windows::WindowsCompilerEnv {
-         winkits_includes_path: vec![win_kits_include_dir],
-         compiler_path: std::path::PathBuf::from(dist_msvc_compiler_path.clone()),
-         msvc_includes_path: vec![dist_msvc_include_path],
-         msvc_version: String::new(),
-         env_args: String::new(),
-    };
-
-    let mut input = msvc_compile_input.to_owned();
-    //input.env_input = Some(env_input.clone());
-    input.build_and_compiler_type = std::ffi::OsString::from("msbuild_dist");
-
-    return CompilerOutput::default();
 }
 
 async fn request_dist_compile_with_precompiled_source(addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> CompilerOutput {

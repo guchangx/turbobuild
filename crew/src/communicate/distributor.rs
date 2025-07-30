@@ -86,6 +86,36 @@ impl Distributor {
         return addr.to_owned();
     }
     
+    pub fn schedule_for_sources(&self, addr: Option<String>, sources: &Vec<std::ffi::OsString>) -> (String, i32, Vec<std::ffi::OsString>, Vec<std::ffi::OsString>) {
+
+        if addr.is_none() {
+            let mut manager  = self.tasker.lock().unwrap();
+            let (addr, index, count) = manager.schedule_for_sources(sources.len() as u32);
+
+            if count <= sources.len() as u32 {
+                let left = sources.iter().take(count as usize).cloned().collect::<Vec<_>>();
+                let right = sources.iter().skip(count as usize).cloned().collect::<Vec<_>>();
+                return (addr.to_string(), index, left, right);
+            }
+            else {
+                return (addr.to_string(), index, sources.to_vec(), Vec::new());
+            }
+        }
+        else {
+            let mut manager  = self.tasker.lock().unwrap();
+            let (index, count) = manager.schedule_by_specific_host(addr.clone().unwrap().as_ref(), sources.len() as u32);
+            
+            if count <= sources.len() as u32 {
+                let left = sources.iter().take(count as usize).cloned().collect::<Vec<_>>();
+                let right = sources.iter().skip(count as usize).cloned().collect::<Vec<_>>();
+                return (addr.unwrap().to_string(), index, left, right);
+            }
+            else {
+                return (addr.unwrap().to_string(), index, sources.to_vec(), Vec::new());
+            }
+        }
+    }
+    
     pub fn done(&self, addr: &str) {
         let mut manager  = self.tasker.lock().unwrap();
         manager.done(addr);

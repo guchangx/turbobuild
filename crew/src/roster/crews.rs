@@ -89,6 +89,8 @@ pub struct Usage {
 
 #[derive(serde::Deserialize, Clone, Debug, Default)]
 pub struct Task {
+    #[serde(default)]
+    pub index: i32,
     pub username: String,
     pub devicename: String,
     pub addr: String,
@@ -121,7 +123,14 @@ impl TasksManager {
                 existing.max = task.max;
                 existing.addr = task.addr.clone();
             } else {
-                self.tasks.push(task.clone());
+                if task.addr == "127.0.0.1" || task.addr == "localhost" {
+                    self.tasks.insert(0, task.clone());
+                }
+                else {
+                    let mut task_ = task.clone();
+                    task_.index = self.tasks.len() as i32;
+                    self.tasks.push(task_);
+                }
             }
         }
     }
@@ -140,6 +149,51 @@ impl TasksManager {
             else {
                 return "";    
             }            
+        }
+    }
+
+    pub fn schedule_for_sources(&mut self, size: u32) ->(&str, i32, u32) {
+        let iter = self.tasks.iter_mut().filter(|item| item.running < item.max).min_by(|x, y| x.running.cmp(&y.running));
+        if let Some(item) = iter {
+            if size <= item.core {
+                if size <= size / 2 + item.core {
+                    item.running += size;
+                    return (item.addr.as_str(), item.index, size);
+                }
+                else {
+                    item.running += item.core;
+                    return (item.addr.as_str(), item.index, item.core);
+                }
+            }
+            else {
+                item.running += size;
+                return (item.addr.as_str(), item.index, size);
+            }            
+        }
+        else {
+            return ("", -1, 0);
+        }
+    }
+
+    pub fn schedule_by_specific_host(&mut self, addr: &str, size: u32) -> (i32, u32) {
+        if let Some(item) = self.tasks.iter_mut().find(|item| item.addr == addr) {
+            if size <= item.core {
+                if size <= size / 2 + item.core {
+                    item.running += size;
+                    return (item.index,size as u32);
+                }
+                else {
+                    item.running += item.core;
+                    return (item.index, item.core as u32);
+                }
+            }
+            else {
+                item.running += size;
+                return (item.index, size as u32);
+            }
+        }
+        else {
+            return (-1, 0);
         }
     }
     
@@ -175,6 +229,7 @@ mod tests {
         println!("test schedule task");
         let mut tasks = TasksManager::new();
         let task = Task {
+            index: 0,
             username: "".to_string(),
             devicename: "".to_string(),
             addr: "192.168.0.1".to_string(),
@@ -190,6 +245,7 @@ mod tests {
         tasks.add(&vec![task]);
         
         let task = Task {
+            index: 1,
             username: "".to_string(),
             devicename: "".to_string(),
             addr: "192.168.0.2".to_string(),
