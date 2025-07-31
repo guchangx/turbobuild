@@ -46,7 +46,7 @@ pub struct ArchiveArgs<'a> {
     pub solution: String,
     pub project: String,
     pub name: String,
-    pub path: String,    
+    pub path: String,
     pub content: std::borrow::Cow<'a, [u8]>,
 }
 

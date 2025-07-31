@@ -6,10 +6,13 @@ pub trait Compiler {
 }
 
 // local request compile
-pub async fn request_compile(compiler_input: CompilerInput, runtime: std::sync::Arc<tokio::runtime::Handle>, env: Option<crate::platform::windows::WindowsCompilerEnv>,
-                            distor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) 
-                            -> CompilerOutput {
-                    
+pub async fn request_compile<Func, Fut>(compiler_input: CompilerInput, runtime: std::sync::Arc<tokio::runtime::Handle>, env: Option<crate::platform::windows::WindowsCompilerEnv>,
+                            distor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>, func: Func)
+                            -> CompilerOutput
+                            where
+                                Func: Fn(crate::compiler::model::CompilerOutput) -> Fut + Send + Sync + 'static,
+                                Fut: std::future::Future<Output = ()> + Send + 'static,
+{
     if compiler_input.build_and_compiler_type.to_string_lossy().contains("msbuild")
         || compiler_input.build_and_compiler_type.to_string_lossy().contains("cmake")
         || compiler_input.build_and_compiler_type.to_string_lossy().contains("clang_cl") {
@@ -18,6 +21,7 @@ pub async fn request_compile(compiler_input: CompilerInput, runtime: std::sync::
             work_env: if env.is_some() { env.unwrap() } else { crate::platform::windows::WindowsCompilerEnv::default() },
             runtime: runtime,
             sender: distor,
+            output_callback: std::sync::Arc::new(move|output: CompilerOutput| {Box::new(func(output))}),
         };
         let output = msvc.request_compile(compiler_input);
         return output;

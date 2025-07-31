@@ -7,6 +7,7 @@ pub struct MSVC {
     pub work_env: crate::platform::windows::WindowsCompilerEnv,
     pub runtime: std::sync::Arc<tokio::runtime::Handle>,
     pub sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>,
+    pub output_callback: std::sync::Arc<dyn Fn(crate::compiler::model::CompilerOutput) -> Box<dyn std::future::Future<Output = ()> + Send> + Send + Sync>,
 }
 
 pub struct StdOut {
@@ -102,7 +103,7 @@ impl MSVC {
                 }
                 else {
                     //dist with source file and include file
-                    let output = self.request_dist_compile_with_source_and_include(&compiler_input);
+                    let output = self.request_dist_compile_with_source_and_include(&compiler_input).await;
                     compiler_output.set(output);
                 }
             }
@@ -758,14 +759,32 @@ impl MSVC {
         let mut set = tokio::task::JoinSet::new();
         let len = self.sender.lock().unwrap().all().len();
 
-        let mut left = Vec::new();
+        let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &input.compiler_commands, &input.compiler_working_dir);
+                            
+        let mut intermediate = std::path::PathBuf::from(&input.compiler_working_dir);
+        match &actions.precompiled_result_file {
+            PrecompiledResult::PathWithPCResultName(path) => {
+                intermediate = path.parent().unwrap().to_owned();
+            },
+            PrecompiledResult::PathWithoutPCResultName(path) => {
+                intermediate = path.to_owned();
+
+            },
+            PrecompiledResult::PCResultNameWithoutPath(_path) => {
+
+            }
+            _ => {},
+        }
+
         for _ in 0..len {
             let mut addr = String::new();
             let mut index = -1;
+            let mut left = Vec::new();
             (addr, index, left, sources) = self.sender.lock().unwrap().schedule_for_sources(None, &sources);
             if !left.is_empty() {
                 let self_ = self.clone();
                 let input_ = input.clone();
+                let intermediate_ = intermediate.clone();
                 set.spawn(async move {
 
                     let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self_.runtime).await;
@@ -773,31 +792,38 @@ impl MSVC {
                     if let Some(stream) = stream {
                         for file in left {
 
-                            let content = tokio::fs::read(std::path::PathBuf::from(&file)).await.unwrap_or_else(|_| {
+                            let path = std::path::PathBuf::from(&file);
+                            let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
                                 log::error!("failed to read file: {:?}", file);
                                 Vec::new()
                             });
 
+                            let name = path.file_name().unwrap().to_string_lossy().to_string();
+
                             let archive = crate::communicate::package::ArchiveArgs {
-                                file_type:  crate::communicate::package::FileType::PrecompiledSrcFiles,
+                                file_type:  crate::communicate::package::FileType::SourceFiles,
                                 solution: input_.solution.to_string_lossy().to_string(),
                                 project: input_.project.to_string_lossy().to_string(),
-                                name: file.to_string_lossy().to_string(),
-                                path: file.to_string_lossy().to_string(),
+                                name: name.clone(),
+                                path: intermediate_.join(name).to_string_lossy().to_string(),
                                 content: content.into(),
                             };
 
-                            stream.send(archive).await;
+                            let _ = stream.send(archive).await;
                         }
                     }
 
                     notify.notified().await;
+                    
+                    let requires = crate::compiler::model::PrecompiledSource {
+                        contents: None,
+                        path: std::ffi::OsString::new(),
+                    };
 
-                    return addr;
+                    let output = self_.request_dist_compile_with_command(&addr, input_.clone(), &requires).await;
+                    return (addr, output);
                 });
-                left.clear();
             }
-
             if sources.is_empty() {
                 break;
             }
@@ -805,17 +831,56 @@ impl MSVC {
 
         while let Some(handle) = set.join_next().await {
             match handle {
-                Ok(addr) => {
+                Ok((addr, output)) => {
                     log::debug!("dist compile with source and include file output: {:?}", addr);
-                    
+                    let callback = (self.output_callback)(output);
+                    let callback = Box::into_pin(callback);
+                    let _ = callback.await;
+
                     if !sources.is_empty() {
                         let mut index = -1;
-                        (_, index, _, sources) = self.sender.lock().unwrap().schedule_for_sources(Some(addr), &sources);
+                        let addr_ = addr.clone();
+                        let mut left = Vec::new();
+                        (_, index, left, sources) = self.sender.lock().unwrap().schedule_for_sources(Some(addr), &sources);
+
+                        let self_ = self.clone();
+                        let input_ = input.clone();
 
                         set.spawn(async move {
- 
                             
-                            return "".to_string();
+                            let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr_, &self_.runtime).await;
+                            
+                            if let Some(stream) = stream {
+                                for file in left {
+
+                                    let content = tokio::fs::read(std::path::PathBuf::from(&file)).await.unwrap_or_else(|_| {
+                                        log::error!("failed to read file: {:?}", file);
+                                        Vec::new()
+                                    });
+
+                                    let archive = crate::communicate::package::ArchiveArgs {
+                                        file_type:  crate::communicate::package::FileType::SourceFiles,
+                                        solution: input_.solution.to_string_lossy().to_string(),
+                                        project: input_.project.to_string_lossy().to_string(),
+                                        name: file.to_string_lossy().to_string(),
+                                        path: file.to_string_lossy().to_string(),
+                                        content: content.into(),
+                                    };
+
+                                    let _ = stream.send(archive).await;
+                                }
+                            }
+
+                            notify.notified().await;
+
+                            let requires = crate::compiler::model::PrecompiledSource {
+                                contents: None,
+                                path: std::ffi::OsString::new(),
+                            };
+
+                            let output = self_.request_dist_compile_with_command(&addr_, input_.clone(), &requires).await;
+                            
+                            return (addr_, output);
                         });
                     }
                 },

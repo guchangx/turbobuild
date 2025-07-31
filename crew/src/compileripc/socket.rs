@@ -100,8 +100,37 @@ impl Receiver {
                                 }
                             }
                         });
+                        
+                        let stream_ = stream.clone();
 
-                        let result = crate::compiler::interface::request_compile(input, runtime.clone(), if work_env.winkits_includes_path.is_empty() {Some(work_env)} else { None }, distor).await;  
+                        let output_callback = move |result: crate::compiler::model::CompilerOutput| {
+                            let stream_ = stream_.clone();
+                            async move {
+                                if !result.out.is_empty() {
+                                    for line in result.out.lines() {
+                                        let mut line = line.unwrap();
+                                        line.push_str("\r\n");
+                                        let _ = stream_.lock().await.write_all(line.as_bytes()).await.unwrap_or_else(|err| {
+                                            log::warn!("assistbuild request compile output error: {}", err);
+                                        });
+                                        let _ = stream_.lock().await.flush().await;
+                                    };
+                                }
+
+                                if !result.err.is_empty() {
+                                    for line in result.err.lines() {
+                                        let mut line = line.unwrap();
+                                        line.push_str("\r\n");
+                                        let _ = stream_.lock().await.write_all(line.as_bytes()).await.unwrap_or_else(|err| {
+                                            log::warn!("assistbuild request compile error: {}", err);
+                                        });
+                                        let _ = stream_.lock().await.flush().await;
+                                    };
+                                }
+                            }
+                        };
+
+                        let result = crate::compiler::interface::request_compile(input, runtime.clone(), if work_env.winkits_includes_path.is_empty() {Some(work_env)} else { None }, distor, output_callback).await;  
                         
                         if !stop_tx.is_closed() {
                             stop_tx.send(()).unwrap();

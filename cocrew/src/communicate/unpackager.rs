@@ -90,6 +90,14 @@ impl Receiver {
                         log::error!("package toolchain is not end with .zip {}", path);
                     }
                 }
+                else if file_type == package::FileType::Sourcefiles as i32 {
+                    let ret = Self::storage(&solution, &path, &content).await;
+                    if let Err(err) = ret {
+                        log::error!("transmit file handle save source files failed: {}", err);
+                        reply.error_code = 1;
+                        reply.error_message = err;
+                    };
+                }
                 else if file_type == package::FileType::Precompiledsrcfiles as i32 {
                     let ret = Self::storage(&solution, &path, &content).await;
                     if let Err(err) = ret {

@@ -192,7 +192,7 @@ pub unsafe fn create_file_w(
                 h_template_file,
             );
 
-            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+            if handle == winapi::um::handleapi::INVALID_HANDLE_VALUE {
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = winapi::um::errhandlingapi::GetLastError();
                 crate::log!(error, "create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
