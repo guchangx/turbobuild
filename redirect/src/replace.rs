@@ -61,6 +61,9 @@ pub fn replace(path: &mut String) -> bool {
     if path.ends_with(".dll") || path.ends_with("_PIPE") {
         return false;
     }
+    else if path.ends_with(".h") || path.ends_with(".hpp") {
+        return false;
+    }
     else if path.ends_with(".cpp") || path.ends_with(".cxx") || path.ends_with(".c") || path.ends_with(".cc") {
         return false;
     }

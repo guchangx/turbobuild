@@ -37,9 +37,9 @@ static REDIRECT_DLL_PATH: std::sync::LazyLock<Option<std::ffi::CString>> = std::
         }
     });
 
-pub unsafe fn pass_object_name_to_redriect(handle: winapi::shared::ntdef::HANDLE, solution: &str, project: &str) {
+pub unsafe fn pass_params_to_redirect(handle: winapi::shared::ntdef::HANDLE, solution: &str, project: &str, pdb: &str) {
     if !solution.is_empty() {
-        let arg = format!("solution:{}\r\nproject:{}\r\nreplica:{}\r\n", solution, project, tools::utils::access_replica_dir());
+        let arg = format!("solution:{}\r\nproject:{}\r\nreplica:{}\r\npdb:{}\r\n", solution, project, tools::utils::access_replica_dir(), pdb);
         let mut bytes: winapi::shared::minwindef::DWORD = 0;
         let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
         let ret = winapi::um::fileapi::WriteFile(
@@ -70,6 +70,18 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
     unsafe {
         let lpApplicationName = app_path.as_str();
         
+        let pdb= command.find("/Fd").map(|index| {
+            command[index + 3..].find(char::is_whitespace).map(|end| {
+                let pdb = &command[index + 4..index + end];
+                if pdb.ends_with(".pdb") {
+                    let trimmed = pdb.strip_suffix(".pdb").unwrap_or(pdb);
+                    log::debug!("pdb path: {}", trimmed);
+                    return trimmed.to_owned();
+                }
+                return pdb.to_owned();
+            }).unwrap()
+        }).unwrap();
+
         let lpCommandLine = command.as_str();
 
         let bInheritHandles = winapi::shared::minwindef::TRUE;
@@ -155,9 +167,9 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
             if ret == winapi::shared::minwindef::TRUE {
                 let stdoutstream = out_err_stream.stdout.to_owned();
                 let stderrstream = out_err_stream.stderr.to_owned();
-                
-                pass_object_name_to_redriect(hStdInWrite, &solution, &project);
-                
+
+                pass_params_to_redirect(hStdInWrite, &solution, &project, &pdb);
+
                 let ret = winapi::um::processthreadsapi::ResumeThread(lpProcessInformation.hThread as _);
                 if ret == winapi::shared::minwindef::FALSE as u32 {
                     let error_code = winapi::um::errhandlingapi::GetLastError();

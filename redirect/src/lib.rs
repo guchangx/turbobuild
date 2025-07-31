@@ -54,6 +54,7 @@ static  REPLICADIR: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std:
 */
 
 static REPLICADIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static PDBDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static STDOUT_LOG_HANDLE: std::sync::LazyLock<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 
 unsafe fn redirect_stdout_log_2_cocrew() {
@@ -237,6 +238,10 @@ fn read_project_property_from_stdin() {
                 //project:xxxxxxx or project xxxxxx 
                 let (_, proj) = arg.split_at("project".len() + 1);
                 PROJECTNAME.set(String::from(&proj[0..proj.len()])).unwrap();
+            }
+            else if arg.starts_with("pdb") {
+                let (_, dir) = arg.split_at("pdb".len() + 1);
+                PDBDIR.set(String::from(&dir[0..dir.len()])).unwrap();
             }
             else if arg.starts_with("replica") {
                 let (_, dir) = arg.split_at("replica".len() + 1);

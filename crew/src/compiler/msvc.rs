@@ -751,15 +751,16 @@ impl MSVC {
     async fn request_dist_compile_with_source_and_include(&self, input: &CompilerInput) -> CompilerOutput {
         log::debug!("request dist compile with source and include file.");
     
-        let mut sources = input.compiler_commands.clone().into_iter().filter(|item| {
+        let (mut sources, others): (Vec<std::ffi::OsString>, Vec<std::ffi::OsString>) =
+        input.compiler_commands.clone().into_iter().partition(|item| {
             let item = item.to_string_lossy().to_lowercase();
             item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cxx") || item.ends_with(".cc")
-        }).collect::<Vec<_>>();
+        });
 
         let mut set = tokio::task::JoinSet::new();
         let len = self.sender.lock().unwrap().all().len();
 
-        let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &input.compiler_commands, &input.compiler_working_dir);
+        let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &others, &input.compiler_working_dir);
                             
         let mut intermediate = std::path::PathBuf::from(&input.compiler_working_dir);
         match &actions.precompiled_result_file {
@@ -785,12 +786,13 @@ impl MSVC {
                 let self_ = self.clone();
                 let input_ = input.clone();
                 let intermediate_ = intermediate.clone();
+                let mut others_ = others.clone();
                 set.spawn(async move {
 
                     let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self_.runtime).await;
 
                     if let Some(stream) = stream {
-                        for file in left {
+                        for file in &left {
 
                             let path = std::path::PathBuf::from(&file);
                             let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
@@ -820,7 +822,24 @@ impl MSVC {
                         path: std::ffi::OsString::new(),
                     };
 
-                    let output = self_.request_dist_compile_with_command(&addr, input_.clone(), &requires).await;
+                    if index != 0 {
+                        for item in others_.iter_mut() {
+                            if item.to_string_lossy().starts_with("/Fd") {
+                                if item.to_string_lossy().ends_with(".pdb") {
+                                    *item = std::ffi::OsString::from(format!("{}_tb_{}.pdb", item.to_string_lossy().strip_suffix(".pdb").unwrap(), index));
+                                }
+                                else {
+                                    *item = std::ffi::OsString::from(format!("{}/v143_tb_{}.pdb", item.to_string_lossy(), index));
+                                }
+                            }
+                        }
+                    }
+
+                    let mut input = input_.clone();
+                    input.compiler_commands = others_;
+                    input.compiler_commands.append(&mut left.iter().map(|item| item.clone()).collect());
+                    
+                    let output = self_.request_dist_compile_with_command(&addr, input, &requires).await;
                     return (addr, output);
                 });
             }
@@ -845,13 +864,13 @@ impl MSVC {
 
                         let self_ = self.clone();
                         let input_ = input.clone();
-
+                        let mut others_ = others.clone();
                         set.spawn(async move {
                             
                             let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr_, &self_.runtime).await;
                             
                             if let Some(stream) = stream {
-                                for file in left {
+                                for file in &left {
 
                                     let content = tokio::fs::read(std::path::PathBuf::from(&file)).await.unwrap_or_else(|_| {
                                         log::error!("failed to read file: {:?}", file);
@@ -877,6 +896,23 @@ impl MSVC {
                                 contents: None,
                                 path: std::ffi::OsString::new(),
                             };
+
+                            if index != 0 {
+                                for item in others_.iter_mut() {
+                                    if item.to_string_lossy().starts_with("/Fd") {
+                                        if item.to_string_lossy().ends_with(".pdb") {
+                                            *item = std::ffi::OsString::from(format!("{}_tb_{}.pdb", item.to_string_lossy().strip_suffix(".pdb").unwrap(), index));
+                                        }
+                                        else {
+                                            *item = std::ffi::OsString::from(format!("{}/v143_tb_{}.pdb", item.to_string_lossy(), index));
+                                        }
+                                    }
+                                }
+                            }
+
+                            let mut input = input_.clone();
+                            input.compiler_commands = others_;
+                            input.compiler_commands.append(&mut left.iter().map(|item| item.clone()).collect());
 
                             let output = self_.request_dist_compile_with_command(&addr_, input_.clone(), &requires).await;
                             

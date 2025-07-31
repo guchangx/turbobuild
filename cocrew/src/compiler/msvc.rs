@@ -686,7 +686,7 @@ fn start_local_compiler_with_inject(solution: &std::ffi::OsString, project: &std
                             compiler_commands: &Vec<std::ffi::OsString>, out_err_stream: &OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     
     let line: String = compiler_commands.clone().into_iter()
-        .map(|os_string| format!("{} ", os_string.to_string_lossy()))
+        .map(|item| format!("{} ", item.to_string_lossy()))
         .collect();
 
     let line =  format!(r#""{}" {}"#, compiler_path.to_string_lossy(), line);
