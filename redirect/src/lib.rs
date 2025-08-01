@@ -31,7 +31,7 @@ static LOGGER: std::sync::LazyLock<Channel> = std::sync::LazyLock::new(|| {
         let (tx, rx) = tokio::sync::mpsc::channel::<String>(512);
         let channel = Channel { tx, rx: std::sync::Mutex::new(Some(rx)) };
         return channel; 
-    });
+});
 
 static RUNTIME: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex::<tokio::runtime::Runtime>>> = std::sync::LazyLock::new(|| {
     let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
@@ -54,8 +54,16 @@ static  REPLICADIR: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std:
 */
 
 static REPLICADIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-static PDBDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static GENERATEDDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static INCLUDES: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static STDOUT_LOG_HANDLE: std::sync::LazyLock<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+static WORKINGDIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    if let Ok(path) = std::env::current_dir() {
+        path.to_string_lossy().to_string()
+    } else {
+        String::from(".")
+    }
+});
 
 unsafe fn redirect_stdout_log_2_cocrew() {
 
@@ -174,7 +182,7 @@ unsafe fn redirect_stdout_log_2_cocrew() {
         
         loop {
             match rx.try_recv() {
-                Ok(message) => {
+                Ok(_) => {
                 },
                 Err(err) => {
                     crate::logger::output_debug_string(&format!("redirect_stdout_log_2_cocrew: failed to receive message: {}", err));
@@ -239,19 +247,23 @@ fn read_project_property_from_stdin() {
                 let (_, proj) = arg.split_at("project".len() + 1);
                 PROJECTNAME.set(String::from(&proj[0..proj.len()])).unwrap();
             }
-            else if arg.starts_with("pdb") {
-                let (_, dir) = arg.split_at("pdb".len() + 1);
-                PDBDIR.set(String::from(&dir[0..dir.len()])).unwrap();
+            else if arg.starts_with("obj") {
+                let (_, dir) = arg.split_at("obj".len() + 1);
+                GENERATEDDIR.set(String::from(&dir[0..dir.len()])).unwrap();
             }
             else if arg.starts_with("replica") {
                 let (_, dir) = arg.split_at("replica".len() + 1);
                 REPLICADIR.set(String::from(&dir[0..dir.len()])).unwrap();
             }
+            else if arg.starts_with("includes") {
+                let (_, dir) = arg.split_at("includes".len() + 1);
+                INCLUDES.set(String::from(&dir[0..dir.len()])).unwrap();
+            }
         }
     //});
 }
 
-static MODULE_PATH :std::sync::OnceLock<std::ffi::CString> = std::sync::OnceLock::new();
+static MODULE_PATH: std::sync::OnceLock<std::ffi::CString> = std::sync::OnceLock::new();
 
 fn fetch_module_path(hinst: HINSTANCE) {
     let mut buffer = vec![0u16; 512];

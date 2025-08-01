@@ -136,6 +136,7 @@ impl Receiver {
     
         let commands = request.commands;
         let content = request.content;
+        
         log::trace!("transmit compile handle project: {}, file: {}, compiler: {}, commands size: {}, content size: {}KB.", &project, file, compiler, commands.len(), &content.len() / 1024 );
 
         if !content.is_empty() && !file.is_empty() {
@@ -169,6 +170,7 @@ impl Receiver {
                 compiler_working_dir: std::ffi::OsString::from(&request.working_dir),
                 compiler_commands: commands.iter().map(|item| std::ffi::OsString::from(item)).collect(),
                 build_and_compiler_type: std::ffi::OsString::from(request.variety),
+                envs: request.envs.iter().map(|env| (std::ffi::OsString::from(env.key.clone()), std::ffi::OsString::from(env.value.clone()))).collect(),
             };
 
             let tx_ = tx.clone();
@@ -215,8 +217,29 @@ impl Receiver {
                 Self::extract(&path.to_str().unwrap(), &content).await;
             }
             else {
-                let mut file = std::fs::File::create(&path).unwrap();
-                match file.write_all(&content) {
+
+                let file = match std::fs::File::create(&path) {
+                    Ok(file) => Ok(file),
+                    Err(err) => {
+                        if err.kind() == std::io::ErrorKind::NotFound {
+                            let parent = path.parent().unwrap();
+                            if !parent.exists() {
+                                std::fs::create_dir_all(parent).unwrap();
+                                let file = std::fs::File::create(&path);
+                                file
+                            }
+                            else {
+                                Err(err)
+                            }
+                        }
+                        else {
+                            log::error!("transmit storage file create failed: {:?}, {}", path, err);
+                            Err(err)
+                        }
+                    }
+                };
+
+                match file.unwrap().write_all(&content) {
                     Ok(_) => {
                         log::trace!("transmit storage file done: {:?}", path);
                     },

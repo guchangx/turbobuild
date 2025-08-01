@@ -1,8 +1,5 @@
 
-use crate::log;
-
 const PROJECT: &str = "Project";
-
 pub struct Model {} 
 
 impl Model {
@@ -38,6 +35,16 @@ impl Model {
         }
     }
 
+    pub fn fetch_local_replica_sources_dir() -> Option<String> {
+        if crate::WORKINGDIR.is_empty() || crate::GENERATEDDIR.get().is_none() {
+            return None;
+        }
+        else {
+            let dir = Self::fetch_local_replica_project_path(crate::GENERATEDDIR.get().unwrap());
+            return dir;
+        }
+    }
+
 }
 
 pub fn replace(path: &mut String) -> bool {
@@ -65,7 +72,12 @@ pub fn replace(path: &mut String) -> bool {
         return false;
     }
     else if path.ends_with(".cpp") || path.ends_with(".cxx") || path.ends_with(".c") || path.ends_with(".cc") {
-        return false;
+        if let Some(name) = std::path::Path::new(path).file_name() {
+            let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
+            *path = modified.to_string_lossy().to_string();
+        };
+
+        return true;
     }
     else if path.ends_with(".obj") {
         return false;
@@ -79,7 +91,7 @@ pub fn replace(path: &mut String) -> bool {
             *path = modified;
             return true;
         } else {
-            log!(warn, "project name and replica dir in model are not ready");
+            crate::log!(warn, "project name and replica dir in model are not ready");
             return false;
         }
     }
@@ -93,23 +105,43 @@ pub fn replace(path: &mut String) -> bool {
 
 pub fn replace_dir(path: &mut String) -> bool {
 
-    if path.ends_with("clui.dll") {
+    if std::path::Path::new(path).extension().is_some() {
         return false;
     }
     else if path.contains(r"AppData\Local\Temp\") {
         return false;
     }
-    else if path.starts_with(r"\\??\\pipe\\") {
+    else if path.starts_with(r"\??\pipe\") {
         return false;
     }
     else if crate::SOLUTIONNAME.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-        let modified = Model::fetch_local_replica_project_path(&path);
-        if let Some(modified) = modified {
-            *path = modified;
-            return true;   
-        } else {
-            log!(warn, "project name and replica dir in model are not ready");
-            return false;
+        let generated = std::path::Path::new(crate::GENERATEDDIR.get().unwrap());
+        if generated.is_absolute() {
+            let modified = Model::fetch_local_replica_sources_dir();
+            if let Some(modified) = modified {
+                if path.starts_with(r"\??\") {
+                    *path = format!(r"\??\{}", modified);
+                }
+                else {
+                    *path = modified;
+                }
+                return true;
+            } else {
+                crate::log!(warn, "replace sources dir is not ready, original: {}", path);
+                return false;
+            }
+        } 
+        else {
+            let modified =std::path::Path::new(&*crate::WORKINGDIR).join(generated);
+            let modified = modified.to_string_lossy().to_string();
+            if path.starts_with(r"\??\") {
+                *path = format!(r"\??\{}", modified);
+            }
+            else {
+                *path = modified;
+            }
+
+            return true;
         }
     } 
     else {

@@ -65,6 +65,10 @@ impl Receiver {
                         let working = input["working_dir"].as_str().unwrap();
                         let commands = input["commands"].as_array().unwrap();
                         let r#type = input["type"].as_str().unwrap();
+                        let envs = input["envs"].as_object().unwrap()
+                            .iter()
+                            .map(|(k, v)| (std::ffi::OsString::from(k), std::ffi::OsString::from(v.as_str().unwrap())))
+                            .collect::<std::collections::HashMap<_, _>>();
                         
                         let input = crate::compiler::model::CompilerInput {
                             solution: std::ffi::OsString::from(solution),
@@ -73,6 +77,7 @@ impl Receiver {
                             compiler_working_dir: std::ffi::OsString::from(working),
                             compiler_commands: commands.iter().map(|item| item.as_str().unwrap().into()).collect(),
                             build_and_compiler_type: std::ffi::OsString::from(r#type),
+                            envs: envs
                         };
 
                         let stream = std::sync::Arc::new(tokio::sync::Mutex::new(stream));

@@ -61,7 +61,7 @@ impl Distributor {
     pub async fn compile<'a>(addr: &str, file: std::ffi::OsString, input: &crate::compiler::model::CompilerInput, content: &std::borrow::Cow<'a, [u8]>,
         runtime: &std::sync::Arc<tokio::runtime::Handle>) -> crate::communicate::package::ReceiverType {
 
-        let args = super::package::PrecompiledFile {
+        let args = super::package::SourcesFile {
             solution: input.solution.to_string_lossy().to_string(),
             project: input.project.to_string_lossy().to_string(),
             file: file.to_string_lossy().to_string(),
@@ -70,6 +70,9 @@ impl Distributor {
             variety: input.build_and_compiler_type.to_string_lossy().to_string(),
             commands: input.compiler_commands.iter().map(|item: &std::ffi::OsString| item.clone().into_string().unwrap()).collect(),
             content: content.clone(),
+            envs: input.envs.iter()
+                .map(|(k, v)| (k.to_string_lossy().to_string(), v.to_string_lossy().to_string()))
+                .collect::<std::collections::HashMap<String, String>>(),
         };
 
         let mut sender = super::package::Sender::new(addr, Some(runtime)).await;

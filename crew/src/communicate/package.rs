@@ -33,6 +33,18 @@ pub struct PrecompiledFile<'a> {
     pub content: std::borrow::Cow<'a, [u8]>,
 }
 
+pub struct SourcesFile<'a> {
+    pub solution: String,
+    pub project: String,
+    pub file: String,
+    pub compiler: String,
+    pub working_dir: String,
+    pub variety: String,
+    pub commands: Vec<String>,
+    pub content: std::borrow::Cow<'a, [u8]>,
+    pub envs: std::collections::HashMap<String, String>,
+}
+
 pub enum FileType {
     Unknown = 0,
     SourceFiles = 1,
@@ -59,7 +71,7 @@ pub enum SenderType<'a> {
     Command(CommandArgs),
     Archive(ArchiveArgs<'a>),
     ArchiveStream(ArchiveStreamArgs),
-    Compile(PrecompiledFile<'a>),
+    Compile(SourcesFile<'a>),
     CheckResource,
 } 
 
@@ -267,17 +279,22 @@ impl Sender {
     }
 
     //TODO should think split dist compiler command or ziped precompilre sourcefile.
-    async fn dist_compile(&mut self, compiled: PrecompiledFile<'_>) -> CompileRecv {
-        let project = compiled.project.clone();
+    async fn dist_compile(&mut self, compile: SourcesFile<'_>) -> CompileRecv {
+        let project = compile.project.clone();
         let request = tonic::Request::new(pack::CompileTrRequest {
-            solution: compiled.solution,
-            project: compiled.project,
-            file: compiled.file,
-            compiler: compiled.compiler,
-            working_dir: compiled.working_dir,
-            variety: compiled.variety,
-            commands: compiled.commands,
-            content: compiled.content.to_vec(),
+            solution: compile.solution,
+            project: compile.project,
+            file: compile.file,
+            compiler: compile.compiler,
+            working_dir: compile.working_dir,
+            variety: compile.variety,
+            commands: compile.commands,
+            envs: compile.envs.iter().map(|(k,v)| pack::Envs {
+                key: k.clone(),
+                value: v.clone(),
+            }).collect(),
+            
+            content: compile.content.to_vec(),
         });
 
         let response = self.to_owned().client.transmit_task(request).await;

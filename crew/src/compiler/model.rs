@@ -31,6 +31,7 @@ pub struct CompilerInput {
     pub compiler_working_dir: std::ffi::OsString,
     pub compiler_commands: Vec<std::ffi::OsString>,
     pub build_and_compiler_type: std::ffi::OsString,
+    pub envs: std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]

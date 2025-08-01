@@ -39,7 +39,7 @@ static REDIRECT_DLL_PATH: std::sync::LazyLock<Option<std::ffi::CString>> = std::
 
 pub unsafe fn pass_params_to_redirect(handle: winapi::shared::ntdef::HANDLE, solution: &str, project: &str, pdb: &str) {
     if !solution.is_empty() {
-        let arg = format!("solution:{}\r\nproject:{}\r\nreplica:{}\r\npdb:{}\r\n", solution, project, tools::utils::access_replica_dir(), pdb);
+        let arg = format!("solution:{}\r\nproject:{}\r\nreplica:{}\r\nobj:{}\r\n", solution, project, tools::utils::access_replica_dir(), pdb);
         let mut bytes: winapi::shared::minwindef::DWORD = 0;
         let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
         let ret = winapi::um::fileapi::WriteFile(
@@ -65,22 +65,41 @@ pub unsafe fn pass_params_to_redirect(handle: winapi::shared::ntdef::HANDLE, sol
     CloseHandle(handle);
 }
 
-pub fn msvc_detours(solution: String, project: String, app_path: String, command: String, workding_dir: String, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
-     
-    unsafe {
-        let lpApplicationName = app_path.as_str();
-        
+pub fn fetch_generated_dir(command: &String) -> Option<String> {
+    let mut obj = command.find("/Fo").map(|index| {
+        command[index..].find(char::is_whitespace).map(|end| {
+            let obj = &command[index + 3..index + end];
+            if obj.ends_with(".obj") {
+                let trimmed = obj.strip_suffix(".obj").unwrap_or(obj);
+                return trimmed.to_owned();
+            }
+            return obj.to_owned();
+        }).unwrap()
+    });
+
+    if obj.is_none() {
         let pdb= command.find("/Fd").map(|index| {
-            command[index + 3..].find(char::is_whitespace).map(|end| {
-                let pdb = &command[index + 4..index + end];
+            command[index..].find(char::is_whitespace).map(|end| {
+                let pdb = &command[index + 3..index + end];
                 if pdb.ends_with(".pdb") {
                     let trimmed = pdb.strip_suffix(".pdb").unwrap_or(pdb);
-                    log::debug!("pdb path: {}", trimmed);
                     return trimmed.to_owned();
                 }
                 return pdb.to_owned();
             }).unwrap()
         }).unwrap();
+        obj = Some(pdb);
+    }
+
+    return obj;
+}
+
+pub fn msvc_detours(solution: String, project: String, app_path: String, command: String, workding_dir: String, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+     
+    unsafe {
+        let lpApplicationName = app_path.as_str();
+
+        let mut obj = fetch_generated_dir(&command);
 
         let lpCommandLine = command.as_str();
 
@@ -168,7 +187,7 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                 let stdoutstream = out_err_stream.stdout.to_owned();
                 let stderrstream = out_err_stream.stderr.to_owned();
 
-                pass_params_to_redirect(hStdInWrite, &solution, &project, &pdb);
+                pass_params_to_redirect(hStdInWrite, &solution, &project, &obj.unwrap());
 
                 let ret = winapi::um::processthreadsapi::ResumeThread(lpProcessInformation.hThread as _);
                 if ret == winapi::shared::minwindef::FALSE as u32 {

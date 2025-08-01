@@ -2,6 +2,11 @@ syntax = "proto3";
 
 package pack;
 
+message Envs {
+    string key = 1;
+    string value = 2;    
+}
+
 message CompileTrRequest {
     string solution = 1;
     string project = 2;
@@ -10,7 +15,8 @@ message CompileTrRequest {
     string working_dir = 5;
     string variety = 6;
     repeated string commands = 7;
-    bytes content = 8;
+    repeated Envs envs = 8; 
+    bytes content = 9;
 }
 
 enum CompileProgress {

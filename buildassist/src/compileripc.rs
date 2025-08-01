@@ -46,15 +46,17 @@ impl SocketClient {
                 stream.set_read_timeout(Some(std::time::Duration::from_secs(360))).unwrap();
 
                 let commands: Vec<_> = compiler_input.compiler_commands.clone().into_iter().map(|item| item.into_string().unwrap()).collect();
-    
+
+
                 let buffer = format!(
-                    r#"{{"solution": {:?}, "project": {:?}, "compiler": {:?}, "working_dir": {:?}, "commands": {:?}, "type": "{}"}}"#,
+                    r#"{{"solution": {:?}, "project": {:?}, "compiler": {:?}, "working_dir": {:?}, "commands": {:?}, "type": "{}", "envs": {:?}}}"#,
                     compiler_input.solution.to_string_lossy(),
                     compiler_input.project.to_string_lossy(),
                     compiler_input.compiler_path.to_string_lossy(),
                     compiler_input.compiler_working_dir.to_string_lossy(),
                     commands,
-                    compiler_input.build_and_compiler_type.to_string_lossy()
+                    compiler_input.build_and_compiler_type.to_string_lossy(),
+                    compiler_input.env_vars,
                 );
 
                 println!("{} send to turbobuild: {}", current_datetime(), buffer);
@@ -152,13 +154,19 @@ mod tests {
         let compiler_commands = vec![std::ffi::OsString::from("/test")];
         let commands: Vec<_> = compiler_commands.into_iter().map(|item| item.into_string().unwrap()).collect();
         
+        let mut envs = std::collections::HashMap::new();
+        envs.insert("VSTEL_ProjectID".to_string(), "{67F6C408-ECC5-3959-A1BD-03AA3A37478E}".to_string());
+        envs.insert("VSTEL_SolutionSessionID".to_string(), "{3C2F5EF7-146C-4B22-AAE5-E638A6DB2DC2}".to_string());
+        envs.insert("VS_Perf_Session_GCHeapCount".to_string(), "2".to_string());
+
         let data = format!(
-            r#"{{"project": "{}", "compiler_path": "{}", "compiler_working_dir": "{}", "compiler_commands": {:?}, "build_and_compiler_type": "{}"}}"#,
+            r#"{{"project": "{}", "compiler_path": "{}", "compiler_working_dir": "{}", "compiler_commands": {:?}, "type": "{}", "envs": {:?}}}"#,
             std::ffi::OsString::from("draft").to_string_lossy(),
             std::ffi::OsString::from(r#"C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\VC\\Tools\\MSVC\\14.39.33519\\bin\\Hostx64\\x64\\cl.exe"#).to_string_lossy(),
             std::ffi::OsString::new().to_string_lossy(),
             commands,
-            std::ffi::OsString::new().to_string_lossy()
+            std::ffi::OsString::new().to_string_lossy(),
+            envs
         );
         
         println!("socket data {:?}", data);
@@ -167,6 +175,6 @@ mod tests {
         assert!(input["compiler_path"].as_str().is_some());
         assert!(input["compiler_working_dir"].as_str().is_some());
         assert!(input["compiler_commands"].as_array().is_some());
-        assert!(input["build_and_compiler_type"].as_str().is_some());
+        assert!(input["type"].as_str().is_some());
     }
 }

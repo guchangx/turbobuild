@@ -93,7 +93,7 @@ impl MSVC {
                 compiler_output.set(output);
             }
             else {
-                if true {
+                if false {
                     // dist with preprocessed source
                     let now = std::time::Instant::now();
                     let output = self.request_multi_dist_batch_compile(compiler_input.clone()).await;
@@ -361,6 +361,7 @@ impl MSVC {
                             compiler_working_dir: working_dir.clone(),
                             compiler_commands: compiler_commands.clone(),
                             build_and_compiler_type: compiler_input.build_and_compiler_type.clone(),
+                            envs: std::collections::HashMap::new()
                         };
 
                         let handle = self.runtime.spawn(async move {
@@ -760,8 +761,7 @@ impl MSVC {
         let mut set = tokio::task::JoinSet::new();
         let len = self.sender.lock().unwrap().all().len();
 
-        let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &others, &input.compiler_working_dir);
-                            
+        let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &others, &input.compiler_working_dir);         
         let mut intermediate = std::path::PathBuf::from(&input.compiler_working_dir);
         match &actions.precompiled_result_file {
             PrecompiledResult::PathWithPCResultName(path) => {
@@ -782,6 +782,8 @@ impl MSVC {
             let mut index = -1;
             let mut left = Vec::new();
             (addr, index, left, sources) = self.sender.lock().unwrap().schedule_for_sources(None, &sources);
+            // if addr is local, we can skip the dist compile
+
             if !left.is_empty() {
                 let self_ = self.clone();
                 let input_ = input.clone();
