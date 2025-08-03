@@ -8,7 +8,7 @@ pub static mut CREATE_FILE_A: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void
 pub static mut CREATE_FILE_W: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_FILE_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_FILE_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
-pub static mut ZW_QUERY_DIRECTORY_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+pub static mut NT_QUERY_DIRECTORY_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut NT_CREATE_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_PROCESS_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_PROCESS_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
@@ -725,30 +725,42 @@ pub unsafe fn kernelbase_create_process_w(
     }
 }
 
-pub unsafe fn zw_query_directory_file(
-    file_handle: super::ntdef::types::HANDLE,
-    event: super::ntdef::types::HANDLE,
-    apc_routine: super::ntdef::types::PVOID,
-    apc_context: super::ntdef::types::PVOID,
-    io_status_block: super::ntdef::structs::PIO_STATUS_BLOCK,
-    file_information: super::ntdef::types::PVOID,
-    length: super::ntdef::types::ULONG,
-    file_information_class: super::ntdef::types::FILE_INFORMATION_CLASS,
-    return_single_entry: super::ntdef::types::BOOLEAN,
-    file_name: super::ntdef::structs::PUNICODE_STRING,
-    restart_scan: super::ntdef::types::BOOLEAN
-    ) -> super::ntdef::types::NTSTATUS {
+pub unsafe fn nt_query_directory_file(
+    file_handle: windows_sys::Win32::Foundation::HANDLE,
+    event: windows_sys::Win32::Foundation::HANDLE,
+    apc_routine: windows_sys::Win32::System::IO::PIO_APC_ROUTINE,
+    apc_context: *const core::ffi::c_void,
+    io_status_block: *mut windows_sys::Win32::System::IO::IO_STATUS_BLOCK,
+    file_information: *mut core::ffi::c_void,
+    length: u32,
+    file_information_class: windows_sys::Wdk::Storage::FileSystem::FILE_INFORMATION_CLASS,
+    return_single_entry: bool,
+    file_name: *const windows_sys::Win32::Foundation::UNICODE_STRING,
+    restart_scan: bool
+    ) -> windows_sys::Win32::Foundation::NTSTATUS {
 
-    let zw_query_directory_file: super::ntdef::functions::ZwQueryDirectoryFile = std::mem::transmute(ZW_QUERY_DIRECTORY_FILE);
-
+    let nt_query_directory_file: extern "C" fn(
+        filehandle: windows_sys::Win32::Foundation::HANDLE,
+        event: windows_sys::Win32::Foundation::HANDLE,
+        apcroutine:  windows_sys::Win32::System::IO::PIO_APC_ROUTINE,
+        apccontext: *const core::ffi::c_void,
+        iostatusblock: *mut windows_sys::Win32::System::IO::IO_STATUS_BLOCK,
+        fileinformation: *mut core::ffi::c_void,
+        length: u32,
+        fileinformationclass: windows_sys::Wdk::Storage::FileSystem::FILE_INFORMATION_CLASS,
+        returnsingleentry: bool,
+        filename: *const windows_sys::Win32::Foundation::UNICODE_STRING,
+        restartscan: bool,
+    ) -> windows_sys::Win32::Foundation::NTSTATUS = std::mem::transmute(NT_QUERY_DIRECTORY_FILE);
+    
     if !file_name.is_null() {
         let buffer = (*file_name).Buffer;
         let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-        
-        crate::log!(trace, "zw_query_directory_file path: {:?}", name);
+
+        crate::log!(trace, "nt_query_directory_file path: {:?}", name);
     }
 
-    let nt_status = zw_query_directory_file(
+    let nt_status = nt_query_directory_file(
         file_handle,
         event,
         apc_routine,
@@ -761,6 +773,57 @@ pub unsafe fn zw_query_directory_file(
         file_name,
         restart_scan
     );
+    
+    if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS && !file_information.is_null() {
+        let mut current_offset = 0usize;
+        let mut entry_count = 0;
+        
+        loop {
+            let current_entry = (file_information as *const u8).add(current_offset);
+            entry_count += 1;
+            match file_information_class {
+                 windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation => {
+                    let file_info = current_entry as *const windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
+                    let file_name_length_bytes = (*file_info).FileNameLength as usize;
+
+                    if file_name_length_bytes > 0 {
+                        let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
+                        if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
+                            crate::log!(trace, "Entry #{}: File: '{}'", entry_count, file_name_str);
+                        }
+                    }
+
+                    let next_entry_offset = (*file_info).NextEntryOffset;
+                    if next_entry_offset == 0 {
+                        break;
+                    }
+                    else {
+                        current_offset += next_entry_offset as usize;
+                    }
+                }
+                _ => {
+                    crate::log!(trace, "nt_query_directory_file: unsupported file_information_class: {:?}", file_information_class);
+                }
+            }
+
+            if current_offset >= length as usize {
+                crate::log!(warn, "Reached buffer end, processed {} entries", entry_count);
+                break;
+            }
+        }
+    }
+    else {
+        if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
+            crate::log!(trace, "No more files to enumerate.");
+        }
+        else if nt_status == windows_sys::Win32::Foundation::STATUS_BUFFER_OVERFLOW {
+            crate::log!(warn, "Buffer overflow occurred, consider increasing buffer size.");
+        }
+        else {
+            crate::log!(error, "nt_query_directory_file failed with status: {:#X}", nt_status);
+        }
+    }
+
     return nt_status;
 }
 
@@ -811,12 +874,11 @@ pub unsafe fn nt_create_file(
                     //TODO elpase 10ms, need optimize. 
                     crate::log!(trace, "nt_create_file replace hook: {}", name.clone());
 
-                    let mut object_name: winapi::shared::ntdef::UNICODE_STRING = std::mem::zeroed();
-
+                    let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
                     let object_name_source_wide_char = std::ffi::OsString::from(name.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
-
-                    let ret = ntapi::ntrtl::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
-                    if ret != winapi::shared::ntstatus::STATUS_SUCCESS {
+                    
+                    let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
+                    if ret != windows_sys::Win32::Foundation::STATUS_SUCCESS {
                         crate::log!(error, "rtl init unicode string failed.");
                     }
 

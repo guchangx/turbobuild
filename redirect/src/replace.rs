@@ -115,33 +115,38 @@ pub fn replace_dir(path: &mut String) -> bool {
         return false;
     }
     else if crate::SOLUTIONNAME.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-        let generated = std::path::Path::new(crate::GENERATEDDIR.get().unwrap());
-        if generated.is_absolute() {
-            let modified = Model::fetch_local_replica_sources_dir();
-            if let Some(modified) = modified {
+        if  crate::INCLUDES.get().unwrap().contains(&path[4..path.len() - 1].to_string()) {
+            return false;
+        }
+        else {
+            let generated = std::path::Path::new(crate::GENERATEDDIR.get().unwrap());
+            if generated.is_absolute() {
+                let modified = Model::fetch_local_replica_sources_dir();
+                if let Some(modified) = modified {
+                    if path.starts_with(r"\??\") {
+                        *path = format!(r"\??\{}", modified);
+                    }
+                    else {
+                        *path = modified;
+                    }
+                    return true;
+                } else {
+                    crate::log!(warn, "replace sources dir is not ready, original: {}", path);
+                    return false;
+                }
+            } 
+            else {
+                let modified =std::path::Path::new(&*crate::WORKINGDIR).join(generated);
+                let modified = modified.to_string_lossy().to_string();
                 if path.starts_with(r"\??\") {
                     *path = format!(r"\??\{}", modified);
                 }
                 else {
                     *path = modified;
                 }
-                return true;
-            } else {
-                crate::log!(warn, "replace sources dir is not ready, original: {}", path);
-                return false;
-            }
-        } 
-        else {
-            let modified =std::path::Path::new(&*crate::WORKINGDIR).join(generated);
-            let modified = modified.to_string_lossy().to_string();
-            if path.starts_with(r"\??\") {
-                *path = format!(r"\??\{}", modified);
-            }
-            else {
-                *path = modified;
-            }
 
-            return true;
+                return true;
+            }
         }
     } 
     else {

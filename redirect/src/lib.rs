@@ -55,7 +55,7 @@ static  REPLICADIR: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std:
 
 static REPLICADIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static GENERATEDDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-static INCLUDES: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static INCLUDES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 static STDOUT_LOG_HANDLE: std::sync::LazyLock<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 static WORKINGDIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     if let Ok(path) = std::env::current_dir() {
@@ -247,17 +247,9 @@ fn read_project_property_from_stdin() {
                 let (_, proj) = arg.split_at("project".len() + 1);
                 PROJECTNAME.set(String::from(&proj[0..proj.len()])).unwrap();
             }
-            else if arg.starts_with("obj") {
-                let (_, dir) = arg.split_at("obj".len() + 1);
-                GENERATEDDIR.set(String::from(&dir[0..dir.len()])).unwrap();
-            }
             else if arg.starts_with("replica") {
                 let (_, dir) = arg.split_at("replica".len() + 1);
                 REPLICADIR.set(String::from(&dir[0..dir.len()])).unwrap();
-            }
-            else if arg.starts_with("includes") {
-                let (_, dir) = arg.split_at("includes".len() + 1);
-                INCLUDES.set(String::from(&dir[0..dir.len()])).unwrap();
             }
         }
     //});
@@ -280,6 +272,46 @@ fn fetch_module_path(hinst: HINSTANCE) {
         MODULE_PATH.set(path).unwrap();
     }
 }
+
+fn fetch_args_from_command() {
+    let commandline = std::env::args_os();
+    let commands: Vec<std::ffi::OsString> = commandline.collect();
+    log!(debug, "current command line arguments: {:?}", commands);
+    let mut includes = Vec::new();
+    for (index, item) in commands.iter().enumerate() {
+
+        let item = item.to_string_lossy();
+
+        if item.eq("/I") || item.eq("/external:I") {
+            if index + 1 < commands.len() {
+                let include = commands[index + 1].to_string_lossy().to_string();
+                includes.push(include);
+            }
+        }
+        else if item.starts_with("/Fo") {
+            if item.ends_with(".obj") {
+                std::path::Path::new(&item[3..]).parent().map(|parent| {
+                    GENERATEDDIR.set(parent.to_string_lossy().to_string()).unwrap();
+                });
+            }
+            else {
+                GENERATEDDIR.set(item[3..].to_string()).unwrap();
+            }
+        }
+        else if item.starts_with("/Fd") {
+            if item.ends_with(".pdb") {
+                std::path::Path::new(&item[3..]).parent().map(|parent| {
+                    GENERATEDDIR.get_or_init(|| parent.to_string_lossy().to_string());
+                });
+            }
+            else {
+                GENERATEDDIR.get_or_init(|| item[3..].to_string());
+            }
+        }
+    }
+    INCLUDES.set(includes).unwrap();
+
+}   
 
 static LOGGER_LEVEL: LogLevel = LogLevel::Trace;
 
@@ -356,9 +388,11 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
 
             //force_unbuffered_output();
 
+            fetch_module_path(hinst);
+            fetch_args_from_command(); 
+
             redirect_stdout_log_2_cocrew();
             read_project_property_from_stdin();
-            fetch_module_path(hinst);
             
             //show_message_box_for_debug();
 
