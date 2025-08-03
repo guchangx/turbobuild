@@ -38,6 +38,8 @@ pub fn init_common() {
         rt.handle().clone()
     };
 
+    crate::communicate::pipeserver::compiler_redirect_request();
+
     handle.spawn(async move {
         log::info!("start redirect_stdout_log_2_cocrew");
         crate::compiler::msvc::redirect_stdout_log();

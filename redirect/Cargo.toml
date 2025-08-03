@@ -17,6 +17,6 @@ winapi = {version = "0.3.9", features = ["winbase", "handleapi", "minwindef", "c
                             "errhandlingapi", "winerror", "processenv", "synchapi", "debugapi", "ioapiset"]}
 #ntapi = "0.4.1"
 chrono = "0.4.38"
-windows-sys = {version = "0.60", features = ["Wdk_Storage_FileSystem", "Win32_System_IO"]}
+windows-sys = {version = "0.60", features = ["Wdk_Storage_FileSystem", "Win32_System_IO", "Win32_Storage_FileSystem"]}
 
 [build-dependencies]

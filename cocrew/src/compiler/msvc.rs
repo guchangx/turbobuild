@@ -164,6 +164,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     let compiler_path = compiler_input.compiler_path.clone();
     let replica_working_dir = compiler_input.compiler_working_dir.clone();
     let compiler_commands = compiler_input.compiler_commands.clone();
+    let envs = compiler_input.envs.clone();
 
     let actions = parse_action_from_commands(&compiler_input);
     let generated_object = actions.generated_object;
@@ -216,7 +217,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         drop(err_stream);
     });
 
-    let (status, stdout, stderr) = start_local_compiler(&solution_name, &project_name, &compiler_path, &replica_working_dir, &compiler_commands, &stdout_err_stream);
+    let (status, stdout, stderr) = start_local_compiler(&solution_name, &project_name, &compiler_path, &replica_working_dir, &compiler_commands,&envs, &stdout_err_stream);
 
     drop(stdout_err_stream);
 
@@ -683,7 +684,7 @@ fn parse_action_from_commands(compiler_input: &CompilerInput) -> CompileAction {
 }
 
 fn start_local_compiler_with_inject(solution: &std::ffi::OsString, project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, 
-                            compiler_commands: &Vec<std::ffi::OsString>, out_err_stream: &OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+                            compiler_commands: &Vec<std::ffi::OsString>, envs: &std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>, out_err_stream: &OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     let mut includes = Vec::new();
     let line: String = compiler_commands.clone().into_iter()
         .map(|item| {
@@ -703,12 +704,13 @@ fn start_local_compiler_with_inject(solution: &std::ffi::OsString, project: &std
     let line =  format!(r#""{}" {}"#, compiler_path.to_string_lossy(), line);
 
     let (status, stdout, stderr) = crate::detours::redirect::msvc_detours(solution.clone().into_string().unwrap(), project.clone().into_string().unwrap(), compiler_path.clone().into_string().unwrap(), 
-                    line, working_dir.clone().into_string().unwrap(), out_err_stream);
+                    line, working_dir.clone().into_string().unwrap(), envs.clone(), out_err_stream);
 
     return (status, stdout, stderr);
 }
 
-fn start_local_compiler(solution: &std::ffi::OsString, project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, out_err_stream: &OutAndErrStream) 
+fn start_local_compiler(solution: &std::ffi::OsString, project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, 
+                compiler_commands: &Vec<std::ffi::OsString>, envs: &std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>, out_err_stream: &OutAndErrStream) 
                     -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
 
     log::trace!("solution: {:?}", solution);
@@ -719,7 +721,7 @@ fn start_local_compiler(solution: &std::ffi::OsString, project: &std::ffi::OsStr
 
     let start = std::time::Instant::now();
     
-    let (status, stdout, stderr) = start_local_compiler_with_inject(solution, project, compiler_path, working_dir, compiler_commands, out_err_stream);
+    let (status, stdout, stderr) = start_local_compiler_with_inject(solution, project, compiler_path, working_dir, compiler_commands, envs, out_err_stream);
     
     let elapsed = start.elapsed();
     log::info!("compile file with inject elapsed time: {:?}.", elapsed);
@@ -975,7 +977,7 @@ mod tests {
         };
 
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), &std::ffi::OsString::new(),
-            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, &out_err_stream);
+            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, &std::collections::HashMap::new(), &out_err_stream);
         
         drop(out_err_stream);
 
@@ -1044,7 +1046,7 @@ mod tests {
         };
 
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), &std::ffi::OsString::new(), 
-            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, &out_err_stream);
+            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, &std::collections::HashMap::new(), &out_err_stream);
         assert!(status == 0);
         println!("compile .i file stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile .i file stderr: {}", String::from_utf8_lossy(&stderr));
@@ -1081,7 +1083,7 @@ mod tests {
         };
 
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("GammaRayTool"), &std::ffi::OsString::new(),
-            &complier_path.into_os_string(), &working_dir, &compiler_commands, &stdout_err_stream);
+            &complier_path.into_os_string(), &working_dir, &compiler_commands, &std::collections::HashMap::new(), &stdout_err_stream);
         log::info!("stdout: {}", String::from_utf8_lossy(&stdout));
         log::info!("stderr: {}", String::from_utf8_lossy(&stderr));
         assert!(status == 0);
@@ -1130,7 +1132,7 @@ mod tests {
         };
 
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("llvm-project"), &std::ffi::OsString::from(""), 
-            &complier_path.into_os_string(), &working_dir, &compiler_commands, &stdout_err_stream);
+            &complier_path.into_os_string(), &working_dir, &compiler_commands, &std::collections::HashMap::new(), &stdout_err_stream);
         log::info!("stdout: {}", String::from_utf8_lossy(&stdout));
         log::info!("stderr: {}", String::from_utf8_lossy(&stderr));
         assert!(status == 0);
@@ -1291,7 +1293,7 @@ mod tests {
         };
 
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), &std::ffi::OsString::new(),
-            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, &out_err_stream);
+            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, &std::collections::HashMap::new(), &out_err_stream);
         
         drop(out_err_stream);
 

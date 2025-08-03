@@ -47,7 +47,7 @@ pub unsafe fn create_file_a(
     if let Ok(mut path) = path {
         crate::log!(trace, "create_file_a hook path: {}", path);
 
-        let create_file_a: extern "C" fn(
+        let create_file_a: extern "system" fn(
             lp_file_name: LPCSTR,
             dw_desired_access: DWORD,
             dw_share_mode: DWORD,
@@ -119,7 +119,7 @@ pub unsafe fn create_file_w(
 ) -> HANDLE {
     
     if start_with_pipe_w(lp_file_name) {
-        let create_file_w_inner: extern "C" fn (
+        let create_file_w_inner: extern "system" fn (
             lp_file_name: LPCWSTR,
             dw_desired_access: DWORD,
             dw_share_mode: DWORD,
@@ -146,7 +146,7 @@ pub unsafe fn create_file_w(
 
         crate::log!(trace, "create_file_w hook path: {}", path);
 
-        let create_file_w: extern "C" fn (
+        let create_file_w: extern "system" fn (
             lp_file_name: LPCWSTR,
             dw_desired_access: DWORD,
             dw_share_mode: DWORD,
@@ -223,7 +223,7 @@ pub unsafe fn kernelbase_create_file_a(
         
         crate::log!(trace, "kernelbase_create_file_a hook path: {}", path);
 
-        let create_file_a: extern "C" fn(
+        let create_file_a: extern "system" fn(
             lp_file_name: LPCSTR,
             dw_desired_access: DWORD,
             dw_share_mode: DWORD,
@@ -295,7 +295,7 @@ pub unsafe fn kernelbase_create_file_w(
 ) -> HANDLE {
 
     if start_with_pipe_w(lp_file_name) {
-        let create_file_w_inner: extern "C" fn (
+        let create_file_w_inner: extern "system" fn (
             lp_file_name: LPCWSTR,
             dw_desired_access: DWORD,
             dw_share_mode: DWORD,
@@ -326,7 +326,7 @@ pub unsafe fn kernelbase_create_file_w(
             return winapi::um::handleapi::INVALID_HANDLE_VALUE;
         }
 
-        let create_file_w: extern "C" fn (
+        let create_file_w: extern "system" fn (
             lp_file_name: LPCWSTR,
             dw_desired_access: DWORD,
             dw_share_mode: DWORD,
@@ -466,7 +466,7 @@ pub unsafe fn kernelbase_create_process_a(
                 let error_code = winapi::um::errhandlingapi::GetLastError();
                 crate::log!(error, "detour create process withdllexa failed! error_code: {}.", error_code);
 
-                let create_process_a: extern "C" fn(
+                let create_process_a: extern "system" fn(
                     lp_application_name: LPCSTR,
                     lp_command_line: LPSTR,
                     lp_process_attributes: LPSECURITY_ATTRIBUTES,
@@ -501,7 +501,7 @@ pub unsafe fn kernelbase_create_process_a(
         }
         else
         {
-            let create_process_a: extern "C" fn(
+            let create_process_a: extern "system" fn(
                 lp_application_name: LPCSTR,
                 lp_command_line: LPSTR,
                 lp_process_attributes: LPSECURITY_ATTRIBUTES,
@@ -654,7 +654,7 @@ pub unsafe fn kernelbase_create_process_w(
                 let error_code = winapi::um::errhandlingapi::GetLastError();
                 crate::log!(error, "detour create process withdllexw failed! error_code: {}.", error_code);
 
-                let create_process_w: extern "C" fn(
+                let create_process_w: extern "system" fn(
                     lp_application_name: LPCWSTR,
                     lp_command_line: LPWSTR,
                     lp_process_attributes: LPSECURITY_ATTRIBUTES,
@@ -688,7 +688,7 @@ pub unsafe fn kernelbase_create_process_w(
             }
         } 
         else {
-            let create_process_w: extern "C" fn(
+            let create_process_w: extern "system" fn(
                 lp_application_name: LPCWSTR,
                 lp_command_line: LPWSTR,
                 lp_process_attributes: LPSECURITY_ATTRIBUTES,
@@ -739,7 +739,7 @@ pub unsafe fn nt_query_directory_file(
     restart_scan: bool
     ) -> windows_sys::Win32::Foundation::NTSTATUS {
 
-    let nt_query_directory_file: extern "C" fn(
+    let nt_query_directory_file: extern "system" fn(
         filehandle: windows_sys::Win32::Foundation::HANDLE,
         event: windows_sys::Win32::Foundation::HANDLE,
         apcroutine:  windows_sys::Win32::System::IO::PIO_APC_ROUTINE,
@@ -758,6 +758,23 @@ pub unsafe fn nt_query_directory_file(
         let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
 
         crate::log!(trace, "nt_query_directory_file path: {:?}", name);
+    }
+
+    if !file_handle.is_null() {
+        
+        let mut buffer: [u16; windows_sys::Win32::Foundation::MAX_PATH as usize] = [0; windows_sys::Win32::Foundation::MAX_PATH as usize];
+        let len = windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW(
+            file_handle,
+            buffer.as_mut_ptr(),
+            windows_sys::Win32::Foundation::MAX_PATH,
+            0
+        );
+        if len > 0 {
+            let file_path = crate::utils::convert::lpwstr_2_string(buffer.as_ptr());
+            if let Some(path) = file_path {
+                crate::log!(trace, "nt_query_directory_file file handle path: {}", path);
+            }
+        }
     }
 
     let nt_status = nt_query_directory_file(

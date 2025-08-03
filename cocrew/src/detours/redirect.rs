@@ -65,16 +65,35 @@ pub unsafe fn pass_params_to_redirect(handle: winapi::shared::ntdef::HANDLE, sol
     CloseHandle(handle);
 }
 
-pub fn msvc_detours(solution: String, project: String, app_path: String, command: String, workding_dir: String, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
-     
+pub fn msvc_detours(solution: String, project: String, app_path: String, command: String, workding_dir: String,
+    envs: std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+
     unsafe {
         let lpApplicationName = app_path.as_str();
 
         let lpCommandLine = command.as_str();
 
         let bInheritHandles = winapi::shared::minwindef::TRUE;
-        let dwCreationFlags = winapi::um::winbase::CREATE_DEFAULT_ERROR_MODE | winapi::um::winbase::CREATE_SUSPENDED;
-        let lpEnvironment = std::ptr::null_mut();
+        let dwCreationFlags = winapi::um::winbase::CREATE_DEFAULT_ERROR_MODE | winapi::um::winbase::CREATE_SUSPENDED | winapi::um::winbase::CREATE_UNICODE_ENVIRONMENT;
+
+        let mut env_block: Vec<u16> = Vec::new();
+        if !envs.is_empty() {
+            for (key, value) in envs.iter() {
+                let mut pair = key.clone();
+                pair.push("=");
+                pair.push(value);
+                
+                env_block.extend(pair.encode_wide());
+                env_block.push(0);
+            }
+            env_block.push(0);
+        }
+
+        let lpEnvironment = if env_block.is_empty() {
+            std::ptr::null_mut()
+        } else {
+            env_block.as_mut_ptr() as *mut std::ffi::c_void
+        };
         
         let appName = std::ffi::OsStr::new(lpApplicationName);
         let appNameWideChars: Vec<u16> = appName.encode_wide().chain(std::iter::once(0)).collect();
