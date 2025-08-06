@@ -1,2 +1,2 @@
 pub mod unpackager;
-pub mod pipeserver;
+pub mod namedpipe;

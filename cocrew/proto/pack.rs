@@ -71,22 +71,28 @@ pub struct FileTrResponse {
     #[prost(string, tag = "2")]
     pub error_message: ::prost::alloc::string::String,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct CheckResource {}
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CocrewResource {
+pub struct Params {
     #[prost(string, tag = "1")]
-    pub compiler_path: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag = "2")]
-    pub winkits_includes_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(string, tag = "3")]
-    pub msvc_includes_path: ::prost::alloc::string::String,
-    #[prost(string, tag = "4")]
-    pub msvc_version: ::prost::alloc::string::String,
-    #[prost(int32, tag = "5")]
-    pub error_code: i32,
-    #[prost(string, tag = "6")]
-    pub error_message: ::prost::alloc::string::String,
+    pub key: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub value: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RemoteRedirect {
+    #[prost(string, tag = "1")]
+    pub api: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub params: ::prost::alloc::vec::Vec<Params>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LocalRedirect {
+    #[prost(string, tag = "1")]
+    pub api: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub params: ::prost::alloc::vec::Vec<Params>,
+    #[prost(message, repeated, tag = "3")]
+    pub files: ::prost::alloc::vec::Vec<IntermediateResult>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -201,6 +207,19 @@ pub mod communicate_server {
             request: tonic::Request<super::CompileTrRequest>,
         ) -> std::result::Result<
             tonic::Response<Self::transmit_taskStream>,
+            tonic::Status,
+        >;
+        /// Server streaming response type for the transmit_redirect method.
+        type transmit_redirectStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::RemoteRedirect, tonic::Status>,
+            >
+            + std::marker::Send
+            + 'static;
+        async fn transmit_redirect(
+            &self,
+            request: tonic::Request<tonic::Streaming<super::LocalRedirect>>,
+        ) -> std::result::Result<
+            tonic::Response<Self::transmit_redirectStream>,
             tonic::Status,
         >;
     }
@@ -370,6 +389,54 @@ pub mod communicate_server {
                                 max_encoding_message_size,
                             );
                         let res = grpc.server_streaming(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/pack.communicate/transmit_redirect" => {
+                    #[allow(non_camel_case_types)]
+                    struct transmit_redirectSvc<T: Communicate>(pub Arc<T>);
+                    impl<
+                        T: Communicate,
+                    > tonic::server::StreamingService<super::LocalRedirect>
+                    for transmit_redirectSvc<T> {
+                        type Response = super::RemoteRedirect;
+                        type ResponseStream = T::transmit_redirectStream;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::ResponseStream>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                tonic::Streaming<super::LocalRedirect>,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as Communicate>::transmit_redirect(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = transmit_redirectSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.streaming(method, req).await;
                         Ok(res)
                     };
                     Box::pin(fut)

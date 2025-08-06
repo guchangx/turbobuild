@@ -71,22 +71,28 @@ pub struct FileTrResponse {
     #[prost(string, tag = "2")]
     pub error_message: ::prost::alloc::string::String,
 }
-#[derive(Clone, Copy, PartialEq, ::prost::Message)]
-pub struct CheckResource {}
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct CocrewResource {
+pub struct Params {
     #[prost(string, tag = "1")]
-    pub compiler_path: ::prost::alloc::string::String,
-    #[prost(string, repeated, tag = "2")]
-    pub winkits_includes_path: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(string, tag = "3")]
-    pub msvc_includes_path: ::prost::alloc::string::String,
-    #[prost(string, tag = "4")]
-    pub msvc_version: ::prost::alloc::string::String,
-    #[prost(int32, tag = "5")]
-    pub error_code: i32,
-    #[prost(string, tag = "6")]
-    pub error_message: ::prost::alloc::string::String,
+    pub key: ::prost::alloc::string::String,
+    #[prost(string, tag = "2")]
+    pub value: ::prost::alloc::string::String,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct RemoteRedirect {
+    #[prost(string, tag = "1")]
+    pub api: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub params: ::prost::alloc::vec::Vec<Params>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct LocalRedirect {
+    #[prost(string, tag = "1")]
+    pub api: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag = "2")]
+    pub params: ::prost::alloc::vec::Vec<Params>,
+    #[prost(message, repeated, tag = "3")]
+    pub files: ::prost::alloc::vec::Vec<IntermediateResult>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -302,6 +308,30 @@ pub mod communicate_client {
             req.extensions_mut()
                 .insert(GrpcMethod::new("pack.communicate", "transmit_task"));
             self.inner.server_streaming(req, path, codec).await
+        }
+        pub async fn transmit_redirect(
+            &mut self,
+            request: impl tonic::IntoStreamingRequest<Message = super::LocalRedirect>,
+        ) -> std::result::Result<
+            tonic::Response<tonic::codec::Streaming<super::RemoteRedirect>>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/pack.communicate/transmit_redirect",
+            );
+            let mut req = request.into_streaming_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("pack.communicate", "transmit_redirect"));
+            self.inner.streaming(req, path, codec).await
         }
     }
 }

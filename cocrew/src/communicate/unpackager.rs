@@ -3,6 +3,7 @@ use std::io::Write;
 
 use crate::common::COCREW_RUNTIME;
 
+
 #[allow(non_camel_case_types)]
 pub mod package {
     include!("../../proto/pack.rs");
@@ -11,14 +12,19 @@ pub mod package {
 #[derive(Default, Clone)] 
 pub struct Receiver {
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
+    pub namedpipe_tx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Sender<String>>>>,
+    namedpipe_rx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<String>>>>,
 }
 
 impl Receiver {
     
     pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>) -> Self {
-        
+        let (namedpipe_tx, namedpipe_rx) = tokio::sync::mpsc::channel(128);
+
         let receiver = Receiver {
             common,
+            namedpipe_tx: std::sync::Arc::new(Some(tokio::sync::Mutex::new(namedpipe_tx))),
+            namedpipe_rx: std::sync::Arc::new(Some(tokio::sync::Mutex::new(namedpipe_rx))),
         };
         return receiver;
     }
@@ -35,6 +41,8 @@ impl Receiver {
 
         let receiver = Receiver {
             common: self.common.clone(),
+            namedpipe_tx: std::sync::Arc::new(None),
+            namedpipe_rx: self.namedpipe_rx.clone(),
         };
 
         let server = package::communicate_server::CommunicateServer::new(receiver);
@@ -200,6 +208,49 @@ impl Receiver {
             };
             let _ = tx.send(Ok(reply)).await.expect("tx send failed");
         }
+    }
+
+    async fn transmit_redirect_handle(&self, request: tonic::Request<tonic::Streaming<package::LocalRedirect>>, tx: tokio::sync::mpsc::Sender<Result<package::RemoteRedirect, tonic::Status>>) {
+        
+        use tokio_stream::StreamExt;
+        let mut stream = request.into_inner();
+
+        let tx_ = tx.clone();
+        let handle = COCREW_RUNTIME.lock().unwrap().handle().clone();
+        handle.spawn(async move {
+            while let Some(request) = stream.next().await {
+                if let Ok(request) = request {
+                    
+                    let mut reply = package::RemoteRedirect {
+                        api: "".to_string(),
+                        params: Vec::new(),
+                    };
+
+                    if tx.send(Ok(reply.clone())).await.is_err() {
+                        log::error!("tx send error.");
+                        break;
+                    };
+                }
+            }
+        });
+
+        if let Some(rx) = self.namedpipe_rx.as_ref() {
+            let mut rx = rx.lock().await;
+            while let Some(msg) = rx.recv().await {
+                log::debug!("transmit redirect handle received message: {}", msg);
+
+                let mut reply = package::RemoteRedirect {
+                    api: msg,
+                    params: Vec::new(),
+                };
+
+                if tx_.send(Ok(reply.clone())).await.is_err() {
+                    log::error!("tx send error.");
+                    break;
+                };
+            }
+        }
+        
     }
 
     async fn storage(solution: &str, path: &str, content: &[u8]) -> Result<(), String> {
@@ -470,6 +521,8 @@ impl Receiver {
 type ResponseTaskStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::CompileTrResponse, tonic::Status>> + Send>>;
 type ResponseFileStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::FileTrResponse, tonic::Status>> + Send>>;
 
+type RemoteRedirectStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::RemoteRedirect, tonic::Status>> + Send>>;
+
 #[tonic::async_trait]
 impl package::communicate_server::Communicate for Receiver {
 
@@ -502,6 +555,21 @@ impl package::communicate_server::Communicate for Receiver {
 
         let response = tokio_stream::wrappers::ReceiverStream::new(rx);
         return Ok(tonic::Response::new(Box::pin(response) as ResponseTaskStream));
+    }
+
+    type transmit_redirectStream = RemoteRedirectStream;
+    async fn transmit_redirect(&self, request: tonic::Request<tonic::Streaming<package::LocalRedirect>>) -> core::result::Result<tonic::Response<Self::transmit_redirectStream>, tonic::Status> {
+        log::debug!("sync request transmit redirect: {:?}", request);
+        let (tx, rx) = tokio::sync::mpsc::channel(256);
+        
+        let self_ = self.clone();
+        let handle = COCREW_RUNTIME.lock().unwrap().handle().clone();
+        let _ =  handle.spawn(async move {
+            self_.transmit_redirect_handle(request, tx).await;
+        }).await;
+
+        let response = tokio_stream::wrappers::ReceiverStream::new(rx);
+        return Ok(tonic::Response::new(Box::pin(response) as RemoteRedirectStream));
     }
 }
 

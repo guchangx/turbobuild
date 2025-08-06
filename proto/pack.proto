@@ -65,20 +65,24 @@ message FileTrResponse {
     string error_message = 2;
 }
 
-message CheckResource {
-
+message Params {
+    string key = 1;
+    string value = 2;
 }
 
-message CocrewResource {
-    string compiler_path = 1;
-    repeated string winkits_includes_path = 2;
-    string msvc_includes_path = 3;
-    string msvc_version = 4;
-    int32 error_code = 5;
-    string error_message = 6;
+message RemoteRedirect {
+    string api = 1;
+    repeated Params params = 2;
+}
+
+message LocalRedirect {
+    string api = 1;
+    repeated Params params = 2;
+    repeated IntermediateResult files = 3;
 }
 
 service communicate {
     rpc transmit_file(stream FileTrRequest) returns (stream FileTrResponse) {}
     rpc transmit_task(CompileTrRequest) returns (stream CompileTrResponse) {}
+    rpc transmit_redirect(stream LocalRedirect) returns (stream RemoteRedirect) {}
 }
