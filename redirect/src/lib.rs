@@ -7,6 +7,9 @@ mod replace;
 mod functions;
 mod ntdef;
 mod logger;
+mod connectpipe;
+
+//TODO The current size of the package is 1.24M
 
 unsafe extern "system" fn custom_exception_handler(
     exception_info: *mut winapi::um::winnt::EXCEPTION_POINTERS
