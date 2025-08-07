@@ -1,6 +1,5 @@
 use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
-use tokio::task::Id;
 
 async fn connect() -> std::result::Result<tokio::net::windows::named_pipe::NamedPipeClient, std::io::Error> {
     const PIPE_NAME: &str = r"\\.\pipe\os_operate_request_pipe";
@@ -17,24 +16,25 @@ async fn connect() -> std::result::Result<tokio::net::windows::named_pipe::Named
     return Ok(client);
 }
 
-struct SyncCommand {
-    id: u32,
-    command: String,
-    args: std::collections::HashMap<String, String>,
-    responder: tokio::sync::oneshot::Sender<String>,
-}
-struct Channel {
-    tx: tokio::sync::mpsc::Sender<SyncCommand>,
-    rx: std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<SyncCommand>>>,
+pub struct MirrorCommand {
+    pub id: u32,
+    pub command: String,
+    pub args: std::collections::HashMap<String, String>,
+    pub responder: tokio::sync::oneshot::Sender<String>,
 }
 
-static NET_REDIRECT_CHANNEL: std::sync::LazyLock<Channel> = std::sync::LazyLock::new(|| {
-        let (tx, rx) = tokio::sync::mpsc::channel::<SyncCommand>(512);
-        let channel = Channel { tx, rx: std::sync::Mutex::new(Some(rx)) };
-        return channel;
+pub struct Channel {
+    pub tx: tokio::sync::mpsc::Sender<MirrorCommand>,
+    rx: std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<MirrorCommand>>>,
+}
+
+pub static NET_REDIRECT_CHANNEL: std::sync::LazyLock<Channel> = std::sync::LazyLock::new(|| {
+    let (tx, rx) = tokio::sync::mpsc::channel::<MirrorCommand>(512);
+    let channel = Channel { tx, rx: std::sync::Mutex::new(Some(rx)) };
+    return channel;
 });
 
-async fn connect_named_pipe() {
+pub async fn connect_named_pipe() {
 
     let client = connect().await.unwrap();
     let (mut reader, mut writer) = tokio::io::split(client);
@@ -66,12 +66,12 @@ async fn connect_named_pipe() {
     
     let _ = crate::RUNTIME.lock().unwrap().spawn(async move {
         let mut rx = NET_REDIRECT_CHANNEL.rx.lock().unwrap().take().unwrap();
-        while let Some(synccmd) = rx.recv().await {
-            let command = synccmd.command;
+        while let Some(mirror_cmd) = rx.recv().await {
+            let formatted_command = format_mirror_command(&mirror_cmd);
 
-            match writer.write(command.as_bytes()).await {
+            match writer.write(formatted_command.as_bytes()).await {
                 Ok(size) => {
-                    responders_.lock().unwrap().insert(synccmd.id, synccmd.responder);
+                    responders_.lock().unwrap().insert(mirror_cmd.id, mirror_cmd.responder);
                 },
                 Err(e) => {
                     let err = format!("failed to write to pipe: {}", e);
@@ -81,4 +81,15 @@ async fn connect_named_pipe() {
         }
     });
 
+}
+
+fn format_mirror_command(command: &MirrorCommand) -> String {
+    let str = format!("{{\"id\": {}, \"command\": \"{}\", \"args\": {{{}}}}}",
+                     command.id,
+                     command.command,
+                     command.args.iter()
+                         .map(|(k, v)| format!("\"{}\": \"{}\"", k, v))
+                         .collect::<Vec<_>>()
+                         .join(", "));
+    return str;
 }

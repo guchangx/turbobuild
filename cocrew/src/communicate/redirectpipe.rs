@@ -1,7 +1,16 @@
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
-pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Sender<String>>>>) {
+#[derive(serde::Deserialize, serde::Serialize, Clone)]
+pub struct MirrorCommand {
+    pub id: u32,
+    pub command: String,
+    pub args: std::collections::HashMap<String, String>,
+}
+
+type Responders = tokio::sync::mpsc::Sender<MirrorCommand>;
+
+pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Sender<(MirrorCommand, Responders)>>>>) {
     const PIPE_NAME: &str = r"\\.\pipe\os_operate_request_pipe";
 
     let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
@@ -20,6 +29,7 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
             let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
 
                 loop {
+                    let (sender, receiver) = tokio::sync::oneshot::channel();
 
                     let ready = server.ready(tokio::io::Interest::READABLE | tokio::io::Interest::WRITABLE).await.unwrap();
                     
@@ -29,11 +39,17 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                             Ok(size) => {
                                 if size > 0 {
                                     let message = String::from_utf8_lossy(&data[..size]);
-                                    if let Some(tx) = tx_.as_ref() {
-                                        let sender = tx.lock().await;
-                                        sender.send("pipe connected".to_string()).await.unwrap();
-                                    }
-                        
+                                    if let Some(mirror_cmd) = crate::serde_json::from_str::<MirrorCommand>(&message)
+                                        .map_err(|e| {
+                                            log::error!("failed to parse message: {}", e);
+                                        })
+                                        .ok() {
+                                            if let Some(tx) = tx_.as_ref() {
+                                                let sender = tx.lock().await;
+                                                sender.send((mirror_cmd, sender)).await.unwrap();
+                                            }
+                                        }
+                                
                                     log::info!("received message: {}", message);
                                 }
                             },

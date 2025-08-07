@@ -772,6 +772,21 @@ pub unsafe fn nt_query_directory_file(
         if len > 0 {
             let file_path = crate::utils::convert::lpwstr_2_string(buffer.as_ptr());
             if let Some(path) = file_path {
+
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                let mut args =  std::collections::HashMap::<String, String>::new();
+                args.insert("FileHandle".to_string(), path.clone());
+
+                let command = crate::netredirect::MirrorCommand {
+                    id: 0,
+                    command: "NtQueryDirectoryFile".into(),
+                    args,
+                    responder: tx,
+                };
+
+                crate::netredirect::NET_REDIRECT_CHANNEL.tx.blocking_send(command).unwrap();
+
+                rx.blocking_recv().unwrap();
                 crate::log!(trace, "nt_query_directory_file file handle path: {}", path);
             }
         }

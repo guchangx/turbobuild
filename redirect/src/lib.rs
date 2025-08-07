@@ -7,9 +7,10 @@ mod replace;
 mod functions;
 mod ntdef;
 mod logger;
-mod connectpipe;
+mod netredirect;
 
 //TODO The current size of the package is 1.24M
+//TODO Remove winapi, use windows-sys replace and remove ntdef.
 
 unsafe extern "system" fn custom_exception_handler(
     exception_info: *mut winapi::um::winnt::EXCEPTION_POINTERS
@@ -396,6 +397,10 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
 
             redirect_stdout_log_2_cocrew();
             read_project_property_from_stdin();
+
+            RUNTIME.lock().unwrap().spawn(async move {
+                netredirect::connect_named_pipe().await;
+            });
             
             //show_message_box_for_debug();
 
