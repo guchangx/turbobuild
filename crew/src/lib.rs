@@ -6,6 +6,7 @@ pub mod platform;
 pub mod compiler;
 pub mod replica;
 pub mod roster;
+pub mod procemirror;
 
 pub fn run() {
     tools::logger::init_logger("crew");

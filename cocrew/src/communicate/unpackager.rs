@@ -1,7 +1,7 @@
 
 use std::io::Write;
 
-use crate::common::COCREW_RUNTIME;
+use crate::{common::COCREW_RUNTIME, communicate::redirectpipe::MirrorCommand};
 
 
 #[allow(non_camel_case_types)]
@@ -9,11 +9,12 @@ pub mod package {
     include!("../../proto/pack.rs");
 }
 
+type Responder = tokio::sync::oneshot::Sender<MirrorCommand>;
 #[derive(Default, Clone)] 
 pub struct Receiver {
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
-    pub namedpipe_tx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Sender<String>>>>,
-    namedpipe_rx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<String>>>>,
+    pub namedpipe_tx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Sender<(MirrorCommand, Responder)>>>>,
+    namedpipe_rx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<(MirrorCommand, Responder)>>>>,
 }
 
 impl Receiver {
@@ -215,42 +216,51 @@ impl Receiver {
         use tokio_stream::StreamExt;
         let mut stream = request.into_inner();
 
-        let tx_ = tx.clone();
-        let handle = COCREW_RUNTIME.lock().unwrap().handle().clone();
-        handle.spawn(async move {
-            while let Some(request) = stream.next().await {
-                if let Ok(request) = request {
-                    
-                    let mut reply = package::RemoteRedirect {
-                        api: "".to_string(),
-                        params: Vec::new(),
-                    };
+        let callbacks = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::<u32, Responder>::new()));
+        let callbacks_ = callbacks.clone();
 
-                    if tx.send(Ok(reply.clone())).await.is_err() {
-                        log::error!("tx send error.");
-                        break;
-                    };
+        let tx_ = tx.clone();
+        let runtime = COCREW_RUNTIME.lock().unwrap().handle().clone();
+        let read_handle = runtime.spawn(async move {
+            while let Some(request) = stream.next().await {
+                if let Ok(real) = request {
+                    if let Some(item) = callbacks.lock().unwrap().remove(&real.id) {
+
+                        let command_result = MirrorCommand {
+                            id: real.id,
+                            command: real.api,
+                            args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
+                        };
+
+                        item.send(command_result).unwrap_or_else(|err| log::error!("send redirect request failed: {:?}", err));
+                    }
                 }
             }
         });
 
-        if let Some(rx) = self.namedpipe_rx.as_ref() {
-            let mut rx = rx.lock().await;
-            while let Some(msg) = rx.recv().await {
-                log::debug!("transmit redirect handle received message: {}", msg);
-
-                let mut reply = package::RemoteRedirect {
-                    api: msg,
-                    params: Vec::new(),
-                };
-
-                if tx_.send(Ok(reply.clone())).await.is_err() {
-                    log::error!("tx send error.");
-                    break;
-                };
-            }
-        }
+        //receive messages from named pipe and send them by grpc.
+        let self_  =  self.clone();
+        let write_handle = runtime.spawn(async move {
         
+            if let Some(rx) = self_.namedpipe_rx.as_ref() {
+                let mut rx = rx.lock().await;
+                while let Some((command, callback)) = rx.recv().await {
+                    log::debug!("transmit redirect handle received message: {:?}", &command);
+                    let reply = package::RemoteRedirect {
+                        id: command.id,
+                        api: command.command,
+                        params: command.args.iter().map(|(k, v)| package::Params { key: k.clone(), value: v.clone() }).collect(),
+                    };
+                    
+                    if tx_.send(Ok(reply)).await.is_ok() {
+                        callbacks_.lock().unwrap().insert(command.id, callback);
+                    };
+                }
+            }
+        });
+        
+        let _ = tokio::join!(read_handle, write_handle);
+
     }
 
     async fn storage(solution: &str, path: &str, content: &[u8]) -> Result<(), String> {

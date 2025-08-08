@@ -786,7 +786,8 @@ pub unsafe fn nt_query_directory_file(
 
                 crate::netredirect::NET_REDIRECT_CHANNEL.tx.blocking_send(command).unwrap();
 
-                rx.blocking_recv().unwrap();
+                let result = rx.blocking_recv().unwrap();
+                 
                 crate::log!(trace, "nt_query_directory_file file handle path: {}", path);
             }
         }

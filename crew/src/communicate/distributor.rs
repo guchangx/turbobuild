@@ -1,3 +1,5 @@
+use serde::de::value::SeqDeserializer;
+
 
 
 #[derive(Default, Clone)]
@@ -79,7 +81,13 @@ impl Distributor {
         
         let args = super::package::SenderType::Compile(args);
         
-        let result = sender.dist(args).await;
+        let mut sender_ = sender.clone();
+        runtime.spawn(async move {
+            sender.dist(super::package::SenderType::Command(crate::communicate::package::CommandArgs {})).await;
+        });
+
+        let result = sender_.dist(args).await;
+
         return result;
     }
 

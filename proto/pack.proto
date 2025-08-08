@@ -71,14 +71,16 @@ message Params {
 }
 
 message RemoteRedirect {
-    string api = 1;
-    repeated Params params = 2;
+    uint32 id = 1;
+    string api = 2;
+    repeated Params params = 3;
 }
 
 message LocalRedirect {
-    string api = 1;
-    repeated Params params = 2;
-    repeated IntermediateResult files = 3;
+    uint32 id = 1;
+    string api = 2;
+    repeated Params params = 3;
+    repeated IntermediateResult files = 4;
 }
 
 service communicate {

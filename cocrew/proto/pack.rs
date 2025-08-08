@@ -80,18 +80,22 @@ pub struct Params {
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RemoteRedirect {
-    #[prost(string, tag = "1")]
+    #[prost(uint32, tag = "1")]
+    pub id: u32,
+    #[prost(string, tag = "2")]
     pub api: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag = "2")]
+    #[prost(message, repeated, tag = "3")]
     pub params: ::prost::alloc::vec::Vec<Params>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LocalRedirect {
-    #[prost(string, tag = "1")]
+    #[prost(uint32, tag = "1")]
+    pub id: u32,
+    #[prost(string, tag = "2")]
     pub api: ::prost::alloc::string::String,
-    #[prost(message, repeated, tag = "2")]
-    pub params: ::prost::alloc::vec::Vec<Params>,
     #[prost(message, repeated, tag = "3")]
+    pub params: ::prost::alloc::vec::Vec<Params>,
+    #[prost(message, repeated, tag = "4")]
     pub files: ::prost::alloc::vec::Vec<IntermediateResult>,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]

@@ -1,41 +1,43 @@
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
-#[derive(serde::Deserialize, serde::Serialize, Clone)]
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub struct MirrorCommand {
     pub id: u32,
     pub command: String,
     pub args: std::collections::HashMap<String, String>,
 }
 
-type Responders = tokio::sync::mpsc::Sender<MirrorCommand>;
-
+type Responders = tokio::sync::oneshot::Sender<MirrorCommand>;
 pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Sender<(MirrorCommand, Responders)>>>>) {
+
     const PIPE_NAME: &str = r"\\.\pipe\os_operate_request_pipe";
 
     let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
+        let mut server = tokio::net::windows::named_pipe::ServerOptions::new()
+            .first_pipe_instance(true)
+            .pipe_mode(tokio::net::windows::named_pipe::PipeMode::Message)
+            .access_inbound(true)
+            .access_outbound(true)
+            .in_buffer_size(512)
+            .out_buffer_size(512)
+            .create(PIPE_NAME).unwrap();
 
         loop {
-            let mut server = tokio::net::windows::named_pipe::ServerOptions::new()
-                .first_pipe_instance(true)
-                .pipe_mode(tokio::net::windows::named_pipe::PipeMode::Message)
-                .access_inbound(true)
-                .access_outbound(true)
-                .max_instances(1024)
-                .create(PIPE_NAME).unwrap();
 
             server.connect().await.unwrap();
             let tx_ = tx.clone();
             let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
-
+                let server_ = std::sync::Arc::new(tokio::sync::Mutex::new(server));
                 loop {
-                    let (sender, receiver) = tokio::sync::oneshot::channel();
+                    let (oneshot_tx, oneshot_rx) = tokio::sync::oneshot::channel::<MirrorCommand>();
 
-                    let ready = server.ready(tokio::io::Interest::READABLE | tokio::io::Interest::WRITABLE).await.unwrap();
-                    
+                    let server_ = server_.clone();
+                    let ready = server_.lock().await.ready(tokio::io::Interest::READABLE | tokio::io::Interest::WRITABLE).await.unwrap();
+
                     if ready.is_readable() {
                         let mut data = vec![0; 1024];
-                        match server.read(&mut data).await {
+                        match server_.lock().await.read(&mut data).await {
                             Ok(size) => {
                                 if size > 0 {
                                     let message = String::from_utf8_lossy(&data[..size]);
@@ -46,10 +48,9 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                                         .ok() {
                                             if let Some(tx) = tx_.as_ref() {
                                                 let sender = tx.lock().await;
-                                                sender.send((mirror_cmd, sender)).await.unwrap();
+                                                sender.send((mirror_cmd, oneshot_tx)).await.unwrap();
                                             }
                                         }
-                                
                                     log::info!("received message: {}", message);
                                 }
                             },
@@ -58,20 +59,37 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                             }
                         }
                     }
+                    
+                    let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
 
-                    if ready.is_writable() {
-                        let message = "Hello from server";
-                        match server.write(message.as_bytes()).await {
-                            Ok(_) => {
-                                log::info!("sent message: {}", message);
-                            },
-                            Err(e) => {
-                                log::error!("failed to write to pipe: {}", e);
+                        let command_result = oneshot_rx.await.unwrap();
+
+                        let response = serde_json::to_string(&command_result).map_err(|e| {
+                            log::error!("failed to serialize response: {}", e);
+                        }).unwrap();
+
+                        if ready.is_writable() {
+                            match server_.lock().await.write(response.as_bytes()).await {
+                                Ok(_) => {
+                                    log::info!("sent message: {}", response);
+                                },
+                                Err(e) => {
+                                    log::error!("failed to write to pipe: {}", e);
+                                }
                             }
                         }
-                    }
+                    });
                 }
             });
+
+            server = tokio::net::windows::named_pipe::ServerOptions::new()
+                .first_pipe_instance(false)
+                .pipe_mode(tokio::net::windows::named_pipe::PipeMode::Message)
+                .access_inbound(true)
+                .access_outbound(true)
+                .in_buffer_size(512)
+                .out_buffer_size(512)
+                .create(PIPE_NAME).unwrap();
         }
     });
 }

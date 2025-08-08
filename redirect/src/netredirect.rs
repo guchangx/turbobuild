@@ -20,7 +20,7 @@ pub struct MirrorCommand {
     pub id: u32,
     pub command: String,
     pub args: std::collections::HashMap<String, String>,
-    pub responder: tokio::sync::oneshot::Sender<String>,
+    pub responder: tokio::sync::oneshot::Sender<std::collections::HashMap<String, String>>,
 }
 
 pub struct Channel {
@@ -39,9 +39,10 @@ pub async fn connect_named_pipe() {
     let client = connect().await.unwrap();
     let (mut reader, mut writer) = tokio::io::split(client);
 
-    type Map = std::collections::HashMap<u32, tokio::sync::oneshot::Sender<String>>;
+    type Map = std::collections::HashMap<u32, tokio::sync::oneshot::Sender<std::collections::HashMap<String, String>>>;
     let responders: std::sync::Arc<std::sync::Mutex<Map>> = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     let responders_ = responders.clone();
+
     let _ = crate::RUNTIME.lock().unwrap().spawn(async move {
         let mut data = vec![0; 1024];
         loop {
@@ -50,8 +51,12 @@ pub async fn connect_named_pipe() {
                     let message = String::from_utf8_lossy(&data[..size]);
                     crate::log!(info, "received message: {}", message);
 
-                    if let Some(responder) = responders.lock().unwrap().remove(&0u32) {
-                        let _ = responder.send(message.to_string());
+                    let (id, command, args) = parse_mirror_command(&message);
+                    if let Some(responder) = responders.lock().unwrap().remove(&id) {
+                        let _ = responder.send(args);
+                    } 
+                    else {
+                        crate::log!(warn, "no responder found for id: {} command: {}", id, command);
                     }
                 }
                 Ok(_) => break,
@@ -92,4 +97,121 @@ fn format_mirror_command(command: &MirrorCommand) -> String {
                          .collect::<Vec<_>>()
                          .join(", "));
     return str;
+}
+
+pub fn parse_mirror_command(json: &str) -> (u32, String, std::collections::HashMap<String, String>) {
+    let json = json.trim();
+    
+    let id = extract_number_field(json, "id").unwrap();
+    
+    let command = extract_string_field(json, "command").unwrap();
+    
+    let args = extract_args_field(json).unwrap();
+
+   return (id, command, args);
+}
+
+fn extract_number_field(json: &str, field_name: &str) -> Result<u32, String> {
+    let pattern = format!(r#""{}":"#, field_name);
+    let start = json.find(&pattern)
+        .ok_or_else(|| format!("Field '{}' not found", field_name))?;
+    
+    let value_start = start + pattern.len();
+    let mut value_end = value_start;
+    
+    let chars: Vec<char> = json.chars().collect();
+    while value_end < chars.len() {
+        let ch = chars[value_end];
+        if ch.is_ascii_digit() {
+            value_end += 1;
+        } 
+        else {
+            break;
+        }
+    }
+    
+    let number_str = &json[value_start..value_end];
+    number_str.parse::<u32>()
+        .map_err(|_| format!("Invalid number format for field '{}'", field_name))
+}
+    
+fn extract_string_field(json: &str, field_name: &str) -> Result<String, String> {
+    let pattern = format!(r#""{}":" "#, field_name);
+    let start = json.find(&pattern)
+        .ok_or_else(|| format!("field '{}' not found", field_name))?;
+    
+    let value_start = start + pattern.len();
+    let value_end = json[value_start..]
+        .find('"')
+        .ok_or_else(|| format!("string end not found for field '{}'", field_name))?;
+    
+    Ok(json[value_start..value_start + value_end].to_string())
+}
+    
+fn extract_args_field(json: &str) -> Result<std::collections::HashMap<String, String>, String> {
+    let pattern = r#""args":{"#;
+    let start = json.find(pattern)
+        .ok_or_else(|| "Args field not found".to_string())?;
+    
+    let args_start = start + pattern.len();
+    
+    // 找到 args 对象的结束位置
+    let mut brace_count = 1;
+    let mut args_end = args_start;
+    let chars: Vec<char> = json.chars().collect();
+    
+    while args_end < chars.len() && brace_count > 0 {
+        match chars[args_end] {
+            '{' => brace_count += 1,
+            '}' => brace_count -= 1,
+            _ => {}
+        }
+        args_end += 1;
+    }
+    
+    if brace_count != 0 {
+        return Err("Malformed args object".to_string());
+    }
+    
+    // 解析 args 内容
+    let args_content = &json[args_start..args_end - 1];
+    parse_key_value_pairs(args_content)
+}
+
+fn parse_key_value_pairs(content: &str) -> Result<std::collections::HashMap<String, String>, String> {
+    let mut args = std::collections::HashMap::new();
+    
+    if content.trim().is_empty() {
+        return Ok(args);
+    }
+    
+    let pairs: Vec<&str> = content.split(',').collect();
+    
+    for pair in pairs {
+        let pair = pair.trim();
+        if pair.is_empty() {
+            continue;
+        }
+        
+        let colon_pos = pair.find(':')
+            .ok_or_else(|| "Invalid key-value pair format".to_string())?;
+        
+        let key_part = pair[..colon_pos].trim();
+        let value_part = pair[colon_pos + 1..].trim();
+        
+        let key = strip_quotes(key_part)?;
+        let value = strip_quotes(value_part)?;
+        
+        args.insert(key, value);
+    }
+    
+    Ok(args)
+}
+    
+fn strip_quotes(s: &str) -> Result<String, String> {
+    let s = s.trim();
+    if s.len() < 2 || !s.starts_with('"') || !s.ends_with('"') {
+        return Err("String must be quoted".to_string());
+    }
+    Ok(s[1..s.len() - 1].to_string())
 }

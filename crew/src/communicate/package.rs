@@ -127,6 +127,8 @@ impl Sender {
         
         match sender_type {
             SenderType::Command(_args) => {
+                self.redirect_net_command().await;
+
                 let result = CommandRecv {
                     status: true,
                     message: "".to_string(),
@@ -459,6 +461,60 @@ impl Sender {
         }
 
         log::info!("save compile output from channel done.");
+    }
+
+    async fn redirect_net_command(&mut self) {
+        
+        let (tx, rx) = tokio::sync::mpsc::channel(128);
+        let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+
+
+        let handle = self.runtime.as_ref().map(|runtime| runtime.spawn(async move {
+
+            let request = crate::communicate::package::pack::LocalRedirect {
+                id: 0,
+                api: "some_api".into(),
+                params: vec![],
+                files: vec![],
+            };
+
+            if let Err(err) = tx.send(request).await {
+                log::error!("transmit file error: {:?}", err);
+            };        
+
+            drop(tx);
+        }));
+
+        match self.to_owned().client.transmit_redirect(request_stream).await {
+            Ok(response) => {
+                
+                let host = self.host.clone();
+
+                let mut response_stream = response.into_inner();
+                while let Some(stream) = response_stream.next().await {
+                    match stream {
+                        Ok(stream) => {
+                            crate::procemirror::filesystem::route_file_system_operation(stream);
+                            //log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
+                        }
+                        Err(err) => {
+                            log::error!("transmit file {} failed: {:?}", host, err);
+                            break;
+                        }
+                    }
+                };
+
+                log::debug!("transmit file {} completed.", host);
+            },
+            Err(err) => {
+                log::error!("transmit file {} failed: {:?}", self.host, err);
+            }
+        };
+
+        if let Some(handle) = handle {
+            let _ = handle.await.unwrap();
+        }
+
     }
 
 }
