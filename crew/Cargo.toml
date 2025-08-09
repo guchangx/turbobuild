@@ -17,10 +17,10 @@ serde_json = "1.0.129"
 tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "process", "fs"] }
 tokio-stream = "0.1.16"
 sysinfo = "0.32.0"
-winapi = {version = "0.3.9", features = ["winreg", "winerror", "winbase", "fileapi"]}
 regex = "1.11.0"
 log = "0.4.17"
 zip = {version = "2.2.0", features = ["zstd"]}
+windows-sys = {version = "0.60.2", features = ["Win32_System_Registry", "Wdk_Foundation", "Win32_Security"]}
 
 [build-dependencies]
 tonic-build = "0.12.3"

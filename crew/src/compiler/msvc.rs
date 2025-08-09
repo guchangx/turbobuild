@@ -938,8 +938,8 @@ fn winapi_get_long_path_name(path: &std::ffi::OsString) -> std::ffi::OsString {
     unsafe {
         let wide_path: Vec<u16> = path.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
         
-        let mut buffer: Vec<u16> = vec![0; winapi::shared::minwindef::MAX_PATH as usize];
-        let len = winapi::um::fileapi::GetLongPathNameW(
+        let mut buffer: Vec<u16> = vec![0; windows_sys::Win32::Foundation::MAX_PATH as usize];
+        let len = windows_sys::Win32::Storage::FileSystem::GetLongPathNameW(
             wide_path.as_ptr(),
             buffer.as_mut_ptr(),
             buffer.len() as u32
