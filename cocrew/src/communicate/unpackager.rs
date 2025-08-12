@@ -224,21 +224,32 @@ impl Receiver {
         let read_handle = runtime.spawn(async move {
             while let Some(request) = stream.next().await {
                 if let Ok(real) = request {
+                    log::debug!("transmit redirect real result: {:?}", real);
                     if let Some(item) = callbacks.lock().unwrap().remove(&real.id) {
 
                         let command_result = MirrorCommand {
                             id: real.id,
-                            command: real.api,
+                            command: real.api.clone(),
                             args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
                         };
 
-                        item.send(command_result).unwrap_or_else(|err| log::error!("send redirect request failed: {:?}", err));
+                        match item.send(command_result) {
+                            Ok(_) => {
+                                log::debug!("transmit redirect handle send callback: {:?}", real.api);
+                            },
+                            Err(err) => {
+                                log::error!("transmit redirect handle send callback failed: {:?}", err);
+                            }
+                        }
+                    }
+                    else {
+                        log::warn!("no callback found for id: {} command: {}", real.id, real.api);
                     }
                 }
             }
         });
 
-        //receive messages from named pipe and send them by grpc.
+        //receive messages from named pipe by mspc and send it by grpc.
         let self_  =  self.clone();
         let write_handle = runtime.spawn(async move {
         
@@ -576,7 +587,7 @@ impl package::communicate_server::Communicate for Receiver {
         let handle = COCREW_RUNTIME.lock().unwrap().handle().clone();
         let _ =  handle.spawn(async move {
             self_.transmit_redirect_handle(request, tx).await;
-        }).await;
+        });
 
         let response = tokio_stream::wrappers::ReceiverStream::new(rx);
         return Ok(tonic::Response::new(Box::pin(response) as RemoteRedirectStream));

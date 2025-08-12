@@ -7,7 +7,7 @@ mod replace;
 mod functions;
 mod ntdef;
 mod logger;
-mod netredirect;
+pub mod netredirect;
 
 //TODO The current size of the package is 1.24M
 //TODO Remove winapi, use windows-sys replace and remove ntdef.
@@ -402,7 +402,7 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
                 netredirect::connect_named_pipe().await;
             });
             
-            //show_message_box_for_debug();
+            show_message_box_for_debug();
 
             let ret = crate::detours::DetourRestoreAfterWith();
             if ret == winapi::shared::minwindef::FALSE {

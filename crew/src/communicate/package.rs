@@ -468,23 +468,6 @@ impl Sender {
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
-
-        let handle = self.runtime.as_ref().map(|runtime| runtime.spawn(async move {
-
-            let request = crate::communicate::package::pack::LocalRedirect {
-                id: 0,
-                api: "some_api".into(),
-                params: vec![],
-                files: vec![],
-            };
-
-            if let Err(err) = tx.send(request).await {
-                log::error!("transmit file error: {:?}", err);
-            };        
-
-            drop(tx);
-        }));
-
         match self.to_owned().client.transmit_redirect(request_stream).await {
             Ok(response) => {
                 
@@ -494,27 +477,26 @@ impl Sender {
                 while let Some(stream) = response_stream.next().await {
                     match stream {
                         Ok(stream) => {
-                            crate::procemirror::filesystem::route_file_system_operation(stream);
-                            //log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
+                            let local = crate::procemirror::filesystem::route_file_system_operation(stream);
+                            
+                            if let Err(err) = tx.send(local).await {
+                                log::error!("transmit redirect net error: {:?}", err);
+                            };
+
                         }
                         Err(err) => {
-                            log::error!("transmit file {} failed: {:?}", host, err);
+                            log::error!("transmit redirect net {} failed: {:?}", host, err);
                             break;
                         }
                     }
                 };
-
-                log::debug!("transmit file {} completed.", host);
+                drop(tx);
+                log::debug!("transmit firedirect netle {} completed.", host);
             },
             Err(err) => {
-                log::error!("transmit file {} failed: {:?}", self.host, err);
+                log::error!("transmit redirect net {} failed: {:?}", self.host, err);
             }
         };
-
-        if let Some(handle) = handle {
-            let _ = handle.await.unwrap();
-        }
-
     }
 
 }

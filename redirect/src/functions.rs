@@ -1,4 +1,6 @@
 
+use std::ops::Add;
+
 use winapi::{
     shared::{minwindef::{DWORD, LPVOID}, ntdef::{LPCWSTR, LPWSTR}},
     um::{minwinbase::LPSECURITY_ATTRIBUTES, winnt::{HANDLE, LPCSTR, LPSTR}}
@@ -13,6 +15,7 @@ pub static mut NT_CREATE_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_voi
 pub static mut CREATE_PROCESS_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_PROCESS_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 
+static mut COMMAND_ID: u32 = 0;
 
 const PIPE_PREFIX_CONTENT_W: &[u16] = &['\\' as u16, '\\' as u16, '.' as u16, '\\' as u16, 'p' as u16, 'i' as u16, 'p' as u16, 'e' as u16, '\\' as u16];  //\\.\\pipe\\ or \\??\\pipe\\
 
@@ -752,44 +755,111 @@ pub unsafe fn nt_query_directory_file(
         filename: *const windows_sys::Win32::Foundation::UNICODE_STRING,
         restartscan: bool,
     ) -> windows_sys::Win32::Foundation::NTSTATUS = std::mem::transmute(NT_QUERY_DIRECTORY_FILE);
-    
-    if !file_name.is_null() {
-        let buffer = (*file_name).Buffer;
-        let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-
-        crate::log!(trace, "nt_query_directory_file path: {:?}", name);
-    }
 
     if !file_handle.is_null() {
         
         let mut buffer: [u16; windows_sys::Win32::Foundation::MAX_PATH as usize] = [0; windows_sys::Win32::Foundation::MAX_PATH as usize];
-        let len = windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW(
+        let required_length = windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW(
             file_handle,
             buffer.as_mut_ptr(),
             windows_sys::Win32::Foundation::MAX_PATH,
             0
         );
-        if len > 0 {
+
+        if  required_length > 0 && required_length <= windows_sys::Win32::Foundation::MAX_PATH {
             let file_path = crate::utils::convert::lpwstr_2_string(buffer.as_ptr());
             if let Some(path) = file_path {
 
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 let mut args =  std::collections::HashMap::<String, String>::new();
-                args.insert("FileHandle".to_string(), path.clone());
+                args.insert("filehandle".to_string(), path.clone());
+
+                if !file_name.is_null() {
+                    let buffer = (*file_name).Buffer;
+                    let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+                    crate::log!(trace, "nt_query_directory_file path: {:?}", name);
+
+                    args.insert("filename".to_string(), name);
+                }
 
                 let command = crate::netredirect::MirrorCommand {
-                    id: 0,
+                    id: COMMAND_ID,
                     command: "NtQueryDirectoryFile".into(),
                     args,
                     responder: tx,
                 };
+                COMMAND_ID = COMMAND_ID.add(1);
 
                 crate::netredirect::NET_REDIRECT_CHANNEL.tx.blocking_send(command).unwrap();
-
-                let result = rx.blocking_recv().unwrap();
-                 
                 crate::log!(trace, "nt_query_directory_file file handle path: {}", path);
+                let result = rx.blocking_recv().unwrap();
+                crate::log!(trace, "nt_query_directory_file file handle path: {} results: {:?}", path, result);
+
+                if let Some(fileinfo) = result.get("fileinformation") {
+                    let mut current_offset = 0usize;
+                    
+                    let files = fileinfo.lines();
+                    let files_count = files.clone().count();
+
+                    let mut entries_written = 0;
+                    for (index, file) in files.enumerate() {
+                        let virtual_file_name: Vec<u16> = file.encode_utf16().collect();
+                        let virtual_file_name_bytes = (virtual_file_name.len() * 2) as u32;
+
+                        let base_size = std::mem::size_of::<windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION>();
+                        let entry_size = base_size + virtual_file_name_bytes as usize;
+
+                        let aligned_entry_size = (entry_size + 7) & !7; // Align to 8 bytes
+
+                        if current_offset + aligned_entry_size as usize > length as usize {
+                            crate::log!(error, "nt_query_directory_file: buffer overflow, current_offset: {}, aligned_entry_size: {}, length: {}", current_offset, aligned_entry_size, length);
+                            break;
+                        }
+
+                        let entry = (file_information.add(current_offset)) as *mut windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
+
+                        let next_offset = if index == files_count - 1 || return_single_entry {
+                            0
+                        } else {
+                            aligned_entry_size as u32
+                        };
+
+                        (*entry).NextEntryOffset = next_offset;
+                        (*entry).FileIndex = index as u32;
+                        
+                        (*entry).FileNameLength = virtual_file_name_bytes as u32;
+                        std::ptr::copy_nonoverlapping(
+                            virtual_file_name.as_ptr(),
+                            (*entry).FileName.as_mut_ptr(),
+                            virtual_file_name.len()
+                        );
+
+                        current_offset += aligned_entry_size as usize;
+                        entries_written += 1;
+
+                        if return_single_entry {
+                            break;
+                        }
+                    }
+
+                    if !io_status_block.is_null() {
+                        (*io_status_block).Information = current_offset;
+                        (*io_status_block).Anonymous.Status = if entries_written > 0 {
+                            windows_sys::Win32::Foundation::STATUS_SUCCESS
+                        } else {
+                            windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES
+                        };
+                    }
+
+                    return windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES;
+                }
+                else {
+                    crate::log!(error, "nt_query_directory_file: no file information received from net redirect.");
+                }
             }
+        }
+        else {
+            crate::log!(error, "nt_query_directory_file GetFinalPathNameByHandleW failed!, length: {}.", required_length);
         }
     }
 
