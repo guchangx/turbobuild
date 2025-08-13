@@ -773,6 +773,7 @@ pub unsafe fn nt_query_directory_file(
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 let mut args =  std::collections::HashMap::<String, String>::new();
                 args.insert("filehandle".to_string(), path.clone());
+                args.insert("length".to_string(), length.to_string());
 
                 if !file_name.is_null() {
                     let buffer = (*file_name).Buffer;
@@ -803,8 +804,9 @@ pub unsafe fn nt_query_directory_file(
 
                     let mut entries_written = 0;
                     for (index, file) in files.enumerate() {
+                        crate::log!(trace, "nt_query_directory_file enumerate file: {}", file);
                         let virtual_file_name: Vec<u16> = file.encode_utf16().collect();
-                        let virtual_file_name_bytes = (virtual_file_name.len() * 2) as u32;
+                        let virtual_file_name_bytes: u32 = (virtual_file_name.len() * 2) as u32;
 
                         let base_size = std::mem::size_of::<windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION>();
                         let entry_size = base_size + virtual_file_name_bytes as usize;
@@ -849,6 +851,44 @@ pub unsafe fn nt_query_directory_file(
                         } else {
                             windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES
                         };
+                    }
+
+                    //try access result
+                    let mut current_offset = 0usize;
+                    let mut entry_count = 0;
+        
+                    loop {
+                        let current_entry = (file_information as *const u8).add(current_offset);
+                        entry_count += 1;
+                        match file_information_class {
+                            windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation => {
+                                let file_info = current_entry as *const windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
+                                let file_name_length_bytes = (*file_info).FileNameLength as usize;
+
+                                if file_name_length_bytes > 0 {
+                                    let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
+                                    if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
+                                        crate::log!(trace, "Test Entry #{}: File: '{}'", entry_count, file_name_str);
+                                    }
+                                }
+
+                                let next_entry_offset = (*file_info).NextEntryOffset;
+                                if next_entry_offset == 0 {
+                                    break;
+                                }
+                                else {
+                                    current_offset += next_entry_offset as usize;
+                                }
+                            }
+                            _ => {
+                                crate::log!(trace, "test nt_query_directory_file: unsupported file_information_class: {:?}", file_information_class);
+                            }
+                        }
+
+                        if current_offset >= length as usize {
+                            crate::log!(warn, "Test Reached buffer end, processed {} entries", entry_count);
+                            break;
+                        }
                     }
 
                     return windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES;
@@ -917,10 +957,10 @@ pub unsafe fn nt_query_directory_file(
     }
     else {
         if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
-            crate::log!(trace, "No more files to enumerate.");
+            crate::log!(trace, "no more files to enumerate.");
         }
         else if nt_status == windows_sys::Win32::Foundation::STATUS_BUFFER_OVERFLOW {
-            crate::log!(warn, "Buffer overflow occurred, consider increasing buffer size.");
+            crate::log!(warn, "buffer overflow occurred, consider increasing buffer size.");
         }
         else {
             crate::log!(error, "nt_query_directory_file failed with status: {:#X}", nt_status);
