@@ -9,11 +9,14 @@ async fn connect() -> std::result::Result<tokio::net::windows::named_pipe::Named
             .open(PIPE_NAME) {
             Ok(client) => break client,
             Err(e) if e.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_PIPE_BUSY as i32) => (),
-            Err(e) => return Err(e),
+            Err(e) => {
+                crate::log!(error, "failed to connect to named pipe: {}", e);
+                return Err(e)
+            },
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     };
-
+    crate::log!(info,"connected to named pipe: {}", PIPE_NAME);
     return Ok(client);
 }
 
@@ -36,7 +39,6 @@ pub static NET_REDIRECT_CHANNEL: std::sync::LazyLock<Channel> = std::sync::LazyL
 });
 
 pub async fn connect_named_pipe() {
-
     let client = connect().await.unwrap();
     let (mut reader, mut writer) = tokio::io::split(client);
 
@@ -82,6 +84,7 @@ pub async fn connect_named_pipe() {
             match writer.write(formatted_command.as_bytes()).await {
                 Ok(size) => {
                     responders_.lock().unwrap().insert(mirror_cmd.id, mirror_cmd.responder);
+                    crate::log!(info, "sent virtual command: {} with id: {}", mirror_cmd.command, mirror_cmd.id);
                 },
                 Err(e) => {
                     let err = format!("failed to write to pipe: {}", e);
@@ -89,9 +92,15 @@ pub async fn connect_named_pipe() {
                 }
             }
         }
-        crate::log!(info, "virtual commandnamed pipe writer closed.");
+        crate::log!(info, "virtual command named pipe writer closed.");
+        writer.shutdown().await.unwrap();
     });
+}
 
+pub fn async_connect_named_pipe() {
+    crate::RUNTIME.lock().unwrap().spawn(async move {
+        crate::netredirect::connect_named_pipe().await;
+    });
 }
 
 fn format_mirror_command(command: &MirrorCommand) -> String {

@@ -1,3 +1,4 @@
+
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
@@ -13,65 +14,76 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
 
     const PIPE_NAME: &str = r"\\.\pipe\os_operate_request_pipe";
 
-    let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
-        let mut server = tokio::net::windows::named_pipe::ServerOptions::new()
-            .first_pipe_instance(true)
-            .pipe_mode(tokio::net::windows::named_pipe::PipeMode::Message)
-            .access_inbound(true)
-            .access_outbound(true)
-            .in_buffer_size(512)
-            .out_buffer_size(512)
-            .create(PIPE_NAME).unwrap();
-
+    let rt = crate::common::COCREW_RUNTIME.lock().unwrap().handle().clone();
+    let rt_ = rt.clone();
+    let _ = rt.spawn(async move {
+        let mut counter = 0;
+        let rt_ = rt_.clone();
         loop {
+            let server = tokio::net::windows::named_pipe::ServerOptions::new()
+                .first_pipe_instance(if counter == 0 { true } else { false })
+                .pipe_mode(tokio::net::windows::named_pipe::PipeMode::Message)
+                .access_inbound(true)
+                .access_outbound(true)
+                .in_buffer_size(512)
+                .out_buffer_size(512)
+                .create(PIPE_NAME).unwrap();
+
             server.connect().await.unwrap();
+            log::trace!("pipe connected count: {:?}", counter);
+
             let tx_ = tx.clone();
-            let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
+            let rt__ = rt_.clone();
+            let _ = rt_.spawn(async move {
                 let server_ = std::sync::Arc::new(tokio::sync::Mutex::new(server));
                 loop {
-                    let server_ = server_.clone();
+
                     let tx_ = tx_.clone();
-                    let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
-                        let (oneshot_tx, oneshot_rx) = tokio::sync::oneshot::channel::<MirrorCommand>();
-                    
-                        let mut data = vec![0; 1024];
-                        let mut server_ = server_.lock().await;
-                        match server_.read(&mut data).await {
-                            Ok(size) => {
-                                if size > 0 as usize {
-                                    let message = String::from_utf8_lossy(&data[..size]);
-                                    log::info!("received mirror command: {}", message);
-                                    if let Ok(mirror_cmd) = crate::serde_json::from_str::<MirrorCommand>(&message)
-                                        .map_err(|e| {
-                                            log::error!("failed to parse mirror command: {}", e);
-                                        }) {
-                                        if let Some(tx) = tx_.as_ref() {
-                                            log::trace!("send mirror command to grpc: {:?}", mirror_cmd);
-                                            let sender = tx.lock().await;
-                                            sender.send((mirror_cmd, oneshot_tx)).await.unwrap();
-                                            drop(sender);
-                                        }
+
+                    let (oneshot_tx, oneshot_rx) = tokio::sync::oneshot::channel::<MirrorCommand>();
+                
+                    let mut data = vec![0; 1024];
+                    let mut server_guard = server_.lock().await;
+                    match server_guard.read(&mut data).await {
+                        Ok(size) => {
+                            if size > 0 as usize {
+                                let message = String::from_utf8_lossy(&data[..size]);
+                                log::info!("received mirror command: {}", message);
+                                if let Ok(mirror_cmd) = crate::serde_json::from_str::<MirrorCommand>(&message)
+                                    .map_err(|e| {
+                                        log::error!("failed to parse mirror command: {}", e);
+                                    }) {
+                                    if let Some(tx) = tx_.as_ref() {
+                                        log::trace!("send mirror command to grpc: {:?}", mirror_cmd);
+                                        let sender = tx.lock().await;
+                                        sender.send((mirror_cmd, oneshot_tx)).await.unwrap();
+                                        drop(sender);
                                     }
                                 }
-                                else {
-                                    log::warn!("no data received from pipe, disconnecting.");
-                                    let _ = server_.disconnect();
-                                    return;
-                                }
-                            },
-                            Err(e) => {
-                                log::error!("failed to read from pipe: {}", e);
+                            }
+                            else {
+                                log::warn!("no data received from pipe, disconnecting.");
+                                let _ = server_guard.disconnect();
                                 return;
                             }
+                        },
+                        Err(e) => {
+                            log::error!("failed to read from pipe: {}", e);
+                            let _ = server_guard.disconnect();
+                            return;
                         }
+                    }
 
-                        match tokio::time::timeout(tokio::time::Duration::from_secs(15), oneshot_rx).await {
+                    let server_ = server_.clone();
+                    let _ = rt__.spawn(async move {
+                        match tokio::time::timeout(tokio::time::Duration::from_secs(5), oneshot_rx).await {
                             Ok(Ok(rx)) => {
                                 let response = serde_json::to_string(&rx).map_err(|e| {
                                     log::error!("failed to serialize response: {}", e);
                                 }).unwrap();
                                 log::info!("received mirror command response: {}", response);
-                                match server_.write(response.as_bytes()).await {
+                                let mut server_guard = server_.lock().await;
+                                match server_guard.write(response.as_bytes()).await {
                                     Ok(_) => {
                                         log::info!("sent mirror command response: {}", response);
                                     },
@@ -91,14 +103,7 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                 }
             });
 
-            server = tokio::net::windows::named_pipe::ServerOptions::new()
-                .first_pipe_instance(false)
-                .pipe_mode(tokio::net::windows::named_pipe::PipeMode::Message)
-                .access_inbound(true)
-                .access_outbound(true)
-                .in_buffer_size(512)
-                .out_buffer_size(512)
-                .create(PIPE_NAME).unwrap();
+            counter += 1;
         }
     });
 }
@@ -150,6 +155,7 @@ mod tests {
 
             writer.write_all(message.as_bytes()).await.unwrap();
         }
+        writer.shutdown().await.unwrap();
 
         //read message from mspc
         for _ in 0..10 {
