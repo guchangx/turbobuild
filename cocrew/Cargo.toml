@@ -10,6 +10,7 @@ documentation.workspace = true
 [dependencies]
 tools = { path = "../tools" }
 crew = { path = "../crew" }
+redirectdll = { package = "redirect", path = "../redirect" }
 
 tonic = "0.12.3"
 prost = "0.13.3"
@@ -18,6 +19,7 @@ tokio-stream = "0.1.16"
 log = "0.4.22"
 zip = {version = "2.2.0", features = ["zstd"]}
 winapi = {version = "0.3.9", features = ["errhandlingapi", "processthreadsapi", "winbase", "namedpipeapi", "synchapi", "winerror"]}
+windows-sys = {version = "0.60.2", features = ["Win32_System_Pipes"]}
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.129"
 
@@ -27,5 +29,6 @@ tonic-build = "0.12.3"
 [dev-dependencies]
 winapi = {version = "0.3.9", features = ["errhandlingapi", "processthreadsapi", "winbase", "namedpipeapi", "synchapi", "winerror"]}
 windows-sys = {version = "0.60.2", features = ["Wdk_Storage_FileSystem", "Win32_System_IO", "Win32_Storage_FileSystem",
-    "Wdk_Storage_FileSystem"
+    "Wdk_Storage_FileSystem", "Win32_System_Pipes"
 ]}
+redirectdll = { package = "redirect", path = "../redirect" }
