@@ -170,7 +170,7 @@ unsafe fn redirect_command_2_cocrew() {
 
                             crate::log!(info, "read virtual command named pipe size: {}.", bytes);
 
-                            if result == winapi::shared::minwindef::FALSE {
+                            if result == winapi::shared::minwindef::FALSE || bytes == 0 {
                                 let err = winapi::um::errhandlingapi::GetLastError();
                                 println!("ReadFile failed, error code: {}, message: {}", err, tools::utils::get_winapi_error_message(err));
                                 if err == winapi::shared::winerror::ERROR_IO_PENDING {
