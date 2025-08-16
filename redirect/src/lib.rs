@@ -398,7 +398,7 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
             redirect_stdout_log_2_cocrew();
             read_project_property_from_stdin();
             
-            //show_message_box_for_debug();
+            show_message_box_for_debug();
 
             let ret = crate::detours::DetourRestoreAfterWith();
             if ret == winapi::shared::minwindef::FALSE {

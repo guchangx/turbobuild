@@ -225,7 +225,7 @@ impl Receiver {
             while let Some(request) = stream.next().await {
                 if let Ok(real) = request {
                     log::debug!("transmit redirect real result: {:?}", real);
-                    if let Some(item) = callbacks.lock().unwrap().remove(&real.id) {
+                    if let Some(responder) = callbacks.lock().unwrap().remove(&real.id) {
 
                         let command_result = MirrorCommand {
                             id: real.id,
@@ -233,7 +233,7 @@ impl Receiver {
                             args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
                         };
 
-                        match item.send(command_result) {
+                        match responder.send(command_result) {
                             Ok(_) => {
                                 log::debug!("transmit redirect handle send callback: {:?}", real.api);
                             },

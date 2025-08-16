@@ -56,6 +56,7 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
             let (mut reader, mut writer) = tokio::io::split(server);
             let (response_tx, mut response_rx) = tokio::sync::mpsc::channel::<String>(512);
   
+            //return the command response to caller in func.rs
             rt_.spawn(async move {
                 loop {
                     if let Some(response) = response_rx.recv().await {
@@ -64,58 +65,57 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                             Ok(n) => {
                                 log::info!("success sent mirror command response: {}", n);
                             },
-                            Err(e) => {
-                                log::error!("failed to write mirror command response to pipe: {}", e);
+                            Err(_) => {
+                                log::error!("failed to write mirror command response to pipe, dropped receiver.");
                                 break;
                             }
                         }
                     };
                 }
+                writer.shutdown().await.unwrap();
             });
 
             let rt__ = rt_.clone();
             let _ = rt_.spawn(async move {
                 log::trace!("pipe connected count xxx success");
-                
                 loop {
-
+                    //read command form namedpipe and send it to grpc.
                     let tx_ = tx_.clone();
 
                     let (oneshot_tx, oneshot_rx) = tokio::sync::oneshot::channel::<MirrorCommand>();
-                    {
-                        let mut data = vec![0; 1024];
-                        match reader.read(&mut data).await {
-                            Ok(size) => {
-                                if size > 0 as usize {
-                                    let message = String::from_utf8_lossy(&data[..size]);
-                                    log::info!("received mirror command: {}", message);
-                                    if let Ok(mirror_cmd) = crate::serde_json::from_str::<MirrorCommand>(&message)
-                                        .map_err(|e| {
-                                            log::error!("failed to parse mirror command: {}", e);
-                                        }) {
-                                        if let Some(tx) = tx_.as_ref() {
-                                            log::trace!("send mirror command to grpc: {:?}", mirror_cmd);
-                                            let sender = tx.lock().await;
-                                            sender.send((mirror_cmd, oneshot_tx)).await.unwrap();
-                                            drop(sender);
-                                        }
+                    
+                    let mut data = vec![0; 1024];
+                    match reader.read(&mut data).await {
+                        Ok(size) => {
+                            if size > 0 as usize {
+                                let message = String::from_utf8_lossy(&data[..size]);
+                                log::info!("received mirror command: {}", message);
+                                if let Ok(mirror_cmd) = crate::serde_json::from_str::<MirrorCommand>(&message)
+                                    .map_err(|e| {
+                                        log::error!("failed to parse mirror command: {}", e);
+                                    }) {
+                                    if let Some(tx) = tx_.as_ref() {
+                                        log::trace!("send mirror command to grpc: {:?}", mirror_cmd);
+                                        let sender = tx.lock().await;
+                                        sender.send((mirror_cmd, oneshot_tx)).await.unwrap();
                                     }
                                 }
-                                else {
-                                    log::warn!("no data received from pipe, disconnecting.");
-                                    return;
-                                }
-                            },
-                            Err(e) => {
-                                log::error!("failed to read from pipe: {}", e);
+                            }
+                            else {
+                                log::warn!("no data received from pipe, disconnecting.");
                                 return;
                             }
+                        },
+                        Err(e) => {
+                            log::error!("failed to read from pipe: {}", e);
+                            return;
                         }
                     }
 
+                    //wait grpc calback by onshot channel and send response to namedpipe writer.
                     let response_tx_ = response_tx.clone();
                     let _ = rt__.spawn(async move {
-                        match tokio::time::timeout(tokio::time::Duration::from_secs(5), oneshot_rx).await {
+                        match tokio::time::timeout(tokio::time::Duration::from_secs(18), oneshot_rx).await {
                             Ok(Ok(rx)) => {
                                 let response = serde_json::to_string(&rx).map_err(|e| {
                                     log::error!("failed to serialize response: {}", e);

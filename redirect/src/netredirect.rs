@@ -1,5 +1,6 @@
 use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
+use winapi::shared::rpcndr::byte;
 
 async fn connect() -> std::result::Result<tokio::net::windows::named_pipe::NamedPipeClient, std::io::Error> {
     const PIPE_NAME: &str = r"\\.\pipe\os_operate_request_pipe";
@@ -79,8 +80,8 @@ pub async fn connect_named_pipe() {
     let handle_w = crate::RUNTIME.lock().unwrap().spawn(async move {
         let mut rx = NET_REDIRECT_CHANNEL.rx.lock().unwrap().take().unwrap();
         while let Some(mirror_cmd) = rx.recv().await {
+            crate::log!(info, "format virtual command: {} with id: {}", mirror_cmd.command, mirror_cmd.id);
             let formatted_command = format_mirror_command(&mirror_cmd);
-
             match writer.write(formatted_command.as_bytes()).await {
                 Ok(size) => {
                     writer.flush().await.unwrap();
@@ -128,7 +129,8 @@ unsafe fn redirect_command_2_cocrew() {
         if winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 300) == winapi::shared::minwindef::TRUE {
 
             for _ in 0..3 {
-                let pipe_handle = winapi::um::fileapi::CreateFileW(name.as_ptr(), winapi::um::winnt::GENERIC_WRITE,
+                let pipe_handle = winapi::um::fileapi::CreateFileW(name.as_ptr(), 
+                    winapi::um::winnt::GENERIC_WRITE | winapi::um::winnt::GENERIC_READ,
                     0,
                     std::ptr::null_mut(),  
                     winapi::um::fileapi::OPEN_EXISTING, 
@@ -154,6 +156,7 @@ unsafe fn redirect_command_2_cocrew() {
 
                     let pipe_handle_ = pipe_handle.clone();
                     let responders_ = responders.clone();
+                    // read command from named pipe and send it to sync caller in functions
                     let _handle_r = crate::RUNTIME.lock().unwrap().spawn(async move {
                         loop {
 
@@ -170,24 +173,23 @@ unsafe fn redirect_command_2_cocrew() {
 
                             crate::log!(info, "read virtual command named pipe size: {}.", bytes);
 
-                            if result == winapi::shared::minwindef::FALSE || bytes == 0 {
+                            if result == winapi::shared::minwindef::FALSE {
                                 let err = winapi::um::errhandlingapi::GetLastError();
-                                println!("ReadFile failed, error code: {}, message: {}", err, tools::utils::get_winapi_error_message(err));
-                                if err == winapi::shared::winerror::ERROR_IO_PENDING {
-                                    continue;
-                                }
-                                else if err == winapi::shared::winerror::ERROR_MORE_DATA {
+                                crate::log!(error, "readfile failed, error code: {}, message: {}", err, tools::utils::get_winapi_error_message(err));
+                                if err == winapi::shared::winerror::ERROR_IO_PENDING |  winapi::shared::winerror::ERROR_MORE_DATA {
                                     continue;
                                 }
                                 else if err == winapi::shared::winerror::ERROR_BROKEN_PIPE {
                                     break;
                                 }
-                                else
-                                {
+                                else {
                                     break;
                                 }
                             }
-                            else {
+                            else if bytes == 0 {
+                                crate::log!(info, "read virtual command named pipe closed.");
+                            } 
+                            else if bytes > 0 {
                                 let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
                                 let (id, command, args) = parse_mirror_command(&output);
                                 if let Some(responder) = responders.lock().unwrap().remove(&id) {
@@ -201,14 +203,14 @@ unsafe fn redirect_command_2_cocrew() {
                                 }
                             }
                         }
-
                     });
 
+                    //read command from mpsc and send it to namedpipe in cocrew
                     loop {
                         let mirror_cmd = rx.recv().await;
                         match mirror_cmd {
                             Some(mirror_cmd) => {
-
+                                crate::log!(info, "format virtual command: {} with id: {}", mirror_cmd.command, mirror_cmd.id);
                                 let formatted_command = format_mirror_command(&mirror_cmd);
 
                                 let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
@@ -279,10 +281,11 @@ unsafe fn redirect_command_2_cocrew() {
         
         loop {
             match rx.try_recv() {
-                Ok(_) => {
+                Ok(command) => {
+                    crate::logger::output_debug_string(&format!("redirect_command_2_cocrew skip mirror command: {:?}", command.command));
                 },
                 Err(err) => {
-                    crate::logger::output_debug_string(&format!("redirect_stdout_log_2_cocrew: failed to receive message: {}", err));
+                    crate::logger::output_debug_string(&format!("redirect_command_2_cocrew: failed to receive command: {}", err));
                     break;
                 },
             }
@@ -293,7 +296,7 @@ unsafe fn redirect_command_2_cocrew() {
     });
 
     let _ = std::thread::spawn(move || {
-        crate::logger::output_debug_string(&format!("GetQueuedCompletionStatus start."));
+        //crate::logger::output_debug_string(&format!("GetQueuedCompletionStatus start."));
         loop {
             let mut bytes: winapi::shared::minwindef::DWORD = 0;
             let mut key: usize = 0;
@@ -319,7 +322,7 @@ unsafe fn redirect_command_2_cocrew() {
             }
         }
         winapi::um::handleapi::CloseHandle(iocp_handle_.get().to_owned());
-        crate::logger::output_debug_string(&format!("GetQueuedCompletionStatus end."));
+        //crate::logger::output_debug_string(&format!("GetQueuedCompletionStatus end."));
     });
 }
 
