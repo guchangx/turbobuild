@@ -1,6 +1,7 @@
 use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
 use winapi::shared::rpcndr::byte;
+use winapi::um::namedpipeapi::SetNamedPipeHandleState;
 
 async fn connect() -> std::result::Result<tokio::net::windows::named_pipe::NamedPipeClient, std::io::Error> {
     const PIPE_NAME: &str = r"\\.\pipe\os_operate_request_pipe";
@@ -138,7 +139,13 @@ unsafe fn redirect_command_2_cocrew() {
                     winapi::shared::ntdef::NULL
                 );
 
+                let mut mode: u32 = winapi::um::winbase::PIPE_READMODE_MESSAGE;
                 if !pipe_handle.is_null() && pipe_handle != winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                    SetNamedPipeHandleState(pipe_handle,
+                        &mut mode,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut()
+                    );
 
                     let pipe_handle = tools::ptr::HandleBox::new(pipe_handle);
 
@@ -159,14 +166,13 @@ unsafe fn redirect_command_2_cocrew() {
                     // read command from named pipe and send it to sync caller in functions
                     let _handle_r = crate::RUNTIME.lock().unwrap().spawn(async move {
                         loop {
-
-                            let mut buffer = vec![0u8; 512];
+                            let mut buffer: [u8; 512] = [0 as u8; 512];
                             let mut bytes: winapi::shared::minwindef::DWORD = 0;
 
                             let result = winapi::um::fileapi::ReadFile(
                                 pipe_handle_.get().to_owned(),
                                 buffer.as_mut_ptr() as *mut _,
-                                512,
+                                buffer.len() as u32,
                                 &mut bytes,
                                 std::ptr::null_mut()
                             );
@@ -176,7 +182,10 @@ unsafe fn redirect_command_2_cocrew() {
                             if result == winapi::shared::minwindef::FALSE {
                                 let err = winapi::um::errhandlingapi::GetLastError();
                                 crate::log!(error, "readfile failed, error code: {}, message: {}", err, tools::utils::get_winapi_error_message(err));
-                                if err == winapi::shared::winerror::ERROR_IO_PENDING |  winapi::shared::winerror::ERROR_MORE_DATA {
+
+                                if err == winapi::shared::winerror::ERROR_MORE_DATA {
+                                    let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
+                                    crate::logger::output_debug_string(&format!("more data received virtual command: {}", output));
                                     continue;
                                 }
                                 else if err == winapi::shared::winerror::ERROR_BROKEN_PIPE {
@@ -191,15 +200,21 @@ unsafe fn redirect_command_2_cocrew() {
                             } 
                             else if bytes > 0 {
                                 let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
-                                let (id, command, args) = parse_mirror_command(&output);
-                                if let Some(responder) = responders.lock().unwrap().remove(&id) {
-                                    crate::log!(info, "responding to command: {} with id: {}", command, id); 
-                                    if let Err(e) = responder.send(args) {
-                                        crate::log!(info, "failed to send virtual command: {:?}", e);
-                                    }
-                                } 
+                                crate::logger::output_debug_string(&format!("received virtual command: {}", output));
+                                if output.trim().is_empty() || output.chars().all(|c| c == '\0') {
+                                    crate::log!(error, "readfile buffer is empty");
+                                }
                                 else {
-                                    crate::log!(warn, "no responder found for id: {} command: {}", id, command);
+                                    let (id, command, args) = parse_mirror_command(&output);
+                                    if let Some(responder) = responders.lock().unwrap().remove(&id) {
+                                        crate::log!(info, "responding to command: {} with id: {}", command, id);
+                                        if let Err(e) = responder.send(args) {
+                                            crate::log!(info, "failed to send virtual command: {:?}", e);
+                                        }
+                                    } 
+                                    else {
+                                        crate::log!(warn, "no responder found for id: {} command: {}", id, command);
+                                    }
                                 }
                             }
                         }
@@ -360,7 +375,7 @@ pub fn parse_mirror_command(json: &str) -> (u32, String, std::collections::HashM
 }
 
 fn extract_number_field(json: &str, field_name: &str) -> Result<u32, String> {
-    let pattern = format!(r#""{}":"#, field_name);
+    let pattern = format!(r#""{}": "#, field_name);
     let start = json.find(&pattern)
         .ok_or_else(|| format!("Field '{}' not found", field_name))?;
     
@@ -380,11 +395,11 @@ fn extract_number_field(json: &str, field_name: &str) -> Result<u32, String> {
     
     let number_str = &json[value_start..value_end];
     number_str.parse::<u32>()
-        .map_err(|_| format!("Invalid number format for field '{}'", field_name))
+        .map_err(|_| format!("invalid number format for field '{}'", field_name))
 }
     
 fn extract_string_field(json: &str, field_name: &str) -> Result<String, String> {
-    let pattern = format!(r#""{}":""#, field_name);
+    let pattern = format!(r#""{}": ""#, field_name);
     let start = json.find(&pattern)
         .ok_or_else(|| format!("field '{}' not found", field_name))?;
     
@@ -397,9 +412,9 @@ fn extract_string_field(json: &str, field_name: &str) -> Result<String, String> 
 }
     
 fn extract_args_field(json: &str) -> Result<std::collections::HashMap<String, String>, String> {
-    let pattern = r#""args":{"#;
+    let pattern = r#""args": {"#;
     let start = json.find(pattern)
-        .ok_or_else(|| "Args field not found".to_string())?;
+        .ok_or_else(|| "args field not found".to_string())?;
     
     let args_start = start + pattern.len();
     
@@ -469,7 +484,7 @@ mod tests {
 
     #[test]
     fn parse_mirror_command_test() {
-        let json = r#"{"id":0,"command":"NtQueryDirectoryFile","args":{"fileinformation":".\r\n..\r\ngammaray_lz4.pdb\r\nlz4.c\r\nmocs_compilation_Debug.cpp\r\nmocs_compilation_Debug.obj\r\n"}}"#;
+        let json = r#"{"id": 0,"command": "NtQueryDirectoryFile","args": {"fileinformation": "mocs_compilation_Debug.obj", "key": "value"}}"#;
         let (id, command, args) = parse_mirror_command(json);
         println!("id: {}, command: {}, args: {:?}", id, command, args);
     }

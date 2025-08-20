@@ -117,9 +117,11 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                     let _ = rt__.spawn(async move {
                         match tokio::time::timeout(tokio::time::Duration::from_secs(18), oneshot_rx).await {
                             Ok(Ok(rx)) => {
-                                let response = serde_json::to_string(&rx).map_err(|e| {
-                                    log::error!("failed to serialize response: {}", e);
-                                }).unwrap();
+
+                                for (key, value) in rx.args.clone().iter() {
+                                    log::info!("received mirror command response: key: {}, value: {}", key, value);
+                                }
+                                let response = format_mirror_command(&rx);
                                 log::info!("received mirror command response: {}", response);
                                 match response_tx_.send(response).await {
                                     Ok(_) => {
@@ -280,6 +282,17 @@ pub fn compiler_redirect_request_3(tx: std::sync::Arc<Option<tokio::sync::Mutex<
             });
         }
     });
+}
+
+pub fn format_mirror_command(command: &MirrorCommand) -> String {
+    let response = format!("{{\"id\": {}, \"command\": \"{}\", \"args\": {{{}}}}}",
+        command.id,
+        command.command,
+        command.args.iter()
+            .map(|(k, v)| format!("\"{}\": \"{}\"", k, v))
+            .collect::<Vec<_>>()
+            .join(", "));
+    return response;
 }
 
 #[cfg(test)]

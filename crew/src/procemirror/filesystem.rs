@@ -1,4 +1,5 @@
 use std::os::windows::ffi::OsStrExt;
+use std::fmt::Write;
 
 pub fn route_file_system_operation(redirect: crate::communicate::package::pack::RemoteRedirect) -> crate::communicate::package::pack::LocalRedirect {
     let params = redirect.params.iter().map(|(param)| (param.key.clone(), param.value.clone())).collect::<std::collections::HashMap<String, String>>();
@@ -129,8 +130,7 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
                             let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
                             if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
                                 log::info!("File: {} (Entry {})", &file_name_str, entry_count);
-                                filenames.push_str(&file_name_str);
-                                filenames.push_str("\r\n");
+                                writeln!(&mut filenames, "{}", file_name_str).unwrap();
                             } else {
                                 log::warn!("failed to convert file name to UTF-16: {:?}", file_name_slice);
                             }
@@ -182,5 +182,16 @@ mod tests {
         params.insert("filehandle".to_string(), dir);
 
         unsafe { redirect_nt_query_directory_file(params) };
+    }
+
+    #[test]
+    fn lines_test() {
+        let mut lines = String::new();
+        writeln!(&mut lines, "line 1").unwrap();
+        writeln!(&mut lines, "line 2").unwrap();
+        writeln!(&mut lines, "line 3").unwrap();
+        let files = lines.lines();
+        let files_count = files.clone().count();
+        assert_eq!(files_count, 3);
     }
 }
