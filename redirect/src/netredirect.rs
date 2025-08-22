@@ -220,7 +220,7 @@ unsafe fn redirect_command_2_cocrew() {
                         }
                     });
 
-                    //read command from mpsc and send it to namedpipe in cocrew
+                    //read command from functions.rs mpsc and send it to namedpipe in cocrew
                     loop {
                         let mirror_cmd = rx.recv().await;
                         match mirror_cmd {
@@ -310,8 +310,12 @@ unsafe fn redirect_command_2_cocrew() {
         return ();
     });
 
-    let _ = std::thread::spawn(move || {
-        //crate::logger::output_debug_string(&format!("GetQueuedCompletionStatus start."));
+    let _ = std::thread::Builder::new()
+    .name("get_queued_completion_status thread".to_string())
+    .spawn(move || {
+        let now = chrono::Local::now();
+        let time = now.format("%H:%M:%S%.3f").to_string();
+        crate::logger::output_debug_string(&format!("{} GetQueuedCompletionStatus start.", time));
         loop {
             let mut bytes: winapi::shared::minwindef::DWORD = 0;
             let mut key: usize = 0;
@@ -337,7 +341,9 @@ unsafe fn redirect_command_2_cocrew() {
             }
         }
         winapi::um::handleapi::CloseHandle(iocp_handle_.get().to_owned());
-        //crate::logger::output_debug_string(&format!("GetQueuedCompletionStatus end."));
+        let now = chrono::Local::now();
+        let time = now.format("%H:%M:%S%.3f").to_string();
+        crate::logger::output_debug_string(&format!("{} GetQueuedCompletionStatus end.", time));
     });
 }
 
@@ -345,10 +351,6 @@ pub fn async_connect_named_pipe() {
     unsafe {
         redirect_command_2_cocrew();
     }
-
-    //crate::RUNTIME.lock().unwrap().spawn(async move {
-    //    connect_named_pipe().await;
-    //});
 }
 
 fn format_mirror_command(command: &MirrorCommand) -> String {

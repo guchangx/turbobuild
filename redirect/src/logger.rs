@@ -27,7 +27,7 @@ impl Logger {
     pub fn trace(message: impl Into<String>) {
         let now = chrono::Local::now();
         let time = now.format("%H:%M:%S%.3f").to_string();
-        Self::log(format!("[{} T] {}",time, message.into()));
+        Self::log(format!("[{} T] {}", time, message.into()));
     }
     pub fn debug(message: impl Into<String>) {
         let now = chrono::Local::now();

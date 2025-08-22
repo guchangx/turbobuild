@@ -1,7 +1,4 @@
 
-use std::os::windows::io::AsHandle;
-use std::os::windows::io::AsRawHandle;
-
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
@@ -151,8 +148,6 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
 }
 
 pub fn compiler_redirect_request_2(tx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Sender<(MirrorCommand, Responders)>>>>) {
-
-    use tokio::io::AsyncWriteExt;
 
     use std::os::windows::ffi::OsStrExt;
     let os_string = std::ffi::OsString::from("\\\\.\\pipe\\os_operate_request_pipe");

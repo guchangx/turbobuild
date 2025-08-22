@@ -398,6 +398,8 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
             redirect_stdout_log_2_cocrew();
             read_project_property_from_stdin();
             
+            crate::netredirect::async_connect_named_pipe();
+
             show_message_box_for_debug();
 
             let ret = crate::detours::DetourRestoreAfterWith();
@@ -429,8 +431,6 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
                 let error_code = winapi::um::errhandlingapi::GetLastError();
                 log!(error, "DetourTransactionCommit failed, error code: {}.", error_code);
             }
-
-            crate::netredirect::async_connect_named_pipe();
         },
         winapi::um::winnt::DLL_THREAD_ATTACH => {
 
