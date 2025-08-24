@@ -165,56 +165,109 @@ unsafe fn redirect_command_2_cocrew() {
                     let responders_ = responders.clone();
                     // read command from named pipe and send it to sync caller in functions
                     let _handle_r = crate::RUNTIME.lock().unwrap().spawn(async move {
+                        let mut moredata = Vec::new();
                         loop {
                             let mut buffer: [u8; 512] = [0 as u8; 512];
                             let mut bytes: winapi::shared::minwindef::DWORD = 0;
+                            
+                            //TODO: should use IOCP replace event.
+                            let event = winapi::um::synchapi::CreateEventW(
+                                std::ptr::null_mut(),
+                                winapi::shared::minwindef::TRUE, 
+                                winapi::shared::minwindef::FALSE,
+                                std::ptr::null_mut()
+                            );
+
+                            let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+                            overlapped.hEvent = event;
 
                             let result = winapi::um::fileapi::ReadFile(
                                 pipe_handle_.get().to_owned(),
                                 buffer.as_mut_ptr() as *mut _,
                                 buffer.len() as u32,
                                 &mut bytes,
-                                std::ptr::null_mut()
+                                &mut overlapped
                             );
 
                             crate::log!(info, "read virtual command named pipe size: {}.", bytes);
 
-                            if result == winapi::shared::minwindef::FALSE {
-                                let err = winapi::um::errhandlingapi::GetLastError();
-                                crate::log!(error, "readfile failed, error code: {}, message: {}", err, tools::utils::get_winapi_error_message(err));
+                            if result == winapi::shared::minwindef::FALSE || bytes == 0 {
 
-                                if err == winapi::shared::winerror::ERROR_MORE_DATA {
-                                    let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
-                                    crate::logger::output_debug_string(&format!("more data received virtual command: {}", output));
-                                    continue;
-                                }
-                                else if err == winapi::shared::winerror::ERROR_BROKEN_PIPE {
-                                    break;
+                                let err = winapi::um::errhandlingapi::GetLastError();
+
+                                if err == winapi::shared::winerror::ERROR_IO_PENDING {
+                                    winapi::um::synchapi::WaitForSingleObject(event, winapi::um::winbase::INFINITE);
+
+                                    let mut final_bytes: winapi::shared::minwindef::DWORD = 0;
+                                    winapi::um::ioapiset::GetOverlappedResult(
+                                        pipe_handle_.get().to_owned(),
+                                        &mut overlapped,
+                                        &mut final_bytes,
+                                        winapi::shared::minwindef::TRUE
+                                    );
+                                    crate::log!(info, "read virtual command named pipe io size: {}.", final_bytes);
+
+                                    if final_bytes == 0 {
+                                        crate::log!(info, "read virtual command named pipe closed. final bytes is 0.");
+                                    }
+                                    else if final_bytes == buffer.len() as u32 {
+                                        moredata.extend_from_slice(&buffer[..final_bytes as usize]);
+                                    }
+                                    else {
+                                        moredata.extend_from_slice(&buffer[..final_bytes as usize]);
+
+                                        let output = String::from_utf8_lossy(&moredata);
+
+                                        crate::logger::output_debug_string(&format!("received virtual command: {}", output));
+                                        if output.trim().is_empty() || output.chars().all(|c| c == '\0') {
+                                            crate::log!(error, "readfile buffer is empty");
+                                        }
+                                        else {
+                                            let (id, command, args) = parse_mirror_command(&output);
+                                            if let Some(responder) = responders.lock().unwrap().remove(&id) {
+                                                crate::log!(info, "responding to command: {} with id: {}", command, id);
+                                                if let Err(e) = responder.send(args) {
+                                                    crate::log!(info, "failed to send virtual command: {:?}", e);
+                                                }
+                                            }
+                                            else {
+                                                crate::log!(warn, "no responder found for id: {} command: {}", id, command);
+                                            }
+                                        }
+                                        moredata.clear();
+                                    }
                                 }
                                 else {
+                                    crate::log!(error, "readfile failed, error code: {}, message: {}", err, tools::utils::get_winapi_error_message(err));
                                     break;
                                 }
                             }
-                            else if bytes == 0 {
-                                crate::log!(info, "read virtual command named pipe closed.");
-                            } 
-                            else if bytes > 0 {
-                                let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
-                                crate::logger::output_debug_string(&format!("received virtual command: {}", output));
-                                if output.trim().is_empty() || output.chars().all(|c| c == '\0') {
-                                    crate::log!(error, "readfile buffer is empty");
+                            else {
+                                if bytes == buffer.len() as u32 {
+                                    moredata.extend_from_slice(&buffer[..bytes as usize]);
                                 }
                                 else {
-                                    let (id, command, args) = parse_mirror_command(&output);
-                                    if let Some(responder) = responders.lock().unwrap().remove(&id) {
-                                        crate::log!(info, "responding to command: {} with id: {}", command, id);
-                                        if let Err(e) = responder.send(args) {
-                                            crate::log!(info, "failed to send virtual command: {:?}", e);
-                                        }
-                                    } 
-                                    else {
-                                        crate::log!(warn, "no responder found for id: {} command: {}", id, command);
+                                    moredata.extend_from_slice(&buffer[..bytes as usize]);
+
+                                    let output = String::from_utf8_lossy(&moredata);
+
+                                    crate::logger::output_debug_string(&format!("received virtual command: {}", output));
+                                    if output.trim().is_empty() || output.chars().all(|c| c == '\0') {
+                                        crate::log!(error, "readfile buffer is empty");
                                     }
+                                    else {
+                                        let (id, command, args) = parse_mirror_command(&output);
+                                        if let Some(responder) = responders.lock().unwrap().remove(&id) {
+                                            crate::log!(info, "responding to command: {} with id: {}", command, id);
+                                            if let Err(e) = responder.send(args) {
+                                                crate::log!(info, "failed to send virtual command: {:?}", e);
+                                            }
+                                        }
+                                        else {
+                                            crate::log!(warn, "no responder found for id: {} command: {}", id, command);
+                                        }
+                                    }
+                                    moredata.clear();
                                 }
                             }
                         }

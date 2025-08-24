@@ -25,8 +25,8 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                 .pipe_mode(tokio::net::windows::named_pipe::PipeMode::Message)
                 .access_inbound(true)
                 .access_outbound(true)
-                .in_buffer_size(512)
-                .out_buffer_size(512)
+                .in_buffer_size(65536)  
+                .out_buffer_size(65536)
                 //.write_dac(true)
                 //.write_owner(true)
                 //.access_system_security(true)
@@ -51,7 +51,7 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
 
             let tx_ = tx.clone();
             let (mut reader, mut writer) = tokio::io::split(server);
-            let (response_tx, mut response_rx) = tokio::sync::mpsc::channel::<String>(512);
+            let (response_tx, mut response_rx) = tokio::sync::mpsc::channel::<String>(256);
   
             //return the command response to caller in func.rs
             rt_.spawn(async move {
@@ -61,6 +61,7 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                         match writer.write(response.as_bytes()).await {
                             Ok(n) => {
                                 log::info!("success sent mirror command response: {}", n);
+                                writer.flush().await.unwrap();
                             },
                             Err(_) => {
                                 log::error!("failed to write mirror command response to pipe, dropped receiver.");

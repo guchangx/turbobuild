@@ -103,20 +103,27 @@ pub fn replace(path: &mut String) -> bool {
     }
 }
 
-pub fn replace_dir(path: &mut String) -> bool {
+#[derive(PartialEq)]
+pub enum ReplaceDirResult {
+    Success,
+    NoMatch,
+    IncludesDir,
+}
+
+pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
 
     if std::path::Path::new(path).extension().is_some() {
-        return false;
+        return ReplaceDirResult::NoMatch;
     }
     else if path.contains(r"AppData\Local\Temp\") {
-        return false;
+        return ReplaceDirResult::NoMatch;
     }
     else if path.starts_with(r"\??\pipe\") {
-        return false;
+        return ReplaceDirResult::NoMatch;
     }
     else if crate::SOLUTIONNAME.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
         if  crate::INCLUDES.get().unwrap().contains(&path[4..path.len() - 1].to_string()) {
-            return false;
+            return ReplaceDirResult::IncludesDir;
         }
         else {
             let generated = std::path::Path::new(crate::GENERATEDDIR.get().unwrap());
@@ -129,10 +136,10 @@ pub fn replace_dir(path: &mut String) -> bool {
                     else {
                         *path = modified;
                     }
-                    return true;
+                    return ReplaceDirResult::Success;
                 } else {
                     crate::log!(warn, "replace sources dir is not ready, original: {}", path);
-                    return false;
+                    return ReplaceDirResult::NoMatch;
                 }
             } 
             else {
@@ -145,11 +152,11 @@ pub fn replace_dir(path: &mut String) -> bool {
                     *path = modified;
                 }
 
-                return true;
+                return ReplaceDirResult::Success;
             }
         }
     } 
     else {
-        return false;
+        return ReplaceDirResult::NoMatch;
     }
 }

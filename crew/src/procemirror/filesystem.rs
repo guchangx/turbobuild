@@ -90,10 +90,10 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
         return std::collections::HashMap::new();
     }
     else {
-        let length = 4096;
+        let length = 65536;
         let mut buffer: Vec<u8> = vec![0; length];
         let fileinformation = buffer.as_mut_ptr() as *mut std::ffi::c_void;
-        
+
         let fileinformationclass = windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation;
         let nt_status = windows_sys::Wdk::Storage::FileSystem::NtQueryDirectoryFile(
             filehandle,
@@ -177,6 +177,8 @@ mod tests {
         let mut dir = std::env::current_dir().unwrap().to_str().unwrap().to_string();
         //dir = "\\\\?\\D:\\turbobuild\\target\\debug\\Replica".into();
         //dir = "\\??\\D:\\turbobuild\\target\\debug\\Replica".into();
+        dir = "E:\\TestFuture\\GammaRay\\GammaRayTool\\build".into();
+
         println!("current dir: {}", dir);
         let mut params = std::collections::HashMap::new();
         params.insert("filehandle".to_string(), dir);
