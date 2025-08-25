@@ -57,7 +57,6 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
             rt_.spawn(async move {
                 loop {
                     if let Some(response) = response_rx.recv().await {
-                        log::info!("received message from response channel: {}", response);
                         match writer.write(response.as_bytes()).await {
                             Ok(n) => {
                                 log::info!("success sent mirror command response: {}", n);
@@ -75,7 +74,7 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
 
             let rt__ = rt_.clone();
             let _ = rt_.spawn(async move {
-                log::trace!("pipe connected count xxx success");
+                log::trace!("pipe connected count {} success", counter);
                 loop {
                     //read command form namedpipe and send it to grpc.
                     let tx_ = tx_.clone();
@@ -115,15 +114,10 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                     let _ = rt__.spawn(async move {
                         match tokio::time::timeout(tokio::time::Duration::from_secs(18), oneshot_rx).await {
                             Ok(Ok(rx)) => {
-
-                                for (key, value) in rx.args.clone().iter() {
-                                    log::info!("received mirror command response: key: {}, value: {}", key, value);
-                                }
                                 let response = format_mirror_command(&rx);
-                                log::info!("received mirror command response: {}", response);
+
                                 match response_tx_.send(response).await {
                                     Ok(_) => {
-                                        log::info!("success sent mirror command response.");
                                     },
                                     Err(e) => {
                                         log::error!("failed to write mirror command response to pipe: {}", e);

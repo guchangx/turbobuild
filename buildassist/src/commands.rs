@@ -122,7 +122,8 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
     let mut environment = std::collections::HashMap::new();
     for (key, value) in std::env::vars() {
         if key.eq("CAExcludePath") || key.eq("EXTERNAL_INCLUDE") || key.eq("INCLUDE") || key.eq("LIB")
-           || key.eq("LIBPATH") || key.eq("TEMP") || key.eq("TMP") || key.starts_with("TRACKER_")
+           || key.eq("LIBPATH") || key.eq("TEMP") || key.eq("TMP") 
+           /*|| key.starts_with("TRACKER_")*/  || key.starts_with("TRACKER_INTERMEDIATE")
            || key.starts_with("VisualStudio") || key.starts_with("VS") {
             environment.insert(key, value);
         }

@@ -796,7 +796,7 @@ impl MSVC {
                     if let Some(stream) = stream {
                         for file in &left {
 
-                            let path = std::path::PathBuf::from(&file);
+                            let mut path = std::path::PathBuf::from(&file);
                             let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
                                 log::error!("failed to read file: {:?}", file);
                                 Vec::new()
@@ -814,6 +814,122 @@ impl MSVC {
                             };
 
                             let _ = stream.send(archive).await;
+
+                            //.inc;.rc;.resx;.idl;.rc2;.def
+                            //.odl;.asm;.asmx;.xsd;.bin;.rgs;.html;.htm;.manifest
+                            //.cpp;.cxx;.cc;.c;.c++;.cppm;.ixx;.inl;.ipp
+                            //.h;.hh;.hpp;.hxx;.h++;.hm
+
+                            let extension = path.extension().unwrap().to_str().unwrap().to_lowercase();
+                            if extension == "cpp" || extension == "cxx" || extension == "cc" || extension == "c" {
+                                path.set_extension("h");
+                                log::debug!("also try to send include file: {:?}", path);
+                                
+                                if path.exists() {
+                                    let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
+                                        log::error!("failed to read file: {:?}", path);
+                                        Vec::new()
+                                    });
+
+                                    let name = path.file_name().unwrap().to_string_lossy().to_string();
+
+                                    let archive = crate::communicate::package::ArchiveArgs {
+                                        file_type:  crate::communicate::package::FileType::SourceFiles,
+                                        solution: input_.solution.to_string_lossy().to_string(),
+                                        project: input_.project.to_string_lossy().to_string(),
+                                        name: name.clone(),
+                                        path: intermediate_.join(name).to_string_lossy().to_string(),
+                                        content: content.into(),
+                                    };
+
+                                    let _ = stream.send(archive).await;
+                                    continue;
+                                }
+                                path.set_extension("hpp");
+                                if path.exists() {
+                                    let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
+                                        log::error!("failed to read file: {:?}", path);
+                                        Vec::new()
+                                    });
+
+                                    let name = path.file_name().unwrap().to_string_lossy().to_string();
+
+                                    let archive = crate::communicate::package::ArchiveArgs {
+                                        file_type:  crate::communicate::package::FileType::SourceFiles,
+                                        solution: input_.solution.to_string_lossy().to_string(),
+                                        project: input_.project.to_string_lossy().to_string(),
+                                        name: name.clone(),
+                                        path: intermediate_.join(name).to_string_lossy().to_string(),
+                                        content: content.into(),
+                                    };
+
+                                    let _ = stream.send(archive).await;
+                                    continue;
+                                }
+                                path.set_extension("hh");
+                                if path.exists() {
+                                    let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
+                                        log::error!("failed to read file: {:?}", path);
+                                        Vec::new()
+                                    });
+
+                                    let name = path.file_name().unwrap().to_string_lossy().to_string();
+
+                                    let archive = crate::communicate::package::ArchiveArgs {
+                                        file_type:  crate::communicate::package::FileType::SourceFiles,
+                                        solution: input_.solution.to_string_lossy().to_string(),
+                                        project: input_.project.to_string_lossy().to_string(),
+                                        name: name.clone(),
+                                        path: intermediate_.join(name).to_string_lossy().to_string(),
+                                        content: content.into(),
+                                    };
+
+                                    let _ = stream.send(archive).await;
+                                    continue;
+                                }
+                                path.set_extension("hxx");
+                                if path.exists() {
+                                    let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
+                                        log::error!("failed to read file: {:?}", path);
+                                        Vec::new()
+                                    });
+
+                                    let name = path.file_name().unwrap().to_string_lossy().to_string();
+
+                                    let archive = crate::communicate::package::ArchiveArgs {
+                                        file_type:  crate::communicate::package::FileType::SourceFiles,
+                                        solution: input_.solution.to_string_lossy().to_string(),
+                                        project: input_.project.to_string_lossy().to_string(),
+                                        name: name.clone(),
+                                        path: intermediate_.join(name).to_string_lossy().to_string(),
+                                        content: content.into(),
+                                    };
+
+                                    let _ = stream.send(archive).await;
+                                    continue;
+                                }
+                                path.set_extension("h++");
+                                if path.exists() {
+                                    let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
+                                        log::error!("failed to read file: {:?}", path);
+                                        Vec::new()
+                                    });
+
+                                    let name = path.file_name().unwrap().to_string_lossy().to_string();
+
+                                    let archive = crate::communicate::package::ArchiveArgs {
+                                        file_type:  crate::communicate::package::FileType::SourceFiles,
+                                        solution: input_.solution.to_string_lossy().to_string(),
+                                        project: input_.project.to_string_lossy().to_string(),
+                                        name: name.clone(),
+                                        path: intermediate_.join(name).to_string_lossy().to_string(),
+                                        content: content.into(),
+                                    };
+
+                                    let _ = stream.send(archive).await;
+                                    continue;
+                                }
+                            }
                         }
                     }
 

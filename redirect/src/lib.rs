@@ -32,7 +32,7 @@ struct Channel {
 }
 
 static LOGGER: std::sync::LazyLock<Channel> = std::sync::LazyLock::new(|| {
-        let (tx, rx) = tokio::sync::mpsc::channel::<String>(512);
+        let (tx, rx) = tokio::sync::mpsc::channel::<String>(1024);
         let channel = Channel { tx, rx: std::sync::Mutex::new(Some(rx)) };
         return channel; 
 });

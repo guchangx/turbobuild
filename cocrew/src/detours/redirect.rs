@@ -77,6 +77,13 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
         let dwCreationFlags = winapi::um::winbase::CREATE_DEFAULT_ERROR_MODE | winapi::um::winbase::CREATE_SUSPENDED | winapi::um::winbase::CREATE_UNICODE_ENVIRONMENT;
 
         let mut env_block: Vec<u16> = Vec::new();
+
+        let mut env = std::ffi::OsString::from("SystemRoot");
+        env.push("=");
+        env.push(r"C:\WINDOWS");
+        env_block.extend(env.encode_wide());
+        env_block.push(0);
+
         if !envs.is_empty() {
             for (key, value) in envs.iter() {
                 let mut pair = key.clone();
@@ -88,12 +95,11 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
             }
             env_block.push(0);
         }
+        else {
+            env_block.push(0);
+        }
 
-        let lpEnvironment = if env_block.is_empty() {
-            std::ptr::null_mut()
-        } else {
-            env_block.as_mut_ptr() as *mut std::ffi::c_void
-        };
+        let lpEnvironment = env_block.as_mut_ptr() as *mut std::ffi::c_void;
         
         let appName = std::ffi::OsStr::new(lpApplicationName);
         let appNameWideChars: Vec<u16> = appName.encode_wide().chain(std::iter::once(0)).collect();
@@ -280,7 +286,7 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                 winapi::um::handleapi::CloseHandle(lpProcessInformation.hThread as _);
                 winapi::um::handleapi::CloseHandle(lpProcessInformation.hProcess as _);
 
-                log::info!("msvc detours {} end with exit code {}", project, code);
+                log::info!("msvc detours {} end with exit code {}. error message: {}.", project, code, tools::utils::get_winapi_error_message(code));
                 if !hStdOutputRead.is_null() {
                     winapi::um::handleapi::CloseHandle(hStdOutputRead);
                 }

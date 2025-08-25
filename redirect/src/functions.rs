@@ -797,7 +797,7 @@ pub unsafe fn nt_query_directory_file(
                         if file_name_length_bytes > 0 {
                             let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
                             if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
-                                crate::log!(trace, "single entry #{}: file: '{}'", entry_count, file_name_str);
+                                crate::log!(trace, "nt_query_directory_file single entry #{}: file: '{}'", entry_count, file_name_str);
                             }
                         }
 
@@ -824,14 +824,14 @@ pub unsafe fn nt_query_directory_file(
             if !file_name.is_null() {
                 let buffer = (*file_name).Buffer;
                 let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                crate::log!(trace, "nt_query_directory_file path: {:?}", name);
+                crate::log!(trace, "nt_query_directory_file file name: {:?}", name);
             }
 
             if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
-                crate::log!(trace, "no more files to enumerate.");
+                crate::log!(trace, "nt_query_directory_file no more files to enumerate.");
             }
             else if nt_status == windows_sys::Win32::Foundation::STATUS_BUFFER_OVERFLOW {
-                crate::log!(warn, "buffer overflow occurred, consider increasing buffer size.");
+                crate::log!(warn, "nt_query_directory_file buffer overflow occurred, consider increasing buffer size.");
             }
             else {
                 crate::log!(error, "nt_query_directory_file failed with status: {:#X} filename: {:?}", nt_status, file_name);
@@ -857,7 +857,6 @@ pub unsafe fn nt_query_directory_file(
 
                 for (index, file) in filenames.iter().enumerate() {
                     crate::logger::output_debug_string(&format!("nt_query_directory_file enumerate file: {} {}", index, file));
-                    crate::log!(trace, "nt_query_directory_file enumerate file: {}", file);
                     let virtual_file_name: Vec<u16> = file.encode_utf16().collect();
                     let virtual_file_name_bytes: u32 = (virtual_file_name.len() * 2) as u32;
 
@@ -953,7 +952,6 @@ pub unsafe fn nt_query_directory_file(
                 let map = cell.borrow();
                 crate::log!(trace, "nt_query_directory_file known file handles: {:?} {:?}", map, file_handle);
                 if let Some(path) = map.get(&file_handle) {
-                    crate::log!(trace, "nt_query_directory_file known file handle path: {}", path);
                     file_path = Some(path.clone());
                 }
             });
@@ -1068,6 +1066,7 @@ pub unsafe fn nt_query_directory_file(
                         };
                     }
 
+                    /* 
                     //try access result
                     let mut current_offset = 0usize;
                     let mut entry_count = 0;
@@ -1084,7 +1083,7 @@ pub unsafe fn nt_query_directory_file(
                                 if file_name_length_bytes > 0 {
                                     let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
                                     if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
-                                        crate::log!(trace, "Test Entry #{}: File: '{}'", entry_count, file_name_str);
+                                        crate::log!(trace, "test entry #{}: File: '{}'", entry_count, file_name_str);
                                     }
                                 }
 
@@ -1106,6 +1105,7 @@ pub unsafe fn nt_query_directory_file(
                             break;
                         }
                     }
+                    */
                         
                     return if entries_written > 0 {
                         windows_sys::Win32::Foundation::STATUS_SUCCESS

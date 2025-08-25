@@ -129,7 +129,6 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
                         if file_name_length_bytes > 0 {
                             let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
                             if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
-                                log::info!("File: {} (Entry {})", &file_name_str, entry_count);
                                 writeln!(&mut filenames, "{}", file_name_str).unwrap();
                             } else {
                                 log::warn!("failed to convert file name to UTF-16: {:?}", file_name_slice);
@@ -154,7 +153,7 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
                     break;
                 }
             }
-            log::info!("successfully queried directory: {}", fileh);
+            log::info!("successfully queried directory: {} entry count: {}", fileh, entry_count);
             windows_sys::Win32::Foundation::CloseHandle(filehandle);
 
             let mut results = std::collections::HashMap::new();
@@ -163,7 +162,6 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
             return results;
         }
     }
-
 }
 
 #[cfg(test)]
