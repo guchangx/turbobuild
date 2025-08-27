@@ -47,7 +47,7 @@ pub unsafe fn pass_params_to_redirect(handle: winapi::shared::ntdef::HANDLE, sol
             arg.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
             arg.len() as u32,
             &mut bytes,
-            &mut overlapped
+            std::ptr::null_mut()
         );
     
         if ret == winapi::shared::minwindef::FALSE || bytes == 0 {
@@ -153,6 +153,7 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
             let lpProcessAttributes = std::ptr::null_mut();
             let lpThreadAttributes = std::ptr::null_mut();
             let mut lpStartupInfo: crate::detours::detours::_STARTUPINFOW = std::mem::MaybeUninit::zeroed().assume_init();
+            lpStartupInfo.cb = std::mem::size_of::<crate::detours::detours::_STARTUPINFOW>() as u32;
             lpStartupInfo.hStdInput = hStdInRead as *mut std::ffi::c_void;            
             lpStartupInfo.hStdOutput = hStdOutputWrite as *mut std::ffi::c_void;
             lpStartupInfo.hStdError = hStdErrorWrite as *mut std::ffi::c_void;
@@ -200,7 +201,7 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                     loop {
                         chTmpStdOutputReadBuffer.fill(0);
                         let bStdOutputRead = winapi::um::fileapi::ReadFile(
-                            hStdOutputReadBox.get().to_owned(),
+                            *hStdOutputReadBox.get(),
                             chTmpStdOutputReadBuffer.as_mut_ptr() as *mut _, 
                             chTmpStdOutputReadBuffer.len() as u32, 
                             &mut bytesStdOuputRead,
