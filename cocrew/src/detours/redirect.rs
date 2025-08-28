@@ -78,14 +78,37 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
 
         let mut env_block: Vec<u16> = Vec::new();
 
-        let mut env = std::ffi::OsString::from("SystemRoot");
-        env.push("=");
-        env.push(r"C:\WINDOWS");
-        env_block.extend(env.encode_wide());
-        env_block.push(0);
-
+        std::env::var("SystemRoot").map(|value| {
+            let mut env = std::ffi::OsString::from("SystemRoot");
+            env.push("=");
+            env.push(value);
+            env_block.extend(env.encode_wide());
+            env_block.push(0);
+        });
+        
+        if let Ok(value) = std::env::var("TMP") {
+            let mut env = std::ffi::OsString::from("TMP");
+            env.push("=");
+            env.push(value);
+            env_block.extend(env.encode_wide());
+            env_block.push(0);
+        }
+        else {
+            std::env::var("TEMP").map(|value| {
+                let mut env = std::ffi::OsString::from("TEMP");
+                env.push("=");
+                env.push(value);
+                env_block.extend(env.encode_wide());
+                env_block.push(0);
+            });
+        }
+        // must set SystemRoot TMP/TEMP envs, must not set VS_UNICODE_OUTPUT envs. i don't know why, it is test result.
         if !envs.is_empty() {
             for (key, value) in envs.iter() {
+                if  key.to_string_lossy().starts_with("VS_UNICODE_OUTPUT") {
+                    continue;
+                }
+
                 let mut pair = key.clone();
                 pair.push("=");
                 pair.push(value);
@@ -96,12 +119,6 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
             env_block.push(0);
         }
         else {
-            let mut env = std::ffi::OsString::from("INCLUDE");
-            env.push("=");
-            env.push(r"");
-            env_block.extend(env.encode_wide());
-            env_block.push(0);
-
             env_block.push(0);
         }
 
