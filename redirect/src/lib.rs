@@ -112,7 +112,7 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                     ).is_null() {
                         winapi::um::handleapi::CloseHandle(iocp_handle.get().to_owned());
                         winapi::um::handleapi::CloseHandle(pipe_handle.get().to_owned());
-                        println!("CreateIoCompletionPort failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
+                        crate::logger::output_debug_string(&format!("redirect stdout CreateIoCompletionPort failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError())));
                         break;
                     }
 
@@ -140,7 +140,6 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                                         //break;
                                     }
                                     else {
-                                        println!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
                                         crate::logger::output_debug_string(&format!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
                                         break;
                                     }
@@ -174,14 +173,15 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                         continue;
                     }
                     else {
-                        println!("CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                        crate::logger::output_debug_string(&format!("redirect stdout createFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
                     }
                 }
             }
         }
         else {
             let error = winapi::um::errhandlingapi::GetLastError();
-            println!("WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+            //i do not know why println!() call case cl.exe stdoutput. so use output_debug_string. 
+            crate::logger::output_debug_string(&format!("redirect stdout WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
         }
         
         loop {
@@ -218,7 +218,7 @@ unsafe fn redirect_stdout_log_2_cocrew() {
 
             if result == winapi::shared::minwindef::FALSE || bytes == 0 {
                 let error = winapi::um::errhandlingapi::GetLastError();
-                println!("GetQueuedCompletionStatus failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                crate::logger::output_debug_string(&format!("GetQueuedCompletionStatus failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
                 break;
             }
             else {
@@ -310,6 +310,16 @@ fn fetch_args_from_command() {
             }
             else {
                 GENERATEDDIR.get_or_init(|| item[3..].to_string());
+            }
+        }
+    }
+    for (key, value) in std::env::vars() {
+        if key.to_lowercase() == "include" {
+            let paths: Vec<&str> = value.split(';').collect();
+            for path in paths {
+                if !path.is_empty() {
+                    includes.push(path.to_string());
+                }
             }
         }
     }

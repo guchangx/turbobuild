@@ -337,14 +337,16 @@ unsafe fn redirect_command_2_cocrew() {
                         continue;
                     }
                     else {
-                        println!("CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                        //println!("CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                        crate::logger::output_debug_string(&format!("redirect_command_2_cocrew CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
                     }
                 }
             }
         }
         else {
             let error = winapi::um::errhandlingapi::GetLastError();
-            println!("WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+            //println!("WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+            crate::logger::output_debug_string(&format!("redirect_command_2_cocrew WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
         }
         
         loop {

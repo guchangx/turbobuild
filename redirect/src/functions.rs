@@ -739,6 +739,7 @@ thread_local! {
     static NT_HANDLE_AND_DIR: std::cell::RefCell<std::collections::HashMap<windows_sys::Win32::Foundation::HANDLE, String>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
+
 pub unsafe fn nt_query_directory_file(
     file_handle: windows_sys::Win32::Foundation::HANDLE,
     event: windows_sys::Win32::Foundation::HANDLE,
@@ -824,7 +825,7 @@ pub unsafe fn nt_query_directory_file(
             if !file_name.is_null() {
                 let buffer = (*file_name).Buffer;
                 let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                crate::log!(trace, "nt_query_directory_file file name: {:?}", name);
+                crate::log!(trace, "nt_query_directory_file single file failed with status {:#X} filename: {:?} dir filehandle: {:?}", nt_status, name, file_handle);
             }
 
             if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
@@ -834,13 +835,14 @@ pub unsafe fn nt_query_directory_file(
                 crate::log!(warn, "nt_query_directory_file buffer overflow occurred, consider increasing buffer size.");
             }
             else {
-                crate::log!(error, "nt_query_directory_file failed with status: {:#X} filename: {:?}", nt_status, file_name);
+                crate::log!(error, "nt_query_directory_file failed with status: {:#X}", nt_status);
             }
         }
 
         return nt_status;
     }
     else {
+        //second or subsequent query.
         if (*io_status_block).Information < length as usize && (*io_status_block).Anonymous.Status != -1 {
 
             let maybe_filenames = NT_HANDLE_AND_FILENAMES.with(|cell| {
@@ -926,23 +928,47 @@ pub unsafe fn nt_query_directory_file(
             }
             else {
                 crate::logger::output_debug_string(&format!("nt_query_directory_file can't find dir: {:#?} len: {}", file_handle, NT_HANDLE_AND_FILENAMES.with(|cell| cell.borrow().len())));
-
-                NT_HANDLE_AND_FILENAMES.with(|cell| {
-                    let mut handle_and_filenames = cell.borrow_mut();
-                    handle_and_filenames.remove(&file_handle);
+                
+                let has_dir = NT_HANDLE_AND_DIR.with(|cell| {
+                    let handle_and_dir = cell.borrow();
+                    return handle_and_dir.get(&file_handle).is_some();
                 });
 
-                NT_HANDLE_AND_DIR.with(|cell| {
-                    let mut handle_and_dir = cell.borrow_mut();
-                    handle_and_dir.remove(&file_handle);
-                });
+                if has_dir {
+                    NT_HANDLE_AND_DIR.with(|cell| {
+                        let mut handle_and_dir = cell.borrow_mut();
+                        handle_and_dir.remove(&file_handle);
+                    });
 
-                if !io_status_block.is_null() {
-                    (*io_status_block).Information = 0;
-                    (*io_status_block).Anonymous.Pointer = std::ptr::null_mut();
-                    (*io_status_block).Anonymous.Status = windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES;
+                    if !io_status_block.is_null() {
+                        (*io_status_block).Information = 0;
+                        (*io_status_block).Anonymous.Pointer = std::ptr::null_mut();
+                        (*io_status_block).Anonymous.Status = windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES;
+                    }
+                    return windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES;
                 }
-                return windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES;
+                else {
+                    let nt_status = nt_query_directory_file(
+                        file_handle,
+                        event,
+                        apc_routine,
+                        apc_context,
+                        io_status_block,
+                        file_information,
+                        length,
+                        file_information_class,
+                        return_single_entry,
+                        file_name,
+                        restart_scan
+                    );
+                    if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS && !file_information.is_null() {
+                    }
+                    else {
+                        crate::log!(error, "nt_query_directory_file direct call failed with status: {:#X}", nt_status);
+                    }
+
+                    return nt_status;
+                }
             }
         }
         else {
@@ -1043,11 +1069,6 @@ pub unsafe fn nt_query_directory_file(
                                 }
                                 else {
                                     handle_and_filenames.remove(&file_handle);
-
-                                    NT_HANDLE_AND_DIR.with(|cell| {
-                                        let mut handle_and_dir = cell.borrow_mut();
-                                        handle_and_dir.remove(&file_handle);
-                                    });
                                 }
                             });
                             
@@ -1120,9 +1141,28 @@ pub unsafe fn nt_query_directory_file(
                 }
             }
             else {
-                crate::log!(error, "nt_query_directory_file: don't get dir by handle. {:?}", file_handle);
+                crate::log!(error, "nt_query_directory_file: don't get dir by handle. {:?}, so directly call nt_query_directory_file", file_handle);
+                let nt_status = nt_query_directory_file(
+                    file_handle,
+                    event,
+                    apc_routine,
+                    apc_context,
+                    io_status_block,
+                    file_information,
+                    length,
+                    file_information_class,
+                    return_single_entry,
+                    file_name,
+                    restart_scan
+                );
+                if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS && !file_information.is_null() {
+                    crate::log!(trace, "nt_query_directory_file direct call success.");
+                }
+                else {
+                    crate::log!(error, "nt_query_directory_file direct call failed with status: {:#X}", nt_status);
+                }
 
-                return windows_sys::Win32::Foundation::STATUS_INVALID_HANDLE;
+                return nt_status;
             }
         }
     }

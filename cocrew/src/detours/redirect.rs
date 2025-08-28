@@ -96,6 +96,12 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
             env_block.push(0);
         }
         else {
+            let mut env = std::ffi::OsString::from("INCLUDE");
+            env.push("=");
+            env.push(r"");
+            env_block.extend(env.encode_wide());
+            env_block.push(0);
+
             env_block.push(0);
         }
 
@@ -160,8 +166,9 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
             lpStartupInfo.dwFlags |=  winapi::um::winbase::STARTF_USESTDHANDLES;
 
             let mut lpProcessInformation: crate::detours::detours::_PROCESS_INFORMATION = std::mem::MaybeUninit::zeroed().assume_init();
-            
-            let ret = DetourCreateProcessWithDllExW(appNameWideChars.as_ptr(),
+               
+            let ret = DetourCreateProcessWithDllExW(
+                appNameWideChars.as_ptr(),
                 commandLineWideChars.as_mut_ptr(), 
                 lpProcessAttributes,
                 lpThreadAttributes, 
@@ -172,8 +179,9 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                 &mut lpStartupInfo as *mut _, 
                 &mut lpProcessInformation as *mut _, 
                 dllPath, 
-                Option::None);
-            
+                Option::None
+            );
+        
             CloseHandle(hStdOutputWrite);
             CloseHandle(hStdErrorWrite);
             CloseHandle(hStdInRead);
@@ -203,7 +211,7 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                         let bStdOutputRead = winapi::um::fileapi::ReadFile(
                             *hStdOutputReadBox.get(),
                             chTmpStdOutputReadBuffer.as_mut_ptr() as *mut _, 
-                            chTmpStdOutputReadBuffer.len() as u32, 
+                            chTmpStdOutputReadBuffer.len() as u32,
                             &mut bytesStdOuputRead,
                             std::ptr::null_mut()
                         );

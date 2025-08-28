@@ -950,11 +950,11 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/GR"));
 
         for sdk_include in win_compile_env.winkits_includes_path {
-            compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {:#?}"#, sdk_include)));
+            compiler_commands.push(std::ffi::OsString::from(format!(r#"/I "{}""#, sdk_include.to_str().unwrap())));
         }
         
         for msvc_includes_path in win_compile_env.msvc_includes_path {
-            compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {:#?}"#, msvc_includes_path)));
+            compiler_commands.push(std::ffi::OsString::from(format!(r#"/I "{}""#, msvc_includes_path.to_str().unwrap())));
         }
 
         compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
@@ -980,9 +980,7 @@ mod tests {
             stderr: err_sender,
         };
 
-        let mut envs = std::collections::HashMap::new();
-        envs.insert(std::ffi::OsString::from("SystemRoot"), std::ffi::OsString::from(r"C:\WINDOWS"));
-
+        let envs = std::collections::HashMap::new();
         let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::new(), &std::ffi::OsString::new(),
             &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, &envs, &out_err_stream);
         
