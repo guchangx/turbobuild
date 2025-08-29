@@ -843,14 +843,14 @@ pub unsafe fn nt_query_directory_file(
     }
     else {
         //second or subsequent query.
-        if (*io_status_block).Information < length as usize && (*io_status_block).Anonymous.Status != -1 {
+        if (*io_status_block).Information < length as usize && (*io_status_block).Information > 0 && (*io_status_block).Anonymous.Status != -1 {
 
             let maybe_filenames = NT_HANDLE_AND_FILENAMES.with(|cell| {
                 let handle_and_filenames = cell.borrow();
                 return handle_and_filenames.get(&file_handle).cloned();
             });
 
-            crate::logger::output_debug_string(&format!("nt_query_directory_file maybe_filenames: {:?} handle: {:?}", maybe_filenames, file_handle));
+            crate::logger::output_debug_string(&format!("nt_query_directory_file maybe_filenames: {:?} handle: {:?}", std::thread::current().id(), file_handle));
 
             if let Some(filenames) = maybe_filenames {
                     
@@ -1297,9 +1297,10 @@ pub unsafe fn nt_create_file(
                         ea_length
                     );
 
-                    crate::log!(trace, "nt_create_file include dir: {:#?}", *file_handle);
+                    crate::log!(trace, "nt_create_file include dir: tid: {:?} {:#?} {}", std::thread::current().id(), *file_handle, name);
                     NT_HANDLE_AND_DIR.with(|cell| {
                         cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, name);
+                        crate::log!(trace, "nt_create_file include dir len: {:?}", cell.borrow().len());
                     });
 
                     return nt_status;
@@ -1318,6 +1319,8 @@ pub unsafe fn nt_create_file(
                         ea_buffer,
                         ea_length
                     );
+
+                    crate::log!(trace, "nt_create_file include dir: {:#?} {}", *file_handle, name);
                     return nt_status;
                 }
             }

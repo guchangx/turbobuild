@@ -131,7 +131,7 @@ unsafe fn redirect_stdout_log_2_cocrew() {
                                     &mut overlapped
                                 );
 
-                                if result == winapi::shared::minwindef::FALSE || bytes == 0 {
+                                if result == winapi::shared::minwindef::FALSE {
                                     let error = winapi::um::errhandlingapi::GetLastError();
                                     if error == winapi::shared::winerror::ERROR_IO_PENDING {
                                         

@@ -18,8 +18,8 @@ impl Logger {
 
         match crate::LOGGER.tx.try_send(message.clone()) {
             Ok(_) => {},
-            Err(e) => {
-                println!("logger send message failed: {}, message: {:?} capacity: {:?}", e, message, crate::LOGGER.tx.capacity());
+            Err(_) => {
+                //println!("logger send message failed: {}, message: {:?} capacity: {:?}", e, message, crate::LOGGER.tx.capacity());
             }
         }
     }

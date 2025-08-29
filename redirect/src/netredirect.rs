@@ -205,7 +205,6 @@ unsafe fn redirect_command_2_cocrew() {
                                         &mut final_bytes,
                                         winapi::shared::minwindef::TRUE
                                     );
-                                    crate::log!(info, "read virtual command named pipe io size: {}.", final_bytes);
 
                                     if final_bytes == 0 {
                                         crate::log!(info, "read virtual command named pipe closed. final bytes is 0.");

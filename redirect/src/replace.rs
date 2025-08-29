@@ -122,7 +122,9 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
         return ReplaceDirResult::NoMatch;
     }
     else if crate::SOLUTIONNAME.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-        if  crate::INCLUDES.get().unwrap().contains(&path[4..path.len() - 1].to_string()) {
+
+        let target = &path[4..path.len() - 1];
+        if crate::INCLUDES.get().unwrap().iter().any(|item| item == target || target.starts_with(item)) {
             return ReplaceDirResult::IncludesDir;
         }
         else {
