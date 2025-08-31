@@ -798,8 +798,6 @@ impl MSVC {
         
         let header_files = std::sync::Arc::new(tokio::sync::Mutex::new(header_files));
 
-
-
         for _ in 0..len {
             let mut addr = String::new();
             let mut index = -1;
@@ -853,10 +851,9 @@ impl MSVC {
                             //.odl;.asm;.asmx;.xsd;.bin;.rgs;.html;.htm;.manifest
                             //.cpp;.cxx;.cc;.c;.c++;.cppm;.ixx;.inl;.ipp
                             //.h;.hh;.hpp;.hxx;.h++;.hm
-
-                            if let Some(index) = header_files.lock().await.iter().position(|item| item.file_stem().eq(&path.file_stem())) {
-
-                                let path = header_files.lock().await.remove(index);
+                            let mut header_files_guard = header_files.lock().await;
+                            if let Some(index) = header_files_guard.iter().position(|item| item.file_stem().eq(&path.file_stem())) {
+                                let path = header_files_guard.remove(index);
                                 if path.exists() {
                                     let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
                                         log::error!("failed to read file: {:?}", path);
@@ -878,6 +875,8 @@ impl MSVC {
                                 }
                             }
                         }
+
+                        log::info!("sync other dep files and header files {:?}", header_files.lock().await);
 
                         //sync other dep files and header files
                         for path in header_files.lock().await.iter() {

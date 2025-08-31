@@ -902,6 +902,8 @@ fn redirect_working_dir(working_dir: &std::ffi::OsString, solution: &std::ffi::O
 #[cfg(test)]
 mod tests {
 
+    use crew::compiler;
+
     use super::*;
     #[test]
     fn compile_sourcefile_with_inject_test() {
@@ -1307,4 +1309,114 @@ mod tests {
         println!("compile stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile stderr: {}", String::from_utf8_lossy(&stderr));
     }
+
+    #[test]
+    fn compile_sourcefile_with_inject_not_find_includefiles_test() {
+        println!("run msvc .c file compile test with inject not find includesfiles test");
+        tools::logger::init_once_logger();
+        
+        std::thread::spawn(||{  
+            redirect_stdout_log();
+        });
+        
+        let win_compile_env = crew::platform::windows::WindowsCompilerEnv::default();
+        let mut compiler_path = std::path::PathBuf::from(win_compile_env.compiler_path);
+        compiler_path = compiler_path.join("Hostx64/x64/cl.exe");
+        //"E:\TestFuture\ZLMediaKit\build\3rdpart\"
+        let working_dir = std::ffi::OsString::from(r"d:\turbobuild\target\debug\Replica\Project\ZLMediaKit\build\3rdpart\");
+
+        let mut compiler_commands: Vec<std::ffi::OsString> = Vec::new();
+        
+        compiler_commands.push(std::ffi::OsString::from("/c"));
+        compiler_commands.push(std::ffi::OsString::from("/I"));
+        compiler_commands.push(std::ffi::OsString::from("E:\\TestFuture\\ZLMediaKit\\build"));
+        compiler_commands.push(std::ffi::OsString::from("/I"));
+        compiler_commands.push(std::ffi::OsString::from("E:\\TestFuture\\ZLMediaKit\\3rdpart"));
+        compiler_commands.push(std::ffi::OsString::from("/I"));
+        compiler_commands.push(std::ffi::OsString::from("E:\\TestFuture\\ZLMediaKit\\3rdpart\\media-server\\libmov\\include"));
+        compiler_commands.push(std::ffi::OsString::from("/I"));
+        compiler_commands.push(std::ffi::OsString::from("E:\\TestFuture\\ZLMediaKit\\3rdpart\\wepoll"));
+        compiler_commands.push(std::ffi::OsString::from("/Zi"));
+        compiler_commands.push(std::ffi::OsString::from("/W3"));
+        compiler_commands.push(std::ffi::OsString::from("/WX-"));
+        compiler_commands.push(std::ffi::OsString::from("/diagnostics:column"));
+        compiler_commands.push(std::ffi::OsString::from("/Od"));
+        compiler_commands.push(std::ffi::OsString::from("/Ob0"));
+        compiler_commands.push(std::ffi::OsString::from("/D"));
+        compiler_commands.push(std::ffi::OsString::from("_MBCS"));
+        compiler_commands.push(std::ffi::OsString::from("/D"));
+        compiler_commands.push(std::ffi::OsString::from("WIN32"));
+        compiler_commands.push(std::ffi::OsString::from("/D"));
+        compiler_commands.push(std::ffi::OsString::from("_WINDOWS"));
+        compiler_commands.push(std::ffi::OsString::from("/D"));
+        compiler_commands.push(std::ffi::OsString::from("DBUG_OFF"));
+        compiler_commands.push(std::ffi::OsString::from("/D"));
+        compiler_commands.push(std::ffi::OsString::from("SOCKET_DEFAULT_BUF_SIZE=262144"));
+        compiler_commands.push(std::ffi::OsString::from("/D"));
+        compiler_commands.push(std::ffi::OsString::from("HAS_EPOLL"));
+        compiler_commands.push(std::ffi::OsString::from("/D"));
+        compiler_commands.push(std::ffi::OsString::from("CMAKE_INTDIR=\\\"Debug\\\""));
+        compiler_commands.push(std::ffi::OsString::from("/Gm-"));
+        compiler_commands.push(std::ffi::OsString::from("/EHsc"));
+        compiler_commands.push(std::ffi::OsString::from("/RTC1"));
+        compiler_commands.push(std::ffi::OsString::from("/MTd"));
+        compiler_commands.push(std::ffi::OsString::from("/GS"));
+        compiler_commands.push(std::ffi::OsString::from("/fp:precise"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:wchar_t"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:forScope"));
+        compiler_commands.push(std::ffi::OsString::from("/Zc:inline"));
+        compiler_commands.push(std::ffi::OsString::from("/Fomov.dir\\Debug\\"));
+        compiler_commands.push(std::ffi::OsString::from("/FdE:\\TestFuture\\ZLMediaKit\\release\\windows\\Debug\\Debug\\mov.pdb"));
+        compiler_commands.push(std::ffi::OsString::from("/external:W3"));
+        compiler_commands.push(std::ffi::OsString::from("/Gd"));
+        compiler_commands.push(std::ffi::OsString::from("/TC"));
+        compiler_commands.push(std::ffi::OsString::from("/wd4566"));
+        compiler_commands.push(std::ffi::OsString::from("/wd4819"));
+        compiler_commands.push(std::ffi::OsString::from("/errorReport:prompt"));
+        compiler_commands.push(std::ffi::OsString::from("/utf-8"));
+
+        for sdk_include in win_compile_env.winkits_includes_path {
+            compiler_commands.push(std::ffi::OsString::from(format!(r#"/I "{}""#, sdk_include.to_str().unwrap())));
+        }
+        
+        for msvc_includes_path in win_compile_env.msvc_includes_path {
+            compiler_commands.push(std::ffi::OsString::from(format!(r#"/I "{}""#, msvc_includes_path.to_str().unwrap())));
+        }
+
+        //compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, working_dir.to_string_lossy())));
+
+        compiler_commands.push(std::ffi::OsString::from("E:\\TestFuture\\ZLMediaKit\\3rdpart\\media-server\\libmov\\source\\mov-udta.c"));
+
+        let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+        let (err_sender, err_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+    
+        let task = std::thread::spawn(move || {
+            while let Ok(data) = out_receiver.recv() {
+                println!("stream stdout: {:?}", String::from_utf8_lossy(&data));
+            }
+        
+            while let Ok(data) = err_receiver.recv() {
+                println!("stream stderr: {:?}", String::from_utf8_lossy(&data));
+            }
+        });
+
+        let out_err_stream = crate::compiler::msvc::OutAndErrStream {
+            stdout: out_sender,
+            stderr: err_sender,
+        };
+
+        let envs = std::collections::HashMap::new();
+        //"ZLMediaKit"
+        //"mov"
+        let (status, stdout, stderr) = start_local_compiler(&std::ffi::OsString::from("ZLMediaKit"), &std::ffi::OsString::from("mov"),
+            &compiler_path.as_os_str().to_os_string(), &working_dir, &compiler_commands, &envs, &out_err_stream);
+        
+        drop(out_err_stream);
+
+        task.join().unwrap();
+        assert!(status == 0);
+        println!("compile stdout: {}", String::from_utf8_lossy(&stdout));
+        println!("compile stderr: {}", String::from_utf8_lossy(&stderr));
+    }
+
 }

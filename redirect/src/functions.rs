@@ -768,7 +768,7 @@ pub unsafe fn nt_query_directory_file(
         restartscan: bool,
     ) -> windows_sys::Win32::Foundation::NTSTATUS = std::mem::transmute(NT_QUERY_DIRECTORY_FILE);
 
-    if restart_scan && !file_name.is_null() || file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation {
+    if (restart_scan && !file_name.is_null()) || (file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation) {
         let nt_status = nt_query_directory_file(
             file_handle,
             event,
@@ -798,7 +798,7 @@ pub unsafe fn nt_query_directory_file(
                         if file_name_length_bytes > 0 {
                             let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
                             if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
-                                crate::log!(trace, "nt_query_directory_file single entry #{}: file: '{}'", entry_count, file_name_str);
+                                crate::log!(trace, "nt_query_directory_file single entry #{}: with file: '{}'", entry_count, file_name_str);
                             }
                         }
 
@@ -843,7 +843,7 @@ pub unsafe fn nt_query_directory_file(
     }
     else {
         //second or subsequent query.
-        if (*io_status_block).Information < length as usize && (*io_status_block).Information > 0 && (*io_status_block).Anonymous.Status != -1 {
+        if (*io_status_block).Information < length as usize && (*io_status_block).Information > 0 && (*io_status_block).Anonymous.Status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
 
             let maybe_filenames = NT_HANDLE_AND_FILENAMES.with(|cell| {
                 let handle_and_filenames = cell.borrow();
@@ -872,7 +872,10 @@ pub unsafe fn nt_query_directory_file(
                         break;
                     }
 
-                    let entry = (file_information.add(current_offset)) as *mut windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
+                    let entry_ptr = file_information.add(current_offset);
+                    std::ptr::write_bytes(entry_ptr, 0u8, aligned_entry_size);
+
+                    let entry = entry_ptr as *mut windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
 
                     let next_offset = if index == filenames.len() - 1 || return_single_entry {
                         0
@@ -927,14 +930,16 @@ pub unsafe fn nt_query_directory_file(
                 };
             }
             else {
-                crate::logger::output_debug_string(&format!("nt_query_directory_file can't find dir: {:#?} len: {}", file_handle, NT_HANDLE_AND_FILENAMES.with(|cell| cell.borrow().len())));
+                //second or subsequent query no cache
+
+                crate::logger::output_debug_string(&format!("nt_query_directory_file can't find dir: {:#?} handle dir len: {}", file_handle, NT_HANDLE_AND_DIR.with(|cell| cell.borrow().len())));
                 
-                let has_dir = NT_HANDLE_AND_DIR.with(|cell| {
+                let handle_cache_dir = NT_HANDLE_AND_DIR.with(|cell| {
                     let handle_and_dir = cell.borrow();
                     return handle_and_dir.get(&file_handle).is_some();
                 });
 
-                if has_dir {
+                if handle_cache_dir {
                     NT_HANDLE_AND_DIR.with(|cell| {
                         let mut handle_and_dir = cell.borrow_mut();
                         handle_and_dir.remove(&file_handle);
@@ -1024,11 +1029,9 @@ pub unsafe fn nt_query_directory_file(
 
                     let mut entries_written = 0;
                     for (index, file) in filenames.iter().enumerate() {
-                        crate::logger::output_debug_string(&format!("nt_query_directory_file enumerate file: {} {}", index, file));
-                        crate::log!(trace, "nt_query_directory_file enumerate file: {}", file);
+                        crate::log!(trace, "nt_query_directory_file enumerate file: index: {} {}", index, file);
                         let virtual_file_name: Vec<u16> = file.encode_utf16().collect();
                         let virtual_file_name_bytes: u32 = (virtual_file_name.len() * 2) as u32;
-
 
                         let base_size = std::mem::size_of::<windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION>() - std::mem::size_of::<u16>();
                         let entry_size = base_size + virtual_file_name_bytes as usize;
@@ -1040,7 +1043,10 @@ pub unsafe fn nt_query_directory_file(
                             break;
                         }
 
-                        let entry = (file_information.add(current_offset)) as *mut windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
+                        let entry_ptr = file_information.add(current_offset);
+                        std::ptr::write_bytes(entry_ptr, 0u8, aligned_entry_size);
+
+                        let entry = entry_ptr as *mut windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
 
                         let next_offset = if index == files_count - 1 || return_single_entry {
                             0
@@ -1104,7 +1110,7 @@ pub unsafe fn nt_query_directory_file(
                                 if file_name_length_bytes > 0 {
                                     let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
                                     if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
-                                        crate::log!(trace, "test entry #{}: File: '{}'", entry_count, file_name_str);
+                                        crate::log!(trace, "test entry #{}: file: '{}'", entry_count, file_name_str);
                                     }
                                 }
 
@@ -1142,6 +1148,20 @@ pub unsafe fn nt_query_directory_file(
             }
             else {
                 crate::log!(error, "nt_query_directory_file: don't get dir by handle. {:?}, so directly call nt_query_directory_file", file_handle);
+
+                let mut buffer: [u16; windows_sys::Win32::Foundation::MAX_PATH as usize] = [0; windows_sys::Win32::Foundation::MAX_PATH as usize];
+                let required_length = windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW(
+                    file_handle,
+                    buffer.as_mut_ptr(),
+                    windows_sys::Win32::Foundation::MAX_PATH,
+                    0
+                );
+
+                if  required_length > 0 && required_length <= windows_sys::Win32::Foundation::MAX_PATH {
+                    let file_path = crate::utils::convert::lpwstr_2_string(buffer.as_ptr());
+                    crate::log!(trace, "nt_query_directory_file: file_path: {:?}", file_path);
+                }
+
                 let nt_status = nt_query_directory_file(
                     file_handle,
                     event,
@@ -1305,6 +1325,22 @@ pub unsafe fn nt_create_file(
 
                     return nt_status;
                 }
+                else if replace == crate::replace::ReplaceDirResult::FilePath {
+                    let nt_status = zw_create_file(
+                        file_handle,
+                        access_mask,
+                        object_attributes,
+                        io_status_block,
+                        allocation_size,
+                        file_attributes,
+                        share_access,
+                        create_disposition,
+                        create_options,
+                        ea_buffer,
+                        ea_length
+                    );
+                    return nt_status;
+                }
                 else {
                     let nt_status = zw_create_file(
                         file_handle,
@@ -1319,8 +1355,6 @@ pub unsafe fn nt_create_file(
                         ea_buffer,
                         ea_length
                     );
-
-                    crate::log!(trace, "nt_create_file include dir: {:#?} {}", *file_handle, name);
                     return nt_status;
                 }
             }
