@@ -410,7 +410,7 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
             
             crate::netredirect::async_connect_named_pipe();
 
-            show_message_box_for_debug();
+            //show_message_box_for_debug();
 
             let ret = crate::detours::DetourRestoreAfterWith();
             if ret == winapi::shared::minwindef::FALSE {

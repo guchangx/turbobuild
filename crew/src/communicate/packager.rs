@@ -290,6 +290,15 @@ impl Packager {
         sender.dist(args).await;
     }
 
+    pub async fn includes(&self, path: &str, addr: &str) {
+
+        //msvc and windows kit include dir
+
+        let content = Self::pack_dir(path, "");
+        log::info!("sync includes packager path: {}, size: {} KB", path, content.len() / 1024);
+        Self::send_package("include", path, &content, addr).await;
+    }
+
 }
 
 #[cfg(test)]
@@ -328,5 +337,11 @@ mod tests {
         //let mut zip__ = zip_archive.clone();
         //zip__.extract(path).unwrap();
 
+    }
+
+    #[test]
+    fn pack_includes() {
+        let content = Packager::pack_dir(r"C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\cppwinrt", "");
+        
     }
 }

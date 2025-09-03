@@ -85,12 +85,33 @@ impl Property {
 
     pub fn access_replica_toolchain_path(&self) -> String {
         let mut path = std::path::PathBuf::from(&self.replica_dir);
-        path.push("MSVC");
 
-        if let Some(version) = Self::parse_version_from_path(&self.original_toolchain_path) {
-            path.push(version);
-            path.push("bin");
-        }   
+        if self.original_toolchain_path.contains(r"\MSVC\") {
+            path.push(r"MSVC");
+            log::debug!("original toolchain path: {}", self.original_toolchain_path);
+            if let Some(version) = Self::parse_version_from_path(&self.original_toolchain_path) {
+                path.push(&version);
+
+                if self.original_toolchain_path.contains(&format!(r"{}\bin", version)) {
+                    path.push("bin");
+                }
+
+                if self.original_toolchain_path.contains(&format!(r"{}\include", version)) {
+                    path.push("include");
+                }
+
+                if self.original_toolchain_path.contains(&format!(r"{}\atlmfc", version)) {
+                    path.push("atlmfc");
+                    path.push("include");
+                }
+            }
+        }
+        else if self.original_toolchain_path.contains(r"\Windows Kits\") {
+            if let Some(start) = self.original_toolchain_path.find(r"Windows Kits\") {
+                let sub = &self.original_toolchain_path[start ..];
+                path.push(sub);
+            }
+        }
 
         if path.exists() && path.is_dir() {
             if path.exists() {
@@ -198,7 +219,7 @@ impl Property {
     pub async fn check_resource_and_judge_sync(resources: Vec<crate::replica::toolchain::CrewsResource>) {
     
         let compiler_env = crate::platform::windows::WindowsCompilerEnv::default();
-        let bin_dir = compiler_env.compiler_path;
+        let bin_dir = compiler_env.compiler_path.clone();
         let version = compiler_env.msvc_version;
 
         let devicename = crate::fingerprint::gather::SystemInfo::fetch_devicename();
@@ -219,7 +240,8 @@ impl Property {
 
             if !exist {
                 log::warn!("check resource {} not has msvc {}, so sync it. path: {:?}", item.addr, version, bin_dir.clone());
-            
+                let addr =  item.addr.clone();
+
                 let version_= version.clone();
                 if let Some(name) = bin_dir.clone().file_name() {
                     if name.to_str() == Some("bin") {
@@ -253,6 +275,19 @@ impl Property {
                             crate::communicate::notifier::NotificationSender::notify_once(info).await;
                         });
                     }
+
+                    let winkits_includes = compiler_env.winkits_includes_path.clone();
+                    let msvc_includes = compiler_env.msvc_includes_path.clone();
+                    tokio::spawn(async move {
+                        for dir in winkits_includes {
+                            Self::sync_compiler_includes(&dir.to_str().unwrap(), &addr).await;
+                        }
+
+                        for dir in msvc_includes {
+                            Self::sync_compiler_includes(&dir.to_str().unwrap(), &addr).await;
+                        }
+                        
+                    });
                 }
             }
             else {
@@ -264,6 +299,11 @@ impl Property {
     pub async fn sync_compiler_toolchain(path: &str, addr: &str) {
         let packager = crate::communicate::packager::Packager::default();
         packager.toolchain(path, addr).await;
+    }
+    
+    pub async fn sync_compiler_includes(path: &str, addr: &str) {
+        let packager = crate::communicate::packager::Packager::default();
+        packager.includes(path, addr).await;
     }
 }
 
@@ -279,5 +319,13 @@ mod tests {
 
         let path = Property::access_or_create_replica_dir();
         println!("path: {:?}", path);
+    }
+
+    #[test]
+    fn test() {
+        let path = r" C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.44.35207\atlmfc\include";
+        let sub = format!(r"{}\atlmfc\", "14.44.35207");
+        let contain = path.contains(&sub);
+        println!("contain: {}", contain);
     }
 }

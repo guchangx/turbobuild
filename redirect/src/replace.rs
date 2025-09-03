@@ -117,11 +117,13 @@ pub enum ReplaceDirResult {
 
 pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
 
-    crate::log!(warn, "replace_dir: {:?} solution name: {:?}", path, crate::SOLUTIONNAME.get());
     if std::path::Path::new(path).extension().is_some() {
         return ReplaceDirResult::FilePath;
     }
     else if path.contains(r"AppData\Local\Temp\") {
+        return ReplaceDirResult::NoMatch;
+    }
+    else if path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
         return ReplaceDirResult::NoMatch;
     }
     else if path.starts_with(r"\??\pipe\") {

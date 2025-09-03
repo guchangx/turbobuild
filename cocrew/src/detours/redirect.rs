@@ -65,6 +65,34 @@ pub unsafe fn pass_params_to_redirect(handle: winapi::shared::ntdef::HANDLE, sol
     CloseHandle(handle);
 }
 
+fn replace_includes_path_by_replica(includes: &std::ffi::OsString) -> std::borrow::Cow<'_, std::ffi::OsString> {
+    let replica_dir = tools::utils::access_replica_dir();
+
+    if !replica_dir.is_empty() {
+        let modified_includes: Vec<String> = includes.to_string_lossy().split(";")
+        .filter(|include| !include.contains("Auxiliary"))
+        .filter(|include| !include.is_empty())
+        .filter(|include| include.contains(r":\"))
+        .map(|include| {
+            if let Some(index) = include.find(r"MSVC\") {
+                format!(r#"{}\{}"#, replica_dir, &include[index..])
+            }
+            else if let Some(index) = include.find(r"Windows Kits\") {
+                format!(r#"{}\{}"#, replica_dir,  &include[index..])
+            }
+            else {
+                include.to_string()
+            }
+        }).collect();
+        let mut joined = modified_includes.join(";");
+        joined.push(';');
+        return std::borrow::Cow::Owned(std::ffi::OsString::from(joined));
+    }
+    else {
+        return std::borrow::Cow::Borrowed(includes);
+    }
+}
+
 pub fn msvc_detours(solution: String, project: String, app_path: String, command: String, workding_dir: String,
     envs: std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
 
@@ -109,11 +137,20 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                     continue;
                 }
 
-                let mut pair = key.clone();
-                pair.push("=");
-                pair.push(value);
-                
-                env_block.extend(pair.encode_wide());
+                if key.to_string_lossy().to_lowercase() == "include" {
+                    let replaced = replace_includes_path_by_replica(&value);
+                    let mut pair = key.clone();
+                    pair.push("=");
+                    pair.push(replaced.into_owned());
+                    env_block.extend(pair.encode_wide());
+                }
+                else {
+                    let mut pair = key.clone();
+                    pair.push("=");
+                    pair.push(value);
+                    env_block.extend(pair.encode_wide());
+                }
+
                 env_block.push(0);
             }
             env_block.push(0);
