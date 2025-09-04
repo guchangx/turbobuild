@@ -160,7 +160,12 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
             let target = &path[4..path.len() - 1];
             
             if crate::INCLUDES.get().unwrap().iter().any(|item| item == target || target.starts_with(item)) {
-                return ReplaceDirResult::IncludesDir;
+                let local_source_dir = format!(r"{}\{}", &*crate::WORKINGDIR, crate::GENERATEDDIR.get().unwrap());
+                crate::log!(warn,"replace include dir: {} to {}", path, local_source_dir);
+                if target.ends_with(crate::GENERATEDDIR.get().unwrap()) {
+                    //return ReplaceDirResult::NoMatch;
+                }
+                return ReplaceDirResult::IncludesDir;  
             }
             else {
                 let generated = std::path::Path::new(crate::GENERATEDDIR.get().unwrap());

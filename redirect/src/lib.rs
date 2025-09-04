@@ -64,8 +64,10 @@ static INCLUDES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 static STDOUT_LOG_HANDLE: std::sync::LazyLock<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 static WORKINGDIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     if let Ok(path) = std::env::current_dir() {
+        log!(debug, "WORKINGDIR: {:?}", path);
         path.to_string_lossy().to_string()
     } else {
+        log!(debug, "WORKINGDIR: .");
         String::from(".")
     }
 });
@@ -321,7 +323,8 @@ fn fetch_args_from_command() {
             };
         }
     }
-    
+    log!(debug, "GENERATEDDIR: {:?}", GENERATEDDIR);
+
     includes.push(sources_dir);
 
     for (key, value) in std::env::vars() {

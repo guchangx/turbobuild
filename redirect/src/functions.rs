@@ -1360,9 +1360,64 @@ pub unsafe fn nt_create_file(
                     crate::log!(trace, "nt_create_file file handle path: {}", name);
                     let result = rx.blocking_recv().unwrap();
                     crate::log!(trace, "nt_create_file file handle path result: {}", name);
-                    //let expect_path = std::path::Path::new(&expect);
-                    //crate::log!(trace, "nt_create_file file handle expect_path.exists: {}",  expect_path.exists());
-                   
+                    if let Some(expect) = result.get("expect") {
+                        
+                        let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
+                        let expect = format!(r"\??\{}", expect);
+                        let object_name_source_wide_char = std::ffi::OsString::from(&expect).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+                        
+                        let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
+                        if ret != windows_sys::Win32::Foundation::STATUS_SUCCESS {
+                            crate::log!(error, "rtl init unicode string failed.");
+                        }
+
+                        let mut expect_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
+                            Length: object_name.Length,
+                            MaximumLength: object_name.MaximumLength,
+                            Buffer: object_name.Buffer,
+                        };
+
+                        (*object_attributes).ObjectName = &mut expect_obejct_name_adapter;
+
+                        let nt_status = zw_create_file(
+                            file_handle,
+                            access_mask,
+                            object_attributes,
+                            io_status_block,
+                            allocation_size,
+                            file_attributes,
+                            share_access,
+                            create_disposition,
+                            create_options,
+                            ea_buffer,
+                            ea_length
+                        );
+                        if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                            crate::log!(trace, "nt_create_file with expect success. {}", expect);
+                        }
+                        else {
+                            crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {}", nt_status, expect);
+                        }
+                        return nt_status;
+                    }
+                    else {
+                        crate::log!(error, "nt_create_file: no expect dir from net redirect.");
+
+                        let nt_status = zw_create_file(
+                            file_handle,
+                            access_mask,
+                            object_attributes,
+                            io_status_block,
+                            allocation_size,
+                            file_attributes,
+                            share_access,
+                            create_disposition,
+                            create_options,
+                            ea_buffer,
+                            ea_length
+                        );
+                        return nt_status;
+                    }
                 }
                 else {
                     let nt_status = zw_create_file(
