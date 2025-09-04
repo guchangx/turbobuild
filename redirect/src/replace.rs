@@ -72,7 +72,7 @@ pub fn replace(path: &mut String) -> bool {
         return false;
     }
     else if path.ends_with(".cpp") || path.ends_with(".cxx") || path.ends_with(".c") || path.ends_with(".cc") {
-        if crate::SOLUTIONNAME.get().is_some() {
+        if crate::REPLICADIR.get().is_some() {
             if let Some(name) = std::path::Path::new(path).file_name() {
                 let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
                 *path = modified.to_string_lossy().to_string();
@@ -113,12 +113,35 @@ pub enum ReplaceDirResult {
     NoMatch,
     IncludesDir,
     FilePath,
+    NeedObtain(String),
 }
 
 pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
 
-    if std::path::Path::new(path).extension().is_some() {
-        return ReplaceDirResult::FilePath;
+    if let Some(extension) = std::path::Path::new(path).extension() {
+        if extension == "h" || extension == "hpp" || extension == "inl" {
+            if path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
+                return ReplaceDirResult::FilePath;
+            }
+            else {
+                if crate::REPLICADIR.get().is_some() {
+                    if let Some(name) = std::path::Path::new(path).file_name() {
+                        let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
+                        let path = modified.to_string_lossy().to_string();
+                        return ReplaceDirResult::NeedObtain(path);
+                    }
+                    else {
+                        return ReplaceDirResult::FilePath;
+                    }
+                }
+                else {
+                    return ReplaceDirResult::FilePath;
+                }
+            }
+        }
+        else {
+            return ReplaceDirResult::FilePath;
+        }
     }
     else if path.contains(r"AppData\Local\Temp\") {
         return ReplaceDirResult::NoMatch;

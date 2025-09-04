@@ -850,7 +850,7 @@ pub unsafe fn nt_query_directory_file(
                 return handle_and_filenames.get(&file_handle).cloned();
             });
 
-            crate::logger::output_debug_string(&format!("nt_query_directory_file maybe_filenames: {:?} handle: {:?}", std::thread::current().id(), file_handle));
+            //crate::logger::output_debug_string(&format!("nt_query_directory_file maybe_filenames: {:?} handle: {:?}", std::thread::current().id(), file_handle));
 
             if let Some(filenames) = maybe_filenames {
                     
@@ -932,7 +932,7 @@ pub unsafe fn nt_query_directory_file(
             else {
                 //second or subsequent query no cache
 
-                crate::logger::output_debug_string(&format!("nt_query_directory_file can't find dir: {:#?} handle dir len: {}", file_handle, NT_HANDLE_AND_DIR.with(|cell| cell.borrow().len())));
+                //crate::logger::output_debug_string(&format!("nt_query_directory_file can't find dir: {:#?} handle dir len: {}", file_handle, NT_HANDLE_AND_DIR.with(|cell| cell.borrow().len())));
                 
                 let handle_cache_dir = NT_HANDLE_AND_DIR.with(|cell| {
                     let handle_and_dir = cell.borrow();
@@ -1340,6 +1340,29 @@ pub unsafe fn nt_create_file(
                         ea_length
                     );
                     return nt_status;
+                }
+                else if let crate::replace::ReplaceDirResult::NeedObtain(expect) = replace {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+
+                    let mut args =  std::collections::HashMap::<String, String>::new();
+                    args.insert("objectname".to_string(), name.clone());
+                    args.insert("expect".to_string(), expect.clone());
+
+                    let command = crate::netredirect::MirrorCommand {
+                        id: COMMAND_ID,
+                        command: "NtCreateFile".into(),
+                        args,
+                        responder: tx,
+                    };
+                    COMMAND_ID = COMMAND_ID.add(1);
+
+                    crate::netredirect::NET_REDIRECT_CHANNEL.tx.blocking_send(command).unwrap();
+                    crate::log!(trace, "nt_create_file file handle path: {}", name);
+                    let result = rx.blocking_recv().unwrap();
+                    crate::log!(trace, "nt_create_file file handle path result: {}", name);
+                    //let expect_path = std::path::Path::new(&expect);
+                    //crate::log!(trace, "nt_create_file file handle expect_path.exists: {}",  expect_path.exists());
+                   
                 }
                 else {
                     let nt_status = zw_create_file(

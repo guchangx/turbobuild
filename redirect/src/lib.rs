@@ -48,6 +48,7 @@ static  PROJECTNAME: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std
 });
 */
 
+//from buildassist read command line up to the present moment elapsed time is about 1.5s.
 static SOLUTIONNAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static PROJECTNAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
@@ -282,6 +283,8 @@ fn fetch_args_from_command() {
     let commands: Vec<std::ffi::OsString> = commandline.collect();
     log!(debug, "current command line arguments: {:?}", commands);
     let mut includes = Vec::new();
+    let mut sources_dir = String::new();
+
     for (index, item) in commands.iter().enumerate() {
 
         let item = item.to_string_lossy();
@@ -312,7 +315,15 @@ fn fetch_args_from_command() {
                 GENERATEDDIR.get_or_init(|| item[3..].to_string());
             }
         }
+        else if sources_dir.is_empty() && (item.ends_with(".c") || item.ends_with(".cpp") || item.ends_with(".cc") || item.ends_with(".cxx")) {
+            if let Some(dir) = std::path::Path::new(&item.to_string()).parent() {
+                sources_dir = dir.to_string_lossy().to_string();
+            };
+        }
     }
+    
+    includes.push(sources_dir);
+
     for (key, value) in std::env::vars() {
         if key.to_lowercase() == "include" {
             let paths: Vec<&str> = value.split(';').collect();

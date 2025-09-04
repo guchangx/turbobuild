@@ -1,8 +1,8 @@
 
 use std::io::Write;
+use tokio::io::AsyncWriteExt;
 
 use crate::{common::COCREW_RUNTIME, communicate::redirectpipe::MirrorCommand};
-
 
 #[allow(non_camel_case_types)]
 pub mod package {
@@ -224,7 +224,13 @@ impl Receiver {
         let read_handle = runtime.spawn(async move {
             while let Some(request) = stream.next().await {
                 if let Ok(real) = request {
-                    log::debug!("transmit redirect real result: {:?}", real);
+                    log::debug!("transmit redirect real result: id {:?} api: {:?} params: {:?}", real.id, real.api, real.params);
+
+                    for intermediate in real.files {
+                        let mut file = tokio::fs::OpenOptions::new().create(true).write(true).truncate(true).open(&intermediate.file).await.unwrap();
+                        file.write_all(&intermediate.content).await.unwrap();
+                    }
+
                     if let Some(responder) = callbacks.lock().unwrap().remove(&real.id) {
 
                         let command_result = MirrorCommand {
@@ -232,7 +238,7 @@ impl Receiver {
                             command: real.api.clone(),
                             args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
                         };
-
+ 
                         match responder.send(command_result) {
                             Ok(_) => {
                                 log::debug!("transmit redirect handle send callback: {:?}", real.api);

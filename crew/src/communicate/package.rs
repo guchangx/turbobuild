@@ -477,8 +477,8 @@ impl Sender {
                 while let Some(stream) = response_stream.next().await {
                     match stream {
                         Ok(stream) => {
-                            let local = crate::procemirror::filesystem::route_file_system_operation(stream);
-                            
+                            let local = crate::procemirror::filesystem::route_file_system_operation(stream); //700 µs
+
                             if let Err(err) = tx.send(local).await {
                                 log::error!("transmit redirect net error: {:?}", err);
                             };

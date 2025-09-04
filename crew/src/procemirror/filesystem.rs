@@ -18,6 +18,39 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
             log::debug!("redirect net query directory file result: {:?}", local);
             return local;
         },
+        "NtCreateFile" => {
+            let context = unsafe { redirect_nt_create_file(&params) };
+            match context {
+                Ok((expect, data)) => {
+                    let local = crate::communicate::package::pack::LocalRedirect {
+                        id: redirect.id,
+                        api: redirect.api,
+                        params: params.iter().map(|(k, v)| crate::communicate::package::pack::Params {
+                            key: k.clone(),
+                            value: v.clone(),
+                        }).collect(),
+                        files: vec![crate::communicate::package::pack::IntermediateResult{file: expect.clone(), content: data}],
+                    };
+                    log::debug!("redirect nt create file result: {:?} expect: {}", params, expect);
+                    return local;
+                },
+                Err(err) => {
+                    let local = crate::communicate::package::pack::LocalRedirect {
+                        id: redirect.id,
+                        api: redirect.api,
+                        params: vec![crate::communicate::package::pack::Params {
+                            key: "error".to_string(),
+                            value: format!("{}", err),
+                        }],
+                        files: Vec::new(),
+                    };
+                    log::debug!("redirect nt create file result: {:?}", local);
+                    return local;
+                }
+            }
+
+
+        },
         _ => {
             log::warn!("Received unknown file system operation from remote redirect: {:?}", redirect);
             let local = crate::communicate::package::pack::LocalRedirect {
@@ -161,6 +194,28 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
             
             return results;
         }
+    }
+}
+
+unsafe fn redirect_nt_create_file(params: &std::collections::HashMap<String, String>) -> std::io::Result<(String, Vec<u8>)> {
+
+    let mut objectname = params.get("objectname").unwrap().to_owned();
+    if objectname.is_empty() {
+        log::error!("objectname parameter is empty");
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "objectname parameter is empty"));
+    }
+    else if objectname.starts_with("\\\\?\\") {
+        objectname = objectname.replace("\\\\?\\", "");
+    }
+
+    match std::fs::read(&objectname) {
+        Ok(data) => {
+            let expect = params.get("expect").unwrap().to_owned();
+            return Ok((expect, data));
+        },
+        Err(err) => {
+            return Err(err);
+        },
     }
 }
 
