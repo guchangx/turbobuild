@@ -60,15 +60,13 @@ static  REPLICADIR: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std:
 
 static REPLICADIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static GENERATEDDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-static PDBDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static REPLICA_PDBPATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static INCLUDES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 static STDOUT_LOG_HANDLE: std::sync::LazyLock<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 static WORKINGDIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     if let Ok(path) = std::env::current_dir() {
-        log!(debug, "WORKINGDIR: {:?}", path);
         path.to_string_lossy().to_string()
     } else {
-        log!(debug, "WORKINGDIR: .");
         String::from(".")
     }
 });
@@ -287,6 +285,7 @@ fn fetch_args_from_command() {
     log!(debug, "current command line arguments: {:?}", commands);
     let mut includes = Vec::new();
     let mut sources_dir = String::new();
+    let mut pdb_sub_dir = String::new();
 
     for (index, item) in commands.iter().enumerate() {
 
@@ -302,10 +301,10 @@ fn fetch_args_from_command() {
             if item.ends_with(".obj") {
                 std::path::Path::new(&item[3..]).parent().map(|parent| {
                     let path = parent.to_string_lossy().to_string();
-                    if let Some(project) = crate::PROJECTNAME.get() {
+                    if let Some(project) = crate::SOLUTIONNAME.get() {
                         if let Some(index) = path.find(project) {
                             if index + project.len() + 1 < path.len() {
-                                let (_, last) = path.split_at(index + project.len());
+                                let (_, last) = path.split_at(index + project.len() + 1);
                                 GENERATEDDIR.set(last.to_string()).unwrap();
                             }
                         }
@@ -323,31 +322,31 @@ fn fetch_args_from_command() {
             }
         }
         else if item.starts_with("/Fd") {
+
             if item.ends_with(".pdb") {
-                std::path::Path::new(&item[3..]).parent().map(|parent| {
-                    let path = parent.to_string_lossy().to_string();
-                    
-                    if let Some(project) = crate::PROJECTNAME.get() {
-                        path.find(project).map(|index| {
-                            if index + project.len() + 1 < path.len() {
-                                let (_, last) = path.split_at(index + project.len());
-                                GENERATEDDIR.get_or_init(|| last.to_string());
-                                PDBDIR.set(last.to_string()).unwrap();
-                            }
-                        });
+                let path = item[3..].to_string();
+                if let Some(project) = crate::SOLUTIONNAME.get() {
+                    if let Some(index) = path.find(project) {
+                        if index + project.len() + 1 < path.len() {
+                            let (_, last) = path.split_at(index + project.len() + 1);
+                            pdb_sub_dir = last.to_string();
+
+                            std::path::Path::new(last).parent().map(|parent| {
+                                GENERATEDDIR.get_or_init(|| parent.to_string_lossy().to_string());
+                            });
+                        }
                     }
-                });
+                }
             }
             else {
-
                 let path = item[3..].to_string();
 
-                if let Some(project) = crate::PROJECTNAME.get() {
+                if let Some(project) = crate::SOLUTIONNAME.get() {
                     path.find(project).map(|index| {
                         if index + project.len() + 1 < path.len() {
-                            let (_, last) = path.split_at(index + project.len());
+                            let (_, last) = path.split_at(index + project.len() + 1);
+                            pdb_sub_dir = last.to_string() + r"\vc143.pdb";
                             GENERATEDDIR.get_or_init(|| last.to_string());
-                            PDBDIR.set(last.to_string()).unwrap();
                         }
                     });
                 }
@@ -359,7 +358,17 @@ fn fetch_args_from_command() {
             };
         }
     }
+    
+    let modified = std::path::Path::new(&crate::REPLICADIR.get().unwrap()).join("Project").join(crate::SOLUTIONNAME.get().unwrap()).join(pdb_sub_dir);
+    REPLICA_PDBPATH.set(modified.to_string_lossy().to_string()).unwrap();
+
+    log!(debug, "SOLUTIONNAME: {:?}", SOLUTIONNAME.get());
+    log!(debug, "PROJECTNAME: {:?}", PROJECTNAME.get());
     log!(debug, "GENERATEDDIR: {:?}", GENERATEDDIR);
+    log!(debug, "REPLICA_PDBPATH: {:?}", REPLICA_PDBPATH);
+    log!(debug, "WORKINGDIR: {:?}", WORKINGDIR);
+    log!(debug, "REPLICADIR: {:?}", REPLICADIR.get());
+
 
     includes.push(sources_dir);
 
@@ -461,8 +470,7 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
             
             crate::netredirect::async_connect_named_pipe();
 
-            //show_message_box_for_debug();
-
+            
             let ret = crate::detours::DetourRestoreAfterWith();
             if ret == winapi::shared::minwindef::FALSE {
                 let error_code = winapi::um::errhandlingapi::GetLastError();

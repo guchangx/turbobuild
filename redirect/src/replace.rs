@@ -73,7 +73,13 @@ pub fn replace(path: &mut String) -> bool {
             return false;
         }
         else if extension == "pdb" {
-            return false;
+            if let Some(replica_pdbpath) = crate::REPLICA_PDBPATH.get() {
+                *path = replica_pdbpath.to_string();
+                return true;
+            }
+            else {
+                return false;
+            }
         }
         else if extension == "c" || extension == "cpp" || extension == "cxx" || extension == "cc" {
             if crate::REPLICADIR.get().is_some() {
@@ -198,7 +204,6 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
         }
     }
 }
-
 
 
 #[cfg(test)]
