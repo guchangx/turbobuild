@@ -67,7 +67,11 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                                 break;
                             }
                         }
-                    };
+                    }
+                    else {
+                        log::warn!("mirror command response channel closed, dropped receiver.");
+                        break;
+                    }
                 }
                 writer.shutdown().await.unwrap();
             });

@@ -19,6 +19,11 @@ pub static mut CREATE_PROCESS_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut s
 
 static mut COMMAND_ID: u32 = 0;
 
+static INCLUDES_CACHE: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>> = std::sync::LazyLock::new(|| {
+    std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()))
+});
+
+
 const PIPE_PREFIX_CONTENT_W: &[u16] = &['\\' as u16, '\\' as u16, '.' as u16, '\\' as u16, 'p' as u16, 'i' as u16, 'p' as u16, 'e' as u16, '\\' as u16];  //\\.\\pipe\\ or \\??\\pipe\\
 
 pub unsafe fn start_with_pipe_w(lp_file_name: *const u16) -> bool {
@@ -342,7 +347,6 @@ pub unsafe fn kernelbase_create_file_w(
         ) -> HANDLE = std::mem::transmute(CREATE_FILE_W_KERNEL_BASE);
 
         crate::log!(trace, "kernelbase_create_file_w hook path: {}", path);
-
         let replace = crate::replace::replace(&mut path);
         if replace {
             crate::log!(trace, "kernelbase_create_file_w replace hook: {}", path);
@@ -1356,12 +1360,13 @@ pub unsafe fn nt_create_file(
                     };
                     COMMAND_ID = COMMAND_ID.add(1);
 
-                    crate::netredirect::NET_REDIRECT_CHANNEL.tx.blocking_send(command).unwrap();
-                    crate::log!(trace, "nt_create_file file handle path: {}", name);
-                    let result = rx.blocking_recv().unwrap();
-                    crate::log!(trace, "nt_create_file file handle path result: {}", name);
-                    if let Some(expect) = result.get("expect") {
-                        
+                    let item = {
+                            let guard = INCLUDES_CACHE.lock().unwrap();
+                            guard.get(&name).cloned()
+                    };
+
+                    if let Some(expect) = item {
+                        crate::log!(trace, "nt_create_file redirect file handle path by cache expect: {}", expect);
                         let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
                         let expect = format!(r"\??\{}", expect);
                         let object_name_source_wide_char = std::ffi::OsString::from(&expect).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
@@ -1401,22 +1406,71 @@ pub unsafe fn nt_create_file(
                         return nt_status;
                     }
                     else {
-                        crate::log!(error, "nt_create_file: no expect dir from net redirect.");
+                        crate::netredirect::NET_REDIRECT_CHANNEL.tx.blocking_send(command).unwrap();
+                        crate::log!(trace, "nt_create_file redirect file handle path: {}", name);
+                        let result = rx.blocking_recv().unwrap();
+                        crate::log!(trace, "nt_create_file redirect file handle path result: {}", name);
+                        if let Some(expect) = result.get("expect") {
+                            
+                            INCLUDES_CACHE.lock().unwrap().insert(name, expect.clone());
 
-                        let nt_status = zw_create_file(
-                            file_handle,
-                            access_mask,
-                            object_attributes,
-                            io_status_block,
-                            allocation_size,
-                            file_attributes,
-                            share_access,
-                            create_disposition,
-                            create_options,
-                            ea_buffer,
-                            ea_length
-                        );
-                        return nt_status;
+                            crate::log!(trace, "nt_create_file redirect file handle path by sync expect: {}", expect);
+                            let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
+                            let expect = format!(r"\??\{}", expect);
+                            let object_name_source_wide_char = std::ffi::OsString::from(&expect).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+                            
+                            let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
+                            if ret != windows_sys::Win32::Foundation::STATUS_SUCCESS {
+                                crate::log!(error, "rtl init unicode string failed.");
+                            }
+
+                            let mut expect_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
+                                Length: object_name.Length,
+                                MaximumLength: object_name.MaximumLength,
+                                Buffer: object_name.Buffer,
+                            };
+
+                            (*object_attributes).ObjectName = &mut expect_obejct_name_adapter;
+
+                            let nt_status = zw_create_file(
+                                file_handle,
+                                access_mask,
+                                object_attributes,
+                                io_status_block,
+                                allocation_size,
+                                file_attributes,
+                                share_access,
+                                create_disposition,
+                                create_options,
+                                ea_buffer,
+                                ea_length
+                            );
+                            if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                                crate::log!(trace, "nt_create_file with expect success. {}", expect);
+                            }
+                            else {
+                                crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {}", nt_status, expect);
+                            }
+                            return nt_status;
+                        }
+                        else {
+                            crate::log!(error, "nt_create_file: no expect dir from net redirect.");
+
+                            let nt_status = zw_create_file(
+                                file_handle,
+                                access_mask,
+                                object_attributes,
+                                io_status_block,
+                                allocation_size,
+                                file_attributes,
+                                share_access,
+                                create_disposition,
+                                create_options,
+                                ea_buffer,
+                                ea_length
+                            );
+                            return nt_status;
+                        }
                     }
                 }
                 else {
