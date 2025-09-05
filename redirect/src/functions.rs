@@ -833,7 +833,6 @@ pub unsafe fn nt_query_directory_file(
             }
 
             if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
-                crate::log!(trace, "nt_query_directory_file no more files to enumerate.");
             }
             else if nt_status == windows_sys::Win32::Foundation::STATUS_BUFFER_OVERFLOW {
                 crate::log!(warn, "nt_query_directory_file buffer overflow occurred, consider increasing buffer size.");
@@ -1329,22 +1328,6 @@ pub unsafe fn nt_create_file(
 
                     return nt_status;
                 }
-                else if replace == crate::replace::ReplaceDirResult::FilePath {
-                    let nt_status = zw_create_file(
-                        file_handle,
-                        access_mask,
-                        object_attributes,
-                        io_status_block,
-                        allocation_size,
-                        file_attributes,
-                        share_access,
-                        create_disposition,
-                        create_options,
-                        ea_buffer,
-                        ea_length
-                    );
-                    return nt_status;
-                }
                 else if let crate::replace::ReplaceDirResult::NeedObtain(expect) = replace {
                     let (tx, rx) = tokio::sync::oneshot::channel();
 
@@ -1361,8 +1344,8 @@ pub unsafe fn nt_create_file(
                     COMMAND_ID = COMMAND_ID.add(1);
 
                     let item = {
-                            let guard = INCLUDES_CACHE.lock().unwrap();
-                            guard.get(&name).cloned()
+                        let guard = INCLUDES_CACHE.lock().unwrap();
+                        guard.get(&name).cloned()
                     };
 
                     if let Some(expect) = item {
@@ -1383,34 +1366,13 @@ pub unsafe fn nt_create_file(
                         };
 
                         (*object_attributes).ObjectName = &mut expect_obejct_name_adapter;
-
-                        let nt_status = zw_create_file(
-                            file_handle,
-                            access_mask,
-                            object_attributes,
-                            io_status_block,
-                            allocation_size,
-                            file_attributes,
-                            share_access,
-                            create_disposition,
-                            create_options,
-                            ea_buffer,
-                            ea_length
-                        );
-                        if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
-                            crate::log!(trace, "nt_create_file with expect success. {}", expect);
-                        }
-                        else {
-                            crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {}", nt_status, expect);
-                        }
-                        return nt_status;
                     }
                     else {
+                        let now = std::time::Instant::now();
                         crate::netredirect::NET_REDIRECT_CHANNEL.tx.blocking_send(command).unwrap();
-                        crate::log!(trace, "nt_create_file redirect file handle path: {}", name);
-                        let result = rx.blocking_recv().unwrap();
-                        crate::log!(trace, "nt_create_file redirect file handle path result: {}", name);
-                        if let Some(expect) = result.get("expect") {
+                        let expects = rx.blocking_recv().unwrap();
+                        crate::log!(trace, "nt_create_file redirect file handle path  by sync result: {} elapsed: {:?}", name, now.elapsed());
+                        if let Some(expect) = expects.get("expect") {
                             
                             INCLUDES_CACHE.lock().unwrap().insert(name, expect.clone());
 
@@ -1431,47 +1393,30 @@ pub unsafe fn nt_create_file(
                             };
 
                             (*object_attributes).ObjectName = &mut expect_obejct_name_adapter;
-
-                            let nt_status = zw_create_file(
-                                file_handle,
-                                access_mask,
-                                object_attributes,
-                                io_status_block,
-                                allocation_size,
-                                file_attributes,
-                                share_access,
-                                create_disposition,
-                                create_options,
-                                ea_buffer,
-                                ea_length
-                            );
-                            if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
-                                crate::log!(trace, "nt_create_file with expect success. {}", expect);
-                            }
-                            else {
-                                crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {}", nt_status, expect);
-                            }
-                            return nt_status;
-                        }
-                        else {
-                            crate::log!(error, "nt_create_file: no expect dir from net redirect.");
-
-                            let nt_status = zw_create_file(
-                                file_handle,
-                                access_mask,
-                                object_attributes,
-                                io_status_block,
-                                allocation_size,
-                                file_attributes,
-                                share_access,
-                                create_disposition,
-                                create_options,
-                                ea_buffer,
-                                ea_length
-                            );
-                            return nt_status;
                         }
                     }
+
+                    let nt_status = zw_create_file(
+                        file_handle,
+                        access_mask,
+                        object_attributes,
+                        io_status_block,
+                        allocation_size,
+                        file_attributes,
+                        share_access,
+                        create_disposition,
+                        create_options,
+                        ea_buffer,
+                        ea_length
+                    );
+
+                    if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                  
+                    }
+                    else {
+                        crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {}", nt_status, expect);
+                    }
+                    return nt_status;
                 }
                 else {
                     let nt_status = zw_create_file(
