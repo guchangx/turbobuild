@@ -60,6 +60,7 @@ static  REPLICADIR: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std:
 
 static REPLICADIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static GENERATEDDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static PDBDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static INCLUDES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 static STDOUT_LOG_HANDLE: std::sync::LazyLock<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 static WORKINGDIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
@@ -300,7 +301,21 @@ fn fetch_args_from_command() {
         else if item.starts_with("/Fo") {
             if item.ends_with(".obj") {
                 std::path::Path::new(&item[3..]).parent().map(|parent| {
-                    GENERATEDDIR.set(parent.to_string_lossy().to_string()).unwrap();
+                    let path = parent.to_string_lossy().to_string();
+                    if let Some(project) = crate::PROJECTNAME.get() {
+                        if let Some(index) = path.find(project) {
+                            if index + project.len() + 1 < path.len() {
+                                let (_, last) = path.split_at(index + project.len());
+                                GENERATEDDIR.set(last.to_string()).unwrap();
+                            }
+                        }
+                        else {
+                            GENERATEDDIR.set(path).unwrap();    
+                        }
+                    }
+                    else {
+                        GENERATEDDIR.set(path).unwrap();
+                    }
                 });
             }
             else {
@@ -310,11 +325,32 @@ fn fetch_args_from_command() {
         else if item.starts_with("/Fd") {
             if item.ends_with(".pdb") {
                 std::path::Path::new(&item[3..]).parent().map(|parent| {
-                    GENERATEDDIR.get_or_init(|| parent.to_string_lossy().to_string());
+                    let path = parent.to_string_lossy().to_string();
+                    
+                    if let Some(project) = crate::PROJECTNAME.get() {
+                        path.find(project).map(|index| {
+                            if index + project.len() + 1 < path.len() {
+                                let (_, last) = path.split_at(index + project.len());
+                                GENERATEDDIR.get_or_init(|| last.to_string());
+                                PDBDIR.set(last.to_string()).unwrap();
+                            }
+                        });
+                    }
                 });
             }
             else {
-                GENERATEDDIR.get_or_init(|| item[3..].to_string());
+
+                let path = item[3..].to_string();
+
+                if let Some(project) = crate::PROJECTNAME.get() {
+                    path.find(project).map(|index| {
+                        if index + project.len() + 1 < path.len() {
+                            let (_, last) = path.split_at(index + project.len());
+                            GENERATEDDIR.get_or_init(|| last.to_string());
+                            PDBDIR.set(last.to_string()).unwrap();
+                        }
+                    });
+                }
             }
         }
         else if sources_dir.is_empty() && (item.ends_with(".c") || item.ends_with(".cpp") || item.ends_with(".cc") || item.ends_with(".cxx")) {
@@ -417,10 +453,11 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
             //force_unbuffered_output();
 
             fetch_module_path(hinst);
+            read_project_property_from_stdin();
+
             fetch_args_from_command(); 
 
             redirect_stdout_log_2_cocrew();
-            read_project_property_from_stdin();
             
             crate::netredirect::async_connect_named_pipe();
 
