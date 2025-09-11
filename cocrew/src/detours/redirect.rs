@@ -144,6 +144,13 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                     pair.push(replaced.into_owned());
                     env_block.extend(pair.encode_wide());
                 }
+                else if key.to_string_lossy().to_lowercase() == "external_include" {
+                    let replaced = replace_includes_path_by_replica(&value);
+                    let mut pair = key.clone();
+                    pair.push("=");
+                    pair.push(replaced.into_owned());
+                    env_block.extend(pair.encode_wide());
+                }
                 else {
                     let mut pair = key.clone();
                     pair.push("=");

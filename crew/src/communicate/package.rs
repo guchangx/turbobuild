@@ -467,7 +467,7 @@ impl Sender {
         
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-
+        log::debug!("transmit redirect net start.");
         match self.to_owned().client.transmit_redirect(request_stream).await {
             Ok(response) => {
                 
@@ -477,12 +477,16 @@ impl Sender {
                 while let Some(stream) = response_stream.next().await {
                     match stream {
                         Ok(stream) => {
+                            log::debug!("transmit redirect net receive grpc message");
+
                             let local = crate::procemirror::filesystem::route_file_system_operation(stream); //700 µs
 
-                            if let Err(err) = tx.send(local).await {
+                            if let Err(err) = tx.send(local.clone()).await {
                                 log::error!("transmit redirect net error: {:?}", err);
-                            };
-
+                            }
+                            else {
+                                log::trace!("transmit redirect net response: {:?} {:?}", local.id, local.api);
+                            } 
                         }
                         Err(err) => {
                             log::error!("transmit redirect net {} failed: {:?}", host, err);
@@ -499,4 +503,25 @@ impl Sender {
         };
     }
 
+}
+
+
+#[cfg(test)]
+mod tests {
+
+    #[tokio::test]
+    async fn send_grpc_message_test_test() {
+
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let runtime_handle = std::sync::Arc::new(runtime.handle().clone());
+        let mut sender = crate::communicate::package::Sender::new("127.0.0.1", Some(&runtime_handle)).await;
+        runtime.spawn(async move {
+            sender.dist(crate::communicate::package::SenderType::Command(crate::communicate::package::CommandArgs {})).await;
+        }).await.unwrap();
+    }
 }

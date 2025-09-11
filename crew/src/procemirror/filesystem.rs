@@ -44,7 +44,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
                         }],
                         files: Vec::new(),
                     };
-                    log::debug!("redirect nt create file result: {:?}", local);
+                    log::debug!("redirect nt create file failed: {:?}", local);
                     return local;
                 }
             }

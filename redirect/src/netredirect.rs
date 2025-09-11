@@ -3,6 +3,9 @@ use tokio::io::AsyncReadExt;
 use winapi::shared::rpcndr::byte;
 use winapi::um::namedpipeapi::SetNamedPipeHandleState;
 
+use crate::functions::create_file_a;
+use crate::log;
+
 async fn connect() -> std::result::Result<tokio::net::windows::named_pipe::NamedPipeClient, std::io::Error> {
     const PIPE_NAME: &str = r"\\.\pipe\os_operate_request_pipe";
     let mut client = loop {
@@ -22,7 +25,7 @@ async fn connect() -> std::result::Result<tokio::net::windows::named_pipe::Named
     return Ok(client);
 }
 
-pub struct MirrorCommand {
+pub struct MirrorSysCall {
     pub id: u32,
     pub command: String,
     pub args: std::collections::HashMap<String, String>,
@@ -30,12 +33,12 @@ pub struct MirrorCommand {
 }
 
 pub struct Channel {
-    pub tx: tokio::sync::mpsc::Sender<MirrorCommand>,
-    rx: std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<MirrorCommand>>>,
+    pub tx: tokio::sync::mpsc::Sender<MirrorSysCall>,
+    rx: std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<MirrorSysCall>>>,
 }
 
-pub static NET_REDIRECT_CHANNEL: std::sync::LazyLock<Channel> = std::sync::LazyLock::new(|| {
-    let (tx, rx) = tokio::sync::mpsc::channel::<MirrorCommand>(512);
+pub static REDIRECT_SYS_CALL_CHANNEL: std::sync::LazyLock<Channel> = std::sync::LazyLock::new(|| {
+    let (tx, rx) = tokio::sync::mpsc::channel::<MirrorSysCall>(512);
     let channel = Channel { tx, rx: std::sync::Mutex::new(Some(rx)) };
     return channel;
 });
@@ -79,15 +82,15 @@ pub async fn connect_named_pipe() {
     });
 
     let handle_w = crate::RUNTIME.lock().unwrap().spawn(async move {
-        let mut rx = NET_REDIRECT_CHANNEL.rx.lock().unwrap().take().unwrap();
-        while let Some(mirror_cmd) = rx.recv().await {
-            crate::log!(info, "format virtual command: {} with id: {}", mirror_cmd.command, mirror_cmd.id);
-            let formatted_command = format_mirror_command(&mirror_cmd);
+        let mut rx = REDIRECT_SYS_CALL_CHANNEL.rx.lock().unwrap().take().unwrap();
+        while let Some(mirror_syscall) = rx.recv().await {
+            crate::log!(info, "format virtual command: {} with id: {}", mirror_syscall.command, mirror_syscall.id);
+            let formatted_command = format_mirror_syscall(&mirror_syscall);
             match writer.write(formatted_command.as_bytes()).await {
                 Ok(size) => {
                     writer.flush().await.unwrap();
-                    responders_.lock().unwrap().insert(mirror_cmd.id, mirror_cmd.responder);
-                    crate::log!(info, "sent virtual command: {} with id: {} size: {}", mirror_cmd.command, mirror_cmd.id, size);
+                    responders_.lock().unwrap().insert(mirror_syscall.id, mirror_syscall.responder);
+                    crate::log!(info, "sent virtual command: {} with id: {} size: {}", mirror_syscall.command, mirror_syscall.id, size);
                 },
                 Err(e) => {
                     let err = format!("failed to write to pipe: {}", e);
@@ -107,113 +110,126 @@ pub async fn connect_named_pipe() {
 unsafe fn redirect_command_2_cocrew() {
 
     use std::os::windows::ffi::OsStrExt;
-    let iocp = winapi::um::ioapiset::CreateIoCompletionPort(
-        winapi::um::handleapi::INVALID_HANDLE_VALUE,
-        std::ptr::null_mut(),
-        0,
-        0
-    );
 
-    let iocp_handle = tools::ptr::HandleBox::new(iocp);
-    let iocp_handle_ = iocp_handle.clone();
+    let runtime = { crate::RUNTIME.lock().unwrap().handle().clone() };
+    let runtime_ = runtime.clone();
+    let _ = runtime.spawn(async move {
 
-    let _ = crate::RUNTIME.lock().unwrap().spawn(async move {
-
-        let name = std::ffi::OsString::from("\\\\.\\pipe\\os_operate_request_pipe");
+        let name = std::ffi::OsString::from(r"\\.\pipe\os_operate_request_pipe");
         let name = name.encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
     
-        let mut rx = NET_REDIRECT_CHANNEL.rx.lock().unwrap().take().unwrap();
-        
-        type Map = std::collections::HashMap<u32, tokio::sync::oneshot::Sender<std::collections::HashMap<String, String>>>;
-        let responders: std::sync::Arc<std::sync::Mutex<Map>> = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        let mut rx = REDIRECT_SYS_CALL_CHANNEL.rx.lock().unwrap().take().unwrap();
 
-        if winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 300) == winapi::shared::minwindef::TRUE {
+        for _ in 0..3 {
+            if winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 600) == winapi::shared::minwindef::TRUE {
 
-            for _ in 0..3 {
-                let pipe_handle = winapi::um::fileapi::CreateFileW(name.as_ptr(), 
-                    winapi::um::winnt::GENERIC_WRITE | winapi::um::winnt::GENERIC_READ,
-                    0,
-                    std::ptr::null_mut(),  
-                    winapi::um::fileapi::OPEN_EXISTING, 
-                    winapi::um::winbase::FILE_FLAG_OVERLAPPED, 
-                    winapi::shared::ntdef::NULL
-                );
-
-                let mut mode: u32 = winapi::um::winbase::PIPE_READMODE_MESSAGE;
-                if !pipe_handle.is_null() && pipe_handle != winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                    SetNamedPipeHandleState(pipe_handle,
-                        &mut mode,
-                        std::ptr::null_mut(),
-                        std::ptr::null_mut()
-                    );
-
-                    let pipe_handle = tools::ptr::HandleBox::new(pipe_handle);
-
-                    if winapi::um::ioapiset::CreateIoCompletionPort(
-                        pipe_handle.get().to_owned(),
-                        iocp_handle.get().to_owned(),
+                for _ in 0..3 {
+                    let pipe_handle = winapi::um::fileapi::CreateFileW(name.as_ptr(), 
+                        winapi::um::winnt::GENERIC_WRITE | winapi::um::winnt::GENERIC_READ,
                         0,
-                        0
-                    ).is_null() {
-                        winapi::um::handleapi::CloseHandle(iocp_handle.get().to_owned());
-                        winapi::um::handleapi::CloseHandle(pipe_handle.get().to_owned());
-                        println!("CreateIoCompletionPort failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
-                        break;
-                    }
+                        std::ptr::null_mut(),  
+                        winapi::um::fileapi::OPEN_EXISTING, 
+                        winapi::um::winbase::FILE_FLAG_OVERLAPPED,  
+                        winapi::shared::ntdef::NULL
+                    );                    
 
-                    let pipe_handle_ = pipe_handle.clone();
-                    let responders_ = responders.clone();
-                    // read command from named pipe and send it to sync caller in functions
-                    let _handle_r = crate::RUNTIME.lock().unwrap().spawn(async move {
-                        let mut moredata = Vec::new();
-                        loop {
-                            let mut buffer: [u8; 512] = [0 as u8; 512];
-                            let mut bytes: winapi::shared::minwindef::DWORD = 0;
-                            
-                            //TODO: should use IOCP replace event.
-                            let event = winapi::um::synchapi::CreateEventW(
-                                std::ptr::null_mut(),
-                                winapi::shared::minwindef::TRUE, 
-                                winapi::shared::minwindef::FALSE,
-                                std::ptr::null_mut()
-                            );
+                    type Map = std::collections::HashMap<u32, tokio::sync::oneshot::Sender<std::collections::HashMap<String, String>>>;
+                    let responders: std::sync::Arc<std::sync::Mutex<Map>> = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
 
-                            let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
-                            overlapped.hEvent = event;
+                    if !pipe_handle.is_null() && pipe_handle != winapi::um::handleapi::INVALID_HANDLE_VALUE {
 
-                            let result = winapi::um::fileapi::ReadFile(
-                                pipe_handle_.get().to_owned(),
-                                buffer.as_mut_ptr() as *mut _,
-                                buffer.len() as u32,
-                                &mut bytes,
-                                &mut overlapped
-                            );
+                        let pipe_handle = tools::ptr::HandleBox::new(pipe_handle);
+                        let pipe_handle_ = pipe_handle.clone();
+                        crate::log!(info, "connected to named pipe success: {}", r"\\.\pipe\os_operate_request_pipe");
 
-                            crate::log!(info, "read virtual command named pipe size: {}.", bytes);
+                        let responders_ = responders.clone();
+                        // read command from named pipe and send it to sync caller in functions
+                        let _handle_r = runtime_.spawn_blocking(move || {
+                            let mut moredata = Vec::new();
+                            loop {
+                                let mut buffer: [u8; 512] = [0 as u8; 512];
+                                let mut bytes: winapi::shared::minwindef::DWORD = 0;
+                                
+                                let event = winapi::um::synchapi::CreateEventW(
+                                    std::ptr::null_mut(),
+                                    winapi::shared::minwindef::TRUE, 
+                                    winapi::shared::minwindef::FALSE,
+                                    std::ptr::null_mut()
+                                );
 
-                            if result == winapi::shared::minwindef::FALSE || bytes == 0 {
+                                let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+                                overlapped.hEvent = event;
 
-                                let err = winapi::um::errhandlingapi::GetLastError();
+                                let result = winapi::um::fileapi::ReadFile(
+                                    pipe_handle.get().to_owned(),
+                                    buffer.as_mut_ptr() as *mut _,
+                                    buffer.len() as u32,
+                                    &mut bytes,
+                                    &mut overlapped,
+                                );
 
-                                if err == winapi::shared::winerror::ERROR_IO_PENDING {
-                                    winapi::um::synchapi::WaitForSingleObject(event, winapi::um::winbase::INFINITE);
+                                crate::log!(info, "response virtual syscall from namedpipe. result: {} message size: {}.", result, bytes);
 
-                                    let mut final_bytes: winapi::shared::minwindef::DWORD = 0;
-                                    winapi::um::ioapiset::GetOverlappedResult(
-                                        pipe_handle_.get().to_owned(),
-                                        &mut overlapped,
-                                        &mut final_bytes,
-                                        winapi::shared::minwindef::TRUE
-                                    );
+                                if result == winapi::shared::minwindef::FALSE {
 
-                                    if final_bytes == 0 {
-                                        crate::log!(info, "read virtual command named pipe closed. final bytes is 0.");
-                                    }
-                                    else if final_bytes == buffer.len() as u32 {
-                                        moredata.extend_from_slice(&buffer[..final_bytes as usize]);
+                                    let err = winapi::um::errhandlingapi::GetLastError();
+
+                                    if err == winapi::shared::winerror::ERROR_IO_PENDING {
+                                        crate::log!(info, "read pipe error, ERROR_IO_PENDING pid: {}", std::process::id());
+                                        
+                                        winapi::um::synchapi::WaitForSingleObject(event, winapi::um::winbase::INFINITE);
+                                        
+                                        let mut final_bytes: winapi::shared::minwindef::DWORD = 0;
+                                        winapi::um::ioapiset::GetOverlappedResult(
+                                            pipe_handle.get().to_owned(),
+                                            &mut overlapped,
+                                            &mut final_bytes,
+                                            winapi::shared::minwindef::FALSE
+                                        );
+
+                                        winapi::um::handleapi::CloseHandle(event);
+                                        crate::log!(info, "read pipe completed, pid: {} bytes: {}", std::process::id(), final_bytes);
+                                        if final_bytes == 0 {
+                                            crate::log!(info, "response virtual command named pipe closed. final bytes is 0.");
+                                        }
+                                        else if final_bytes == buffer.len() as u32 {
+                                            moredata.extend_from_slice(&buffer[..final_bytes as usize]);
+                                        }
+                                        else {
+                                            moredata.extend_from_slice(&buffer[..final_bytes as usize]);
+
+                                            let output = String::from_utf8_lossy(&moredata);
+
+                                            crate::logger::output_debug_string(&format!("received virtual command: {}", output));
+                                            if output.trim().is_empty() || output.chars().all(|c| c == '\0') {
+                                                crate::log!(error, "readfile buffer is empty");
+                                            }
+                                            else {
+                                                let (id, command, args) = parse_mirror_command(&output);
+                                                if let Some(responder) = responders.lock().unwrap().remove(&id) {
+                                                    crate::log!(info, "responding to command: {} with id: {}", command, id);
+                                                    if let Err(e) = responder.send(args) {
+                                                        crate::log!(info, "failed to send virtual command: {:?}", e);
+                                                    }
+                                                }
+                                                else {
+                                                    crate::log!(warn, "no responder found for id: {} command: {}", id, command);
+                                                }
+                                            }
+                                            moredata.clear();
+                                        }
                                     }
                                     else {
-                                        moredata.extend_from_slice(&buffer[..final_bytes as usize]);
+                                        crate::log!(error, "readfile failed, error code: {}, message: {}", err, tools::utils::get_winapi_error_message(err));
+                                        break;
+                                    }
+                                }
+                                else {
+                                    if bytes == buffer.len() as u32 {
+                                        moredata.extend_from_slice(&buffer[..bytes as usize]);
+                                    }
+                                    else {
+                                        moredata.extend_from_slice(&buffer[..bytes as usize]);
 
                                         let output = String::from_utf8_lossy(&moredata);
 
@@ -224,7 +240,7 @@ unsafe fn redirect_command_2_cocrew() {
                                         else {
                                             let (id, command, args) = parse_mirror_command(&output);
                                             if let Some(responder) = responders.lock().unwrap().remove(&id) {
-                                                crate::log!(info, "responding to command: {} with id: {}", command, id);
+                                                crate::log!(info, "respond command 2 sys call: {} with id: {}", command, id);
                                                 if let Err(e) = responder.send(args) {
                                                     crate::log!(info, "failed to send virtual command: {:?}", e);
                                                 }
@@ -236,116 +252,77 @@ unsafe fn redirect_command_2_cocrew() {
                                         moredata.clear();
                                     }
                                 }
-                                else {
-                                    crate::log!(error, "readfile failed, error code: {}, message: {}", err, tools::utils::get_winapi_error_message(err));
+                            }
+                        });
+
+                        //read command from functions.rs mpsc and send it to namedpipe in cocrew
+                        loop {
+                            let mirror_sys_call = rx.recv().await;
+                            match mirror_sys_call {
+                                Some(mirror_call) => {
+                                    crate::log!(info, "send format virtual command to namedpipe: {} with id: {}", mirror_call.command, mirror_call.id);
+                                    let formatted_call = format_mirror_syscall(&mirror_call);
+
+                                    let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+                                    let mut bytes: winapi::shared::minwindef::DWORD = 0;
+                                    let result = winapi::um::fileapi::WriteFile(
+                                        pipe_handle_.get().to_owned(),
+                                        formatted_call.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
+                                        formatted_call.len() as u32,
+                                        &mut bytes,
+                                        &mut overlapped
+                                    );
+                                    crate::log!(info, "write virtual syscall to namedpipe. result: {} message size: {}.", result, bytes);
+                                    if result == winapi::shared::minwindef::FALSE {
+                                        let error = winapi::um::errhandlingapi::GetLastError();
+                                        if error == winapi::shared::winerror::ERROR_IO_PENDING {
+                                            crate::log!(info, "write pipe error, ERROR_IO_PENDING {}", mirror_call.id);
+                                            responders_.lock().unwrap().insert(mirror_call.id, mirror_call.responder);
+                                            continue;
+                                        }
+                                        else {
+                                            crate::log!(error, "write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                                            crate::logger::output_debug_string(&format!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
+                                            break;
+                                        }
+                                    }
+                                    else {
+                                        responders_.lock().unwrap().insert(mirror_call.id, mirror_call.responder);
+                                    }
+                                    
+                                    //if winapi::shared::minwindef::FALSE == winapi::um::fileapi::FlushFileBuffers(pipe_handle.get().to_owned()) {
+                                    //    println!("FlushFileBuffers failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
+                                    //}
+                                },
+                                None => {
                                     break;
                                 }
                             }
-                            else {
-                                if bytes == buffer.len() as u32 {
-                                    moredata.extend_from_slice(&buffer[..bytes as usize]);
-                                }
-                                else {
-                                    moredata.extend_from_slice(&buffer[..bytes as usize]);
-
-                                    let output = String::from_utf8_lossy(&moredata);
-
-                                    crate::logger::output_debug_string(&format!("received virtual command: {}", output));
-                                    if output.trim().is_empty() || output.chars().all(|c| c == '\0') {
-                                        crate::log!(error, "readfile buffer is empty");
-                                    }
-                                    else {
-                                        let (id, command, args) = parse_mirror_command(&output);
-                                        if let Some(responder) = responders.lock().unwrap().remove(&id) {
-                                            crate::log!(info, "responding to command: {} with id: {}", command, id);
-                                            if let Err(e) = responder.send(args) {
-                                                crate::log!(info, "failed to send virtual command: {:?}", e);
-                                            }
-                                        }
-                                        else {
-                                            crate::log!(warn, "no responder found for id: {} command: {}", id, command);
-                                        }
-                                    }
-                                    moredata.clear();
-                                }
-                            }
-                        }
-                    });
-
-                    //read command from functions.rs mpsc and send it to namedpipe in cocrew
-                    loop {
-                        let mirror_cmd = rx.recv().await;
-                        match mirror_cmd {
-                            Some(mirror_cmd) => {
-                                crate::log!(info, "format virtual command: {} with id: {}", mirror_cmd.command, mirror_cmd.id);
-                                let formatted_command = format_mirror_command(&mirror_cmd);
-
-                                let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
-                                let mut bytes: winapi::shared::minwindef::DWORD = 0;
-                                let result = winapi::um::fileapi::WriteFile(
-                                    pipe_handle.get().to_owned(),
-                                    formatted_command.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
-                                    formatted_command.len() as u32,
-                                    &mut bytes,
-                                    &mut overlapped
-                                );
-
-                                if result == winapi::shared::minwindef::FALSE || bytes == 0 {
-                                    let error = winapi::um::errhandlingapi::GetLastError();
-                                    if error == winapi::shared::winerror::ERROR_IO_PENDING {
-                                        
-                                    }
-                                    else if error == winapi::shared::winerror::ERROR_BROKEN_PIPE || error == winapi::shared::winerror::ERROR_NO_DATA {
-                                        //break;
-                                    }
-                                    else {
-                                        println!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
-                                        crate::logger::output_debug_string(&format!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
-                                        break;
-                                    }
-                                }
-                                else {
-                                    responders_.lock().unwrap().insert(mirror_cmd.id, mirror_cmd.responder);
-                                }
-                                
-                                //if winapi::shared::minwindef::FALSE == winapi::um::fileapi::FlushFileBuffers(pipe_handle.get().to_owned()) {
-                                //    println!("FlushFileBuffers failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
-                                //}
-                            },
-                            None => {
-                                break;
-                            }
-                        }
-                    };
-                    
-                    winapi::um::ioapiset::PostQueuedCompletionStatus(
-                        iocp_handle.get().to_owned(), 
-                        0, 
-                        0, 
-                        std::ptr::null_mut()
-                    );
-
-                    winapi::um::handleapi::CloseHandle(pipe_handle.get().to_owned());
-                    break;
-                }
-                else {
-                    let error = winapi::um::errhandlingapi::GetLastError();
-                    
-                    if error == winapi::shared::winerror::ERROR_PIPE_BUSY || error == winapi::shared::winerror::ERROR_FILE_NOT_FOUND {
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                        continue;
+                        };
+                        
+                        winapi::um::handleapi::CloseHandle(pipe_handle_.get().to_owned());
+                        log!(error, "redirect_command_2_cocrew named pipe writer closed.");
+                        break;
                     }
                     else {
-                        //println!("CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
-                        crate::logger::output_debug_string(&format!("redirect_command_2_cocrew CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
+                        let error = winapi::um::errhandlingapi::GetLastError();
+                        
+                        if error == winapi::shared::winerror::ERROR_PIPE_BUSY || error == winapi::shared::winerror::ERROR_FILE_NOT_FOUND {
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        }
+                        else {
+                            //println!("CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                            crate::logger::output_debug_string(&format!("redirect_command_2_cocrew CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
+                        }
                     }
                 }
             }
-        }
-        else {
-            let error = winapi::um::errhandlingapi::GetLastError();
-            //println!("WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
-            crate::logger::output_debug_string(&format!("redirect_command_2_cocrew WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
+            else {
+                let error = winapi::um::errhandlingapi::GetLastError();
+                //println!("WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                crate::logger::output_debug_string(&format!("redirect_command_2_cocrew WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
         }
         
         loop {
@@ -363,42 +340,6 @@ unsafe fn redirect_command_2_cocrew() {
         
         return ();
     });
-
-    let _ = std::thread::Builder::new()
-    .name("get_queued_completion_status thread".to_string())
-    .spawn(move || {
-        let now = chrono::Local::now();
-        let time = now.format("%H:%M:%S%.3f").to_string();
-        crate::logger::output_debug_string(&format!("{} GetQueuedCompletionStatus start.", time));
-        loop {
-            let mut bytes: winapi::shared::minwindef::DWORD = 0;
-            let mut key: usize = 0;
-            let mut overlapped: *mut winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
-
-            let result = winapi::um::ioapiset::GetQueuedCompletionStatus(
-                iocp_handle_.get().to_owned(),
-                &mut bytes,
-                &mut key,
-                &mut overlapped,
-                winapi::um::winbase::INFINITE
-            );
-
-            if result == winapi::shared::minwindef::FALSE || bytes == 0 {
-                let error = winapi::um::errhandlingapi::GetLastError();
-                println!("GetQueuedCompletionStatus failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
-                break;
-            }
-            else {
-                if key == 0 {
-                    break;
-                }
-            }
-        }
-        winapi::um::handleapi::CloseHandle(iocp_handle_.get().to_owned());
-        let now = chrono::Local::now();
-        let time = now.format("%H:%M:%S%.3f").to_string();
-        crate::logger::output_debug_string(&format!("{} GetQueuedCompletionStatus end.", time));
-    });
 }
 
 pub fn async_connect_named_pipe() {
@@ -407,11 +348,11 @@ pub fn async_connect_named_pipe() {
     }
 }
 
-fn format_mirror_command(command: &MirrorCommand) -> String {
+fn format_mirror_syscall(call: &MirrorSysCall) -> String {
     let str = format!("{{\"id\": {}, \"command\": \"{}\", \"args\": {{{}}}}}",
-                     command.id,
-                     command.command,
-                     command.args.iter()
+                     call.id,
+                     call.command,
+                     call.args.iter()
                          .map(|(k, v)| format!("\"{}\": {:?}", k, v))
                          .collect::<Vec<_>>()
                          .join(", "));

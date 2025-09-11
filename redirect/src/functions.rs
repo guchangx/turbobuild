@@ -6,8 +6,6 @@ use winapi::{
     um::{minwinbase::LPSECURITY_ATTRIBUTES, winnt::{HANDLE, LPCSTR, LPSTR, WCHAR}}
 };
 
-use crate::log;
-
 pub static mut CREATE_FILE_A: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_FILE_W: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_FILE_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
@@ -17,7 +15,10 @@ pub static mut NT_CREATE_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_voi
 pub static mut CREATE_PROCESS_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_PROCESS_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 
-static mut COMMAND_ID: u32 = 0;
+static mut SYS_CALL_ID: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<u32>>> = std::sync::LazyLock::new(|| {
+    let pid = std::process::id();
+    std::sync::Arc::new(std::sync::Mutex::new(pid * 1000))
+});
 
 static INCLUDES_CACHE: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>> = std::sync::LazyLock::new(|| {
     std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()))
@@ -1004,16 +1005,19 @@ pub unsafe fn nt_query_directory_file(
 
                     args.insert("filename".to_string(), name);
                 }
-
-                let command = crate::netredirect::MirrorCommand {
-                    id: COMMAND_ID,
-                    command: "NtQueryDirectoryFile".into(),
-                    args,
-                    responder: tx,
+                let command = {
+                    let mut id = SYS_CALL_ID.lock().unwrap();
+                    let command = crate::netredirect::MirrorSysCall {
+                        id: *id,
+                        command: "NtQueryDirectoryFile".into(),
+                        args,
+                        responder: tx,
+                    };
+                    *id += 1;
+                    command
                 };
-                COMMAND_ID = COMMAND_ID.add(1);
 
-                crate::netredirect::NET_REDIRECT_CHANNEL.tx.blocking_send(command).unwrap();
+                crate::netredirect::REDIRECT_SYS_CALL_CHANNEL.tx.blocking_send(command).unwrap();
                 crate::log!(trace, "nt_query_directory_file file handle path: {}", path);
                 let result = rx.blocking_recv().unwrap();
                 crate::log!(trace, "nt_query_directory_file file handle path: {} results: {:?}", path, result);
@@ -1335,14 +1339,6 @@ pub unsafe fn nt_create_file(
                     args.insert("objectname".to_string(), name.clone());
                     args.insert("expect".to_string(), expect.clone());
 
-                    let command = crate::netredirect::MirrorCommand {
-                        id: COMMAND_ID,
-                        command: "NtCreateFile".into(),
-                        args,
-                        responder: tx,
-                    };
-                    COMMAND_ID = COMMAND_ID.add(1);
-
                     let item = {
                         let guard = INCLUDES_CACHE.lock().unwrap();
                         guard.get(&name).cloned()
@@ -1368,8 +1364,20 @@ pub unsafe fn nt_create_file(
                         (*object_attributes).ObjectName = &mut expect_obejct_name_adapter;
                     }
                     else {
+                        let syscall = {
+                            let mut id = SYS_CALL_ID.lock().unwrap();
+                            let syscall = crate::netredirect::MirrorSysCall {
+                                id: *id,
+                                command: "NtCreateFile".into(),
+                                args,
+                                responder: tx,
+                            };
+                            *id += 1;
+                            syscall
+                        };
+
                         let now = std::time::Instant::now();
-                        crate::netredirect::NET_REDIRECT_CHANNEL.tx.blocking_send(command).unwrap();
+                        crate::netredirect::REDIRECT_SYS_CALL_CHANNEL.tx.blocking_send(syscall).unwrap();
                         let expects = rx.blocking_recv().unwrap();
                         crate::log!(trace, "nt_create_file redirect file handle path  by sync result: {} elapsed: {:?}", name, now.elapsed());
                         if let Some(expect) = expects.get("expect") {

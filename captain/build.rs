@@ -8,7 +8,7 @@ fn main()  {
         "./../proto",
     ];
     
-    let res = tonic_build::configure()
+    let res = tonic_prost_build::configure()
     .extern_path(".prost", "::prost")
     .build_server(true)
     .out_dir("./proto")

@@ -1,6 +1,8 @@
 use serde::de::value::SeqDeserializer;
 
-
+static CONNECTED_ADDRS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Mutex<Vec<String>>>> = std::sync::LazyLock::new(|| {
+    std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new()))
+});
 
 #[derive(Default, Clone)]
 pub struct Distributor {
@@ -77,17 +79,23 @@ impl Distributor {
                 .collect::<std::collections::HashMap<String, String>>(),
         };
 
+        {
+            let mut addrs = CONNECTED_ADDRS.lock().await;
+        
+            if !addrs.iter().any(|item| item == addr) {
+                let mut sender = super::package::Sender::new(addr, Some(runtime)).await;
+                addrs.push(addr.to_string());
+                runtime.spawn(async move {
+                    sender.dist(super::package::SenderType::Command(crate::communicate::package::CommandArgs {})).await;
+                });
+            }
+        }
+
         let mut sender = super::package::Sender::new(addr, Some(runtime)).await;
         
         let args = super::package::SenderType::Compile(args);
+        let result = sender.dist(args).await;
         
-        let mut sender_ = sender.clone();
-        runtime.spawn(async move {
-            sender.dist(super::package::SenderType::Command(crate::communicate::package::CommandArgs {})).await;
-        });
-
-        let result = sender_.dist(args).await;
-
         return result;
     }
 

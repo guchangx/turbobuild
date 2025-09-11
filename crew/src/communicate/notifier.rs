@@ -223,6 +223,7 @@ impl NotificationSender {
             crate::replica::toolchain::Property::check_resource_and_judge_sync(resources).await;  
             // func should do one thing at a time.
             //TODO: time-consuming task, should be done in runtime.
+
         }
         else {
             log::warn!("check resource response is empty.");

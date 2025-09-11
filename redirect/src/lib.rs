@@ -366,7 +366,7 @@ fn fetch_args_from_command() {
     log!(debug, "PROJECTNAME: {:?}", PROJECTNAME.get());
     log!(debug, "GENERATEDDIR: {:?}", GENERATEDDIR);
     log!(debug, "REPLICA_PDBPATH: {:?}", REPLICA_PDBPATH);
-    log!(debug, "WORKINGDIR: {:?}", WORKINGDIR);
+    log!(debug, "WORKINGDIR: {:?}", WORKINGDIR.as_str());
     log!(debug, "REPLICADIR: {:?}", REPLICADIR.get());
 
 

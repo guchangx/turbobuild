@@ -12,8 +12,9 @@ tools = { path = "../tools" }
 crew = { path = "../crew" }
 redirectdll = { package = "redirect", path = "../redirect" }
 
-tonic = "0.12.3"
-prost = "0.13.3"
+tonic = "0.14.2"
+prost = "0.14.1"
+tonic-prost = "0.14.2"
 tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread"] }
 tokio-stream = "0.1.16"
 log = "0.4.22"
@@ -23,8 +24,12 @@ windows-sys = {version = "0.60.2", features = ["Win32_System_Pipes"]}
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.129"
 
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+console-subscriber = "0.4.1"
+
 [build-dependencies]
-tonic-build = "0.12.3"
+tonic-prost-build = "0.14.2"
 
 [dev-dependencies]
 winapi = {version = "0.3.9", features = ["errhandlingapi", "processthreadsapi", "winbase", "namedpipeapi", "synchapi", "winerror"]}
