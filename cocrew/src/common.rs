@@ -39,7 +39,7 @@ pub fn init_common() {
         rt.handle().clone()
     };
 
-    crate::communicate::redirectpipe::compiler_redirect_request(receiver_.namedpipe_tx.clone());
+    crate::communicate::redirectpipe::compiler_redirect_request();
 
     handle.spawn(async move {
         log::info!("start redirect_stdout_log_2_cocrew");

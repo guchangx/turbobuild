@@ -10,7 +10,25 @@ pub struct MirrorCommand {
 }
 
 type Responders = tokio::sync::oneshot::Sender<MirrorCommand>;
-pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Sender<(MirrorCommand, Responders)>>>>) {
+
+pub struct CHANNEL {
+    pub grpc_to_namedpipe_tx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Sender<MirrorCommand>>>>,
+    pub grpc_to_namedpipe_rx: std::sync::Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Receiver<MirrorCommand>>>>,
+}
+
+pub static GRPC_TO_NAMEDPIPE_CHANNEL: std::sync::LazyLock<CHANNEL> = std::sync::LazyLock::new(|| {
+
+    let (tx, rx) = tokio::sync::mpsc::channel(128);
+    let grpc_to_namedpipe_tx =  std::sync::Arc::new(Some(tokio::sync::Mutex::new(tx)));
+    let grpc_to_namedpipe_rx = std::sync::Arc::new(tokio::sync::Mutex::new(Some(rx)));
+
+    return CHANNEL {
+        grpc_to_namedpipe_tx,
+        grpc_to_namedpipe_rx
+    };
+});
+
+pub fn compiler_redirect_request() {
 
     const PIPE_NAME: &str = r"\\.\pipe\os_operate_request_pipe";
 
@@ -51,7 +69,6 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
 
             let now = std::time::Instant::now();
 
-            let tx_ = tx.clone();
             let (mut reader, mut writer) = tokio::io::split(server);
 
             server = tokio::net::windows::named_pipe::ServerOptions::new()
@@ -71,26 +88,31 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
             let (response_tx, mut response_rx) = tokio::sync::mpsc::channel::<String>(256);
             
             //return the command response to caller in func.rs
+            //从mpsc 接收数据，然后把数据写回到管道。管道的客户端就可以读数据了。
             rt_.spawn(async move {
-                loop {
-                    if let Some(response) = response_rx.recv().await {
-                        match writer.write(response.as_bytes()).await {
-                            Ok(n) => {
-                                log::info!("success sent mirror command response: {}", n);
-                                writer.flush().await.unwrap();
-                            },
-                            Err(_) => {
-                                log::error!("failed to write mirror command response to pipe, dropped receiver.");
-                                break;
+                let rx = { GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_rx.lock().await.take() };
+                if let Some(mut rx) = rx {
+                    loop {
+                        if let Some(response) = rx.recv().await {
+                            let response = format_mirror_command(&response);
+                            match writer.write(response.as_bytes()).await {
+                                Ok(n) => {
+                                    log::info!("success sent mirror command response: {}", n);
+                                    writer.flush().await.unwrap();
+                                },
+                                Err(_) => {
+                                    log::error!("failed to write mirror command response to pipe, dropped receiver.");
+                                    break;
+                                }
                             }
                         }
+                        else {
+                            log::warn!("mirror command response channel closed, dropped receiver.");
+                            break;
+                        }
                     }
-                    else {
-                        log::warn!("mirror command response channel closed, dropped receiver.");
-                        break;
-                    }
+                    writer.shutdown().await.unwrap();
                 }
-                writer.shutdown().await.unwrap();
             });
 
             let rt__ = rt_.clone();
@@ -98,10 +120,28 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                 log::trace!("pipe connected count {} success", counter);
                 loop {
                     //read command form namedpipe and send it to grpc.
-                    let tx_ = tx_.clone();
 
+                    /* 
+                    loop {
+                        let (oneshot_tx, oneshot_rx) = tokio::sync::oneshot::channel::<MirrorCommand>();
+                        if let Some(tx) = crate::communicate::unpackager::NAMEDPIPE_AND_GRPC_CHANNEL.namedpipe_and_grpc_tx.as_ref() {
+                            
+                            let mirror_cmd = MirrorCommand {
+                                id: 111111111,
+                                command: "".to_string(),
+                                args: std::collections::HashMap::new(),
+                            };
+
+                            log::trace!("send mirror command to grpc: {:?}", mirror_cmd);
+                            let sender = tx.lock().await;
+                            sender.send((mirror_cmd, oneshot_tx)).await.unwrap();
+                            tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
+                        }
+                    }
+                    */
+
+                    //从管道中读取数据，然后写入tx. tx的另一头是grpc的读取端
                     let (oneshot_tx, oneshot_rx) = tokio::sync::oneshot::channel::<MirrorCommand>();
-                    
                     let mut data = vec![0; 1024];
                     match reader.read(&mut data).await {
                         Ok(size) => {
@@ -112,7 +152,8 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                                     .map_err(|e| {
                                         log::error!("failed to parse mirror command: {}", e);
                                     }) {
-                                    if let Some(tx) = tx_.as_ref() {
+
+                                    if let Some(tx) = crate::communicate::unpackager::NAMEDPIPE_AND_GRPC_CHANNEL.namedpipe_and_grpc_tx.as_ref() {
                                         log::trace!("send mirror command to grpc: {:?}", mirror_cmd);
                                         let sender = tx.lock().await;
                                         sender.send((mirror_cmd, oneshot_tx)).await.unwrap();
@@ -129,8 +170,9 @@ pub fn compiler_redirect_request(tx: std::sync::Arc<Option<tokio::sync::Mutex<to
                             return;
                         }
                     }
-
-                    //wait grpc calback by onshot channel and send response to namedpipe writer.
+                    
+                    //wait grpc calback by oneshot channel and send response to namedpipe writer.
+                    //等待grpc的oneshot回调，并把grpc收到的数据发送给mspc，上面的一个任务在接收mspc，然后写入namedpipe
                     let response_tx_ = response_tx.clone();
                     let _ = rt__.spawn(async move {
                         match tokio::time::timeout(tokio::time::Duration::from_secs(18), oneshot_rx).await {
@@ -339,8 +381,11 @@ mod tests {
     async fn compiler_redirect_request_test() {
         println!("test compiler_redirect_request");
         tools::logger::init_once_logger();
-        let (namedpipe_tx, mut namedpipe_rx) = tokio::sync::mpsc::channel(128);
-        compiler_redirect_request(std::sync::Arc::new(Some(tokio::sync::Mutex::new(namedpipe_tx))));
+
+        let namedpipe_tx = crate::communicate::unpackager::NAMEDPIPE_AND_GRPC_CHANNEL.namedpipe_and_grpc_tx.clone();
+        let mut namedpipe_rx = crate::communicate::unpackager::NAMEDPIPE_AND_GRPC_CHANNEL.namedpipe_and_grpc_rx.lock().await;
+
+        compiler_redirect_request();
 
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
@@ -381,16 +426,18 @@ mod tests {
         writer.shutdown().await.unwrap();
 
         //read message from mspc
-        for _ in 0..10 {
-            let message = namedpipe_rx.recv().await;
-            let (command, callback) = message.unwrap();
-            println!("received command in test: {:?}", command);
-            let response = MirrorCommand {
-                id: command.id,
-                command: "response".to_string(),
-                args: std::collections::HashMap::new(),
-            };
-            callback.send(response).unwrap();
+        if let Some(mut rx) = namedpipe_rx.take() {
+            for _ in 0..10 {
+                let message = rx.recv().await;
+                let (command, callback) = message.unwrap();
+                println!("received command in test: {:?}", command);
+                let response = MirrorCommand {
+                    id: command.id,
+                    command: "response".to_string(),
+                    args: std::collections::HashMap::new(),
+                };
+                callback.send(response).unwrap();
+            }
         }
 
         //read message from pipe client

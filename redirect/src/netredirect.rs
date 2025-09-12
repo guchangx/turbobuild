@@ -263,7 +263,16 @@ unsafe fn redirect_command_2_cocrew() {
                                     crate::log!(info, "send format virtual command to namedpipe: {} with id: {}", mirror_call.command, mirror_call.id);
                                     let formatted_call = format_mirror_syscall(&mirror_call);
 
+                                    let event = winapi::um::synchapi::CreateEventW(
+                                        std::ptr::null_mut(),
+                                        winapi::shared::minwindef::TRUE, 
+                                        winapi::shared::minwindef::FALSE,
+                                        std::ptr::null_mut()
+                                    );
+
                                     let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+                                    overlapped.hEvent = event;
+
                                     let mut bytes: winapi::shared::minwindef::DWORD = 0;
                                     let result = winapi::um::fileapi::WriteFile(
                                         pipe_handle_.get().to_owned(),
@@ -277,6 +286,16 @@ unsafe fn redirect_command_2_cocrew() {
                                         let error = winapi::um::errhandlingapi::GetLastError();
                                         if error == winapi::shared::winerror::ERROR_IO_PENDING {
                                             crate::log!(info, "write pipe error, ERROR_IO_PENDING {}", mirror_call.id);
+                                            winapi::um::synchapi::WaitForSingleObject(event, winapi::um::winbase::INFINITE);
+                                            
+                                            let mut final_bytes: winapi::shared::minwindef::DWORD = 0;
+                                            winapi::um::ioapiset::GetOverlappedResult(
+                                                pipe_handle_.get().to_owned(),
+                                                &mut overlapped,
+                                                &mut final_bytes,
+                                                winapi::shared::minwindef::FALSE
+                                            );
+
                                             responders_.lock().unwrap().insert(mirror_call.id, mirror_call.responder);
                                             continue;
                                         }

@@ -64,6 +64,7 @@ pub unsafe fn init_hook() {
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_CREATE_FILE), crate::functions::nt_create_file as _);
     }
 
+    
     let func_nt_query_directory_file = crate::utils::convert::string_2_lpstr("NtQueryDirectoryFile".to_string());
     let nt_query_directory_file = crate::detours::DetourFindFunction(module,  func_nt_query_directory_file);
 
@@ -74,5 +75,6 @@ pub unsafe fn init_hook() {
         crate::functions::NT_QUERY_DIRECTORY_FILE = nt_query_directory_file;
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_QUERY_DIRECTORY_FILE), crate::functions::nt_query_directory_file as _);
     }
+    
     
 }

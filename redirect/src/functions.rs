@@ -15,7 +15,7 @@ pub static mut NT_CREATE_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_voi
 pub static mut CREATE_PROCESS_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_PROCESS_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 
-static mut SYS_CALL_ID: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<u32>>> = std::sync::LazyLock::new(|| {
+static SYS_CALL_ID: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<u32>>> = std::sync::LazyLock::new(|| {
     let pid = std::process::id();
     std::sync::Arc::new(std::sync::Mutex::new(pid * 1000))
 });
@@ -1020,6 +1020,7 @@ pub unsafe fn nt_query_directory_file(
                 crate::netredirect::REDIRECT_SYS_CALL_CHANNEL.tx.blocking_send(command).unwrap();
                 crate::log!(trace, "nt_query_directory_file file handle path: {}", path);
                 let result = rx.blocking_recv().unwrap();
+                //let result = std::collections::HashMap::<String, String>::new();
                 crate::log!(trace, "nt_query_directory_file file handle path: {} results: {:?}", path, result);
 
                 if let Some(fileinfo) = result.get("fileinformation") {
@@ -1379,7 +1380,8 @@ pub unsafe fn nt_create_file(
                         let now = std::time::Instant::now();
                         crate::netredirect::REDIRECT_SYS_CALL_CHANNEL.tx.blocking_send(syscall).unwrap();
                         let expects = rx.blocking_recv().unwrap();
-                        crate::log!(trace, "nt_create_file redirect file handle path  by sync result: {} elapsed: {:?}", name, now.elapsed());
+                        //let expects = std::collections::HashMap::<String, String>::new();
+                        crate::log!(trace, "nt_create_file redirect file handle path by sync result: {} elapsed: {:?}", name, now.elapsed());
                         if let Some(expect) = expects.get("expect") {
                             
                             INCLUDES_CACHE.lock().unwrap().insert(name, expect.clone());
