@@ -7,7 +7,7 @@ mod replace;
 mod functions;
 mod ntdef;
 mod logger;
-pub mod netredirect;
+pub mod syscallredirect;
 
 //TODO The current size of the package is 1.24M
 //TODO Remove winapi, use windows-sys replace and remove ntdef.
@@ -38,7 +38,13 @@ static LOGGER: std::sync::LazyLock<Channel> = std::sync::LazyLock::new(|| {
 });
 
 static RUNTIME: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex::<tokio::runtime::Runtime>>> = std::sync::LazyLock::new(|| {
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .thread_name_fn(|| {
+            static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            format!("redirect-worker-{}", id)
+        }).build().unwrap();
     std::sync::Arc::new(std::sync::Mutex::new(runtime))
 });
 
@@ -468,7 +474,7 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
 
             redirect_stdout_log_2_cocrew();
             
-            crate::netredirect::async_connect_named_pipe();
+            crate::syscallredirect::async_connect_named_pipe();
 
             
             let ret = crate::detours::DetourRestoreAfterWith();

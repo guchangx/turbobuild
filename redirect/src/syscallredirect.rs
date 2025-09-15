@@ -1,14 +1,11 @@
 use tokio::io::AsyncWriteExt;
 use tokio::io::AsyncReadExt;
-use winapi::shared::rpcndr::byte;
-use winapi::um::namedpipeapi::SetNamedPipeHandleState;
 
-use crate::functions::create_file_a;
 use crate::log;
 
 async fn connect() -> std::result::Result<tokio::net::windows::named_pipe::NamedPipeClient, std::io::Error> {
     const PIPE_NAME: &str = r"\\.\pipe\os_operate_request_pipe";
-    let mut client = loop {
+    let client = loop {
         match tokio::net::windows::named_pipe::ClientOptions::new()
             .pipe_mode(tokio::net::windows::named_pipe::PipeMode::Message)
             .open(PIPE_NAME) {
@@ -43,86 +40,23 @@ pub static REDIRECT_SYS_CALL_CHANNEL: std::sync::LazyLock<Channel> = std::sync::
     return channel;
 });
 
-pub async fn connect_named_pipe() {
-    let client = connect().await.unwrap();
-    let (mut reader, mut writer) = tokio::io::split(client);
-
-    type Map = std::collections::HashMap<u32, tokio::sync::oneshot::Sender<std::collections::HashMap<String, String>>>;
-    let responders: std::sync::Arc<std::sync::Mutex<Map>> = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
-    let responders_ = responders.clone();
-
-    let handle_r = crate::RUNTIME.lock().unwrap().spawn(async move {
-        let mut data = vec![0; 1024];
-        loop {
-            match reader.read(&mut data).await {
-                Ok(size) if size > 0 => {
-                    let command = String::from_utf8_lossy(&data[..size]);
-                    crate::log!(info, "received virtual command: {}", command);
-
-                    let (id, command, args) = parse_mirror_command(&command);
-                    if let Some(responder) = responders.lock().unwrap().remove(&id) {
-                        crate::log!(info, "responding to command: {} with id: {}", command, id); 
-                        if let Err(e) = responder.send(args) {
-                            crate::log!(info, "failed to send virtual command: {:?}", e);
-                        }
-                    } 
-                    else {
-                        crate::log!(warn, "no responder found for id: {} command: {}", id, command);
-                    }
-                }
-                Ok(_) => break,
-                Err(e) => {
-                    let err = format!("failed to read from pipe: {}", e);
-                    crate::log!(error, "{}", err);
-                    break;
-                }
-            }
-        }
-        crate::log!(info, "virtual command named pipe reader closed.");
-    });
-
-    let handle_w = crate::RUNTIME.lock().unwrap().spawn(async move {
-        let mut rx = REDIRECT_SYS_CALL_CHANNEL.rx.lock().unwrap().take().unwrap();
-        while let Some(mirror_syscall) = rx.recv().await {
-            crate::log!(info, "format virtual command: {} with id: {}", mirror_syscall.command, mirror_syscall.id);
-            let formatted_command = format_mirror_syscall(&mirror_syscall);
-            match writer.write(formatted_command.as_bytes()).await {
-                Ok(size) => {
-                    writer.flush().await.unwrap();
-                    responders_.lock().unwrap().insert(mirror_syscall.id, mirror_syscall.responder);
-                    crate::log!(info, "sent virtual command: {} with id: {} size: {}", mirror_syscall.command, mirror_syscall.id, size);
-                },
-                Err(e) => {
-                    let err = format!("failed to write to pipe: {}", e);
-                    crate::log!(error, "{}", err);
-                }
-            }
-        }
-        crate::log!(info, "virtual command named pipe writer closed.");
-        writer.shutdown().await.unwrap();
-    });
-
-    crate::log!(info, "virtual command named pipe disconnected.");
-
-    let _ = tokio::join!(handle_r, handle_w);
-}
-
-unsafe fn redirect_command_2_cocrew() {
+unsafe fn redirect_syscall_2_cocrew() {
 
     use std::os::windows::ffi::OsStrExt;
 
     let runtime = { crate::RUNTIME.lock().unwrap().handle().clone() };
     let runtime_ = runtime.clone();
-    let _ = runtime.spawn(async move {
+    let _ = runtime.spawn_blocking(move || {
 
         let name = std::ffi::OsString::from(r"\\.\pipe\os_operate_request_pipe");
         let name = name.encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
-    
-        let mut rx = REDIRECT_SYS_CALL_CHANNEL.rx.lock().unwrap().take().unwrap();
-
+        
+        type Map = std::collections::HashMap<u32, tokio::sync::oneshot::Sender<std::collections::HashMap<String, String>>>;
+        let responders: std::sync::Arc<std::sync::Mutex<Map>> = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        
         for _ in 0..3 {
             if winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 600) == winapi::shared::minwindef::TRUE {
-
+                let responders = responders.clone();
                 for _ in 0..3 {
                     let pipe_handle = winapi::um::fileapi::CreateFileW(name.as_ptr(), 
                         winapi::um::winnt::GENERIC_WRITE | winapi::um::winnt::GENERIC_READ,
@@ -131,10 +65,7 @@ unsafe fn redirect_command_2_cocrew() {
                         winapi::um::fileapi::OPEN_EXISTING, 
                         winapi::um::winbase::FILE_FLAG_OVERLAPPED,  
                         winapi::shared::ntdef::NULL
-                    );                    
-
-                    type Map = std::collections::HashMap<u32, tokio::sync::oneshot::Sender<std::collections::HashMap<String, String>>>;
-                    let responders: std::sync::Arc<std::sync::Mutex<Map>> = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+                    );
 
                     if !pipe_handle.is_null() && pipe_handle != winapi::um::handleapi::INVALID_HANDLE_VALUE {
 
@@ -143,7 +74,7 @@ unsafe fn redirect_command_2_cocrew() {
                         crate::log!(info, "connected to named pipe success: {}", r"\\.\pipe\os_operate_request_pipe");
 
                         let responders_ = responders.clone();
-                        // read command from named pipe and send it to sync caller in functions
+                        // receive command from named pipe and send it to sync caller in functions
                         let _handle_r = runtime_.spawn_blocking(move || {
                             let mut moredata = Vec::new();
                             loop {
@@ -168,15 +99,14 @@ unsafe fn redirect_command_2_cocrew() {
                                     &mut overlapped,
                                 );
 
-                                crate::log!(info, "response virtual syscall from namedpipe. result: {} message size: {}.", result, bytes);
+                                crate::log!(info, "receive virtual syscall from namedpipe. result: {} message size: {}.", result, bytes);
 
                                 if result == winapi::shared::minwindef::FALSE {
 
                                     let err = winapi::um::errhandlingapi::GetLastError();
 
                                     if err == winapi::shared::winerror::ERROR_IO_PENDING {
-                                        crate::log!(info, "read pipe error, ERROR_IO_PENDING pid: {}", std::process::id());
-                                        
+
                                         winapi::um::synchapi::WaitForSingleObject(event, winapi::um::winbase::INFINITE);
                                         
                                         let mut final_bytes: winapi::shared::minwindef::DWORD = 0;
@@ -190,7 +120,7 @@ unsafe fn redirect_command_2_cocrew() {
                                         winapi::um::handleapi::CloseHandle(event);
                                         crate::log!(info, "read pipe completed, pid: {} bytes: {}", std::process::id(), final_bytes);
                                         if final_bytes == 0 {
-                                            crate::log!(info, "response virtual command named pipe closed. final bytes is 0.");
+                                            crate::log!(info, "response virtual syscall named pipe closed. final bytes is 0.");
                                         }
                                         else if final_bytes == buffer.len() as u32 {
                                             moredata.extend_from_slice(&buffer[..final_bytes as usize]);
@@ -200,20 +130,22 @@ unsafe fn redirect_command_2_cocrew() {
 
                                             let output = String::from_utf8_lossy(&moredata);
 
-                                            crate::logger::output_debug_string(&format!("received virtual command: {}", output));
+                                            crate::logger::output_debug_string(&format!("received virtual syscall: {}", output));
                                             if output.trim().is_empty() || output.chars().all(|c| c == '\0') {
                                                 crate::log!(error, "readfile buffer is empty");
                                             }
                                             else {
                                                 let (id, command, args) = parse_mirror_command(&output);
-                                                if let Some(responder) = responders.lock().unwrap().remove(&id) {
-                                                    crate::log!(info, "responding to command: {} with id: {}", command, id);
+                                                let option = { responders.lock().unwrap().remove(&id) };
+                                                if let Some(responder) = option {
+                                                    crate::log!(info, "responding to syscall: {} with id: {}", command, id);
                                                     if let Err(e) = responder.send(args) {
-                                                        crate::log!(info, "failed to send virtual command: {:?}", e);
+                                                        crate::log!(info, "failed to send virtual syscall: {:?}", e);
                                                     }
                                                 }
                                                 else {
-                                                    crate::log!(warn, "no responder found for id: {} command: {}", id, command);
+                                                    crate::log!(warn, "no responder found for id: {} syscall: {} responders: {:?}", id, command, responders);
+                                                    crate::log!(warn, "no responder found for id: {:p} process: {} thread: {:?}", std::sync::Arc::as_ptr(&responders), std::process::id(), std::thread::current().id());
                                                 }
                                             }
                                             moredata.clear();
@@ -233,35 +165,46 @@ unsafe fn redirect_command_2_cocrew() {
 
                                         let output = String::from_utf8_lossy(&moredata);
 
-                                        crate::logger::output_debug_string(&format!("received virtual command: {}", output));
+                                        crate::logger::output_debug_string(&format!("received virtual syscall: {}", output));
                                         if output.trim().is_empty() || output.chars().all(|c| c == '\0') {
                                             crate::log!(error, "readfile buffer is empty");
                                         }
                                         else {
                                             let (id, command, args) = parse_mirror_command(&output);
-                                            if let Some(responder) = responders.lock().unwrap().remove(&id) {
-                                                crate::log!(info, "respond command 2 sys call: {} with id: {}", command, id);
+                                            let option = { responders.lock().unwrap().remove(&id) };
+                                            if let Some(responder) = option {
+                                                crate::log!(info, "respond syscall 2 sys call: {} with id: {}", command, id);
                                                 if let Err(e) = responder.send(args) {
-                                                    crate::log!(info, "failed to send virtual command: {:?}", e);
+                                                    crate::log!(info, "failed to send virtual syscall: {:?}", e);
                                                 }
                                             }
                                             else {
-                                                crate::log!(warn, "no responder found for id: {} command: {}", id, command);
+                                                crate::log!(warn, "no responder found for id: {} syscall: {} responders: {:?}", id, command, responders);
+                                                crate::log!(warn, "no responder found for id: {:p} process: {} thread: {:?}", std::sync::Arc::as_ptr(&responders), std::process::id(), std::thread::current().id());
                                             }
                                         }
                                         moredata.clear();
                                     }
                                 }
                             }
+                            crate::log!(info, "response virtual syscall named pipe reader closed.");
                         });
 
-                        //read command from functions.rs mpsc and send it to namedpipe in cocrew
+                        //send virtual syscall mpsc message to cocrew by named pipe
+                        let mut rx = {REDIRECT_SYS_CALL_CHANNEL.rx.lock().unwrap().take().unwrap()};
                         loop {
-                            let mirror_sys_call = rx.recv().await;
+
+                            let mirror_sys_call = rx.blocking_recv();
                             match mirror_sys_call {
                                 Some(mirror_call) => {
                                     crate::log!(info, "send format virtual command to namedpipe: {} with id: {}", mirror_call.command, mirror_call.id);
+                                    
                                     let formatted_call = format_mirror_syscall(&mirror_call);
+
+                                    let responder = mirror_call.responder;
+                                    {
+                                        responders_.lock().unwrap().insert(mirror_call.id, responder);
+                                    }
 
                                     let event = winapi::um::synchapi::CreateEventW(
                                         std::ptr::null_mut(),
@@ -281,34 +224,40 @@ unsafe fn redirect_command_2_cocrew() {
                                         &mut bytes,
                                         &mut overlapped
                                     );
-                                    crate::log!(info, "write virtual syscall to namedpipe. result: {} message size: {}.", result, bytes);
+                                    crate::log!(info, "send virtual syscall to namedpipe. result: {} message size: {}.", result, bytes);
                                     if result == winapi::shared::minwindef::FALSE {
                                         let error = winapi::um::errhandlingapi::GetLastError();
                                         if error == winapi::shared::winerror::ERROR_IO_PENDING {
-                                            crate::log!(info, "write pipe error, ERROR_IO_PENDING {}", mirror_call.id);
                                             winapi::um::synchapi::WaitForSingleObject(event, winapi::um::winbase::INFINITE);
                                             
                                             let mut final_bytes: winapi::shared::minwindef::DWORD = 0;
-                                            winapi::um::ioapiset::GetOverlappedResult(
+                                            let ret = winapi::um::ioapiset::GetOverlappedResult(
                                                 pipe_handle_.get().to_owned(),
                                                 &mut overlapped,
                                                 &mut final_bytes,
                                                 winapi::shared::minwindef::FALSE
                                             );
 
-                                            responders_.lock().unwrap().insert(mirror_call.id, mirror_call.responder);
-                                            continue;
+                                            if ret == winapi::shared::minwindef::FALSE {
+                                                if let Some(responder) = responders_.lock().unwrap().remove(&mirror_call.id) {
+                                                    responder.send(std::collections::HashMap::new()).unwrap_or_else(|err| {
+                                                        crate::log!(error, "send empty result to virtual syscall failed. {:?}", err);
+                                                    });
+                                                }
+                                            }
+                                            else {
+                                                //crate::log!(warn, "send format virtual syscall to namedpipe success. {:p} process: {} thread: {:?}", std::sync::Arc::as_ptr(&responders_), std::process::id(), std::thread::current().id());
+                                            }
                                         }
                                         else {
-                                            crate::log!(error, "write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
-                                            crate::logger::output_debug_string(&format!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
+                                            crate::log!(error, "send virtual syscall to namedpipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
                                             break;
                                         }
                                     }
                                     else {
-                                        responders_.lock().unwrap().insert(mirror_call.id, mirror_call.responder);
+                                        //crate::log!(warn, "write virtual syscall to namedpipe success. {:p} process: {} thread: {:?}", std::sync::Arc::as_ptr(&responders_), std::process::id(), std::thread::current().id());
                                     }
-                                    
+                                    winapi::um::handleapi::CloseHandle(event);
                                     //if winapi::shared::minwindef::FALSE == winapi::um::fileapi::FlushFileBuffers(pipe_handle.get().to_owned()) {
                                     //    println!("FlushFileBuffers failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
                                     //}
@@ -318,20 +267,21 @@ unsafe fn redirect_command_2_cocrew() {
                                 }
                             }
                         };
-                        
+
+                        rx.close();
                         winapi::um::handleapi::CloseHandle(pipe_handle_.get().to_owned());
-                        log!(error, "redirect_command_2_cocrew named pipe writer closed.");
+                        log!(error, "redirect_syscall_2_cocrew named pipe writer closed.");
                         break;
                     }
                     else {
                         let error = winapi::um::errhandlingapi::GetLastError();
                         
                         if error == winapi::shared::winerror::ERROR_PIPE_BUSY || error == winapi::shared::winerror::ERROR_FILE_NOT_FOUND {
-                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            std::thread::sleep(std::time::Duration::from_millis(100));
                         }
                         else {
                             //println!("CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
-                            crate::logger::output_debug_string(&format!("redirect_command_2_cocrew CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
+                            crate::logger::output_debug_string(&format!("redirect_syscall_2_cocrew CreateFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
                         }
                     }
                 }
@@ -339,42 +289,28 @@ unsafe fn redirect_command_2_cocrew() {
             else {
                 let error = winapi::um::errhandlingapi::GetLastError();
                 //println!("WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
-                crate::logger::output_debug_string(&format!("redirect_command_2_cocrew WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                crate::logger::output_debug_string(&format!("redirect_syscall_2_cocrew WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
+                std::thread::sleep(std::time::Duration::from_millis(50));
             }
         }
-        
-        loop {
-            match rx.try_recv() {
-                Ok(command) => {
-                    crate::logger::output_debug_string(&format!("redirect_command_2_cocrew skip mirror command: {:?}", command.command));
-                },
-                Err(err) => {
-                    crate::logger::output_debug_string(&format!("redirect_command_2_cocrew: failed to receive command: {}", err));
-                    break;
-                },
-            }
-        }
-        rx.close();
-        
         return ();
     });
 }
 
 pub fn async_connect_named_pipe() {
     unsafe {
-        redirect_command_2_cocrew();
+        redirect_syscall_2_cocrew();
     }
 }
 
 fn format_mirror_syscall(call: &MirrorSysCall) -> String {
     let str = format!("{{\"id\": {}, \"command\": \"{}\", \"args\": {{{}}}}}",
-                     call.id,
-                     call.command,
-                     call.args.iter()
-                         .map(|(k, v)| format!("\"{}\": {:?}", k, v))
-                         .collect::<Vec<_>>()
-                         .join(", "));
+            call.id,
+            call.command,
+            call.args.iter()
+                .map(|(k, v)| format!("\"{}\": {:?}", k, v))
+                .collect::<Vec<_>>()
+                .join(", "));
     return str;
 }
 
@@ -496,7 +432,7 @@ fn strip_quotes(s: &str) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::netredirect::parse_mirror_command;
+    use crate::syscallredirect::parse_mirror_command;
 
     #[test]
     fn parse_mirror_command_test() {

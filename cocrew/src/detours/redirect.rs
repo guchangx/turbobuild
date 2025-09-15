@@ -248,8 +248,8 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
             CloseHandle(hStdInRead);
 
             if ret == winapi::shared::minwindef::TRUE {
-                let stdoutstream = out_err_stream.stdout.to_owned();
-                let stderrstream = out_err_stream.stderr.to_owned();
+                let stdoutstream = std::sync::Arc::new(out_err_stream.stdout.to_owned());
+                let stderrstream = std::sync::Arc::new(out_err_stream.stderr.to_owned());
 
                 pass_params_to_redirect(hStdInWrite, &solution, &project);
 
@@ -290,14 +290,14 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
 
                         if bytesStdOuputRead > 2 && chTmpStdOutputReadBuffer[(bytesStdOuputRead - 1) as usize] == b'\n' && chTmpStdOutputReadBuffer[(bytesStdOuputRead - 2) as usize] == b'\r' {
                             if line.is_empty() {
-                                stdoutstream.send(chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize].to_vec()).unwrap_or_else(|_| {
-                                    log::error!("send stdout stream failed.");
+                                stdoutstream.try_send(chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize].to_vec()).unwrap_or_else(|_| {
+                                    log::error!("try send stdout stream failed.");
                                 });
                             }
                             else {
                                 line.extend_from_slice(&chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize]);
-                                stdoutstream.send(line[..].to_vec()).unwrap_or_else(|_| {
-                                    log::error!("send stdout stream failed.");
+                                stdoutstream.try_send(line[..].to_vec()).unwrap_or_else(|_| {
+                                    log::error!("try send stdout stream failed.");
                                 });
                                 line.clear();
                             }
@@ -337,9 +337,10 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                         }
                         break;
                     }
-
-                    stderrstream.send(chTmpStdErrorReadBuffer[..bytesStdErrorRead as usize].to_vec()).unwrap_or_else(|_| {
-                        log::error!("send stderr stream failed.");
+                    
+                    let stderrstream_ = stderrstream.clone();
+                    stderrstream_.try_send(chTmpStdErrorReadBuffer[..bytesStdErrorRead as usize].to_vec()).unwrap_or_else(|_| {
+                        log::error!("try send stderr stream failed.");
                     });
 
                     stderr.extend_from_slice(&chTmpStdErrorReadBuffer[..bytesStdErrorRead as usize]);

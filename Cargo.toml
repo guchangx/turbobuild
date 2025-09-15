@@ -12,7 +12,6 @@ authors = ["Chang Gu"]
 description = "build project increase tool."
 documentation = "https://github.com/GuBuChang"
 
-
 [profile.release]
 
 

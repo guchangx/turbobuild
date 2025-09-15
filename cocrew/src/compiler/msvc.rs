@@ -8,13 +8,13 @@ pub struct MSVC {
 }
 
 pub struct OutAndErrStream {
-    pub stdout: std::sync::mpsc::Sender<Vec<u8>>,
-    pub stderr: std::sync::mpsc::Sender<Vec<u8>>,
+    pub stdout: tokio::sync::mpsc::Sender<Vec<u8>>,
+    pub stderr: tokio::sync::mpsc::Sender<Vec<u8>>,
 }
 
 pub struct CompiledResultsStream {
-    pub stdout: std::sync::mpsc::Sender<crew::compiler::model::CompiledResults>,
-    pub stderr: std::sync::mpsc::Sender<crew::compiler::model::CompiledResults>,
+    pub stdout: tokio::sync::mpsc::Sender<crew::compiler::model::CompiledResults>,
+    pub stderr: tokio::sync::mpsc::Sender<crew::compiler::model::CompiledResults>,
 }
 
 impl crate::compiler::interface::Compiler for MSVC {
@@ -151,8 +151,8 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
                             -> (CompilerOutput, Option<CompiledResults>) {
 
     let now = std::time::Instant::now();
-    let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
-    let (err_sender, err_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+    let (out_sender, mut out_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
+    let (err_sender, mut err_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
 
     let stdout_err_stream = OutAndErrStream {
         stdout: out_sender,
@@ -183,9 +183,10 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
 
     let unready_objfiles = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     let unready_objfiles_ = unready_objfiles.clone();
-    let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
+    let rt = {crate::common::COCREW_RUNTIME.lock().unwrap().handle().clone()};
+    let _ = rt.spawn(async move {
 
-        while let Ok(data) = out_receiver.recv() {
+        while let Some(data) = out_receiver.recv().await {
             stream_objfiles.lock().unwrap().push(data.clone());
 
             let line = String::from_utf8_lossy(&data);
@@ -208,8 +209,8 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
 
     let err_stream = out_err_stream.stderr.clone();
 
-    let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
-        while let Ok(data) = err_receiver.recv() {
+    let _ = rt.spawn(async move {
+        while let Some(data) = err_receiver.recv().await {
             log::info!("{:?} stream stderr: {:?}",  &project_name__, String::from_utf8_lossy(&data));
 
             //let _ = err_stream.send(data);
@@ -260,7 +261,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
 }
 
 fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, generated_object: GeneratedObject, solution_name: &std::ffi::OsString, 
-                                                origin_working_dir: &std::ffi::OsString, out_stream: &std::sync::mpsc::Sender<CompiledResults>) 
+                                                origin_working_dir: &std::ffi::OsString, out_stream: &tokio::sync::mpsc::Sender<CompiledResults>) 
                                                 -> std::option::Option<(std::string::String, std::path::PathBuf)> {
 
     let mut unready_objfiles: std::option::Option<(std::string::String, std::path::PathBuf)> = None;
@@ -324,9 +325,8 @@ fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, ge
                 idb: None,
             };
             compiled_results.push(compiled_result);
-        
-            let _ = out_stream.send(compiled_results).unwrap_or_else(|err| {
-                log::warn!("send .obj results to out stream failed: {:?}", err);
+            let _ = out_stream.try_send(compiled_results).unwrap_or_else(|err| {
+                log::warn!("try send .obj results to out stream failed: {:?}", err);
             });
         }
     }
@@ -346,7 +346,8 @@ fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mute
         let solution_name_ = solution_name.clone();
         let origin_working_dir_ = origin_working_dir.clone();
 
-        let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
+        let rt = {crate::common::COCREW_RUNTIME.lock().unwrap().handle().clone()};
+        let _ = rt.spawn(async move {
             let mut compiled_results: CompiledResults = Vec::new();
             let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
             
@@ -381,11 +382,11 @@ fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mute
             compiled_results.push(compiled_result);
             
             if !compiled_results.is_empty() {
-                let _ = out_stream.send(compiled_results).unwrap_or_else(|err| {
+                let _ = out_stream.send(compiled_results).await.unwrap_or_else(|err| {
                     log::warn!("send unready .obj results to out stream failed: {:?}", err);
                 });
+                drop(out_stream);
             }
-            drop(out_stream);
         });
     }
     log::trace!("unready obj file end, send out stream end.");
@@ -459,9 +460,9 @@ fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, solut
                 idb: idb,
             };
             compiled_results.push(compiled_result);
-        
-            out_err_stream.stdout.send(compiled_results).unwrap_or_else(|err| {
-                log::warn!("send compiled pdb results to out stream failed: {:?}", err);
+
+            out_err_stream.stdout.try_send(compiled_results).unwrap_or_else(|err| {
+                log::warn!("try send compiled pdb results to out stream failed: {:?}", err);
             });
         }
     }
@@ -731,7 +732,6 @@ fn start_local_compiler(solution: &std::ffi::OsString, project: &std::ffi::OsStr
 
 //TODO: tokio::net::windows::named_pipe
 pub fn redirect_stdout_log() {
-    use tokio::io::AsyncWriteExt;
     log::info!("redirect stdout log loop thread start.");
 
     use std::os::windows::ffi::OsStrExt;
@@ -741,6 +741,7 @@ pub fn redirect_stdout_log() {
     wchars.push(0);
 
     let mut count  = 0;
+    let rt = {crate::common::COCREW_RUNTIME.lock().unwrap().handle().clone()};
     unsafe { loop {
 
         let pipe = winapi::um::namedpipeapi::CreateNamedPipeW(wchars.as_ptr(), winapi::um::winbase::PIPE_ACCESS_INBOUND,  
@@ -753,8 +754,7 @@ pub fn redirect_stdout_log() {
             if winapi::shared::minwindef::TRUE == winapi::um::namedpipeapi::ConnectNamedPipe(pipe, std::ptr::null_mut()) {
 
                 let handle = tools::ptr::HandleBox::new(pipe);
-                let _ = crate::common::COCREW_RUNTIME.lock().unwrap().spawn(async move {
-                //let _ = std::thread::spawn(move || {
+                let _ = rt.spawn_blocking(move || {
 
                     log::info!("redirect stdout log read named pipe message task start. count: {}", count);
                     let mut buffer = vec![0u8; 512];
@@ -964,15 +964,16 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, working_dir.to_string_lossy())));
         compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, working_dir.to_string_lossy())));
 
-        let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
-        let (err_sender, err_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+        let (out_sender, mut out_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
+        let (err_sender, mut err_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
     
+
         let task = std::thread::spawn(move || {
-            while let Ok(data) = out_receiver.recv() {
+            while let Ok(data) = out_receiver.try_recv() {
                 println!("stream stdout: {:?}", String::from_utf8_lossy(&data));
             }
-        
-            while let Ok(data) = err_receiver.recv() {
+
+            while let Ok(data) = err_receiver.try_recv() {
                 println!("stream stderr: {:?}", String::from_utf8_lossy(&data));
             }
         });
@@ -1044,8 +1045,8 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
         compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.i"#, working_dir.to_string_lossy())));
 
-        let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
-        let (err_sender, err_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+        let (out_sender, mut out_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
+        let (err_sender, mut err_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
     
         let out_err_stream = crate::compiler::msvc::OutAndErrStream {
             stdout: out_sender,
@@ -1081,8 +1082,8 @@ mod tests {
 
         let mut working_dir = std::ffi::OsString::from("C:\\WorkSpace\\TurboBuildTool\\turbobuild\\Replica\\Project\\GammaRayTool\\build\\3rdparty\\kde");
         
-        let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
-        let (err_sender, err_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+        let (out_sender, out_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
+        let (err_sender, err_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
     
         let stdout_err_stream = OutAndErrStream {
             stdout: out_sender,
@@ -1130,8 +1131,8 @@ mod tests {
 
         let working_dir = std::ffi::OsString::from(r"D:\turbobuild\target\debug\Replica\\Project\\llvm-project\\build\\lib\\Support\\BLAKE3");
         
-        let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
-        let (err_sender, err_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+        let (out_sender, mut out_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
+        let (err_sender, mut err_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
     
         let stdout_err_stream = OutAndErrStream {
             stdout: out_sender,
@@ -1281,15 +1282,15 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, working_dir.to_string_lossy())));
         compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, working_dir.to_string_lossy())));
 
-        let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
-        let (err_sender, err_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+        let (out_sender, mut out_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
+        let (err_sender, mut err_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
     
         let task = std::thread::spawn(move || {
-            while let Ok(data) = out_receiver.recv() {
+            while let Ok(data) = out_receiver.try_recv() {
                 println!("stream stdout: {:?}", String::from_utf8_lossy(&data));
             }
-        
-            while let Ok(data) = err_receiver.recv() {
+
+            while let Ok(data) = err_receiver.try_recv() {
                 println!("stream stderr: {:?}", String::from_utf8_lossy(&data));
             }
         });
@@ -1387,15 +1388,15 @@ mod tests {
 
         compiler_commands.push(std::ffi::OsString::from("E:\\TestFuture\\ZLMediaKit\\3rdpart\\media-server\\libmov\\source\\mov-udta.c"));
 
-        let (out_sender, out_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
-        let (err_sender, err_receiver) = std::sync::mpsc::channel::<Vec<u8>>();
+        let (out_sender, mut out_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
+        let (err_sender, mut err_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
     
         let task = std::thread::spawn(move || {
-            while let Ok(data) = out_receiver.recv() {
+            while let Ok(data) = out_receiver.try_recv() {
                 println!("stream stdout: {:?}", String::from_utf8_lossy(&data));
             }
-        
-            while let Ok(data) = err_receiver.recv() {
+
+            while let Ok(data) = err_receiver.try_recv() {
                 println!("stream stderr: {:?}", String::from_utf8_lossy(&data));
             }
         });

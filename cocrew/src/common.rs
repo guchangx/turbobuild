@@ -15,7 +15,12 @@ impl Common {
 }
 
 pub static COCREW_RUNTIME: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex::<tokio::runtime::Runtime>>> = std::sync::LazyLock::new(|| {
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all()
+        .thread_name_fn(|| {
+            static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            format!("cocrew-worker-{}", id)
+        }).build().unwrap();
     std::sync::Arc::new(std::sync::Mutex::new(runtime))
 });
 
@@ -39,15 +44,19 @@ pub fn init_common() {
         rt.handle().clone()
     };
 
-    crate::communicate::redirectpipe::compiler_redirect_request();
+    crate::communicate::syscallredirectpipe::compiler_redirect_syscall();
 
     handle.spawn(async move {
         log::info!("start redirect_stdout_log_2_cocrew");
         crate::compiler::msvc::redirect_stdout_log();
     });
     
-    handle.block_on(async move {
+    let task = handle.spawn(async move {
         receiver_.init().await;
+    });
+
+    handle.block_on(async {
+        let _ = task.await;
     });
 
     log::info!("end cocrew");

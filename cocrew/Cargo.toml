@@ -24,16 +24,13 @@ windows-sys = {version = "0.60.2", features = ["Win32_System_Pipes"]}
 serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.129"
 
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-console-subscriber = "0.4.1"
+#tracing = "0.1.41"
+#console-subscriber = "0.4.1"
 
 [build-dependencies]
 tonic-prost-build = "0.14.2"
 
 [dev-dependencies]
 winapi = {version = "0.3.9", features = ["errhandlingapi", "processthreadsapi", "winbase", "namedpipeapi", "synchapi", "winerror"]}
-windows-sys = {version = "0.60.2", features = ["Wdk_Storage_FileSystem", "Win32_System_IO", "Win32_Storage_FileSystem",
-    "Wdk_Storage_FileSystem", "Win32_System_Pipes"
-]}
+windows-sys = { version = "0.60.2", features = ["Wdk_Storage_FileSystem", "Win32_System_IO", "Win32_Storage_FileSystem", "Win32_System_Pipes"] }
 redirectdll = { package = "redirect", path = "../redirect" }

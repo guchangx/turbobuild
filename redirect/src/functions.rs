@@ -1,6 +1,4 @@
 
-use std::ops::Add;
-
 use winapi::{
     shared::{minwindef::{DWORD, LPVOID}, ntdef::{LPCWSTR, LPWSTR}},
     um::{minwinbase::LPSECURITY_ATTRIBUTES, winnt::{HANDLE, LPCSTR, LPSTR, WCHAR}}
@@ -17,7 +15,7 @@ pub static mut CREATE_PROCESS_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut s
 
 static SYS_CALL_ID: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<u32>>> = std::sync::LazyLock::new(|| {
     let pid = std::process::id();
-    std::sync::Arc::new(std::sync::Mutex::new(pid * 1000))
+    std::sync::Arc::new(std::sync::Mutex::new(pid * 10000))
 });
 
 static INCLUDES_CACHE: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, String>>>> = std::sync::LazyLock::new(|| {
@@ -789,6 +787,7 @@ pub unsafe fn nt_query_directory_file(
         );
 
         if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS && !file_information.is_null() {
+            /* 
             let mut current_offset = 0usize;
             let mut entry_count = 0;
             
@@ -825,6 +824,7 @@ pub unsafe fn nt_query_directory_file(
                     break;
                 }
             }
+            */
         }
         else {
             if !file_name.is_null() {
@@ -862,7 +862,6 @@ pub unsafe fn nt_query_directory_file(
                 let mut current_offset = 0usize;
 
                 for (index, file) in filenames.iter().enumerate() {
-                    crate::logger::output_debug_string(&format!("nt_query_directory_file enumerate file: {} {}", index, file));
                     let virtual_file_name: Vec<u16> = file.encode_utf16().collect();
                     let virtual_file_name_bytes: u32 = (virtual_file_name.len() * 2) as u32;
 
@@ -1006,22 +1005,23 @@ pub unsafe fn nt_query_directory_file(
                     args.insert("filename".to_string(), name);
                 }
                 let command = {
-                    let mut id = SYS_CALL_ID.lock().unwrap();
-                    let command = crate::netredirect::MirrorSysCall {
-                        id: *id,
+                    let mut cid = SYS_CALL_ID.lock().unwrap();
+                    let command = crate::syscallredirect::MirrorSysCall {
+                        id: *cid,
                         command: "NtQueryDirectoryFile".into(),
                         args,
                         responder: tx,
                     };
-                    *id += 1;
+                    *cid += 1;
                     command
                 };
+                let id = command.id.clone();
 
-                crate::netredirect::REDIRECT_SYS_CALL_CHANNEL.tx.blocking_send(command).unwrap();
-                crate::log!(trace, "nt_query_directory_file file handle path: {}", path);
+                crate::log!(trace, "nt_query_directory_file file handle id: {} path: {} process: {} thread: {:?}", id.clone(), path, std::process::id(), std::thread::current().id());
+                crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(command).unwrap();
                 let result = rx.blocking_recv().unwrap();
                 //let result = std::collections::HashMap::<String, String>::new();
-                crate::log!(trace, "nt_query_directory_file file handle path: {} results: {:?}", path, result);
+                crate::log!(trace, "nt_query_directory_file file handle id: {} path: {} results: {:?} process: {} thread: {:?}", id, path, result, std::process::id(), std::thread::current().id());
 
                 if let Some(fileinfo) = result.get("fileinformation") {
                     if file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation {
@@ -1037,7 +1037,6 @@ pub unsafe fn nt_query_directory_file(
 
                     let mut entries_written = 0;
                     for (index, file) in filenames.iter().enumerate() {
-                        crate::log!(trace, "nt_query_directory_file enumerate file: index: {} {}", index, file);
                         let virtual_file_name: Vec<u16> = file.encode_utf16().collect();
                         let virtual_file_name_bytes: u32 = (virtual_file_name.len() * 2) as u32;
 
@@ -1288,8 +1287,6 @@ pub unsafe fn nt_create_file(
                         }
                         else {
                             crate::log!(error, "zw_create_file failed! error_code: {:#X} path: {}", nt_status, name);
-                            
-                            winapi::um::synchapi::Sleep(150 * 1000);
 
                             if nt_status == winapi::shared::ntstatus::STATUS_SHARING_VIOLATION {
                                 nt_status = zw_create_file(
@@ -1367,7 +1364,7 @@ pub unsafe fn nt_create_file(
                     else {
                         let syscall = {
                             let mut id = SYS_CALL_ID.lock().unwrap();
-                            let syscall = crate::netredirect::MirrorSysCall {
+                            let syscall = crate::syscallredirect::MirrorSysCall {
                                 id: *id,
                                 command: "NtCreateFile".into(),
                                 args,
@@ -1378,7 +1375,7 @@ pub unsafe fn nt_create_file(
                         };
 
                         let now = std::time::Instant::now();
-                        crate::netredirect::REDIRECT_SYS_CALL_CHANNEL.tx.blocking_send(syscall).unwrap();
+                        crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(syscall).unwrap();
                         let expects = rx.blocking_recv().unwrap();
                         //let expects = std::collections::HashMap::<String, String>::new();
                         crate::log!(trace, "nt_create_file redirect file handle path by sync result: {} elapsed: {:?}", name, now.elapsed());

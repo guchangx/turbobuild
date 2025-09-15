@@ -2,34 +2,27 @@
 use std::io::Write;
 use tokio::io::AsyncWriteExt;
 
-use crate::{common::COCREW_RUNTIME, communicate::redirectpipe::MirrorCommand};
+use crate::{common::COCREW_RUNTIME, communicate::syscallredirectpipe::MirrorSysCall};
 
 #[allow(non_camel_case_types)]
 pub mod package {
     include!("../../proto/pack.rs");
 }
 
-type Responder = tokio::sync::oneshot::Sender<MirrorCommand>;
-
-static SYSCALL_CALLBACKS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<u32, Responder>>>> = std::sync::LazyLock::new(|| {
-    let callbacks = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<u32, Responder>::new()));
-    return callbacks; 
-});
-
 pub struct CHANNEL {
-    pub namedpipe_and_grpc_tx: std::sync::Arc<Option<tokio::sync::Mutex<tokio::sync::mpsc::Sender<(MirrorCommand, Responder)>>>>,
-    pub namedpipe_and_grpc_rx: std::sync::Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Receiver<(MirrorCommand, Responder)>>>>,
+    pub namedpipe_to_grpc_tx: std::sync::Arc<Option<tokio::sync::mpsc::Sender<MirrorSysCall>>>,
+    pub namedpipe_to_grpc_rx: std::sync::Arc<tokio::sync::Mutex<Option<tokio::sync::mpsc::Receiver<MirrorSysCall>>>>,
 }
 
-pub static NAMEDPIPE_AND_GRPC_CHANNEL: std::sync::LazyLock<CHANNEL> = std::sync::LazyLock::new(|| {
+pub static NAMEDPIPE_TO_GRPC_CHANNEL: std::sync::LazyLock<CHANNEL> = std::sync::LazyLock::new(|| {
 
     let (tx, rx) = tokio::sync::mpsc::channel(128);
-    let namedpipe_and_grpc_tx =  std::sync::Arc::new(Some(tokio::sync::Mutex::new(tx)));
-    let namedpipe_and_grpc_rx = std::sync::Arc::new(tokio::sync::Mutex::new(Some(rx)));
+    let namedpipe_to_grpc_tx =  std::sync::Arc::new(Some(tx));
+    let namedpipe_to_grpc_rx = std::sync::Arc::new(tokio::sync::Mutex::new(Some(rx)));
 
     return CHANNEL {
-        namedpipe_and_grpc_tx,
-        namedpipe_and_grpc_rx
+        namedpipe_to_grpc_tx,
+        namedpipe_to_grpc_rx
     };
 });
 
@@ -231,11 +224,11 @@ impl Receiver {
         
         use tokio_stream::StreamExt;
 
-        let tx_ = tx.clone();
-        //let runtime = {COCREW_RUNTIME.lock().unwrap().handle().clone()};
-        let read_handle = tokio::spawn(async move {
+        let _read_handle = tokio::spawn(async move {
             log::debug!("transmit redirect handle read task start.");
             let mut stream = request.into_inner();
+            let responder = crate::communicate::syscallredirectpipe::GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_tx.as_ref();
+
             while let Some(request) = stream.next().await {
                 if let Ok(real) = request {
                     
@@ -246,33 +239,20 @@ impl Receiver {
                         file.write_all(&intermediate.content).await.unwrap();
                     }
 
-                    GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_tx;
-
-                    let callback = {
-                        let mut callbacks = SYSCALL_CALLBACKS.lock().await;
-                        callbacks.remove(&real.id)
+                    let command_result = MirrorSysCall {
+                        id: real.id,
+                        command: real.api.clone(),
+                        args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
                     };
-
-                    if let Some(responder) = callback {
-
-                        let command_result = MirrorCommand {
-                            id: real.id,
-                            command: real.api.clone(),
-                            args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
-                        };
  
-                        match responder.send(command_result) {
-                            Ok(_) => {
-                                log::debug!("transmit redirect handle send callback: {:?}", real.api);
-                            },
-                            Err(err) => {
-                                log::error!("transmit redirect handle send callback failed: {:?}", err);
-                            }
-                        }
-                    }
-                    else {
-                        log::warn!("no callback found for id: {} command: {}", real.id, real.api);
-                    }
+                    match responder.send(command_result) {
+                        Ok(_) => {
+                            log::debug!("transmit redirect handle send callback: {:?}", real.api);
+                        },
+                        Err(err) => {
+                            log::error!("transmit redirect handle send callback failed: {:?}", err);
+                        },
+                    };
                 }
                 else if let Err(err) = request {
                     log::error!("transmit redirect handle inbound error: {:?}", err);
@@ -284,13 +264,13 @@ impl Receiver {
             
         });
 
-        //receive syscall messages from mpsc and send syscall messages to crew by grpc.
-        let write_handle = tokio::spawn(async move {
+        //receive syscall messages from mpsc and send syscall to crew by grpc.
+        let _write_handle = tokio::spawn(async move {
     
-            let rx = { NAMEDPIPE_AND_GRPC_CHANNEL.namedpipe_and_grpc_rx.lock().await.take() };
+            let channel = { NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_rx.lock().await.take() };
 
-            if let Some(mut rx) = rx {
-                while let Some((command, callback)) = rx.recv().await {
+            if let Some(mut rx) = channel {
+                while let Some(command) = rx.recv().await {
                     log::debug!("transmit redirect handle received message: {:?}", &command);
                     let reply = package::RemoteRedirect {
                         id: command.id,
@@ -298,18 +278,15 @@ impl Receiver {
                         params: command.args.iter().map(|(k, v)| package::Params { key: k.clone(), value: v.clone() }).collect(),
                     };
                     
-                    if tx_.send(Ok(reply)).await.is_ok() {
-                        SYSCALL_CALLBACKS.lock().await.insert(command.id, callback);
+                    if tx.send(Ok(reply)).await.is_ok() {
                     }
                     else {
                         log::warn!("transmit redirect handle send syscall message to crew failed. id: {}", command.id);
                     }
                 }
+                log::debug!("transmit redirect handle write task end.");
             }
         });
-        
-        let _ = tokio::join!(read_handle, write_handle);
-
     }
 
     async fn storage(solution: &str, path: &str, content: &[u8]) -> Result<(), String> {
@@ -398,8 +375,8 @@ impl Receiver {
               Fut: std::future::Future<Output = ()> + Send
     {
         //TODO: use tokio::sync::mpsc replace std::sync::mpsc.
-        let (out_sender, out_receiver) = std::sync::mpsc::channel::<crew::compiler::model::CompiledResults>();
-        let (err_sender, err_receiver) = std::sync::mpsc::channel::<crew::compiler::model::CompiledResults>();
+        let (out_sender, mut out_receiver) = tokio::sync::mpsc::channel::<crew::compiler::model::CompiledResults>(128);
+        let (err_sender, mut err_receiver) = tokio::sync::mpsc::channel::<crew::compiler::model::CompiledResults>(128);
     
         let out_err_stream = crate::compiler::msvc::CompiledResultsStream {
             stdout: out_sender,
@@ -420,7 +397,7 @@ impl Receiver {
             };
             sender_(reply).await;
 
-            while let Ok(results) = out_receiver.recv() {
+            while let Some(results) = out_receiver.recv().await {
                 for result in results {
                     let mut intermediates = Vec::new();
                     let _source = result.source_file;
@@ -470,7 +447,7 @@ impl Receiver {
         });
 
         tokio::spawn(async move {
-            while let Ok(results) = err_receiver.recv() {
+            while let Some(results) = err_receiver.recv().await {
                 
             }
             log::debug!("transmit compile handle err stream end.");
@@ -619,16 +596,13 @@ impl package::communicate_server::Communicate for Receiver {
     async fn transmit_redirect(&self, request: tonic::Request<tonic::Streaming<package::LocalRedirect>>) -> core::result::Result<tonic::Response<Self::transmit_redirectStream>, tonic::Status> {
         log::debug!("sync request transmit redirect: {:?}", request.remote_addr());
 
-        let exist = { NAMEDPIPE_AND_GRPC_CHANNEL.namedpipe_and_grpc_rx.lock().await.is_some() };
+        let exist = { NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_rx.lock().await.is_some() };
 
         if  exist {
             let (tx, rx) = tokio::sync::mpsc::channel(256);
         
             let self_ = self.clone();
-            
-            let _ = tokio::spawn(async move {
-                self_.transmit_redirect_handle(request, tx).await;
-            });
+            self_.transmit_redirect_handle(request, tx).await;
 
             let response = tokio_stream::wrappers::ReceiverStream::new(rx);
             return Ok(tonic::Response::new(Box::pin(response) as RemoteRedirectStream));
