@@ -193,7 +193,6 @@ unsafe fn redirect_syscall_2_cocrew() {
                         //send virtual syscall mpsc message to cocrew by named pipe
                         let mut rx = {REDIRECT_SYS_CALL_CHANNEL.rx.lock().unwrap().take().unwrap()};
                         loop {
-
                             let mirror_sys_call = rx.blocking_recv();
                             match mirror_sys_call {
                                 Some(mirror_call) => {
@@ -258,9 +257,6 @@ unsafe fn redirect_syscall_2_cocrew() {
                                         //crate::log!(warn, "write virtual syscall to namedpipe success. {:p} process: {} thread: {:?}", std::sync::Arc::as_ptr(&responders_), std::process::id(), std::thread::current().id());
                                     }
                                     winapi::um::handleapi::CloseHandle(event);
-                                    //if winapi::shared::minwindef::FALSE == winapi::um::fileapi::FlushFileBuffers(pipe_handle.get().to_owned()) {
-                                    //    println!("FlushFileBuffers failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
-                                    //}
                                 },
                                 None => {
                                     break;
