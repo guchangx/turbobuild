@@ -1321,12 +1321,14 @@ pub unsafe fn nt_create_file(
                         ea_buffer,
                         ea_length
                     );
-
-                    crate::log!(trace, "nt_create_file include dir: tid: {:?} {:#?} {}", std::thread::current().id(), *file_handle, name);
-                    NT_HANDLE_AND_DIR.with(|cell| {
-                        cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, name);
-                        crate::log!(trace, "nt_create_file include dir len: {:?}", cell.borrow().len());
-                    });
+                    
+                    if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                        crate::log!(trace, "nt_create_file include dir: tid: {:?} {:#?} {}", std::thread::current().id(), *file_handle, name);
+                        NT_HANDLE_AND_DIR.with(|cell| {
+                            cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, name);
+                            crate::log!(trace, "nt_create_file include dir len: {:?}", cell.borrow().len());
+                        });
+                    }
 
                     return nt_status;
                 }
@@ -1421,7 +1423,15 @@ pub unsafe fn nt_create_file(
                   
                     }
                     else {
-                        crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {}", nt_status, expect);
+                        let object_name = (*object_attributes).ObjectName;
+                        if !object_name.is_null() {
+                            let buffer = (*object_name).Buffer;
+                            let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+                            crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {}", nt_status, name);
+                        }
+                        else {
+                            crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: <null>", nt_status);
+                        } 
                     }
                     return nt_status;
                 }
