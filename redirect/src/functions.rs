@@ -1362,6 +1362,37 @@ pub unsafe fn nt_create_file(
                         };
 
                         (*object_attributes).ObjectName = &mut expect_obejct_name_adapter;
+                        let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block,
+                            allocation_size, file_attributes, share_access, create_disposition, create_options, ea_buffer, ea_length
+                        );
+
+                        if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                    
+                        }
+                        else {
+                            if nt_status == winapi::shared::ntstatus::STATUS_SHARING_VIOLATION {
+                                std::thread::sleep(std::time::Duration::from_millis(5));
+                                let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block,
+                                    allocation_size, file_attributes, share_access, create_disposition, create_options, ea_buffer, ea_length
+                                );
+                                if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                                   
+                                }
+                                else {
+                                    let object_name = (*object_attributes).ObjectName;
+                                    if !object_name.is_null() {
+                                        let buffer = (*object_name).Buffer;
+                                        let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+                                        crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {}", nt_status, name);
+                                    }
+                                    else {
+                                        crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: <null>", nt_status);
+                                    } 
+                                }
+                                return nt_status;
+                            }
+                        }
+                        return nt_status;
                     }
                     else {
                         let syscall = {
@@ -1402,38 +1433,41 @@ pub unsafe fn nt_create_file(
                             };
 
                             (*object_attributes).ObjectName = &mut expect_obejct_name_adapter;
+
+                            let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block,
+                                allocation_size, file_attributes, share_access, create_disposition, create_options, ea_buffer, ea_length
+                            );
+
+                            if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                        
+                            }
+                            else {
+                                if nt_status == winapi::shared::ntstatus::STATUS_SHARING_VIOLATION {
+                                    std::thread::sleep(std::time::Duration::from_millis(5));
+                                    let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block,
+                                        allocation_size, file_attributes, share_access, create_disposition, create_options, ea_buffer, ea_length
+                                    );
+                                    if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                                        // Handle success case
+                                    }
+                                    else {
+                                        let object_name = (*object_attributes).ObjectName;
+                                        if !object_name.is_null() {
+                                            let buffer = (*object_name).Buffer;
+                                            let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+                                            let length = (*object_name).Length;
+                                            crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {}", nt_status, name);
+                                        }
+                                        else {
+                                            crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: <null>", nt_status);
+                                        } 
+                                    }
+                                    return nt_status;
+                                }
+                            }
+                            return nt_status;
                         }
                     }
-
-                    let nt_status = zw_create_file(
-                        file_handle,
-                        access_mask,
-                        object_attributes,
-                        io_status_block,
-                        allocation_size,
-                        file_attributes,
-                        share_access,
-                        create_disposition,
-                        create_options,
-                        ea_buffer,
-                        ea_length
-                    );
-
-                    if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
-                  
-                    }
-                    else {
-                        let object_name = (*object_attributes).ObjectName;
-                        if !object_name.is_null() {
-                            let buffer = (*object_name).Buffer;
-                            let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                            crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {}", nt_status, name);
-                        }
-                        else {
-                            crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: <null>", nt_status);
-                        } 
-                    }
-                    return nt_status;
                 }
                 else {
                     let nt_status = zw_create_file(

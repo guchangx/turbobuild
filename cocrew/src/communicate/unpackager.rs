@@ -235,7 +235,9 @@ impl Receiver {
                     log::debug!("transmit redirect real result: id {:?} api: {:?} params: {:?}", real.id, real.api, real.params);
 
                     for intermediate in real.files {
-                        let mut file = tokio::fs::OpenOptions::new().create(true).write(true).truncate(true).open(&intermediate.file).await.unwrap();
+                        let mut file = tokio::fs::OpenOptions::new().create(true).share_mode(winapi::um::winnt::FILE_SHARE_READ | winapi::um::winnt::FILE_SHARE_WRITE | winapi::um::winnt::FILE_SHARE_DELETE)
+                            .write(true).truncate(true).open(&intermediate.file).await.unwrap();
+                        
                         file.write_all(&intermediate.content).await.unwrap();
                     }
 
@@ -304,7 +306,6 @@ impl Receiver {
                 Self::extract(&path.to_str().unwrap(), &content).await;
             }
             else {
-
                 let file = match std::fs::File::create(&path) {
                     Ok(file) => Ok(file),
                     Err(err) => {
