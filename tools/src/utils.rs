@@ -89,3 +89,52 @@ pub fn get_winapi_error_message(error: u32) -> String {
         }
     }
 }
+
+pub fn normalize_lexical<P: AsRef<std::path::Path>>(p: P) -> std::path::PathBuf {
+    let mut prefix: Option<std::path::PrefixComponent> = None;
+    let mut saw_root = false;
+    let mut parts: Vec<std::ffi::OsString> = Vec::new();
+
+    for c in p.as_ref().components() {
+        match c {
+            std::path::Component::Prefix(pf) => { prefix = Some(pf); }
+            std::path::Component::RootDir => { saw_root = true; parts.clear(); }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if !parts.is_empty() {
+                    parts.pop();
+                } else if !saw_root {
+                    parts.push("..".into());
+                }
+            }
+            std::path::Component::Normal(s) => parts.push(s.to_os_string()),
+        }
+    }
+
+    let mut out = std::path::PathBuf::new();
+    if let Some(pf) = prefix { out.push(pf.as_os_str()); }
+    if saw_root { out.push(std::path::MAIN_SEPARATOR.to_string()); }
+    for s in parts { out.push(s); }
+    out
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_normalize_lexical() {
+
+        let path = r"C:\Users\user\..";
+        let normalized = normalize_lexical(path);
+        assert_eq!(normalized.to_str().unwrap(), r"C:\Users\");
+
+        let path = r"C:\Users\user\..\";
+        let normalized = normalize_lexical(path);
+        assert_eq!(normalized.to_str().unwrap(), r"C:\Users\");
+
+        let path = r"C:\Users\user\..\Documents\..\Desktop\file.txt";
+        let normalized = normalize_lexical(path);
+        assert_eq!(normalized.to_str().unwrap(), r"C:\Users\Desktop\file.txt");
+    }
+}

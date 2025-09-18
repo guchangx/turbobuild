@@ -176,8 +176,8 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
         else if crate::SOLUTIONNAME.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
 
             let target = &path[4..path.len() - 1];
-            if crate::INCLUDES.get().unwrap().iter().any(|item| item == target || target.starts_with(item)) {
-                return ReplaceDirResult::IncludesDir;  
+            if crate::INCLUDES.get().unwrap().iter().any(|item| item == target || std::path::PathBuf::from(target).starts_with(item)) {
+                return ReplaceDirResult::IncludesDir;
             }
             else {
                 let generated = std::path::Path::new(crate::GENERATEDDIR.get().unwrap());
