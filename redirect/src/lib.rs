@@ -296,8 +296,11 @@ fn fetch_args_from_command() {
     for (index, item) in commands.iter().enumerate() {
 
         let item = item.to_string_lossy();
-
-        if item.eq("/I") || item.eq("/external:I") {
+        if item.eq("mspdbsrv.exe") {
+            // Handle mspdbsrv.exe specific logic
+            break;
+        }
+        else if item.eq("/I") || item.eq("/external:I") {
             if index + 1 < commands.len() {
                 let include = commands[index + 1].to_string_lossy().to_string();
                 includes.push(include);
@@ -364,9 +367,11 @@ fn fetch_args_from_command() {
             };
         }
     }
-    
-    let modified = std::path::Path::new(&crate::REPLICADIR.get().unwrap()).join("Project").join(crate::SOLUTIONNAME.get().unwrap()).join(pdb_sub_dir);
-    REPLICA_PDBPATH.set(modified.to_string_lossy().to_string()).unwrap();
+
+    if pdb_sub_dir.is_empty() {
+        let modified = std::path::Path::new(&crate::REPLICADIR.get().unwrap()).join("Project").join(crate::SOLUTIONNAME.get().unwrap()).join("vc143.pdb");
+        REPLICA_PDBPATH.set(modified.to_string_lossy().to_string()).unwrap();
+    }
 
     log!(debug, "SOLUTIONNAME: {:?}", SOLUTIONNAME.get());
     log!(debug, "PROJECTNAME: {:?}", PROJECTNAME.get());
@@ -374,7 +379,6 @@ fn fetch_args_from_command() {
     log!(debug, "REPLICA_PDBPATH: {:?}", REPLICA_PDBPATH);
     log!(debug, "WORKINGDIR: {:?}", WORKINGDIR.as_str());
     log!(debug, "REPLICADIR: {:?}", REPLICADIR.get());
-
 
     includes.push(sources_dir);
 

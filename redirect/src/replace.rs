@@ -77,6 +77,17 @@ pub fn replace(path: &mut String) -> bool {
                 *path = replica_pdbpath.to_string();
                 return true;
             }
+            else if let Some(solution) = crate::SOLUTIONNAME.get() {
+                if let Some(index) = path.find(solution) {
+                    let tail = &path[index..];
+                    let modified = format!(r"{}\{}\{}", crate::REPLICADIR.get().unwrap(), "Project", tail);
+                    *path = modified;
+                    return true;
+                }
+                else {
+                    return false;
+                }
+            }
             else {
                 return false;
             }
