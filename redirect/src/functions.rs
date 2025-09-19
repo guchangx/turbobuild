@@ -1004,21 +1004,21 @@ pub unsafe fn nt_query_directory_file(
 
                     args.insert("filename".to_string(), name);
                 }
-                let command = {
+                let call = {
                     let mut cid = SYS_CALL_ID.lock().unwrap();
-                    let command = crate::syscallredirect::MirrorSysCall {
+                    let call = crate::syscallredirect::MirrorSysCall {
                         id: *cid,
-                        command: "NtQueryDirectoryFile".into(),
+                        api: "NtQueryDirectoryFile".into(),
                         args,
                         responder: tx,
                     };
                     *cid += 1;
-                    command
+                    call
                 };
-                let id = command.id.clone();
+                let id = call.id.clone();
 
                 crate::log!(trace, "nt_query_directory_file file handle id: {} path: {} process: {} thread: {:?}", id.clone(), path, std::process::id(), std::thread::current().id());
-                crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(command).unwrap();
+                crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(call).unwrap();
                 let result = rx.blocking_recv().unwrap();
                 //let result = std::collections::HashMap::<String, String>::new();
                 crate::log!(trace, "nt_query_directory_file file handle id: {} path: {} results: {:?} process: {} thread: {:?}", id, path, result, std::process::id(), std::thread::current().id());
@@ -1399,7 +1399,7 @@ pub unsafe fn nt_create_file(
                             let mut id = SYS_CALL_ID.lock().unwrap();
                             let syscall = crate::syscallredirect::MirrorSysCall {
                                 id: *id,
-                                command: "NtCreateFile".into(),
+                                api: "NtCreateFile".into(),
                                 args,
                                 responder: tx,
                             };

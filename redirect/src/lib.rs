@@ -67,7 +67,7 @@ static  REPLICADIR: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std:
 static REPLICADIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static GENERATEDDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static REPLICA_PDBPATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-static INCLUDES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+static INCLUDES: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sync::OnceLock::new();
 static STDOUT_LOG_HANDLE: std::sync::LazyLock<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 static WORKINGDIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     if let Ok(path) = std::env::current_dir() {
@@ -290,7 +290,7 @@ fn fetch_args_from_command() {
     let commands: Vec<std::ffi::OsString> = commandline.collect();
     log!(debug, "current command line arguments: {:?}", commands);
     let mut includes = Vec::new();
-    let mut sources_dir = String::new();
+    let mut sources_dir = std::path::PathBuf::new();
     let mut pdb_sub_dir = String::new();
 
     for (index, item) in commands.iter().enumerate() {
@@ -303,7 +303,8 @@ fn fetch_args_from_command() {
         else if item.eq("/I") || item.eq("/external:I") {
             if index + 1 < commands.len() {
                 let include = commands[index + 1].to_string_lossy().to_string();
-                includes.push(include);
+                let new = tools::utils::normalize_lexical(&include);
+                includes.push(new);
             }
         }
         else if item.starts_with("/Fo") {
@@ -361,9 +362,9 @@ fn fetch_args_from_command() {
                 }
             }
         }
-        else if sources_dir.is_empty() && (item.ends_with(".c") || item.ends_with(".cpp") || item.ends_with(".cc") || item.ends_with(".cxx")) {
+        else if sources_dir.to_string_lossy().is_empty() && (item.ends_with(".c") || item.ends_with(".cpp") || item.ends_with(".cc") || item.ends_with(".cxx")) {
             if let Some(dir) = std::path::Path::new(&item.to_string()).parent() {
-                sources_dir = dir.to_string_lossy().to_string();
+                sources_dir = dir.to_path_buf();
             };
         }
     }
@@ -387,7 +388,7 @@ fn fetch_args_from_command() {
             let paths: Vec<&str> = value.split(';').collect();
             for path in paths {
                 if !path.is_empty() {
-                    includes.push(path.to_string());
+                    includes.push(std::path::PathBuf::from(path));
                 }
             }
         }

@@ -91,33 +91,31 @@ pub fn get_winapi_error_message(error: u32) -> String {
 }
 
 pub fn normalize_lexical<P: AsRef<std::path::Path>>(p: P) -> std::path::PathBuf {
-    let mut prefix: Option<std::path::PrefixComponent> = None;
-    let mut saw_root = false;
-    let mut parts: Vec<std::ffi::OsString> = Vec::new();
 
+    let mut parts: Vec<std::ffi::OsString> = Vec::new();
+    let mut out = std::path::PathBuf::new();
     for c in p.as_ref().components() {
         match c {
-            std::path::Component::Prefix(pf) => { prefix = Some(pf); }
-            std::path::Component::RootDir => { saw_root = true; parts.clear(); }
+            std::path::Component::Prefix(pf) => { out.push(pf.as_os_str()); }
+            std::path::Component::RootDir => { out.push(std::path::MAIN_SEPARATOR.to_string()); }
             std::path::Component::CurDir => {}
             std::path::Component::ParentDir => {
                 if !parts.is_empty() {
                     parts.pop();
-                } else if !saw_root {
-                    parts.push("..".into());
                 }
             }
             std::path::Component::Normal(s) => parts.push(s.to_os_string()),
         }
     }
 
-    let mut out = std::path::PathBuf::new();
-    if let Some(pf) = prefix { out.push(pf.as_os_str()); }
-    if saw_root { out.push(std::path::MAIN_SEPARATOR.to_string()); }
     for s in parts { out.push(s); }
+    if p.as_ref().to_str().map_or(false, |s| s.ends_with(std::path::MAIN_SEPARATOR)) {
+       let mut out_os_string = out.into_os_string();
+       out_os_string.push(std::path::MAIN_SEPARATOR.to_string());
+       out = std::path::PathBuf::from(out_os_string);
+    }
     out
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -125,13 +123,17 @@ mod tests {
     #[test]
     fn test_normalize_lexical() {
 
-        let path = r"C:\Users\user\..";
+        let path = std::path::PathBuf::from(r"C:\Users\user\Documents\..\Desktop\file.txt");
         let normalized = normalize_lexical(path);
-        assert_eq!(normalized.to_str().unwrap(), r"C:\Users\");
+        assert_eq!(normalized.to_str().unwrap(), r"C:\Users\user\Desktop\file.txt");
 
         let path = r"C:\Users\user\..\";
         let normalized = normalize_lexical(path);
         assert_eq!(normalized.to_str().unwrap(), r"C:\Users\");
+
+        let path = r"C:\Users\user\..";
+        let normalized = normalize_lexical(path);
+        assert_eq!(normalized.to_str().unwrap(), r"C:\Users");
 
         let path = r"C:\Users\user\..\Documents\..\Desktop\file.txt";
         let normalized = normalize_lexical(path);

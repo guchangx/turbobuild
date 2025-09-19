@@ -28,7 +28,8 @@ pub static NAMEDPIPE_TO_GRPC_CHANNEL: std::sync::LazyLock<CHANNEL> = std::sync::
 
 #[derive(Default, Clone)] 
 pub struct Receiver {
-    common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>
+    common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
+    crate_files_exist: std::sync::Arc<tokio::sync::Mutex<std::vec::Vec<String>>>,
 }
 
 impl Receiver {
@@ -36,7 +37,8 @@ impl Receiver {
     pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>) -> Self {
 
         let receiver = Receiver {
-            common
+            common,
+            crate_files_exist: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
         };
         return receiver;
     }
@@ -52,7 +54,8 @@ impl Receiver {
         let listener = socket.listen(1024).unwrap();
 
         let receiver = Receiver {
-            common: self.common.clone()
+            common: self.common.clone(),
+            crate_files_exist: self.crate_files_exist.clone(),
         };
 
         let server = package::communicate_server::CommunicateServer::new(receiver);
@@ -223,7 +226,8 @@ impl Receiver {
     async fn transmit_redirect_handle(&self, request: tonic::Request<tonic::Streaming<package::LocalRedirect>>, tx: tokio::sync::mpsc::Sender<Result<package::RemoteRedirect, tonic::Status>>) {
         
         use tokio_stream::StreamExt;
-
+        let self_= self.clone();
+        let self__ = self_.clone();
         let _read_handle = tokio::spawn(async move {
             log::debug!("transmit redirect handle read task start.");
             let mut stream = request.into_inner();
@@ -235,15 +239,21 @@ impl Receiver {
                     log::debug!("transmit redirect real result: id {:?} api: {:?} params: {:?}", real.id, real.api, real.params);
 
                     for intermediate in real.files {
-                        let mut file = tokio::fs::OpenOptions::new().create(true).share_mode(winapi::um::winnt::FILE_SHARE_READ | winapi::um::winnt::FILE_SHARE_WRITE | winapi::um::winnt::FILE_SHARE_DELETE)
-                            .write(true).truncate(true).open(&intermediate.file).await.unwrap();
+                        let exist = { self_.crate_files_exist.lock().await.contains(&intermediate.file) };
+                        if !exist {
+                            {self_.crate_files_exist.lock().await.push(intermediate.file.clone());}
+                            
+                            let mut file = tokio::fs::OpenOptions::new().create(true)
+                                .share_mode(winapi::um::winnt::FILE_SHARE_READ | winapi::um::winnt::FILE_SHARE_WRITE | winapi::um::winnt::FILE_SHARE_DELETE)
+                                .write(true).truncate(true).open(&intermediate.file).await.expect(&format!("open file failed: {}", &intermediate.file));
                         
-                        file.write_all(&intermediate.content).await.unwrap();
+                            file.write_all(&intermediate.content).await.unwrap();
+                        }
                     }
 
                     let command_result = MirrorSysCall {
                         id: real.id,
-                        command: real.api.clone(),
+                        api: real.api.clone(),
                         args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
                     };
  
@@ -268,22 +278,42 @@ impl Receiver {
 
         //receive syscall messages from mpsc and send syscall to crew by grpc.
         let _write_handle = tokio::spawn(async move {
-    
+
+            let responder = crate::communicate::syscallredirectpipe::GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_tx.as_ref();
             let channel = { NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_rx.lock().await.take() };
 
             if let Some(mut rx) = channel {
-                while let Some(command) = rx.recv().await {
-                    log::debug!("transmit redirect handle received message: {:?}", &command);
+                while let Some(syscall) = rx.recv().await {
+                    log::debug!("transmit redirect handle received message: {:?}", &syscall);
+
+                    if syscall.api == "NtCreateFile" {
+
+                        if let Some((_, expect)) = syscall.args.get_key_value("expect") {
+                            //file exist in replica dir, so do not obtain file from crew again. direct return success.
+                            let exist = { self__.crate_files_exist.lock().await.contains(expect) };
+                            if exist {
+                                match responder.send(syscall) {
+                                    Ok(_) => {},
+                                    Err(err) => {
+                                        log::error!("transmit redirect handle send callback failed: {:?}", err);
+                                    },
+                                }
+                                log::error!("file already exists in replica dir, skipping obtain from crew.");
+                                continue;
+                            }
+                        }
+                    }
+
                     let reply = package::RemoteRedirect {
-                        id: command.id,
-                        api: command.command.clone(), 
-                        params: command.args.iter().map(|(k, v)| package::Params { key: k.clone(), value: v.clone() }).collect(),
+                        id: syscall.id,
+                        api: syscall.api.clone(), 
+                        params: syscall.args.iter().map(|(k, v)| package::Params { key: k.clone(), value: v.clone() }).collect(),
                     };
                     
                     if tx.send(Ok(reply)).await.is_ok() {
                     }
                     else {
-                        log::warn!("transmit redirect handle send syscall message to crew failed. id: {}", command.id);
+                        log::warn!("transmit redirect handle send syscall message to crew failed. id: {}", syscall.id);
                     }
                 }
                 log::debug!("transmit redirect handle write task end.");
@@ -327,7 +357,7 @@ impl Receiver {
                     }
                 };
 
-                match file.unwrap().write_all(&content) {
+                match file.expect(&format!("create file failed: {:?}", &path)).write_all(&content) {
                     Ok(_) => {
                         log::trace!("transmit storage file done: {:?}", path);
                     },

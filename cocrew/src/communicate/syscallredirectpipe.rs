@@ -8,11 +8,9 @@ use tokio::io::AsyncWriteExt;
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub struct MirrorSysCall {
     pub id: u32,
-    pub command: String,
+    pub api: String,
     pub args: std::collections::HashMap<String, String>,
 }
-
-type Responders = tokio::sync::oneshot::Sender<MirrorSysCall>;
 
 pub struct CHANNEL {
     pub grpc_to_namedpipe_tx: std::sync::Arc<tokio::sync::broadcast::Sender<MirrorSysCall>>,
@@ -148,9 +146,9 @@ pub fn compiler_redirect_syscall() {
 }
 
 pub fn format_mirror_command(call: &MirrorSysCall) -> String {
-    let response = format!("{{\"id\": {}, \"command\": \"{}\", \"args\": {{{}}}}}",
+    let response = format!("{{\"id\": {}, \"api\": \"{}\", \"args\": {{{}}}}}",
         call.id,
-        call.command,
+        call.api,
         call.args.iter()
             .map(|(k, v)| format!("\"{}\": \"{}\"", k, v))
             .collect::<Vec<_>>()
@@ -211,13 +209,13 @@ mod tests {
         for i in 0..10 {
             let command = MirrorSysCall {
                 id: i,
-                command: "test".to_string(),
+                api: "test".to_string(),
                 args: std::collections::HashMap::new(),
             };
 
-            let message = format!("{{\"id\": {}, \"command\": \"{}\", \"args\": {{{}}}}}",
+            let message = format!("{{\"id\": {}, \"api\": \"{}\", \"args\": {{{}}}}}",
                     command.id,
-                    command.command,
+                    command.api,
                     command.args.iter()
                         .map(|(k, v)| format!("\"{}\": \"{}\"", k, v))
                         .collect::<Vec<_>>()
@@ -235,7 +233,7 @@ mod tests {
                 println!("received command in test: {:?}", command);
                 let response = MirrorSysCall {
                     id: command.id,
-                    command: "response".to_string(),
+                    api: "response".to_string(),
                     args: std::collections::HashMap::new(),
                 };
             }
@@ -268,13 +266,13 @@ mod tests {
 
         let command = MirrorSysCall {
             id: 0,
-            command: "NtQueryDirectoryFile".to_string(),
+            api: "NtQueryDirectoryFile".to_string(),
             args: args,
         };
 
-        let json = format!("{{\"id\": {}, \"command\": \"{}\", \"args\": {{{}}}}}",
+        let json = format!("{{\"id\": {}, \"api\": \"{}\", \"args\": {{{}}}}}",
                     command.id,
-                    command.command,
+                    command.api,
                     command.args.iter()
                         .map(|(k, v)| format!("\"{}\": {:?}", k, v))
                         .collect::<Vec<_>>()
