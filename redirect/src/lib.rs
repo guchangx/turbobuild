@@ -333,13 +333,22 @@ fn fetch_args_from_command() {
         }
         else if item.starts_with("/Fd") {
 
-            if item.ends_with(".pdb") {
-                let path = item[3..].to_string();
-                if let Some(project) = crate::SOLUTIONNAME.get() {
-                    if let Some(index) = path.find(project) {
-                        if index + project.len() + 1 < path.len() {
-                            let (_, last) = path.split_at(index + project.len() + 1);
+            let path = &item[3..];
+            if std::path::PathBuf::from(path).is_absolute() {
+                if let Some(solution) = crate::SOLUTIONNAME.get() {
+                    if let Some(index) = path.find(solution) {
+                        if index + solution.len() + 1 < path.len() {
+                            let (_, last) = path.split_at(index + solution.len() + 1);
                             pdb_sub_dir = last.to_string();
+
+                            if item.ends_with(".pdb") {
+                                let modified = std::path::Path::new(&crate::REPLICADIR.get().unwrap()).join("Project").join(crate::SOLUTIONNAME.get().unwrap()).join(&pdb_sub_dir);
+                                REPLICA_PDBPATH.set(modified.to_string_lossy().to_string()).unwrap();
+                            }
+                            else {
+                                let modified = std::path::Path::new(&crate::REPLICADIR.get().unwrap()).join("Project").join(crate::SOLUTIONNAME.get().unwrap()).join(&pdb_sub_dir).join("vc143.pdb");
+                                REPLICA_PDBPATH.set(modified.to_string_lossy().to_string()).unwrap();
+                            }
 
                             std::path::Path::new(last).parent().map(|parent| {
                                 GENERATEDDIR.get_or_init(|| parent.to_string_lossy().to_string());
@@ -349,16 +358,14 @@ fn fetch_args_from_command() {
                 }
             }
             else {
-                let path = item[3..].to_string();
-
-                if let Some(project) = crate::SOLUTIONNAME.get() {
-                    path.find(project).map(|index| {
-                        if index + project.len() + 1 < path.len() {
-                            let (_, last) = path.split_at(index + project.len() + 1);
-                            pdb_sub_dir = last.to_string() + r"\vc143.pdb";
-                            GENERATEDDIR.get_or_init(|| last.to_string());
-                        }
-                    });
+                pdb_sub_dir = path.to_string();
+                if item.ends_with(".pdb") {
+                    let modified = std::path::Path::new(&crate::WORKINGDIR.as_str()).join(&pdb_sub_dir);
+                    REPLICA_PDBPATH.set(modified.to_string_lossy().to_string()).unwrap();
+                }
+                else {
+                    let modified = std::path::Path::new(&crate::WORKINGDIR.as_str()).join(&pdb_sub_dir).join("vc143.pdb");
+                    REPLICA_PDBPATH.set(modified.to_string_lossy().to_string()).unwrap();
                 }
             }
         }
