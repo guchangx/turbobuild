@@ -47,10 +47,17 @@ impl Model {
 
 }
 
-pub fn replace(path: &mut String) -> bool {
+#[derive(PartialEq, Debug)]
+pub enum ReplaceResult {
+    Success,
+    NoMatch,
+    FilePath,
+}
+
+pub fn replace(path: &mut String) -> ReplaceResult {
 
     if path.contains(r"AppData\Local\Temp\") || path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
-        return false;
+        return ReplaceResult::NoMatch;
     }
     else if path.ends_with("clui.dll") {
         //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\1033\clui.dll
@@ -60,36 +67,36 @@ pub fn replace(path: &mut String) -> bool {
 
                 let modified = format!(r#"{}\{}{}"#, replica_dir, "MSVC", clui);
                 *path = modified;
-                return true;
+                return ReplaceResult::Success;
             }
             else {
-                return false;
+                return ReplaceResult::NoMatch;
             }
         }
-        return false;
+        return ReplaceResult::NoMatch;
     }
     else if let Some(extension) = std::path::Path::new(path).extension() {
         if extension == "h" || extension == "hpp"  || extension == "inl" {
-            return false;
+            return ReplaceResult::NoMatch;
         }
         else if extension == "pdb" {
             if let Some(replica_pdbpath) = crate::REPLICA_PDBPATH.get() {
                 *path = replica_pdbpath.to_string();
-                return true;
+                return ReplaceResult::Success;
             }
             else if let Some(solution) = crate::SOLUTIONNAME.get() {
                 if let Some(index) = path.find(solution) {
                     let tail = &path[index..];
                     let modified = format!(r"{}\{}\{}", crate::REPLICADIR.get().unwrap(), "Project", tail);
                     *path = modified;
-                    return true;
+                    return ReplaceResult::Success;
                 }
                 else {
-                    return false;
+                    return ReplaceResult::NoMatch;
                 }
             }
             else {
-                return false;
+                return ReplaceResult::NoMatch;
             }
         }
         else if extension == "c" || extension == "cpp" || extension == "cxx" || extension == "cc" {
@@ -98,34 +105,34 @@ pub fn replace(path: &mut String) -> bool {
                     let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
                     *path = modified.to_string_lossy().to_string();
                 };
-                return true;
+                return ReplaceResult::FilePath;
             }
             else {
-                return false;
+                return ReplaceResult::NoMatch;
             }
         }
-        else if  extension == "obj" {
-            return false;
+        else if extension == "obj" {
+            return ReplaceResult::NoMatch;
         }
         else if extension == "i" {
             let modified = Model::fetch_local_replica_project_path(&path);
             if let Some(modified) = modified {
                 *path = modified;
-                return true;
+                return ReplaceResult::Success;
             } else {
                 crate::log!(warn, "project name and replica dir in model are not ready");
-                return false;
+                return ReplaceResult::NoMatch;
             }
         }
         else if path.ends_with("warning_suppression.txt") {
-            return false;
+            return ReplaceResult::NoMatch;
         }
         else {
-            return false;
+            return ReplaceResult::NoMatch;
         }
     }
     else {
-        return false;
+        return ReplaceResult::NoMatch;
     }
 }
 
@@ -151,6 +158,7 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
             if path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
                 return ReplaceDirResult::FilePath;
             }
+            //TODO: files has been redirect, need not replace again.
             else if crate::REPLICADIR.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
                 if let Some(name) = std::path::Path::new(path).file_name() {
                     let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);

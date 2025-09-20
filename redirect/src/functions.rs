@@ -67,7 +67,7 @@ pub unsafe fn create_file_a(
         ) -> HANDLE = std::mem::transmute(CREATE_FILE_A);
 
         let replace = crate::replace::replace(&mut path);
-        if replace {
+        if replace == crate::replace::ReplaceResult::Success{
             crate::log!(trace, "create_file_a replace hook: {}", path);
             let fake_path = crate::utils::convert::string_2_lpstr(path);
 
@@ -167,7 +167,7 @@ pub unsafe fn create_file_w(
 
         let replace = crate::replace::replace(&mut path);
 
-        if replace {
+        if replace == crate::replace::ReplaceResult::Success {
             crate::log!(trace, "create_file_w replace hook: {}", path);
             let fake_path = crate::utils::convert::string_2_lpwstr(path);
                 
@@ -244,7 +244,7 @@ pub unsafe fn kernelbase_create_file_a(
 
         let replace = crate::replace::replace(&mut path);
 
-        if replace {
+        if replace == crate::replace::ReplaceResult::Success {
             crate::log!(trace, "kernelbase_create_file_a replace hook: {}", path);
             let fake_path = crate::utils::convert::string_2_lpstr(path);
             let handle = create_file_a(
@@ -328,7 +328,7 @@ pub unsafe fn kernelbase_create_file_w(
     
     let option_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
 
-    if let Some(mut path) = option_path {
+    if let Some(mut path) = option_path.clone() {
 
         if CREATE_FILE_W_KERNEL_BASE as usize == 0 {
             crate::log!(error, "can not find kernelbase create_file_w");
@@ -347,7 +347,7 @@ pub unsafe fn kernelbase_create_file_w(
 
         crate::log!(trace, "kernelbase_create_file_w hook path: {}", path);
         let replace = crate::replace::replace(&mut path);
-        if replace {
+        if replace == crate::replace::ReplaceResult::Success {
             crate::log!(trace, "kernelbase_create_file_w replace hook: {}", path);
             let fake_path = crate::utils::convert::string_2_lpwstr(path);
             
@@ -368,6 +368,54 @@ pub unsafe fn kernelbase_create_file_w(
             }
     
             return handle; 
+        }
+        else if replace == crate::replace::ReplaceResult::FilePath {
+            let fake_path = crate::utils::convert::string_2_lpwstr(path.clone());
+
+            let handle = create_file_w(fake_path.as_ptr() as winapi::um::winnt::LPWSTR,
+                dw_desired_access, dw_share_mode, lp_security_attributes,
+                dw_creation_disposition, dw_flags_and_attributes, h_template_file,
+            );
+    
+            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
+                let error_code = winapi::um::errhandlingapi::GetLastError();
+
+                if error_code == 2 {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    let mut args =  std::collections::HashMap::<String, String>::new();
+                    args.insert("filename".to_string(), option_path.unwrap());
+                    args.insert("expect".to_string(), path.clone());
+
+                    let call = {
+                        let mut cid = SYS_CALL_ID.lock().unwrap();
+                        let call = crate::syscallredirect::MirrorSysCall {
+                            id: *cid,
+                            api: "CreateFileW".into(),
+                            args,
+                            responder: tx,
+                        };
+                        *cid += 1;
+                        call
+                    };
+                    let id = call.id.clone();
+                    crate::log!(trace, "kernelbase_create_file_w file id: {} path: {} process: {} thread: {:?}", id.clone(), path, std::process::id(), std::thread::current().id());
+
+                    crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(call).unwrap();
+                    let expects = rx.blocking_recv().unwrap();
+                    if let Some(_) = expects.get("expect") {
+                        let handle = create_file_w(fake_path.as_ptr() as winapi::um::winnt::LPWSTR, dw_desired_access, dw_share_mode, lp_security_attributes,
+                            dw_creation_disposition, dw_flags_and_attributes, h_template_file,
+                        );
+                        return handle;
+                    }
+                    else {
+                        return handle;
+                    }   
+                }
+                crate::log!(error, "kernelbase create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
+            }
+            return handle;
         }
         else {
             let handle = create_file_w(
@@ -1238,6 +1286,7 @@ pub unsafe fn nt_create_file(
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
                 crate::log!(trace, "nt_create_file hook path: {}", name);
                 let replace = crate::replace::replace_dir(&mut name);
+                crate::log!(trace, "nt_create_file hook path result: {:?}", replace);
                 if replace == crate::replace::ReplaceDirResult::Success {
                     //TODO elpase 10ms, need optimize. 
                     crate::log!(trace, "nt_create_file replace hook: {}", name.clone());

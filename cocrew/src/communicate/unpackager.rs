@@ -239,6 +239,7 @@ impl Receiver {
                     log::debug!("transmit redirect real result: id {:?} api: {:?} params: {:?}", real.id, real.api, real.params);
 
                     for intermediate in real.files {
+                        //TODO: what time to remove file from crate_files_exist?
                         let exist = { self_.crate_files_exist.lock().await.contains(&intermediate.file) };
                         if !exist {
                             {self_.crate_files_exist.lock().await.push(intermediate.file.clone());}

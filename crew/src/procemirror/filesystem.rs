@@ -48,8 +48,37 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
                     return local;
                 }
             }
-
-
+        },
+        "CreateFileW" => {
+            let context = unsafe { redirect_create_file_w(&params) };
+            match context {
+                Ok((expect, data)) => {
+                    let local = crate::communicate::package::pack::LocalRedirect {
+                        id: redirect.id,
+                        api: redirect.api,
+                        params: params.iter().map(|(k, v)| crate::communicate::package::pack::Params {
+                            key: k.clone(),
+                            value: v.clone(),
+                        }).collect(),
+                        files: vec![crate::communicate::package::pack::IntermediateResult{file: expect.clone(), content: data}],
+                    };
+                    log::debug!("redirect create file w result: {:?} expect: {}", params, expect);
+                    return local;
+                },
+                Err(err) => {
+                    let local = crate::communicate::package::pack::LocalRedirect {
+                        id: redirect.id,
+                        api: redirect.api,
+                        params: vec![crate::communicate::package::pack::Params {
+                            key: "error".to_string(),
+                            value: format!("{}", err),
+                        }],
+                        files: Vec::new(),
+                    };
+                    log::debug!("redirect create file w failed: {:?}", local);
+                    return local;
+                }
+            }
         },
         _ => {
             log::warn!("Received unknown file system operation from remote redirect: {:?}", redirect);
@@ -209,6 +238,20 @@ unsafe fn redirect_nt_create_file(params: &std::collections::HashMap<String, Str
     }
 
     match std::fs::read(&objectname) {
+        Ok(data) => {
+            let expect = params.get("expect").unwrap().to_owned();
+            return Ok((expect, data));
+        },
+        Err(err) => {
+            return Err(err);
+        },
+    }
+}
+
+unsafe fn redirect_create_file_w(params: &std::collections::HashMap<String, String>) -> std::io::Result<(String, Vec<u8>)> {
+    let filename = params.get("filename").unwrap().to_owned();
+
+    match std::fs::read(filename) {
         Ok(data) => {
             let expect = params.get("expect").unwrap().to_owned();
             return Ok((expect, data));
