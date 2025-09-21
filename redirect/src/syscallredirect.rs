@@ -55,6 +55,7 @@ unsafe fn redirect_syscall_2_cocrew() {
         let responders: std::sync::Arc<std::sync::Mutex<Map>> = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
         
         for _ in 0..3 {
+            crate::log!(info, "connecting to named pipe success: {} process: {}", r"\\.\pipe\os_operate_request_pipe", std::process::id());
             if winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 600) == winapi::shared::minwindef::TRUE {
                 let responders = responders.clone();
                 for _ in 0..3 {
@@ -69,9 +70,13 @@ unsafe fn redirect_syscall_2_cocrew() {
 
                     if !pipe_handle.is_null() && pipe_handle != winapi::um::handleapi::INVALID_HANDLE_VALUE {
 
+                        let mut pid: u32 = 0;
+                        winapi::um::winbase::GetNamedPipeServerProcessId(pipe_handle as *mut _, &mut pid as *mut u32);
+
                         let pipe_handle = tools::ptr::HandleBox::new(pipe_handle);
                         let pipe_handle_ = pipe_handle.clone();
-                        crate::log!(info, "connected to named pipe success: {}", r"\\.\pipe\os_operate_request_pipe");
+
+                        crate::log!(info, "connected to named pipe success: {} process: {} server: {}", r"\\.\pipe\os_operate_request_pipe", std::process::id(), pid);
 
                         let responders_ = responders.clone();
                         // receive command from named pipe and send it to sync caller in functions
@@ -195,9 +200,9 @@ unsafe fn redirect_syscall_2_cocrew() {
                             let mirror_sys_call = rx.blocking_recv();
                             match mirror_sys_call {
                                 Some(mirror_call) => {
-                                    crate::log!(info, "send format virtual syscall to namedpipe: {} with id: {}", mirror_call.api, mirror_call.id);
-                                    
+                                
                                     let formatted_call = format_mirror_syscall(&mirror_call);
+                                    crate::log!(info, "send format virtual syscall to namedpipe: {} {}", mirror_call.api, formatted_call);
 
                                     let responder = mirror_call.responder;
                                     {

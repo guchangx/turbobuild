@@ -38,8 +38,8 @@ pub fn compiler_redirect_syscall() {
     let _ = rt.spawn(async move {
         let mut counter = 0;
         let rt_ = rt_.clone();
-        let mut server = tokio::net::windows::named_pipe::ServerOptions::new()
-            .first_pipe_instance(true)
+        let makeserver = |first| { tokio::net::windows::named_pipe::ServerOptions::new()
+            .first_pipe_instance(first)
             .pipe_mode(tokio::net::windows::named_pipe::PipeMode::Message)
             .access_inbound(true)
             .access_outbound(true)
@@ -49,33 +49,34 @@ pub fn compiler_redirect_syscall() {
             //.write_owner(true)
             //.access_system_security(true)
             .reject_remote_clients(false)
-            .create(PIPE_NAME).unwrap();
+            .create(PIPE_NAME).unwrap()
+        };
+
+        let waiting = makeserver(true);
+        let mut accept = tokio::spawn(async move {
+            let _ = waiting.connect().await;
+            waiting
+        });
 
         loop {
-            server.connect().await.unwrap();
-            let now = std::time::Instant::now();
-            
+            log::info!("namedpipe connecting count: {:?}", counter);
+            let server = accept.await.expect("accept join");
+
+            let next_waiting = makeserver(false);
+            accept = tokio::spawn(async move {
+                let _ = next_waiting.connect().await;
+                next_waiting
+            });
+
             let handle = server.as_handle();
             let mut pid: u32 = 0;
             unsafe {
                 windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId(handle.as_raw_handle(), &mut pid as *mut u32);
             }
-            log::info!("namedpipe connected count: {:?} success, client pid: {:?}", counter, pid);
-
+            
             let (mut reader, mut writer) = tokio::io::split(server);
 
-            server = tokio::net::windows::named_pipe::ServerOptions::new()
-                .first_pipe_instance(false)
-                .pipe_mode(tokio::net::windows::named_pipe::PipeMode::Message)
-                .access_inbound(true)
-                .access_outbound(true)
-                .in_buffer_size(65536)  
-                .out_buffer_size(65536)
-                //.write_dac(true)
-                //.write_owner(true)
-                //.access_system_security(true)
-                .reject_remote_clients(false)
-                .create(PIPE_NAME).unwrap();
+            log::info!("namedpipe connected count: {:?} success, client pid: {:?}", counter, pid);
             
             //return the syscall response to caller in func.rs
             rt_.spawn(async move {
@@ -139,7 +140,6 @@ pub fn compiler_redirect_syscall() {
                     }
                 }
             });
-            log::warn!("namedpipe renew elapsed: {:?}", now.elapsed());
             counter += 1;
         }
     });

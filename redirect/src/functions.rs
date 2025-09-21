@@ -381,7 +381,7 @@ pub unsafe fn kernelbase_create_file_w(
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = winapi::um::errhandlingapi::GetLastError();
 
-                if error_code == 2 {
+                if error_code == winapi::shared::winerror::ERROR_FILE_NOT_FOUND {
                     let (tx, rx) = tokio::sync::oneshot::channel();
                     let mut args =  std::collections::HashMap::<String, String>::new();
                     args.insert("filename".to_string(), option_path.unwrap());
@@ -1286,7 +1286,6 @@ pub unsafe fn nt_create_file(
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
                 crate::log!(trace, "nt_create_file hook path: {}", name);
                 let replace = crate::replace::replace_dir(&mut name);
-                crate::log!(trace, "nt_create_file hook path result: {:?}", replace);
                 if replace == crate::replace::ReplaceDirResult::Success {
                     //TODO elpase 10ms, need optimize. 
                     crate::log!(trace, "nt_create_file replace hook: {}", name.clone());
