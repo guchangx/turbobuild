@@ -10,9 +10,6 @@ pub fn run() {
 
     //console_subscriber::init();
 
-
-
-
     tools::logger::init_logger("cocrew");
     crate::common::init_common();
 }

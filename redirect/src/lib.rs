@@ -77,6 +77,10 @@ static WORKINGDIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     }
 });
 
+static PROCESS_ID: std::sync::LazyLock<u32> = std::sync::LazyLock::new(|| {
+    std::process::id()
+});
+
 unsafe fn redirect_stdout_log_2_cocrew() {
 
     use std::os::windows::ffi::OsStrExt;
@@ -467,7 +471,7 @@ thread_local! {
 }
 
 #[no_mangle]
-unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserved: LPVOID) -> BOOL {
+unsafe extern "system" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserved: LPVOID) -> BOOL {
     
     if crate::detours::DetourIsHelperProcess() == winapi::shared::minwindef::TRUE {
         //println!("target application is a helper process, so do nothing.");
@@ -486,8 +490,7 @@ unsafe extern "stdcall" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserve
 
             redirect_stdout_log_2_cocrew();
             
-            crate::syscallredirect::async_connect_named_pipe();
-
+            crate::syscallredirect::async_connect_syscall_namedpipe();
             
             let ret = crate::detours::DetourRestoreAfterWith();
             if ret == winapi::shared::minwindef::FALSE {

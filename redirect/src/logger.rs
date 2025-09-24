@@ -27,28 +27,27 @@ impl Logger {
     pub fn trace(message: impl Into<String>) {
         let now = chrono::Local::now();
         let time = now.format("%H:%M:%S%.3f").to_string();
-        Self::log(format!("[{} T] {}", time, message.into()));
+        Self::log(format!("[{} T] [{}] {}", time, *crate::PROCESS_ID, message.into()));
     }
     pub fn debug(message: impl Into<String>) {
         let now = chrono::Local::now();
         let time = now.format("%H:%M:%S%.3f").to_string();
-        Self::log(format!("[{} D] {}", time, message.into()));
+        Self::log(format!("[{} D] [{}] {}", time, *crate::PROCESS_ID, message.into()));
     }
     pub fn info(message: impl Into<String>) {
         let now = chrono::Local::now();
         let time = now.format("%H:%M:%S%.3f").to_string();
-        Self::log(format!("[{} I] {}", time, message.into()));
+        Self::log(format!("[{} I] [{}] {}", time, *crate::PROCESS_ID, message.into()));
     }
     pub fn warn(message: impl Into<String>) {
         let now = chrono::Local::now();
         let time = now.format("%H:%M:%S%.3f").to_string();
-        Self::log(format!("[{} W] {}", time, message.into()));
+        Self::log(format!("[{} W] [{}] {}", time, *crate::PROCESS_ID, message.into()));
     }
     pub fn error(message: impl Into<String>) {
         let now = chrono::Local::now();
         let time = now.format("%H:%M:%S%.3f").to_string();
-        Self::log(format!("[{} E] {}", time, message.into()));
+        Self::log(format!("[{} E] [{}] {}", time, *crate::PROCESS_ID, message.into()));
     }
-
 
 }

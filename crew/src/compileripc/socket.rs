@@ -55,9 +55,9 @@ impl Receiver {
                     data.push_str(std::str::from_utf8(&buffer[..size]).unwrap());
 
                     if size < buffer.len() || buffer.ends_with(b"}") {
-                        log::debug!("buildassist connection data {}", data);
+                        log::debug!("buildassist connection data: {}", data);
 
-                        let input: serde_json::Value = serde_json::from_str(data.as_str()).unwrap();
+                        let input: serde_json::Value = serde_json::from_str(data.as_str()).expect(&format!("invalid json data: {}", data));
 
                         let solution = input["solution"].as_str().unwrap();
                         let project = input["project"].as_str().unwrap();

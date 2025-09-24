@@ -52,21 +52,11 @@ pub fn compiler_redirect_syscall() {
             .create(PIPE_NAME).unwrap()
         };
 
-        let waiting = makeserver(true);
-        let mut accept = tokio::spawn(async move {
-            let _ = waiting.connect().await;
-            waiting
-        });
+        let mut server = makeserver(true);
 
         loop {
-            log::info!("namedpipe connecting count: {:?}", counter);
-            let server = accept.await.expect("accept join");
-
-            let next_waiting = makeserver(false);
-            accept = tokio::spawn(async move {
-                let _ = next_waiting.connect().await;
-                next_waiting
-            });
+            log::info!("namedpipe connecting counter: {:?}", counter);
+            server.connect().await.expect("server failed to connect to named pipe");
 
             let handle = server.as_handle();
             let mut pid: u32 = 0;
@@ -75,8 +65,10 @@ pub fn compiler_redirect_syscall() {
             }
             
             let (mut reader, mut writer) = tokio::io::split(server);
+            
+            server = makeserver(false);
 
-            log::info!("namedpipe connected count: {:?} success, client pid: {:?}", counter, pid);
+            log::info!("namedpipe connected counter: {:?} success, client pid: {:?}", counter, pid);
             
             //return the syscall response to caller in func.rs
             rt_.spawn(async move {
@@ -196,12 +188,12 @@ mod tests {
         let client = connect().await.unwrap();
         let client = connect().await.unwrap();
 
-        redirectdll::syscallredirect::async_connect_named_pipe();
-        redirectdll::syscallredirect::async_connect_named_pipe();
-        redirectdll::syscallredirect::async_connect_named_pipe();
-        redirectdll::syscallredirect::async_connect_named_pipe();
-        redirectdll::syscallredirect::async_connect_named_pipe();
-        redirectdll::syscallredirect::async_connect_named_pipe();
+        redirectdll::syscallredirect::async_connect_syscall_namedpipe();
+        redirectdll::syscallredirect::async_connect_syscall_namedpipe();
+        redirectdll::syscallredirect::async_connect_syscall_namedpipe();
+        redirectdll::syscallredirect::async_connect_syscall_namedpipe();
+        redirectdll::syscallredirect::async_connect_syscall_namedpipe();
+        redirectdll::syscallredirect::async_connect_syscall_namedpipe();
 
         let (mut reader, mut writer) = tokio::io::split(client);
 
