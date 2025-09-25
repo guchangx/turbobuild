@@ -52,11 +52,43 @@ pub fn compiler_redirect_syscall() {
             .create(PIPE_NAME).unwrap()
         };
 
-        let mut server = makeserver(true);
-
-        loop {
-            log::info!("namedpipe connecting counter: {:?}", counter);
+        let mut joinset = tokio::task::JoinSet::new();
+        joinset.spawn(async move {
+            let server = makeserver(true);
             server.connect().await.expect("server failed to connect to named pipe");
+            server
+        });
+
+        for _ in 1..std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).max(8) {
+            joinset.spawn(async move {
+                let server = makeserver(false);
+                server.connect().await.expect("server failed to connect to named pipe");
+                server
+            });
+        }
+
+        while let Some(joinserver) = joinset.join_next().await {
+            let server = match joinserver {
+                Ok(s) => {
+                    joinset.spawn(async move {
+                        let server = makeserver(false);
+                        server.connect().await.expect("server failed to connect to named pipe");
+                        server
+                    });
+                    s
+                },
+                Err(e) => {
+                    log::error!("failed to create named pipe server: {}", e);
+                    joinset.spawn(async move {
+                        let server = makeserver(false);
+                        server.connect().await.expect("server failed to connect to named pipe");
+                        server
+                    });
+                    continue;
+                }
+            };
+
+            log::info!("namedpipe connecting counter: {:?}", counter);
 
             let handle = server.as_handle();
             let mut pid: u32 = 0;
@@ -65,8 +97,6 @@ pub fn compiler_redirect_syscall() {
             }
             
             let (mut reader, mut writer) = tokio::io::split(server);
-            
-            server = makeserver(false);
 
             log::info!("namedpipe connected counter: {:?} success, client pid: {:?}", counter, pid);
             
@@ -97,10 +127,11 @@ pub fn compiler_redirect_syscall() {
                 }
                 writer.shutdown().await.unwrap();
                 drop(rx);
+                log::trace!("namedpipe writer end {}", pid);
             });
 
             let _ = rt_.spawn(async move {
-                log::trace!("pipe connected count {} success", counter);
+                log::trace!("namedpipe connected count {} success", counter);
                 loop {
                     //read command form namedpipe and send it to grpc.
                     let mut data = vec![0; 1024];
@@ -122,15 +153,16 @@ pub fn compiler_redirect_syscall() {
                             }
                             else {
                                 log::warn!("no data received from pipe, disconnecting.");
-                                return;
+                                break;
                             }
                         },
                         Err(e) => {
                             log::error!("failed to read from pipe: {}", e);
-                            return;
+                            break;
                         }
                     }
                 }
+                log::trace!("namedpipe reader end {}", pid);
             });
             counter += 1;
         }
