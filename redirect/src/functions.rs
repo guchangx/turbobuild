@@ -370,6 +370,7 @@ pub unsafe fn kernelbase_create_file_w(
             return handle; 
         }
         else if replace == crate::replace::ReplaceResult::FilePath {
+            crate::log!(trace, "kernelbase_create_file_w replace hook: {}", path);
             let fake_path = crate::utils::convert::string_2_lpwstr(path.clone());
 
             let handle = create_file_w(fake_path.as_ptr() as winapi::um::winnt::LPWSTR,

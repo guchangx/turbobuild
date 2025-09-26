@@ -777,23 +777,27 @@ impl MSVC {
             _ => {},
         }
 
-        let mut header_files = Vec::new();
-        if let Some(item) = sources.first() {
+        let mut sources_dir = std::collections::HashSet::new();
+        for item in &sources {
             let path = std::path::PathBuf::from(&item);
             path.parent().map(|parent| {
-                if let Ok(entries) = std::fs::read_dir(parent) {
-                    
-                    for entry in entries {
-                        if let Ok(entry) = entry {
-                            let path = entry.path();
-                            if path.is_file() && path.extension().map(|ext| ext == "h" || ext == "hpp" 
-                                    || ext == "hh" || ext == "hxx" || ext == "h++" || ext == "inl").unwrap_or(false) {
-                                header_files.push(path);
-                            }   
+                sources_dir.insert(parent.to_owned());
+            });
+        }
+
+        let mut header_files = std::collections::HashSet::new();
+        for dir in sources_dir {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries {
+                    if let Ok(entry) = entry {
+                        let path = entry.path();
+                        if path.is_file() && path.extension().map(|ext| ext == "h" || ext == "hpp" 
+                                || ext == "hh" || ext == "hxx" || ext == "h++" || ext == "inl").unwrap_or(false) {
+                            header_files.insert(path);
                         }
                     }
                 }
-            });
+            }
         }
         
         let header_files = std::sync::Arc::new(tokio::sync::Mutex::new(header_files));
@@ -851,16 +855,25 @@ impl MSVC {
                             //.odl;.asm;.asmx;.xsd;.bin;.rgs;.html;.htm;.manifest
                             //.cpp;.cxx;.cc;.c;.c++;.cppm;.ixx;.inl;.ipp
                             //.h;.hh;.hpp;.hxx;.h++;.hm
-                            let mut header_files_guard = header_files.lock().await;
-                            if let Some(index) = header_files_guard.iter().position(|item| item.file_stem().eq(&path.file_stem())) {
-                                let path = header_files_guard.remove(index);
-                                if path.exists() {
-                                    let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
-                                        log::error!("failed to read file: {:?}", path);
+                            let header_file = {
+                                let guard = header_files.lock().await;
+                                if let Some(found) = guard.iter().find(|&item| item.file_stem().map(|item| item == path.file_stem().unwrap()).unwrap_or(false)) {
+                                    Some(found.to_owned())
+                                }
+                                else {
+                                    None
+                                }
+                            };
+
+                            if let Some(found) = header_file {
+                                { header_files.lock().await.remove(&found) };
+                                if found.exists() {
+                                    let content = tokio::fs::read(&found).await.unwrap_or_else(|_| {
+                                        log::error!("failed to read file: {:?}", found);
                                         Vec::new()
                                     });
 
-                                    let name = path.file_name().unwrap().to_string_lossy().to_string();
+                                    let name = found.file_name().unwrap().to_string_lossy().to_string();
 
                                     let archive = crate::communicate::package::ArchiveArgs {
                                         file_type:  crate::communicate::package::FileType::SourceFiles,
@@ -876,7 +889,7 @@ impl MSVC {
                             }
                         }
 
-                        log::info!("sync other dep files and header files {:?}", header_files.lock().await);
+                        log::info!("sync other dep files and header files {:?}", { header_files.lock().await });
 
                         //sync other dep files and header files
                         for path in header_files.lock().await.iter() {

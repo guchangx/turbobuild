@@ -68,6 +68,7 @@ static REPLICADIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static GENERATEDDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static REPLICA_PDBPATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static INCLUDES: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sync::OnceLock::new();
+static SOURCES: std::sync::OnceLock<std::collections::HashSet<std::ffi::OsString>> = std::sync::OnceLock::new();
 static STDOUT_LOG_HANDLE: std::sync::LazyLock<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 static WORKINGDIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     if let Ok(path) = std::env::current_dir() {
@@ -294,7 +295,8 @@ fn fetch_args_from_command() {
     let commands: Vec<std::ffi::OsString> = commandline.collect();
     log!(debug, "current command line arguments: {:?}", commands);
     let mut includes = Vec::new();
-    let mut sources_dir = std::path::PathBuf::new();
+    let mut sources_dir = std::collections::HashSet::new();
+    let mut sources = std::collections::HashSet::new();
     let mut pdb_sub_dir = String::new();
 
     for (index, item) in commands.iter().enumerate() {
@@ -373,11 +375,17 @@ fn fetch_args_from_command() {
                 }
             }
         }
-        else if sources_dir.to_string_lossy().is_empty() && (item.ends_with(".c") || item.ends_with(".cpp") || item.ends_with(".cc") || item.ends_with(".cxx")) {
-            if let Some(dir) = std::path::Path::new(&item.to_string()).parent() {
-                sources_dir = dir.to_path_buf();
+        else if item.ends_with(".c") || item.ends_with(".cpp") || item.ends_with(".cc") || item.ends_with(".cxx") {
+            let path = std::path::Path::new(item.as_ref());
+            if let Some(dir) = path.parent() {
+                sources_dir.insert(dir.to_path_buf());
             };
+            let newpath = path.with_extension("");
+            sources.insert(newpath.as_os_str().to_owned());
         }
+    }
+    if !sources.is_empty() {
+        SOURCES.set(sources).unwrap();
     }
 
     if pdb_sub_dir.is_empty() {
@@ -392,7 +400,7 @@ fn fetch_args_from_command() {
     log!(debug, "WORKINGDIR: {:?}", WORKINGDIR.as_str());
     log!(debug, "REPLICADIR: {:?}", REPLICADIR.get());
 
-    includes.push(sources_dir);
+    includes.extend(sources_dir.iter().cloned());
 
     for (key, value) in std::env::vars() {
         if key.to_lowercase() == "include" {

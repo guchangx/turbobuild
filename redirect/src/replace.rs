@@ -151,7 +151,7 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
         return ReplaceDirResult::NoMatch;
     }
     else if path.starts_with(r"\??\pipe\") {
-            return ReplaceDirResult::NoMatch;
+        return ReplaceDirResult::NoMatch;
     }
     else if let Some(extension) = std::path::Path::new(path).extension() {
         if extension == "h" || extension == "hpp" || extension == "inl" {
@@ -160,13 +160,26 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
             }
             //TODO: files has been redirect, need not replace again.
             else if crate::REPLICADIR.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-                if let Some(name) = std::path::Path::new(path).file_name() {
+                let stempath = std::path::Path::new(&path[4..]);
+                let stempath = stempath.with_extension("");
+                let sources = crate::SOURCES.get().unwrap();
+                if sources.contains(stempath.as_os_str()) {
+                    let name = std::path::Path::new(path).file_name().unwrap();
                     let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
-                    let path = modified.to_string_lossy().to_string();
-                    return ReplaceDirResult::NeedObtain(path);
+                    let modified = modified.to_string_lossy().to_string();
+                    
+                    *path = format!(r"\??\{}", modified);
+                    return ReplaceDirResult::Success;
                 }
                 else {
-                    return ReplaceDirResult::FilePath;
+                    if let Some(name) = std::path::Path::new(path).file_name() {
+                        let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
+                        let path = modified.to_string_lossy().to_string();
+                        return ReplaceDirResult::NeedObtain(path);
+                    }
+                    else {
+                        return ReplaceDirResult::FilePath;
+                    }
                 }
             }
             else {
@@ -191,7 +204,7 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
             else {
                 let generated = std::path::Path::new(crate::GENERATEDDIR.get().unwrap());
                 if generated.is_absolute() {
-                    let modified = Model::fetch_local_replica_sources_dir();
+                    let modified: Option<String> = Model::fetch_local_replica_sources_dir();
                     if let Some(modified) = modified {
                         if path.starts_with(r"\??\") {
                             *path = format!(r"\??\{}", modified);
@@ -230,10 +243,15 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
 mod tests {
 
     #[test]
-    fn load_replica() {
+    fn load_replica_test() {
         let path = r"\??\E:\TestFuture\ZLMediaKit\3rdpart\media-server\libmov\include\mov-udta.h";
         println!("original: {}", path);
         let index = path.rfind(r"\").unwrap();
         println!("modified: {}", path[4..index + 1].to_string());
+
+        let mut path = std::path::PathBuf::from("D:\\WorkSpace\\OpenSource\\ZLMediaKit\\3rdpart\\media-server\\libmpeg\\include\\mpeg-util.h");
+        println!("path stem: {:?}", path.file_stem().unwrap());
+        path.set_extension("");
+        println!("path new: {:?}", path);
     }
 }
