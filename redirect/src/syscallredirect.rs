@@ -40,6 +40,11 @@ pub static REDIRECT_SYS_CALL_CHANNEL: std::sync::LazyLock<Channel> = std::sync::
     return channel;
 });
 
+struct EventGuard(winapi::shared::ntdef::HANDLE);
+impl Drop for EventGuard {
+    fn drop(&mut self) { unsafe { winapi::um::handleapi::CloseHandle(self.0); } }
+}
+
 unsafe fn redirect_syscall_2_cocrew() {
 
     use std::os::windows::ffi::OsStrExt;
@@ -97,6 +102,16 @@ unsafe fn redirect_syscall_2_cocrew() {
                 }
 
                 if !pipe_handle.is_null() && pipe_handle != winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                    
+                    let mut mode: u32 = winapi::um::winbase::PIPE_READMODE_MESSAGE;
+                    if winapi::um::namedpipeapi::SetNamedPipeHandleState(pipe_handle,
+                        &mut mode,
+                        std::ptr::null_mut(),
+                        std::ptr::null_mut()
+                    ) == winapi::shared::minwindef::FALSE {
+                        let error = winapi::um::errhandlingapi::GetLastError();
+                        crate::log!(error, "SetNamedPipeHandleState failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
+                    }
 
                     let mut pid: u32 = 0;
                     winapi::um::winbase::GetNamedPipeServerProcessId(pipe_handle as *mut _, &mut pid as *mut u32);
@@ -129,33 +144,73 @@ unsafe fn redirect_syscall_2_cocrew() {
                                 buffer.len() as u32,
                                 &mut bytes,
                                 &mut overlapped,
-                            );
+                            );         
+                            
+                            let _eg = EventGuard(event);
 
                             crate::log!(info, "receive virtual syscall from namedpipe. result: {} message size: {}.", result, bytes);
+                           
 
                             if result == winapi::shared::minwindef::FALSE {
 
                                 let err = winapi::um::errhandlingapi::GetLastError();
 
-                                if err == winapi::shared::winerror::ERROR_IO_PENDING {
+                                if err == winapi::shared::winerror::ERROR_IO_PENDING || err == winapi::shared::winerror::ERROR_MORE_DATA {
 
-                                    winapi::um::synchapi::WaitForSingleObject(event, winapi::um::winbase::INFINITE);
+                                    if err == winapi::shared::winerror::ERROR_IO_PENDING {
+                                        winapi::um::synchapi::WaitForSingleObject(event, winapi::um::winbase::INFINITE);
+                                    }
                                     
                                     let mut final_bytes: winapi::shared::minwindef::DWORD = 0;
-                                    winapi::um::ioapiset::GetOverlappedResult(
+                                    let result = winapi::um::ioapiset::GetOverlappedResult(
                                         pipe_handle.get().to_owned(),
                                         &mut overlapped,
                                         &mut final_bytes,
                                         winapi::shared::minwindef::FALSE
                                     );
 
-                                    winapi::um::handleapi::CloseHandle(event);
                                     crate::log!(info, "read pipe completed, pid: {} bytes: {}", std::process::id(), final_bytes);
+
+                                    let mut is_moredata = false;
+                                    if result == winapi::shared::minwindef::FALSE {
+                                        let err = winapi::um::errhandlingapi::GetLastError();
+                                        if err == winapi::shared::winerror::ERROR_MORE_DATA {
+                                            is_moredata = true;
+                                        }
+                                        crate::log!(error, "GetOverlappedResult failed, error code: {}, message: {}", err, tools::utils::get_winapi_error_message(err));
+                                    }
+                                    
                                     if final_bytes == 0 {
                                         crate::log!(info, "response virtual syscall named pipe closed. final bytes is 0.");
                                     }
                                     else if final_bytes == buffer.len() as u32 {
-                                        moredata.extend_from_slice(&buffer[..final_bytes as usize]);
+                                        if is_moredata {
+                                            moredata.extend_from_slice(&buffer[..final_bytes as usize]);
+                                        }
+                                        else {
+                                            moredata.extend_from_slice(&buffer[..final_bytes as usize]);
+
+                                            if moredata.is_empty() {
+                                                crate::log!(error, "readfile buffer is empty");
+                                            }
+                                            else {
+                                                let output = String::from_utf8_lossy(&moredata);
+
+                                                let (id, command, args) = parse_mirror_command(&output);
+                                                let option = { responders.lock().unwrap().remove(&id) };
+                                                if let Some(responder) = option {
+                                                    crate::log!(info, "responding to syscall: {} with id: {}", command, id);
+                                                    if let Err(e) = responder.send(args) {
+                                                        crate::log!(info, "failed to send virtual syscall: {:?}", e);
+                                                    }
+                                                }
+                                                else {
+                                                    crate::log!(warn, "no responder found for id: {} syscall: {} responders: {:?}", id, command, responders);
+                                                    crate::log!(warn, "no responder found for id: {:p} process: {} thread: {:?}", std::sync::Arc::as_ptr(&responders), std::process::id(), std::thread::current().id());
+                                                }
+                                            }
+                                            moredata.clear();
+                                        }
                                     }
                                     else {
                                         moredata.extend_from_slice(&buffer[..final_bytes as usize]);
@@ -189,14 +244,40 @@ unsafe fn redirect_syscall_2_cocrew() {
                             }
                             else {
                                 if bytes == buffer.len() as u32 {
-                                    moredata.extend_from_slice(&buffer[..bytes as usize]);
+                                    if buffer[bytes as usize - 1] == b'}' {
+                                        moredata.extend_from_slice(&buffer[..bytes as usize]);
+                                        
+                                        if moredata.is_empty() {
+                                            crate::log!(error, "readfile buffer is empty");
+                                        }
+                                        else {
+                                            let output = String::from_utf8_lossy(&moredata);
+
+                                            let (id, command, args) = parse_mirror_command(&output);
+                                            let option = { responders.lock().unwrap().remove(&id) };
+                                            if let Some(responder) = option {
+                                                crate::log!(info, "responding to syscall: {} with id: {}", command, id);
+                                                if let Err(e) = responder.send(args) {
+                                                    crate::log!(info, "failed to send virtual syscall: {:?}", e);
+                                                }
+                                            }
+                                            else {
+                                                crate::log!(warn, "no responder found for id: {} syscall: {} responders: {:?}", id, command, responders);
+                                                crate::log!(warn, "no responder found for id: {:p} process: {} thread: {:?}", std::sync::Arc::as_ptr(&responders), std::process::id(), std::thread::current().id());
+                                            }
+                                        }
+                                        moredata.clear();
+                                    }
+                                    else {
+                                        moredata.extend_from_slice(&buffer[..bytes as usize]);
+                                    }
                                 }
                                 else {
                                     moredata.extend_from_slice(&buffer[..bytes as usize]);
 
                                     let output = String::from_utf8_lossy(&moredata);
 
-                                    crate::logger::output_debug_string(&format!("received virtual syscall: {}", output));
+                                    crate::log!(info, "received virtual syscall: {}", output);
                                     if output.trim().is_empty() || output.chars().all(|c| c == '\0') {
                                         crate::log!(error, "readfile buffer is empty");
                                     }
@@ -254,7 +335,7 @@ unsafe fn redirect_syscall_2_cocrew() {
                                     &mut bytes,
                                     &mut overlapped
                                 );
-                                crate::log!(info, "send virtual syscall to namedpipe. result: {} message size: {}.", result, bytes);
+                                crate::log!(info, "send virtual syscall to namedpipe. result: {} {} message size: {}.", result, mirror_call.api, bytes);
                                 if result == winapi::shared::minwindef::FALSE {
                                     let error = winapi::um::errhandlingapi::GetLastError();
                                     if error == winapi::shared::winerror::ERROR_IO_PENDING {
@@ -287,7 +368,6 @@ unsafe fn redirect_syscall_2_cocrew() {
                                 else {
                                     //crate::log!(warn, "write virtual syscall to namedpipe success. {:p} process: {} thread: {:?}", std::sync::Arc::as_ptr(&responders_), std::process::id(), std::thread::current().id());
                                 }
-                                winapi::um::handleapi::CloseHandle(event);
                             },
                             None => {
                                 break;

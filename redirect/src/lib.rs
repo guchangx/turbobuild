@@ -18,13 +18,14 @@ unsafe extern "system" fn custom_exception_handler(
     let exception_record = (*exception_info).ExceptionRecord;
     if !exception_record.is_null() {
         let code = (*exception_record).ExceptionCode;
-
         if code == 0x80000003 {  // EXCEPTION_BREAKPOINT
-            println!("Handling DbgBreakPoint exception");
-            return -1; // EXCEPTION_CONTINUE_EXECUTION
+            return winapi::vc::excpt::EXCEPTION_CONTINUE_EXECUTION;
+        }
+        else if code & 0x80000000 != 0 {
+            println!("Unhandled exception code in redirect: {:#X}", code);
         }
     }
-    winapi::um::errhandlingapi::UnhandledExceptionFilter(exception_info)
+    return winapi::vc::excpt::EXCEPTION_CONTINUE_SEARCH;
 }
 struct Channel {
     tx: tokio::sync::mpsc::Sender<String>, 
@@ -489,7 +490,11 @@ unsafe extern "system" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserved
     match fdw_reason {
         winapi::um::winnt::DLL_PROCESS_ATTACH => {
 
+            //winapi::um::errhandlingapi::AddVectoredExceptionHandler(1, Some(custom_exception_handler));
             //force_unbuffered_output();
+            //show_message_box_for_debug();
+            
+            winapi::um::libloaderapi::DisableThreadLibraryCalls(hinst);
 
             fetch_module_path(hinst);
             read_project_property_from_stdin();

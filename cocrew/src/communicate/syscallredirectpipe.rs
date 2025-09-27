@@ -52,15 +52,22 @@ pub fn compiler_redirect_syscall() {
             .create(PIPE_NAME).unwrap()
         };
 
+        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+        let notify_ = notify.clone();
         let mut joinset = tokio::task::JoinSet::new();
         joinset.spawn(async move {
+            log::info!("namedpipe create first server.");
             let server = makeserver(true);
+            notify.notify_waiters();
             server.connect().await.expect("server failed to connect to named pipe");
             server
         });
-
-        for _ in 1..std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).max(8) {
+        
+        for i in 1..std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).max(8) {
+            let notify = notify_.clone();
             joinset.spawn(async move {
+                notify.notified().await;
+                log::info!("namedpipe create next server: {}", i);
                 let server = makeserver(false);
                 server.connect().await.expect("server failed to connect to named pipe");
                 server
@@ -107,21 +114,21 @@ pub fn compiler_redirect_syscall() {
                 loop {
                     if let Ok(response) = rx.recv().await {
                         if response.id / 10000 == pid {
-                            let response = format_mirror_command(&response);
+                            let response = format_mirror_syscall(&response);
                             match writer.write(response.as_bytes()).await {
                                 Ok(n) => {
-                                    log::info!("success sent mirror command response: {}", n);
+                                    log::info!("success sent mirror syscall response. send size: {} length: {} {:?}", n, response.as_bytes().len(), response);
                                     writer.flush().await.unwrap();
                                 },
                                 Err(err) => {
-                                    log::error!("failed to write mirror command response to pipe: {}", err);
+                                    log::error!("failed to write mirror syscall response to pipe. {:?} err: {}", response, err);
                                     continue;
                                 }
                             }
                         }
                     }
                     else {
-                        log::warn!("mirror command response channel closed, dropped receiver.");
+                        log::warn!("mirror syscall response channel closed, dropped receiver.");
                         break;
                     }
                 }
@@ -169,7 +176,7 @@ pub fn compiler_redirect_syscall() {
     });
 }
 
-pub fn format_mirror_command(call: &MirrorSysCall) -> String {
+pub fn format_mirror_syscall(call: &MirrorSysCall) -> String {
     let response = format!("{{\"id\": {}, \"api\": \"{}\", \"args\": {{{}}}}}",
         call.id,
         call.api,
