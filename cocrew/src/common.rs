@@ -43,8 +43,9 @@ pub fn init_common() {
         let rt = COCREW_RUNTIME.lock().unwrap();
         rt.handle().clone()
     };
-
-    crate::communicate::syscallredirectpipe::compiler_redirect_syscall();
+    
+    //crate::communicate::syscallredirectpipe::compiler_redirect_syscall();
+    crate::communicate::syscallredirectpipe::compiler_redirect_syscall_2();
 
     handle.spawn(async move {
         log::info!("start redirect_stdout_log_2_cocrew");

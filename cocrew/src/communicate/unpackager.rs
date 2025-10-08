@@ -260,7 +260,7 @@ impl Receiver {
  
                     match responder.send(command_result) {
                         Ok(_) => {
-                            log::debug!("transmit redirect handle send callback: {:?}", real.api);
+                            log::debug!("transmit redirect handle send callback: {:?} {}", real.api, real.id);
                         },
                         Err(err) => {
                             log::error!("transmit redirect handle send callback failed: {:?}", err);
@@ -285,7 +285,7 @@ impl Receiver {
 
             if let Some(mut rx) = channel {
                 while let Some(syscall) = rx.recv().await {
-                    log::debug!("transmit redirect handle received message: {:?}", &syscall);
+                    log::debug!("transmit redirect handle received message: {:?}, remaining: {}", &syscall, rx.len());
 
                     if syscall.api == "NtCreateFile" {
 

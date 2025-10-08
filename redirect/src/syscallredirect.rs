@@ -335,7 +335,10 @@ unsafe fn redirect_syscall_2_cocrew() {
                                     &mut bytes,
                                     &mut overlapped
                                 );
-                                crate::log!(info, "send virtual syscall to namedpipe. result: {} {} message size: {}.", result, mirror_call.api, bytes);
+                                
+                                let _eg = EventGuard(event);
+
+                                crate::log!(info, "send virtual syscall to namedpipe. result: {} {} message size: {}.", result, mirror_call.id, bytes);
                                 if result == winapi::shared::minwindef::FALSE {
                                     let error = winapi::um::errhandlingapi::GetLastError();
                                     if error == winapi::shared::winerror::ERROR_IO_PENDING {
