@@ -108,10 +108,12 @@ pub fn compiler_redirect_syscall() {
 
             log::info!("namedpipe connected counter: {:?} success, client pid: {:?}", counter, pid);
             //return the syscall response to caller in func.rs
+            let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let closed_ = closed.clone();
+
             rt_.spawn(async move {
                 let mut rx = { GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_rx.lock().await.resubscribe() };
- 
-                loop {
+                while !closed.load(std::sync::atomic::Ordering::Relaxed) {
                     if let Ok(response) = rx.recv().await {
                         if response.id / 10000 == pid {
                             let response = format_mirror_syscall(&response);
@@ -121,7 +123,7 @@ pub fn compiler_redirect_syscall() {
                                 },
                                 Err(err) => {
                                     log::error!("failed to write mirror syscall response to pipe. {:?} err: {}", response, err);
-                                    continue;
+                                    break;
                                 }
                             }
                         }
@@ -132,7 +134,6 @@ pub fn compiler_redirect_syscall() {
                     }
                 }
                 writer.shutdown().await.unwrap();
-                drop(rx);
                 log::trace!("namedpipe writer end {}", pid);
             });
 
@@ -171,6 +172,7 @@ pub fn compiler_redirect_syscall() {
                         }
                     }
                 }
+                closed_.store(true, std::sync::atomic::Ordering::Relaxed);
                 log::trace!("namedpipe reader end {}", pid);
             });
             
