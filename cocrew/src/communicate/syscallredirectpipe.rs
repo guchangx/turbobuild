@@ -57,22 +57,20 @@ pub fn compiler_redirect_syscall() {
         let notify_ = notify.clone();
         let mut joinset = tokio::task::JoinSet::new();
         
-        for i in 1..std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).max(8) {
+        for _ in 1..std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).max(8) {
             let notify = notify_.clone();
             joinset.spawn(async move {
                 notify.notified().await;
-                log::info!("namedpipe create next server: {}", i);
                 let server = makeserver(false);
-                server.connect().await.expect("server failed to connect to named pipe");
+                server.connect().await.expect("waiting failed to connect to named pipe.");
                 server
             });
         }
 
         joinset.spawn(async move {
-            log::info!("namedpipe create first server.");
             let server = makeserver(true);
             notify.notify_waiters();
-            server.connect().await.expect("server failed to connect to named pipe");
+            server.connect().await.expect("waiting failed to connect to named pipe.");
             server
         });
 
@@ -97,8 +95,6 @@ pub fn compiler_redirect_syscall() {
                 }
             };
 
-            log::info!("namedpipe connecting counter: {:?}", counter);
-
             let mut pid: u32 = 0;
             unsafe {
                 windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId(server.as_raw_handle() as _, &mut pid as *mut u32);
@@ -118,27 +114,25 @@ pub fn compiler_redirect_syscall() {
                         if response.id / 10000 == pid {
                             let response = format_mirror_syscall(&response);
                             match writer.write(response.as_bytes()).await {
-                                Ok(n) => {
-                                    log::info!("success sent mirror syscall response. send size: {} length: {} {:?}", n, response.as_bytes().len(), response);
+                                Ok(_) => {
                                 },
                                 Err(err) => {
-                                    log::error!("failed to write mirror syscall response to pipe. {:?} err: {}", response, err);
+                                    log::error!("failed to write mirror syscall response to namedpipe. {:?} err: {}", response, err);
                                     break;
                                 }
                             }
                         }
                     }
                     else {
-                        log::warn!("mirror syscall response channel closed, dropped receiver.");
+                        log::warn!("mirror syscall response channel closed, drop grpc to namedpipe receiver.");
                         break;
                     }
                 }
                 writer.shutdown().await.unwrap();
-                log::trace!("namedpipe writer end {}", pid);
+                log::trace!("cocrew syscall namedpipe writer end {}", pid);
             });
 
             let _ = rt_.spawn(async move {
-                log::trace!("namedpipe connected count {} success", counter);
                 loop {
                     //read command form namedpipe and send it to grpc.
                     let mut data = vec![0; 1024];
@@ -146,7 +140,6 @@ pub fn compiler_redirect_syscall() {
                         Ok(size) => {
                             if size > 0 as usize {
                                 let message = String::from_utf8_lossy(&data[..size]);
-                                log::info!("received mirror syscall: {} {}", size, message);
                                 if let Ok(mirror_cmd) = crate::serde_json::from_str::<MirrorSysCall>(&message)
                                     .map_err(|e| {
                                         log::error!("failed to parse mirror syscall: {}", e);
@@ -162,18 +155,18 @@ pub fn compiler_redirect_syscall() {
                                 }
                             }
                             else {
-                                log::warn!("no data received from pipe, disconnecting.");
+                                log::warn!("no data received from syscall namedpipe, disconnecting.");
                                 break;
                             }
                         },
                         Err(e) => {
-                            log::error!("failed to read from pipe: {}", e);
+                            log::error!("failed to read from syscall namedpipe: {}", e);
                             break;
                         }
                     }
                 }
                 closed_.store(true, std::sync::atomic::Ordering::Relaxed);
-                log::trace!("namedpipe reader end {}", pid);
+                log::trace!("cocrew syscall namedpipe reader end {}", pid);
             });
             
             counter += 1;

@@ -82,9 +82,6 @@ unsafe fn redirect_syscall_2_cocrew() {
                     continue;
                 }
             }
-            else {
-                crate::log!(info, "connecting to named pipe success: {} current process: {}", r"\\.\pipe\os_operate_request_pipe", std::process::id());
-            }
 
             let responders = responders.clone();
             for _ in 0..3 {
@@ -115,7 +112,7 @@ unsafe fn redirect_syscall_2_cocrew() {
 
                     let mut pid: u32 = 0;
                     winapi::um::winbase::GetNamedPipeServerProcessId(pipe_handle as *mut _, &mut pid as *mut u32);
-                    crate::log!(info, "connected to named pipe server process id: {} current process: {}", pid, std::process::id());
+                    crate::log!(info, "connected to syscall namedpipe server process id: {} current process: {}", pid, std::process::id());
                     
                     let pipe_handle = tools::ptr::HandleBox::new(pipe_handle);
                     let pipe_handle_ = pipe_handle.clone();
@@ -148,9 +145,6 @@ unsafe fn redirect_syscall_2_cocrew() {
                             
                             let _eg = EventGuard(event);
 
-                            crate::log!(info, "receive virtual syscall from namedpipe. result: {} message size: {}.", result, bytes);
-                           
-
                             if result == winapi::shared::minwindef::FALSE {
 
                                 let err = winapi::um::errhandlingapi::GetLastError();
@@ -177,11 +171,14 @@ unsafe fn redirect_syscall_2_cocrew() {
                                         if err == winapi::shared::winerror::ERROR_MORE_DATA {
                                             is_moredata = true;
                                         }
-                                        crate::log!(error, "GetOverlappedResult failed, error code: {}, message: {}", err, tools::utils::get_winapi_error_message(err));
+                                        else
+                                        {
+                                            crate::log!(error, "GetOverlappedResult failed, error code: {}, message: {}", err, tools::utils::get_winapi_error_message(err));
+                                        }
                                     }
                                     
                                     if final_bytes == 0 {
-                                        crate::log!(info, "response virtual syscall named pipe closed. final bytes is 0.");
+                                        crate::log!(error, "response virtual syscall named pipe closed. final bytes is 0.");
                                     }
                                     else if final_bytes == buffer.len() as u32 {
                                         if is_moredata {
@@ -199,7 +196,6 @@ unsafe fn redirect_syscall_2_cocrew() {
                                                 let (id, command, args) = parse_mirror_command(&output);
                                                 let option = { responders.lock().unwrap().remove(&id) };
                                                 if let Some(responder) = option {
-                                                    crate::log!(info, "responding to syscall: {} with id: {}", command, id);
                                                     if let Err(e) = responder.send(args) {
                                                         crate::log!(info, "failed to send virtual syscall: {:?}", e);
                                                     }
@@ -224,7 +220,6 @@ unsafe fn redirect_syscall_2_cocrew() {
                                             let (id, command, args) = parse_mirror_command(&output);
                                             let option = { responders.lock().unwrap().remove(&id) };
                                             if let Some(responder) = option {
-                                                crate::log!(info, "responding to syscall: {} with id: {}", command, id);
                                                 if let Err(e) = responder.send(args) {
                                                     crate::log!(info, "failed to send virtual syscall: {:?}", e);
                                                 }
@@ -256,7 +251,6 @@ unsafe fn redirect_syscall_2_cocrew() {
                                             let (id, command, args) = parse_mirror_command(&output);
                                             let option = { responders.lock().unwrap().remove(&id) };
                                             if let Some(responder) = option {
-                                                crate::log!(info, "responding to syscall: {} with id: {}", command, id);
                                                 if let Err(e) = responder.send(args) {
                                                     crate::log!(info, "failed to send virtual syscall: {:?}", e);
                                                 }
@@ -277,7 +271,6 @@ unsafe fn redirect_syscall_2_cocrew() {
 
                                     let output = String::from_utf8_lossy(&moredata);
 
-                                    crate::log!(info, "received virtual syscall: {}", output);
                                     if output.trim().is_empty() || output.chars().all(|c| c == '\0') {
                                         crate::log!(error, "readfile buffer is empty");
                                     }
@@ -285,7 +278,6 @@ unsafe fn redirect_syscall_2_cocrew() {
                                         let (id, command, args) = parse_mirror_command(&output);
                                         let option = { responders.lock().unwrap().remove(&id) };
                                         if let Some(responder) = option {
-                                            crate::log!(info, "respond syscall 2 sys call: {} with id: {}", command, id);
                                             if let Err(e) = responder.send(args) {
                                                 crate::log!(info, "failed to send virtual syscall: {:?}", e);
                                             }
@@ -338,7 +330,6 @@ unsafe fn redirect_syscall_2_cocrew() {
                                 
                                 let _eg = EventGuard(event);
 
-                                crate::log!(info, "send virtual syscall to namedpipe. result: {} {} message size: {}.", result, mirror_call.id, bytes);
                                 if result == winapi::shared::minwindef::FALSE {
                                     let error = winapi::um::errhandlingapi::GetLastError();
                                     if error == winapi::shared::winerror::ERROR_IO_PENDING {

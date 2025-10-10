@@ -485,7 +485,15 @@ impl Receiver {
             log::debug!("transmit compile handle err stream end.");
         });
 
-        let (output, _) = crate::compiler::interface::cocrew_build(input.to_owned(), out_err_stream);
+        let input_ = input.to_owned();
+        let buildhandle = tokio::task::Builder::new()
+        .name("cocrew_build")
+        .spawn_blocking(|| {
+            let (output, _) = crate::compiler::interface::cocrew_build(input_, out_err_stream);
+            output
+        }).unwrap();
+
+        let output = buildhandle.await.unwrap();
         if output.status == 0 {
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compiledone.into(),
@@ -508,7 +516,6 @@ impl Receiver {
             };
             sender(reply).await;
         }
-
         handle.await.unwrap();
 
     }

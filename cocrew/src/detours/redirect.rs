@@ -260,7 +260,8 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                 }
 
                 let hStdOutputReadBox = HandleBox::new(hStdOutputRead);
-                let task = std::thread::spawn(move || {
+                
+                let task = std::thread::Builder::new().name("build-stdout-reader".into()).spawn(move || {
 
                     let mut chTmpStdOutputReadBuffer = [0u8; 1024];
                     let mut bytesStdOuputRead: winapi::shared::minwindef::DWORD = 0;
@@ -310,7 +311,7 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                     }
                     drop(stdoutstream);
                     return stdout;
-                });
+                }).unwrap();
                 
                 let mut chTmpStdErrorReadBuffer =  [0u8; 1024];
                 let mut bytesStdErrorRead: winapi::shared::minwindef::DWORD = 0;
@@ -349,8 +350,6 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                 
                 winapi::um::synchapi::WaitForSingleObject(lpProcessInformation.hProcess as winapi::um::winnt::HANDLE, winapi::um::winbase::INFINITE);
                 
-                let stdout = task.join().unwrap();
-
                 let mut code: winapi::shared::minwindef::DWORD = 0;
                 winapi::um::processthreadsapi::GetExitCodeProcess(lpProcessInformation.hProcess as winapi::um::winnt::HANDLE, &mut code as *mut winapi::shared::minwindef::DWORD);
 
@@ -365,6 +364,8 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                 if !hStdErrorRead.is_null() {
                     winapi::um::handleapi::CloseHandle(hStdErrorRead);
                 }
+
+                let stdout = task.join().unwrap();
 
                 return (code, std::sync::Arc::new(stdout), std::sync::Arc::new(stderr));
             }

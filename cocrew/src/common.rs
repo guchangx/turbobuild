@@ -45,19 +45,14 @@ pub fn init_common() {
     };
     
     crate::communicate::syscallredirectpipe::compiler_redirect_syscall();
-    //crate::communicate::syscallredirectpipe::compiler_redirect_syscall_2();
 
-    handle.spawn(async move {
+    tokio::task::Builder::new().name("redirect_stdout_log_2_cocrew").spawn_blocking(|| {
         log::info!("start redirect_stdout_log_2_cocrew");
         crate::compiler::msvc::redirect_stdout_log();
-    });
-    
-    let task = handle.spawn(async move {
-        receiver_.init().await;
-    });
+    }).unwrap();
 
     handle.block_on(async {
-        let _ = task.await;
+        receiver_.init().await;
     });
 
     log::info!("end cocrew");
