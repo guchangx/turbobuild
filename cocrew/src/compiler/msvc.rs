@@ -219,7 +219,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         drop(err_stream);
     });
 
-    let (status, stdout, stderr) = start_local_compiler(&solution_name, &project_name, &compiler_path, &replica_working_dir, &compiler_commands,&envs, &stdout_err_stream);
+    let (status, stdout, stderr) = start_local_compiler(&solution_name, &project_name, &compiler_path, &replica_working_dir, &compiler_commands, &envs, &stdout_err_stream);
 
     drop(stdout_err_stream);
 

@@ -400,6 +400,7 @@ fn fetch_args_from_command() {
     log!(debug, "REPLICA_PDBPATH: {:?}", REPLICA_PDBPATH);
     log!(debug, "WORKINGDIR: {:?}", WORKINGDIR.as_str());
     log!(debug, "REPLICADIR: {:?}", REPLICADIR.get());
+    log!(debug, "SOURCES: {:?}", SOURCES.get());
 
     includes.extend(sources_dir.iter().cloned());
 
@@ -414,6 +415,7 @@ fn fetch_args_from_command() {
         }
     }
     INCLUDES.set(includes).unwrap();
+    log!(debug, "INCLUDES: {:?}", INCLUDES.get());
 
 }   
 

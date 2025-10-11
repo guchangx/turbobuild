@@ -845,7 +845,8 @@ impl MSVC {
                                 solution: solution_.clone(),
                                 project: project_.clone(),
                                 name: name.clone(),
-                                path: intermediate_.join(&name).to_string_lossy().to_string(),
+                                //path: intermediate_.join(&name).to_string_lossy().to_string(),
+                                path: path.to_string_lossy().to_string(),
                                 content: content.into(),
                             };
 
@@ -880,7 +881,8 @@ impl MSVC {
                                         solution: solution_.clone(),
                                         project: project_.clone(),
                                         name: name.clone(),
-                                        path: intermediate_.join(name).to_string_lossy().to_string(),
+                                        //path: intermediate_.join(name).to_string_lossy().to_string(),
+                                        path: found.to_string_lossy().to_string(),
                                         content: content.into(),
                                     };
 
@@ -905,7 +907,8 @@ impl MSVC {
                                 solution: solution_.clone(),
                                 project: project_.clone(),
                                 name: name.clone(),
-                                path: intermediate_.join(name).to_string_lossy().to_string(),
+                                //path: intermediate_.join(name).to_string_lossy().to_string(),
+                                path: path.to_string_lossy().to_string(),
                                 content: content.into(),
                             };
 

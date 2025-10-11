@@ -100,7 +100,14 @@ pub fn replace(path: &mut String) -> ReplaceResult {
             }
         }
         else if extension == "c" || extension == "cpp" || extension == "cxx" || extension == "cc" {
-            if crate::REPLICADIR.get().is_some() {
+
+            if crate::SOLUTIONNAME.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
+                Model::fetch_local_replica_project_path(&path).map_or(ReplaceResult::NoMatch, |modified| {
+                    *path = modified;
+                    return ReplaceResult::FilePath;
+                })
+            }
+            else if crate::REPLICADIR.get().is_some() {
                 if let Some(name) = std::path::Path::new(path).file_name() {
                     let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
                     *path = modified.to_string_lossy().to_string();
@@ -159,27 +166,44 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
                 return ReplaceDirResult::FilePath;
             }
             //TODO: files has been redirect, need not replace again.
-            else if crate::REPLICADIR.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
+            else if crate::REPLICADIR.get().is_some() {
                 let stempath = std::path::Path::new(&path[4..]);
                 let stempath = stempath.with_extension("");
                 let sources = crate::SOURCES.get().unwrap();
                 if sources.contains(stempath.as_os_str()) {
-                    let name = std::path::Path::new(path).file_name().unwrap();
-                    let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
-                    let modified = modified.to_string_lossy().to_string();
-                    
-                    *path = format!(r"\??\{}", modified);
-                    return ReplaceDirResult::Success;
-                }
-                else {
-                    if let Some(name) = std::path::Path::new(path).file_name() {
-                        let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
-                        let path = modified.to_string_lossy().to_string();
-                        return ReplaceDirResult::NeedObtain(path);
+                    if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
+                        Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::Success, |modified| {
+                            *path = modified;
+                            return ReplaceDirResult::Success;
+                        })
                     }
                     else {
-                        return ReplaceDirResult::FilePath;
+                        let name = std::path::Path::new(path).file_name().unwrap();
+                        let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
+                        let modified = modified.to_string_lossy().to_string();
+                        
+                        *path = format!(r"\??\{}", modified);
+                        return ReplaceDirResult::Success;
                     }
+                }
+                else {
+                    //TODO: i do not know how to handle this case now, .h file should in generated dir or in self project dir.
+                    //TODO: if a .h file in sources dir, but name is source file name, should not obtain again.
+                    if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
+                        Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::Success, |modified| {
+                            return ReplaceDirResult::NeedObtain(modified);
+                        })
+                    }
+                    else {
+                        if let Some(name) = std::path::Path::new(path).file_name() {
+                            let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
+                            let path = modified.to_string_lossy().to_string();
+                            return ReplaceDirResult::NeedObtain(path);
+                        }
+                        else {
+                            return ReplaceDirResult::FilePath;
+                        }
+                    }   
                 }
             }
             else {

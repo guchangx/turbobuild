@@ -315,7 +315,7 @@ pub fn compiler_redirect_syscall_2() {
                     log::trace!("start mirror syscall response task for pid: {}", pid);
                     loop {
                         if let Ok(response) = rx.blocking_recv() {
-                            log::trace!("mirror syscall response recv: {:?}", response);
+                            log::trace!("mirror syscall response recv: pid: {:?} {:?}", pid, response);
                             if response.id / 10000 == pid {
                                 let response = format_mirror_syscall(&response);
                                 log::debug!("received grpc response: {:?}", response);
@@ -342,6 +342,7 @@ pub fn compiler_redirect_syscall_2() {
                             break;
                         }
                     }
+                    log::trace!("stop mirror syscall response task for pid: {}", pid);
                 });
             }
             else {

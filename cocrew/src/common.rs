@@ -46,10 +46,10 @@ pub fn init_common() {
     
     crate::communicate::syscallredirectpipe::compiler_redirect_syscall();
 
-    tokio::task::Builder::new().name("redirect_stdout_log_2_cocrew").spawn_blocking(|| {
+    handle.spawn_blocking(|| {
         log::info!("start redirect_stdout_log_2_cocrew");
         crate::compiler::msvc::redirect_stdout_log();
-    }).unwrap();
+    });
 
     handle.block_on(async {
         receiver_.init().await;

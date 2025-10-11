@@ -1396,7 +1396,7 @@ pub unsafe fn nt_create_file(
                     if let Some(expect) = item {
                         crate::log!(trace, "nt_create_file redirect file handle path by cache expect: {}", expect);
                         let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
-                        let expect = format!(r"\??\{}", expect);
+                        //let expect = format!(r"\??\{}", expect);
                         let object_name_source_wide_char = std::ffi::OsString::from(&expect).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
                         
                         let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
@@ -1467,7 +1467,7 @@ pub unsafe fn nt_create_file(
 
                             crate::log!(trace, "nt_create_file redirect file handle path by sync expect: {}", expect);
                             let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
-                            let expect = format!(r"\??\{}", expect);
+                            //let expect = format!(r"\??\{}", expect);
                             let object_name_source_wide_char = std::ffi::OsString::from(&expect).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
                             
                             let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
