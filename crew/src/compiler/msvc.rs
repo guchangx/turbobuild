@@ -893,27 +893,31 @@ impl MSVC {
 
                         log::info!("sync other dep files and header files {:?}", { header_files.lock().await });
 
-                        //sync other dep files and header files
-                        for path in header_files.lock().await.iter() {
-                            let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
-                                log::error!("failed to read deps file: {:?}", path);
-                                Vec::new()
-                            });
+                        //cancel initiative sync other dep files and header files.
+                        /*
+                            //sync other dep files and header files
+                            for path in header_files.lock().await.iter() {
+                                let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
+                                    log::error!("failed to read deps file: {:?}", path);
+                                    Vec::new()
+                                });
 
-                            let name = path.file_name().unwrap().to_string_lossy().to_string();
+                                let name = path.file_name().unwrap().to_string_lossy().to_string();
 
-                            let archive = crate::communicate::package::ArchiveArgs {
-                                file_type:  crate::communicate::package::FileType::SourceFiles, //TODO: should add HeaderFiles
-                                solution: solution_.clone(),
-                                project: project_.clone(),
-                                name: name.clone(),
-                                //path: intermediate_.join(name).to_string_lossy().to_string(),
-                                path: path.to_string_lossy().to_string(),
-                                content: content.into(),
-                            };
+                                let archive = crate::communicate::package::ArchiveArgs {
+                                    file_type:  crate::communicate::package::FileType::SourceFiles, //TODO: should add HeaderFiles
+                                    solution: solution_.clone(),
+                                    project: project_.clone(),
+                                    name: name.clone(),
+                                    //path: intermediate_.join(name).to_string_lossy().to_string(),
+                                    path: path.to_string_lossy().to_string(),
+                                    content: content.into(),
+                                };
 
-                            let _ = stream.send(archive).await;
-                        }
+                                let _ = stream.send(archive).await;
+                            }                        
+                        */
+
                     }
 
                     notify.notified().await;

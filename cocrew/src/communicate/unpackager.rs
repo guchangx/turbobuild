@@ -274,6 +274,20 @@ impl Receiver {
                                         
                                         file.write_all(&intermediate.content).await.unwrap();
                                     }
+                                    else if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32) {
+                                        let mut file = tokio::fs::OpenOptions::new()
+                                            .create(true)
+                                            .share_mode(winapi::um::winnt::FILE_SHARE_READ | winapi::um::winnt::FILE_SHARE_WRITE | winapi::um::winnt::FILE_SHARE_DELETE)
+                                            .write(true)
+                                            .open(format!("{}{}",&intermediate.file, ".tmp"))
+                                            .await.expect(&format!("create file failed: {}", &intermediate.file));
+                                        
+                                        file.write_all(&intermediate.content).await.unwrap();
+
+                                        std::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).unwrap_or_else(|err| {
+                                            panic!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file, err);
+                                        });
+                                    }
                                     else {
                                         panic!("create file failed: {:?}, {}", &intermediate.file, err);
                                     }
@@ -558,59 +572,67 @@ impl Receiver {
         let working_dir = working_dir.clone();
 
         let handel = tokio::spawn(async move {
+            let createdir = |dir: &std::path::Path| {
+                if !dir.exists() {
+                    if let Err(err)  = std::fs::create_dir_all(&dir) {
+                        log::error!("create all dir failed: {:?} {}", dir, err);
+                    }
+                }
+            };
+
+            let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
+            let split = |pdb_or_obj: &std::path::Path, solution: &String| {
+                if solution.is_empty() {
+                    return Some(pdb_or_obj.to_path_buf());
+                }
+                else {
+                    let components = pdb_or_obj.components().collect::<Vec<_>>();
+                    if let Some(index) = components.iter().position(|item| item.as_os_str().to_str().unwrap() == solution) {
+                        let result: std::path::PathBuf = components[index + 1..].iter().collect();
+                        let path = replica.join("Project").join(solution).join(result);
+                        return Some(path);
+                    }
+                    else {
+                        log::error!("not find solution in path: {:?} solution: {}.", pdb_or_obj, solution);
+                        return None;
+                    }            
+                }
+            };
+
             let path = commands.iter().find(|&item| item.starts_with("/Fd")).map(|item| item.clone());
 
             match path {
                 Some(mut path) => {
                     let pdb = path.split_off(3);
-                    let pdb = std::path::PathBuf::from(pdb);
-                    
-                    let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
-                    
-                    let split = |pdb: std::path::PathBuf, solution: &String| {
-                        if solution.is_empty() {
-                            return Some(pdb);
-                        }
-                        else {
-                            let components = pdb.components().collect::<Vec<_>>();
-                            if let Some(index) = components.iter().position(|item| item.as_os_str().to_str().unwrap() == solution) {
-                                let result: std::path::PathBuf = components[index + 1..].iter().collect();
-                                let path = replica.join("Project").join(solution).join(result);
-                                return Some(path);
-                            }
-                            else {
-                                log::error!("not find solution in path: {:?} solution: {}.", pdb, solution);
-                                return None;
-                            }            
-                        }
-                    };
+                    let pdb = std::path::Path::new(&pdb);
 
                     if pdb.is_absolute() {
                         if let Some(path) = split(pdb, &solution) {
-                            let path = replica.join("Project").join(&solution).join(path).parent().unwrap().to_owned();
-                            if !path.exists() {
-                                log::info!("check dir not exist, so need create dir: {:?}", path);
-                                if let Err(err)  = std::fs::create_dir_all(&path) {
-                                    log::error!("create all dir failed: {:?} {}", path, err);
-                                }
+                            if path.is_dir() {
+                                createdir(path.as_path());
+                            }
+                            else {
+                                let parent = path.parent().unwrap();
+                                createdir(parent);
                             }
                         }
                         else {
-                            log::error!("split path failed, so not create dir.");
+                            log::error!("split path failed, so not create pdb dir.");
                         }
                     }
                     else {
-                        if let Some(path) = split(std::path::PathBuf::from(&working_dir), &solution) {
-                            let path = replica.join("Project").join(&solution).join(path).join(pdb).parent().unwrap().to_owned();
-                            if !path.exists() {
-                                log::info!("check dir not exist, so need create dir: {:?}", path);
-                                if let Err(err)  = std::fs::create_dir_all(&path) {
-                                    log::error!("create all dir failed: {:?} {}", path, err);
-                                }
+                        if let Some(path) = split(std::path::Path::new(&working_dir), &solution) {
+                            let path = path.join(pdb);
+                            if path.is_dir() {
+                                createdir(path.as_path());
+                            }
+                            else {
+                                let path = path.parent().unwrap();
+                                createdir(path);
                             }
                         }
                         else {
-                            log::error!("split path failed, so not create dir.");
+                            log::error!("split path failed, so not create pdb dir.");
                         }
                     }
                 },
@@ -619,74 +641,38 @@ impl Receiver {
 
             let path = commands.iter().find(|&item| item.starts_with("/Fo")).map(|item| item.clone());
 
-            //"/Fojsoncpp.dir\\Debug\\"
             match path {
                 Some(mut path) => {
                     let obj = path.split_off(3);
-                    let obj = std::path::PathBuf::from(obj);
-                    
-                    let replica = std::path::PathBuf::from(tools::utils::access_replica_dir());
-                    
-                    let split = |obj: std::path::PathBuf, solution: &String| {
-                        if solution.is_empty() {
-                            return Some(obj);
-                        }
-                        else {
-                            let components = obj.components().collect::<Vec<_>>();
-                            if let Some(index) = components.iter().position(|item| item.as_os_str().to_str().unwrap() == solution) {
-                                let result: std::path::PathBuf = components[index + 1..].iter().collect();
-                                let path = replica.join("Project").join(solution).join(result);
-                                return Some(path);
-                            }
-                            else {
-                                log::error!("not find solution in path: {:?} solution: {}.", obj, solution);
-                                return None;
-                            }            
-                        }
-                    };
+                    let obj = std::path::Path::new(&obj);
 
                     if obj.is_absolute() {
                         if let Some(path) = split(obj, &solution) {
-                            if path.is_file() {
-                                let path = path.parent().unwrap().to_owned();
-                                if !path.exists() {
-                                    if let Err(err)  = std::fs::create_dir_all(&path) {
-                                        log::error!("create all dir failed: {:?} {}", path, err);
-                                    }
-                                }
+                            if path.is_dir() {
+                                createdir(path.as_path());
                             }
                             else {
-                                if !path.exists() {
-                                    if let Err(err)  = std::fs::create_dir_all(&path) {
-                                        log::error!("create all dir failed: {:?} {}", path, err);
-                                    }
-                                }
+                                let path = path.parent().unwrap();
+                                createdir(path);
                             }
                         }
                         else {
-                            log::error!("split path failed, so not create dir.");
+                            log::error!("split path failed, so not create obj dir.");
                         }
                     }
                     else {
-                        if let Some(path) = split(std::path::PathBuf::from(&working_dir).join(obj), &solution) {
+                        if let Some(path) = split(std::path::Path::new(&working_dir), &solution) {
+                            let path = path.join(obj);
                             if path.is_dir() {
-                                let path = path.parent().unwrap().to_owned();
-                                if !path.exists() {
-                                    if let Err(err)  = std::fs::create_dir_all(&path) {
-                                        log::error!("create all dir failed: {:?} {}", path, err);
-                                    }
-                                }
+                                createdir(&path);
                             }
                             else {
-                                if !path.exists() {
-                                    if let Err(err)  = std::fs::create_dir_all(&path) {
-                                        log::error!("create all dir failed: {:?} {}", path, err);
-                                    }
-                                }
+                                let path = path.parent().unwrap().to_owned();
+                                createdir(&path);
                             }
                         }
                         else {
-                            log::error!("split path failed, so not create dir.");
+                            log::error!("split path failed, so not create obj dir.");
                         }
                     }
                 },

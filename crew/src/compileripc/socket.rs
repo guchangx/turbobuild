@@ -39,11 +39,11 @@ impl Receiver {
             let runtime_ = runtime.clone();
             let env = self.work_env.clone();
 
-            let _ =  runtime.spawn(async { Self::handle_ipc_stream(stream, runtime_, env, distributor).await;});
+            let _ =  runtime.spawn(async { Self::handle_buildassist_stream(stream, runtime_, env, distributor).await;});
         }
     }
     
-    async fn handle_ipc_stream(mut stream: tokio::net::TcpStream, runtime: std::sync::Arc<tokio::runtime::Handle>, work_env: crate::platform::windows::WindowsCompilerEnv, distor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) {
+    async fn handle_buildassist_stream(mut stream: tokio::net::TcpStream, runtime: std::sync::Arc<tokio::runtime::Handle>, work_env: crate::platform::windows::WindowsCompilerEnv, distor: std::sync::Arc<std::sync::Mutex::<crate::communicate::distributor::Distributor>>) {
        
         let mut data = String::new();
         let mut buffer = [0 as u8; 1024];
@@ -54,7 +54,7 @@ impl Receiver {
                 Ok(size) => {
                     data.push_str(std::str::from_utf8(&buffer[..size]).unwrap());
 
-                    if size < buffer.len() || buffer.ends_with(b"}") {
+                    if size < buffer.len() || ( size == buffer.len() && (buffer.ends_with(b"}}") || buffer.ends_with(br#""}"#))) {
                         log::debug!("buildassist connection data: {}", data);
 
                         let input: serde_json::Value = serde_json::from_str(data.as_str()).expect(&format!("invalid json data: {}", data));

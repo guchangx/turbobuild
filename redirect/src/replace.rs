@@ -100,19 +100,27 @@ pub fn replace(path: &mut String) -> ReplaceResult {
             }
         }
         else if extension == "c" || extension == "cpp" || extension == "cxx" || extension == "cc" {
+            let has = crate::SOURCES.get().unwrap().iter().find(|&item| {
+                path.starts_with(item.to_str().unwrap())
+            });
 
-            if crate::SOLUTIONNAME.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-                Model::fetch_local_replica_project_path(&path).map_or(ReplaceResult::NoMatch, |modified| {
-                    *path = modified;
+            if has.is_some() {
+                if crate::SOLUTIONNAME.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
+                    Model::fetch_local_replica_project_path(&path).map_or(ReplaceResult::NoMatch, |modified| {
+                        *path = modified;
+                        return ReplaceResult::FilePath;
+                    })
+                }
+                else if crate::REPLICADIR.get().is_some() {
+                    if let Some(name) = std::path::Path::new(path).file_name() {
+                        let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
+                        *path = modified.to_string_lossy().to_string();
+                    };
                     return ReplaceResult::FilePath;
-                })
-            }
-            else if crate::REPLICADIR.get().is_some() {
-                if let Some(name) = std::path::Path::new(path).file_name() {
-                    let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
-                    *path = modified.to_string_lossy().to_string();
-                };
-                return ReplaceResult::FilePath;
+                }
+                else {
+                    return ReplaceResult::NoMatch;
+                }   
             }
             else {
                 return ReplaceResult::NoMatch;
@@ -196,14 +204,36 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
                     }
                     else {
                         if let Some(name) = std::path::Path::new(path).file_name() {
-                            let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
-                            let path = modified.to_string_lossy().to_string();
-                            return ReplaceDirResult::NeedObtain(path);
+                            let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name).to_string_lossy().to_string();
+                            let modified = format!(r"\??\{}", modified);
+                            return ReplaceDirResult::NeedObtain(modified);
                         }
                         else {
                             return ReplaceDirResult::FilePath;
                         }
                     }   
+                }
+            }
+            else if extension == "cpp" {
+                if path.contains("mocs_") || path.contains("qrc_") {
+                    if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
+                        Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::Success, |modified| {
+                            return ReplaceDirResult::NeedObtain(modified);
+                        })
+                    }
+                    else {
+                        if let Some(name) = std::path::Path::new(path).file_name() {
+                            let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name).to_string_lossy().to_string();
+                            let modified = format!(r"\??\{}", modified);
+                            return ReplaceDirResult::NeedObtain(modified);
+                        }
+                        else {
+                            return ReplaceDirResult::FilePath;
+                        }
+                    }
+                }
+                else {
+                    return ReplaceDirResult::FilePath;
                 }
             }
             else {
