@@ -203,10 +203,17 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
                         })
                     }
                     else {
-                        if let Some(name) = std::path::Path::new(path).file_name() {
-                            let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name).to_string_lossy().to_string();
-                            let modified = format!(r"\??\{}", modified);
-                            return ReplaceDirResult::NeedObtain(modified);
+                        if let Some(index) = path.rfind(|c| c == '\\') {
+                            if let Some(index_) = path[..index].rfind(|c| c == '\\') {
+                                let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&path[index_..]).to_string_lossy().to_string();
+                                let modified = format!(r"\??\{}", modified);
+                                return ReplaceDirResult::NeedObtain(modified);
+                            }
+                            else {
+                                let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&path[index..]).to_string_lossy().to_string();
+                                let modified = format!(r"\??\{}", modified);
+                                return ReplaceDirResult::NeedObtain(modified);
+                            }
                         }
                         else {
                             return ReplaceDirResult::FilePath;

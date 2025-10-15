@@ -248,12 +248,15 @@ impl Receiver {
                                 .create(true)
                                 .share_mode(winapi::um::winnt::FILE_SHARE_READ | winapi::um::winnt::FILE_SHARE_WRITE | winapi::um::winnt::FILE_SHARE_DELETE)
                                 .write(true)
-                                .open(&intermediate.file)
+                                .open(format!("{}{}", &intermediate.file, ".tmp"))
                                 .await;
 
                             match file {
                                 Ok(mut file) => {
                                     file.write_all(&intermediate.content).await.unwrap();
+                                    file.flush().await.unwrap();
+                                    drop(file);
+                                    tokio::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).await.unwrap();
                                 },
                                 Err(err) => {
                                     if err.kind() == std::io::ErrorKind::NotFound {
@@ -283,7 +286,8 @@ impl Receiver {
                                             .await.expect(&format!("create file failed: {}", &intermediate.file));
                                         
                                         file.write_all(&intermediate.content).await.unwrap();
-
+                                        file.flush().await.unwrap();
+                                        drop(file);
                                         std::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).unwrap_or_else(|err| {
                                             panic!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file, err);
                                         });
@@ -301,7 +305,7 @@ impl Receiver {
                         api: real.api.clone(),
                         args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
                     };
- 
+                    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                     match responder.send(command_result) {
                         Ok(_) => {
                             log::debug!("transmit redirect handle send callback: {:?} {}", real.api, real.id);
@@ -401,13 +405,16 @@ impl Receiver {
                         }
                     }
                 };
-
-                match file.expect(&format!("create file failed: {:?}", &path)).write_all(&content) {
-                    Ok(_) => {
-                        log::trace!("transmit storage file done: {:?}", path);
-                    },
-                    Err(err) => {
-                        log::error!("transmit storage file failed. {:?} {:?}", path, err)
+                
+                //same source file may being used by another process. compiler open and current write at same time.
+                if let Ok(mut file) = file {
+                    match file.write_all(&content) {
+                        Ok(_) => {
+                            log::trace!("transmit storage file done: {:?}", path);
+                        },
+                        Err(err) => {
+                            log::error!("transmit storage file failed. {:?} {:?}", path, err)
+                        }
                     }
                 }
             }

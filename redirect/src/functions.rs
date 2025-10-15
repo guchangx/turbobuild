@@ -1504,8 +1504,7 @@ pub unsafe fn nt_create_file(
                                         if !object_name.is_null() {
                                             let buffer = (*object_name).Buffer;
                                             let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                                            let length = (*object_name).Length;
-                                            crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {}", nt_status, name);
+                                            crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {} access: {}", nt_status, name, share_access);
                                         }
                                         else {
                                             crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: <null>", nt_status);
