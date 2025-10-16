@@ -256,7 +256,20 @@ impl Receiver {
                                     file.write_all(&intermediate.content).await.unwrap();
                                     file.flush().await.unwrap();
                                     drop(file);
-                                    tokio::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).await.unwrap();
+
+                                    match tokio::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).await {
+                                        Ok(_) => {},
+                                        Err(err) => {
+                                            if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32) {
+                                                std::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).unwrap_or_else(|err| {
+                                                    panic!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file, err);
+                                                });
+                                            }
+                                            else {
+                                                log::error!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file, err);
+                                            }
+                                        }
+                                    }
                                 },
                                 Err(err) => {
                                     if err.kind() == std::io::ErrorKind::NotFound {
@@ -276,21 +289,6 @@ impl Receiver {
                                             .await.expect(&format!("create file failed: {}", &intermediate.file));
                                         
                                         file.write_all(&intermediate.content).await.unwrap();
-                                    }
-                                    else if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32) {
-                                        let mut file = tokio::fs::OpenOptions::new()
-                                            .create(true)
-                                            .share_mode(winapi::um::winnt::FILE_SHARE_READ | winapi::um::winnt::FILE_SHARE_WRITE | winapi::um::winnt::FILE_SHARE_DELETE)
-                                            .write(true)
-                                            .open(format!("{}{}",&intermediate.file, ".tmp"))
-                                            .await.expect(&format!("create file failed: {}", &intermediate.file));
-                                        
-                                        file.write_all(&intermediate.content).await.unwrap();
-                                        file.flush().await.unwrap();
-                                        drop(file);
-                                        std::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).unwrap_or_else(|err| {
-                                            panic!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file, err);
-                                        });
                                     }
                                     else {
                                         panic!("create file failed: {:?}, {}", &intermediate.file, err);
@@ -339,7 +337,7 @@ impl Receiver {
 
                         if let Some((_, expect)) = syscall.args.get_key_value("expect") {
                             //file exist in replica dir, so do not obtain file from crew again. direct return success.
-                            let exist = { self__.crate_files_exist.lock().await.contains(expect) };
+                            let exist = { self__.crate_files_exist.lock().await.contains(&expect) };
                             if exist {
                                 match responder.send(syscall) {
                                     Ok(_) => {},
@@ -347,7 +345,7 @@ impl Receiver {
                                         log::error!("transmit redirect handle send callback failed: {:?}", err);
                                     },
                                 }
-                                log::error!("file already exists in replica dir, skipping obtain from crew.");
+                                log::error!("file already exists in replica dir, skipping obtain from crew");
                                 continue;
                             }
                         }
@@ -571,7 +569,7 @@ impl Receiver {
 
     }
 
-    //create dir for .pdb, if parent dir not exist, .pdb file can not be generated.
+    //create dir for .pdb and .obj, if parent dir not exist, .pdb and .obj file can not be generated.
     pub async fn check_dir_exists(solution: &String, working_dir: &String, commands: &Vec<String>) -> tokio::task::JoinHandle<()> {
 
         let solution = solution.clone();
@@ -615,7 +613,7 @@ impl Receiver {
 
                     if pdb.is_absolute() {
                         if let Some(path) = split(pdb, &solution) {
-                            if path.is_dir() {
+                            if path.extension().is_none() {
                                 createdir(path.as_path());
                             }
                             else {
@@ -630,7 +628,7 @@ impl Receiver {
                     else {
                         if let Some(path) = split(std::path::Path::new(&working_dir), &solution) {
                             let path = path.join(pdb);
-                            if path.is_dir() {
+                            if path.extension().is_none() {
                                 createdir(path.as_path());
                             }
                             else {
@@ -655,7 +653,7 @@ impl Receiver {
 
                     if obj.is_absolute() {
                         if let Some(path) = split(obj, &solution) {
-                            if path.is_dir() {
+                            if path.extension().is_none() {
                                 createdir(path.as_path());
                             }
                             else {
@@ -670,7 +668,7 @@ impl Receiver {
                     else {
                         if let Some(path) = split(std::path::Path::new(&working_dir), &solution) {
                             let path = path.join(obj);
-                            if path.is_dir() {
+                            if path.extension().is_none() {
                                 createdir(&path);
                             }
                             else {
