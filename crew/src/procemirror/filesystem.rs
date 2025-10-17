@@ -7,7 +7,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
         "NtQueryDirectoryFile" => {
             let results = unsafe { redirect_nt_query_directory_file(params) };
             let local = crate::communicate::package::pack::LocalRedirect {
-                id: redirect.id,
+                cid: redirect.cid,
                 api: redirect.api,
                 params: results.iter().map(|(k, v)| crate::communicate::package::pack::Params {
                     key: k.clone(),
@@ -23,7 +23,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
             match context {
                 Ok((expect, data)) => {
                     let local = crate::communicate::package::pack::LocalRedirect {
-                        id: redirect.id,
+                        cid: redirect.cid,
                         api: redirect.api,
                         params: params.iter().map(|(k, v)| crate::communicate::package::pack::Params {
                             key: k.clone(),
@@ -36,7 +36,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
                 },
                 Err(err) => {
                     let local = crate::communicate::package::pack::LocalRedirect {
-                        id: redirect.id,
+                        cid: redirect.cid,
                         api: redirect.api,
                         params: vec![crate::communicate::package::pack::Params {
                             key: "error".to_string(),
@@ -54,7 +54,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
             match context {
                 Ok((expect, data)) => {
                     let local = crate::communicate::package::pack::LocalRedirect {
-                        id: redirect.id,
+                        cid: redirect.cid,
                         api: redirect.api,
                         params: params.iter().map(|(k, v)| crate::communicate::package::pack::Params {
                             key: k.clone(),
@@ -67,7 +67,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
                 },
                 Err(err) => {
                     let local = crate::communicate::package::pack::LocalRedirect {
-                        id: redirect.id,
+                        cid: redirect.cid,
                         api: redirect.api,
                         params: vec![crate::communicate::package::pack::Params {
                             key: "error".to_string(),
@@ -83,7 +83,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
         _ => {
             log::warn!("Received unknown file system operation from remote redirect: {:?}", redirect);
             let local = crate::communicate::package::pack::LocalRedirect {
-                id: redirect.id,
+                cid: redirect.cid,
                 api: redirect.api,
                 params: Vec::new(),
                 files: Vec::new(),

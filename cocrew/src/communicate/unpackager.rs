@@ -236,7 +236,7 @@ impl Receiver {
             while let Some(request) = stream.next().await {
                 if let Ok(real) = request {
                     
-                    log::debug!("transmit redirect real result: id {:?} api: {:?} params: {:?}", real.id, real.api, real.params);
+                    log::debug!("transmit redirect real result: id {:?} api: {:?} params: {:?}", real.cid, real.api, real.params);
 
                     for intermediate in real.files {
                         //TODO: what time to remove file from crate_files_exist?
@@ -299,14 +299,14 @@ impl Receiver {
                     }
 
                     let command_result = MirrorSysCall {
-                        id: real.id,
+                        cid: real.cid,
                         api: real.api.clone(),
                         args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
                     };
                     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                     match responder.send(command_result) {
                         Ok(_) => {
-                            log::debug!("transmit redirect handle send callback: {:?} {}", real.api, real.id);
+                            log::debug!("transmit redirect handle send callback: {:?} {}", real.api, real.cid);
                         },
                         Err(err) => {
                             log::error!("transmit redirect handle send callback failed: {:?}", err);
@@ -352,7 +352,7 @@ impl Receiver {
                     }
 
                     let reply = package::RemoteRedirect {
-                        id: syscall.id,
+                        cid: syscall.cid,
                         api: syscall.api.clone(), 
                         params: syscall.args.iter().map(|(k, v)| package::Params { key: k.clone(), value: v.clone() }).collect(),
                     };
@@ -360,7 +360,7 @@ impl Receiver {
                     if tx.send(Ok(reply)).await.is_ok() {
                     }
                     else {
-                        log::warn!("transmit redirect handle send syscall message to crew failed. id: {}", syscall.id);
+                        log::warn!("transmit redirect handle send syscall message to crew failed. id: {}", syscall.cid);
                     }
                 }
                 log::debug!("transmit redirect handle write task end.");

@@ -485,7 +485,7 @@ impl Sender {
                                 log::error!("transmit redirect net error: {:?}", err);
                             }
                             else {
-                                log::trace!("transmit redirect net response: {:?} {:?}", local.id, local.api);
+                                log::trace!("transmit redirect net response: {:?} {:?}", local.cid, local.api);
                             } 
                         }
                         Err(err) => {

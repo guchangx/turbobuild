@@ -1,5 +1,4 @@
 
-use std::os::windows::io::AsHandle;
 use std::os::windows::io::AsRawHandle;
 
 use tokio::io::AsyncReadExt;
@@ -7,7 +6,7 @@ use tokio::io::AsyncWriteExt;
 
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub struct MirrorSysCall {
-    pub id: u32,
+    pub cid: u32,
     pub api: String,
     pub args: std::collections::HashMap<String, String>,
 }
@@ -111,7 +110,7 @@ pub fn compiler_redirect_syscall() {
                 let mut rx = { GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_rx.lock().await.resubscribe() };
                 while !closed.load(std::sync::atomic::Ordering::Relaxed) {
                     if let Ok(response) = rx.recv().await {
-                        if response.id / 10000 == pid {
+                        if response.cid / 10000 == pid {
                             let response = format_mirror_syscall(&response);
                             match writer.write(response.as_bytes()).await {
                                 Ok(_) => {
@@ -175,8 +174,8 @@ pub fn compiler_redirect_syscall() {
 }
 
 pub fn format_mirror_syscall(call: &MirrorSysCall) -> String {
-    let response = format!("{{\"id\": {}, \"api\": \"{}\", \"args\": {{{}}}}}",
-        call.id,
+    let response = format!("{{\"cid\": {}, \"api\": \"{}\", \"args\": {{{}}}}}",
+        call.cid,
         call.api,
         call.args.iter()
             .map(|(k, v)| format!("\"{}\": \"{}\"", k, v))
@@ -316,7 +315,7 @@ pub fn compiler_redirect_syscall_2() {
                     loop {
                         if let Ok(response) = rx.blocking_recv() {
                             log::trace!("mirror syscall response recv: pid: {:?} {:?}", pid, response);
-                            if response.id / 10000 == pid {
+                            if response.cid / 10000 == pid {
                                 let response = format_mirror_syscall(&response);
                                 log::debug!("received grpc response: {:?}", response);
 
@@ -414,13 +413,13 @@ mod tests {
         //write meessage to pipe client
         for i in 0..10 {
             let command = MirrorSysCall {
-                id: i,
+                cid: i,
                 api: "test".to_string(),
                 args: std::collections::HashMap::new(),
             };
 
-            let message = format!("{{\"id\": {}, \"api\": \"{}\", \"args\": {{{}}}}}",
-                    command.id,
+            let message = format!("{{\"cid\": {}, \"api\": \"{}\", \"args\": {{{}}}}}",
+                    command.cid,
                     command.api,
                     command.args.iter()
                         .map(|(k, v)| format!("\"{}\": \"{}\"", k, v))
@@ -438,7 +437,7 @@ mod tests {
                 let command = message.unwrap();
                 println!("received command in test: {:?}", command);
                 let response = MirrorSysCall {
-                    id: command.id,
+                    cid: command.cid,
                     api: "response".to_string(),
                     args: std::collections::HashMap::new(),
                 };
@@ -471,13 +470,13 @@ mod tests {
         args.insert("key".to_string(), r#"\\?\D:\turbobuild\target\debug\Replica"#.to_string());
 
         let command = MirrorSysCall {
-            id: 0,
+            cid: 0,
             api: "NtQueryDirectoryFile".to_string(),
             args: args,
         };
 
-        let json = format!("{{\"id\": {}, \"api\": \"{}\", \"args\": {{{}}}}}",
-                    command.id,
+        let json = format!("{{\"cid\": {}, \"api\": \"{}\", \"args\": {{{}}}}}",
+                    command.cid,
                     command.api,
                     command.args.iter()
                         .map(|(k, v)| format!("\"{}\": {:?}", k, v))

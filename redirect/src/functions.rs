@@ -345,7 +345,7 @@ pub unsafe fn kernelbase_create_file_w(
             h_template_file: HANDLE,
         ) -> HANDLE = std::mem::transmute(CREATE_FILE_W_KERNEL_BASE);
 
-        crate::log!(trace, "kernelbase_create_file_w hook path: {}", path);
+        //crate::log!(trace, "kernelbase_create_file_w hook path: {}", path);
         let replace = crate::replace::replace(&mut path);
         if replace == crate::replace::ReplaceResult::Success {
             crate::log!(trace, "kernelbase_create_file_w replace hook: {}", path);
@@ -391,7 +391,7 @@ pub unsafe fn kernelbase_create_file_w(
                     let call = {
                         let mut cid = SYS_CALL_ID.lock().unwrap();
                         let call = crate::syscallredirect::MirrorSysCall {
-                            id: *cid,
+                            cid: *cid,
                             api: "CreateFileW".into(),
                             args,
                             responder: tx,
@@ -399,8 +399,8 @@ pub unsafe fn kernelbase_create_file_w(
                         *cid += 1;
                         call
                     };
-                    let id = call.id.clone();
-                    crate::log!(trace, "kernelbase_create_file_w file id: {} path: {} process: {} thread: {:?}", id.clone(), path, std::process::id(), std::thread::current().id());
+                    let id = call.cid.clone();
+                    crate::log!(trace, "kernelbase_create_file_w file cid: {} path: {} process: {}", id.clone(), path, std::process::id());
 
                     crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(call).unwrap();
                     let expects = rx.blocking_recv().unwrap();
@@ -876,19 +876,22 @@ pub unsafe fn nt_query_directory_file(
             */
         }
         else {
-            if !file_name.is_null() {
-                let buffer = (*file_name).Buffer;
-                let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                crate::log!(trace, "nt_query_directory_file single file failed with status {:#X} filename: {:?} dir filehandle: {:?}", nt_status, name, file_handle);
-            }
-
             if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
             }
             else if nt_status == windows_sys::Win32::Foundation::STATUS_BUFFER_OVERFLOW {
                 crate::log!(warn, "nt_query_directory_file buffer overflow occurred, consider increasing buffer size.");
             }
             else {
-                crate::log!(error, "nt_query_directory_file failed with status: {:#X}", nt_status);
+                let name = if !file_name.is_null() {
+                    let buffer = (*file_name).Buffer;
+                    let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+                    name
+                }
+                else {
+                    "nt_query_directory_file file_name buffer is null".to_string()
+                };
+
+                crate::log!(error, "nt_query_directory_file failed with status: {:#X} file: {:?}", nt_status, name);
             }
         }
 
@@ -1021,9 +1024,24 @@ pub unsafe fn nt_query_directory_file(
                     if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS && !file_information.is_null() {
                     }
                     else {
-                        crate::log!(error, "nt_query_directory_file direct call failed with status: {:#X}", nt_status);
-                    }
+                        if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
+                        }
+                        else if nt_status == windows_sys::Win32::Foundation::STATUS_BUFFER_OVERFLOW {
+                            crate::log!(warn, "nt_query_directory_file buffer overflow occurred, consider increasing buffer size.");
+                        }
+                        else {
+                            let name = if !file_name.is_null() {
+                                let buffer = (*file_name).Buffer;
+                                let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+                                name
+                            }
+                            else {
+                                "nt_query_directory_file file_name buffer is null".to_string()
+                            };
 
+                            crate::log!(error, "nt_query_directory_file direct call failed with status: {:#X} file: {:?}", nt_status, name);
+                        }
+                    }
                     return nt_status;
                 }
             }
@@ -1033,7 +1051,6 @@ pub unsafe fn nt_query_directory_file(
             let mut file_path: Option<String> = None;
             NT_HANDLE_AND_DIR.with(|cell| {
                 let map = cell.borrow();
-                crate::log!(trace, "nt_query_directory_file known file handles: {:?} {:?}", map, file_handle);
                 if let Some(path) = map.get(&file_handle) {
                     file_path = Some(path.clone());
                 }
@@ -1056,7 +1073,7 @@ pub unsafe fn nt_query_directory_file(
                 let call = {
                     let mut cid = SYS_CALL_ID.lock().unwrap();
                     let call = crate::syscallredirect::MirrorSysCall {
-                        id: *cid,
+                        cid: *cid,
                         api: "NtQueryDirectoryFile".into(),
                         args,
                         responder: tx,
@@ -1064,13 +1081,13 @@ pub unsafe fn nt_query_directory_file(
                     *cid += 1;
                     call
                 };
-                let id = call.id.clone();
+                let cid = call.cid.clone();
 
-                crate::log!(trace, "nt_query_directory_file file handle id: {} path: {} process: {} thread: {:?}", id.clone(), path, std::process::id(), std::thread::current().id());
+                crate::log!(trace, "nt_query_directory_file file handle cid: {} path: {}", cid.clone(), path);
                 crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(call).unwrap();
                 let result = rx.blocking_recv().unwrap();
                 //let result = std::collections::HashMap::<String, String>::new();
-                crate::log!(trace, "nt_query_directory_file file handle id: {} path: {} results: {:?} process: {} thread: {:?}", id, path, result, std::process::id(), std::thread::current().id());
+                crate::log!(trace, "nt_query_directory_file file handle cid: {} path: {} results: {:?}", cid, path, result);
 
                 if let Some(fileinfo) = result.get("fileinformation") {
                     if file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation {
@@ -1203,7 +1220,6 @@ pub unsafe fn nt_query_directory_file(
                 }
             }
             else {
-                crate::log!(error, "nt_query_directory_file: don't get dir by handle. {:?}, so directly call nt_query_directory_file", file_handle);
 
                 let mut buffer: [u16; windows_sys::Win32::Foundation::MAX_PATH as usize] = [0; windows_sys::Win32::Foundation::MAX_PATH as usize];
                 let required_length = windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW(
@@ -1232,7 +1248,6 @@ pub unsafe fn nt_query_directory_file(
                     restart_scan
                 );
                 if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS && !file_information.is_null() {
-                    crate::log!(trace, "nt_query_directory_file direct call success.");
                 }
                 else {
                     crate::log!(error, "nt_query_directory_file direct call failed with status: {:#X}", nt_status);
@@ -1372,10 +1387,8 @@ pub unsafe fn nt_create_file(
                     );
                     
                     if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
-                        crate::log!(trace, "nt_create_file include dir: tid: {:?} {:#?} {}", std::thread::current().id(), *file_handle, name);
                         NT_HANDLE_AND_DIR.with(|cell| {
                             cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, name);
-                            crate::log!(trace, "nt_create_file include dir len: {:?}", cell.borrow().len());
                         });
                     }
 
@@ -1445,14 +1458,14 @@ pub unsafe fn nt_create_file(
                     }
                     else {
                         let syscall = {
-                            let mut id = SYS_CALL_ID.lock().unwrap();
+                            let mut cid = SYS_CALL_ID.lock().unwrap();
                             let syscall = crate::syscallredirect::MirrorSysCall {
-                                id: *id,
+                                cid: *cid,
                                 api: "NtCreateFile".into(),
                                 args,
                                 responder: tx,
                             };
-                            *id += 1;
+                            *cid += 1;
                             syscall
                         };
 

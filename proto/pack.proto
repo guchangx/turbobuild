@@ -71,13 +71,13 @@ message Params {
 }
 
 message RemoteRedirect {
-    uint32 id = 1;
+    uint32 cid = 1;
     string api = 2;
     repeated Params params = 3;
 }
 
 message LocalRedirect {
-    uint32 id = 1;
+    uint32 cid = 1;
     string api = 2;
     repeated Params params = 3;
     repeated IntermediateResult files = 4;

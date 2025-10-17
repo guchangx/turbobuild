@@ -81,7 +81,7 @@ pub struct Params {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct RemoteRedirect {
     #[prost(uint32, tag = "1")]
-    pub id: u32,
+    pub cid: u32,
     #[prost(string, tag = "2")]
     pub api: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "3")]
@@ -90,7 +90,7 @@ pub struct RemoteRedirect {
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct LocalRedirect {
     #[prost(uint32, tag = "1")]
-    pub id: u32,
+    pub cid: u32,
     #[prost(string, tag = "2")]
     pub api: ::prost::alloc::string::String,
     #[prost(message, repeated, tag = "3")]

@@ -1,5 +1,3 @@
-use tokio::io::AsyncWriteExt;
-use tokio::io::AsyncReadExt;
 
 use crate::log;
 
@@ -23,7 +21,7 @@ async fn connect() -> std::result::Result<tokio::net::windows::named_pipe::Named
 }
 
 pub struct MirrorSysCall {
-    pub id: u32,
+    pub cid: u32,
     pub api: String,
     pub args: std::collections::HashMap<String, String>,
     pub responder: tokio::sync::oneshot::Sender<std::collections::HashMap<String, String>>,
@@ -162,8 +160,6 @@ unsafe fn redirect_syscall_2_cocrew() {
                                         &mut final_bytes,
                                         winapi::shared::minwindef::FALSE
                                     );
-
-                                    crate::log!(info, "read pipe completed, pid: {} bytes: {}", std::process::id(), final_bytes);
 
                                     let mut is_moredata = false;
                                     if result == winapi::shared::minwindef::FALSE {
@@ -306,7 +302,7 @@ unsafe fn redirect_syscall_2_cocrew() {
 
                                 let responder = mirror_call.responder;
                                 {
-                                    responders_.lock().unwrap().insert(mirror_call.id, responder);
+                                    responders_.lock().unwrap().insert(mirror_call.cid, responder);
                                 }
 
                                 let event = winapi::um::synchapi::CreateEventW(
@@ -344,7 +340,7 @@ unsafe fn redirect_syscall_2_cocrew() {
                                         );
 
                                         if ret == winapi::shared::minwindef::FALSE {
-                                            if let Some(responder) = responders_.lock().unwrap().remove(&mirror_call.id) {
+                                            if let Some(responder) = responders_.lock().unwrap().remove(&mirror_call.cid) {
                                                 responder.send(std::collections::HashMap::new()).unwrap_or_else(|err| {
                                                     crate::log!(error, "send empty result to virtual syscall failed. {:?}", err);
                                                 });
@@ -400,8 +396,8 @@ pub fn async_connect_syscall_namedpipe() {
 }
 
 fn format_mirror_syscall(call: &MirrorSysCall) -> String {
-    let str = format!("{{\"id\": {}, \"api\": \"{}\", \"args\": {{{}}}}}",
-            call.id,
+    let str = format!("{{\"cid\": {}, \"api\": \"{}\", \"args\": {{{}}}}}",
+            call.cid,
             call.api,
             call.args.iter()
                 .map(|(k, v)| format!("\"{}\": {:?}", k, v))
@@ -413,8 +409,8 @@ fn format_mirror_syscall(call: &MirrorSysCall) -> String {
 pub fn parse_mirror_command(json: &str) -> (u32, String, std::collections::HashMap<String, String>) {
     let json = json.trim();
 
-    let id = extract_number_field(json, "id").unwrap_or_else(|err| {
-        crate::log!(error, "parse id field failed: {}", err);
+    let cid = extract_number_field(json, "cid").unwrap_or_else(|err| {
+        crate::log!(error, "parse cid field failed: {}", err);
         0
     });
 
@@ -428,7 +424,7 @@ pub fn parse_mirror_command(json: &str) -> (u32, String, std::collections::HashM
         std::collections::HashMap::new()
     });
 
-    return (id, api, args);
+    return (cid, api, args);
 }
 
 fn extract_number_field(json: &str, field_name: &str) -> Result<u32, String> {
