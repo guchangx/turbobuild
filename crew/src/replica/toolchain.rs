@@ -222,8 +222,10 @@ impl Property {
         let bin_dir = compiler_env.compiler_path.clone();
         let version = compiler_env.msvc_version;
 
+        let replica_resource = crate::fingerprint::register::fetch_resource();
+
         let devicename = crate::fingerprint::gather::SystemInfo::fetch_devicename();
-        
+
         for item in resources {
             // skip when addr is localhost when not in local machine.
 
@@ -232,69 +234,92 @@ impl Property {
             }
 
             let mut exist = false;
-            for compiler in item.compiler_versions {
+            for compiler in &item.compiler_versions {
                 if compiler.version == version {
                     exist = true;
+                    break;
                 }
+            }
+
+            for compiler in &item.compiler_versions {
+                replica_resource.compiler_versions.iter().find(|cversion| {
+                    if compiler.version == cversion.version {
+                        exist = true;
+                        return true;
+                    }
+                    else {
+                        return false;
+                    }
+                });
             }
 
             if !exist {
                 log::warn!("check resource {} not has msvc {}, so sync it. path: {:?}", item.addr, version, bin_dir.clone());
                 let addr =  item.addr.clone();
 
+                let mut sync_task = Vec::new();
                 let version_= version.clone();
                 if let Some(name) = bin_dir.clone().file_name() {
                     if name.to_str() == Some("bin") {
                         let path = bin_dir.clone();
-                        tokio::spawn(async move {
+                        let task = tokio::spawn(async move {
                             Self::sync_compiler_toolchain(path.to_str().unwrap(), &item.addr).await;
-                            log::info!("sync compiler toolchain {} to {} finished.", version_, item.addr);
-
-                            let version_x64 = CompilerVersion {
-                                version: version_.clone(),
-                                host: Arch::x64,
-                                target: Arch::x64,
-                            };
-                            
-                            let version_x84 = CompilerVersion {
-                                version: version_,
-                                host: Arch::x64,
-                                target: Arch::x86,
-                            };
-
-                            let resource = CrewsResource {
-                                username: item.username,
-                                aliasname: item.aliasname, 
-                                devicename: item.devicename,
-                                addr: item.addr,
-                                compiler_versions: [version_x64, version_x84].to_vec(),
-                            };
-
-                            let info = serde_json::to_string(&resource).unwrap();
-                            log::info!("report synced crew resource: {:?}", info);
-                            crate::communicate::notifier::NotificationSender::notify_once(info).await;
+                            log::info!("sync compiler toolchain {} to {} finished.", &version_, item.addr);
                         });
+
+                        sync_task.push(task);
                     }
 
                     let winkits_includes = compiler_env.winkits_includes_path.clone();
-                    let msvc_includes = compiler_env.msvc_includes_path.clone();
-                    tokio::spawn(async move {
+                    let addr_ = addr.clone();
+                    let task = tokio::spawn(async move {
                         for dir in winkits_includes {
                             Self::sync_compiler_includes(&dir.to_str().unwrap(), &addr).await;
-                        }
-
-                        for dir in msvc_includes {
-                            Self::sync_compiler_includes(&dir.to_str().unwrap(), &addr).await;
-                        }
-                        
+                        } 
                     });
+                    sync_task.push(task);
+
+                    let addr__ = addr_.clone();
+                    let msvc_includes = compiler_env.msvc_includes_path.clone();
+                    let task = tokio::spawn(async move {
+                        for dir in msvc_includes {
+                            Self::sync_compiler_includes(&dir.to_str().unwrap(), &addr_).await;
+                        }
+                    });
+                    sync_task.push(task);
+
+                    for task in sync_task {
+                        let _ = task.await;
+                    }
+
+                    let version_x64 = CompilerVersion {
+                        version: version.clone(),
+                        host: Arch::x64,
+                        target: Arch::x64,
+                    };
+                    
+                    let version_x84 = CompilerVersion {
+                        version: version.clone(),
+                        host: Arch::x64,
+                        target: Arch::x86,
+                    };
+
+                    let resource = CrewsResource {
+                        username: item.username,
+                        aliasname: item.aliasname, 
+                        devicename: item.devicename,
+                        addr: addr__,
+                        compiler_versions: [version_x64, version_x84].to_vec(),
+                    };
+
+                    let info = serde_json::to_string(&resource).unwrap();
+                    log::info!("report synced crew resource: {:?}", info);
+                    crate::communicate::notifier::NotificationSender::notify_once(info).await;
                 }
             }
             else {
                 log::info!("check resource addr: {} has msvc {}, not need to sync.", item.addr, version);
             }
-
-
         }
     }
     
