@@ -745,7 +745,7 @@ pub fn redirect_stdout_log() {
     unsafe { loop {
 
         let pipe = winapi::um::namedpipeapi::CreateNamedPipeW(wchars.as_ptr(), winapi::um::winbase::PIPE_ACCESS_INBOUND,  
-        winapi::um::winbase::PIPE_TYPE_MESSAGE | winapi::um::winbase::PIPE_READMODE_MESSAGE |  winapi::um::winbase::PIPE_WAIT,
+        winapi::um::winbase::PIPE_TYPE_MESSAGE | winapi::um::winbase::PIPE_READMODE_MESSAGE | winapi::um::winbase::PIPE_WAIT,
         winapi::um::winbase::PIPE_UNLIMITED_INSTANCES,
         0, 0, 0, std::ptr::null_mut());
         
@@ -793,11 +793,11 @@ pub fn redirect_stdout_log() {
                         }
                         let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
                         if moredata.is_empty() {
-                            log::info!("redirect: {}", output);
+                            log::info!(target: "redirect", "{}", output);
                         }
                         else {
                             moredata.push_str(&output);
-                            log::info!("redirect: {}", moredata);
+                            log::info!(target: "redirect", "{}", moredata);
                             moredata.clear();
                         }
                         //tokio::io::stdout().write_all(format!("redirect: {}\n", output).as_bytes()).await.expect("Failed to write to stdout");
@@ -826,6 +826,7 @@ pub fn redirect_stdout_log() {
         }
         count += 1;
     }}
+
 }
 
 fn repair_original_path(solution: &std::ffi::OsString, working_dir: &std::ffi::OsString, path: &std::path::PathBuf) -> std::ffi::OsString {
@@ -1419,5 +1420,10 @@ mod tests {
         println!("compile stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile stderr: {}", String::from_utf8_lossy(&stderr));
     }
-
+     
+    #[test]
+    fn redirect_logger_test() {
+        tools::logger::init_once_logger();
+        log::info!(target: "redirect", "{}", "test output");
+    }
 }

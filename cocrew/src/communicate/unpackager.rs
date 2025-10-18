@@ -306,7 +306,7 @@ impl Receiver {
                     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
                     match responder.send(command_result) {
                         Ok(_) => {
-                            log::debug!("transmit redirect handle send callback: {:?} {}", real.api, real.cid);
+                            //log::debug!("transmit redirect handle send callback: {:?} {}", real.api, real.cid);
                         },
                         Err(err) => {
                             log::error!("transmit redirect handle send callback failed: {:?}", err);

@@ -70,7 +70,7 @@ static GENERATEDDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static REPLICA_PDBPATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static INCLUDES: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sync::OnceLock::new();
 static SOURCES: std::sync::OnceLock<std::collections::HashSet<std::ffi::OsString>> = std::sync::OnceLock::new();
-static STDOUT_LOG_HANDLE: std::sync::LazyLock<std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
 static WORKINGDIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     if let Ok(path) = std::env::current_dir() {
         path.to_string_lossy().to_string()
@@ -82,169 +82,6 @@ static WORKINGDIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
 static PROCESS_ID: std::sync::LazyLock<u32> = std::sync::LazyLock::new(|| {
     std::process::id()
 });
-
-unsafe fn redirect_stdout_log_2_cocrew() {
-
-    use std::os::windows::ffi::OsStrExt;
-    let iocp = winapi::um::ioapiset::CreateIoCompletionPort(
-        winapi::um::handleapi::INVALID_HANDLE_VALUE,
-        std::ptr::null_mut(),
-        0,
-        0
-    );
-
-    let iocp_handle = tools::ptr::HandleBox::new(iocp);
-    let iocp_handle_ = iocp_handle.clone();
-
-    let handle = RUNTIME.lock().unwrap().spawn(async move {
-
-        let name = std::ffi::OsString::from("\\\\.\\pipe\\redirect_stdout_log_pipe");
-        let name = name.encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
-    
-        let mut rx = crate::LOGGER.rx.lock().unwrap().take().unwrap();
-
-        if winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 300) == winapi::shared::minwindef::TRUE {
-
-            for _ in 0..3 {
-                let pipe_handle = winapi::um::fileapi::CreateFileW(name.as_ptr(), winapi::um::winnt::GENERIC_WRITE,
-                    0,
-                    std::ptr::null_mut(),  
-                    winapi::um::fileapi::OPEN_EXISTING, 
-                    winapi::um::winbase::FILE_FLAG_OVERLAPPED, 
-                    winapi::shared::ntdef::NULL
-                );
-
-                if !pipe_handle.is_null() && pipe_handle != winapi::um::handleapi::INVALID_HANDLE_VALUE {
-
-                    let pipe_handle = tools::ptr::HandleBox::new(pipe_handle);
-
-                    if winapi::um::ioapiset::CreateIoCompletionPort(
-                        pipe_handle.get().to_owned(),
-                        iocp_handle.get().to_owned(),
-                        0,
-                        0
-                    ).is_null() {
-                        winapi::um::handleapi::CloseHandle(iocp_handle.get().to_owned());
-                        winapi::um::handleapi::CloseHandle(pipe_handle.get().to_owned());
-                        crate::logger::output_debug_string(&format!("redirect stdout CreateIoCompletionPort failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError())));
-                        break;
-                    }
-
-                    loop {
-                        let message = rx.recv().await;
-
-                        match message {
-                            Some(message) => {
-                                let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
-                                let mut bytes: winapi::shared::minwindef::DWORD = 0;
-                                let result = winapi::um::fileapi::WriteFile(
-                                    pipe_handle.get().to_owned(),
-                                    message.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
-                                    message.len() as u32,
-                                    &mut bytes,
-                                    &mut overlapped
-                                );
-
-                                if result == winapi::shared::minwindef::FALSE {
-                                    let error = winapi::um::errhandlingapi::GetLastError();
-                                    if error == winapi::shared::winerror::ERROR_IO_PENDING {
-                                        
-                                    }
-                                    else if error == winapi::shared::winerror::ERROR_BROKEN_PIPE || error == winapi::shared::winerror::ERROR_NO_DATA {
-                                        //break;
-                                    }
-                                    else {
-                                        crate::logger::output_debug_string(&format!("write pipe error, failed code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
-                                        break;
-                                    }
-                                }
-                                
-                                //if winapi::shared::minwindef::FALSE == winapi::um::fileapi::FlushFileBuffers(pipe_handle.get().to_owned()) {
-                                //    println!("FlushFileBuffers failed, error code: {}, message: {}", winapi::um::errhandlingapi::GetLastError(), tools::utils::get_winapi_error_message(winapi::um::errhandlingapi::GetLastError()));
-                                //}
-                            },
-                            None => {
-                                break;
-                            }
-                        }
-                    };
-                    
-                    winapi::um::ioapiset::PostQueuedCompletionStatus(
-                        iocp_handle.get().to_owned(), 
-                        0, 
-                        0, 
-                        std::ptr::null_mut()
-                    );
-
-                    winapi::um::handleapi::CloseHandle(pipe_handle.get().to_owned());
-                    break;
-                }
-                else {
-                    let error = winapi::um::errhandlingapi::GetLastError();
-                    
-                    if error == winapi::shared::winerror::ERROR_PIPE_BUSY || error == winapi::shared::winerror::ERROR_FILE_NOT_FOUND {
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                        continue;
-                    }
-                    else {
-                        crate::logger::output_debug_string(&format!("redirect stdout createFileW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
-                    }
-                }
-            }
-        }
-        else {
-            let error = winapi::um::errhandlingapi::GetLastError();
-            //i do not know why println!() call case cl.exe stdoutput. so use output_debug_string. 
-            crate::logger::output_debug_string(&format!("redirect stdout WaitNamedPipeW failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
-        }
-        
-        loop {
-            match rx.try_recv() {
-                Ok(_) => {
-                },
-                Err(err) => {
-                    crate::logger::output_debug_string(&format!("redirect_stdout_log_2_cocrew: failed to receive message: {}", err));
-                    break;
-                },
-            }
-        }
-        rx.close();
-        
-        return ();
-    });
-
-    *STDOUT_LOG_HANDLE.lock().unwrap() = Some(handle);
-
-    let _ = std::thread::spawn(move || {
-        crate::logger::output_debug_string(&format!("GetQueuedCompletionStatus start."));
-        loop {
-            let mut bytes: winapi::shared::minwindef::DWORD = 0;
-            let mut key: usize = 0;
-            let mut overlapped: *mut winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
-
-            let result = winapi::um::ioapiset::GetQueuedCompletionStatus(
-                iocp_handle_.get().to_owned(),
-                &mut bytes,
-                &mut key,
-                &mut overlapped,
-                winapi::um::winbase::INFINITE
-            );
-
-            if result == winapi::shared::minwindef::FALSE || bytes == 0 {
-                let error = winapi::um::errhandlingapi::GetLastError();
-                crate::logger::output_debug_string(&format!("GetQueuedCompletionStatus failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error)));
-                break;
-            }
-            else {
-                if key == 0 {
-                    break;
-                }
-            }
-        }
-        winapi::um::handleapi::CloseHandle(iocp_handle_.get().to_owned());
-        crate::logger::output_debug_string(&format!("GetQueuedCompletionStatus end."));
-    });
-}
 
 fn read_project_property_from_stdin() {
     //let hendle = RUNTIME.lock().unwrap().spawn(
@@ -419,38 +256,6 @@ fn fetch_args_from_command() {
 
 }   
 
-static LOGGER_LEVEL: LogLevel = LogLevel::Trace;
-
-#[derive(PartialOrd, PartialEq)]
-enum LogLevel {
-    Trace = 0,
-    Debug = 1,
-    Info = 2,
-    Warn = 3,
-    Error = 4,
-}
-
-#[macro_export]
-macro_rules! log {
-    ($level:ident, $($arg:tt)*) => {
-        {   
-            let level = match stringify!($level) {
-                "trace" => crate::LogLevel::Trace,
-                "debug" => crate::LogLevel::Debug,
-                "info" => crate::LogLevel::Info,
-                "warn" => crate::LogLevel::Warn,
-                "error" => crate::LogLevel::Error,
-                _ => crate::LogLevel::Warn,
-            };
-
-            if level >= crate::LOGGER_LEVEL {
-                let message = format!("{}:{} {}", file!().split(r"\").last().unwrap_or("<unnamed>"), line!(), format!($($arg)*));
-                crate::logger::Logger::$level(message.clone());
-            }
-        }
-    };
-}
-
 fn uninit_custom_resource() {
     log!(info, "[{:?}] uninit custom resource. receive is closed: {}", crate::PROJECTNAME.get(), LOGGER.tx.capacity());
 }
@@ -503,7 +308,7 @@ unsafe extern "system" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserved
 
             fetch_args_from_command(); 
 
-            redirect_stdout_log_2_cocrew();
+            crate::logger::redirect_stdout_log_2_cocrew();
             
             crate::syscallredirect::async_connect_syscall_namedpipe();
             

@@ -165,7 +165,7 @@ pub fn compiler_redirect_syscall() {
                     }
                 }
                 closed_.store(true, std::sync::atomic::Ordering::Relaxed);
-                log::trace!("cocrew syscall namedpipe reader end {}", pid);
+                log::trace!("cocrew syscall namedpipe reader end. client pid: {}", pid);
             });
             
             counter += 1;

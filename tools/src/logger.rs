@@ -6,24 +6,29 @@ pub fn init_logger(module: &str) {
     let mut builder = env_logger::Builder::new();
     let logger = builder
     .format(|buf, record| {
-        writeln!(
-            buf,
-            "[{} {} {} {}:{}] {}",
-            buf.timestamp_millis(),
-            {
-                match record.level() {
-                    log::Level::Error => "E",
-                    log::Level::Warn => "W",
-                    log::Level::Info => "I",
-                    log::Level::Debug => "D",
-                    log::Level::Trace => "T", 
-                } 
-            },
-            record.target().split("::").next().unwrap_or("<unnamed>"),
-            record.file().unwrap_or("<unnamed>").split(r"\").last().unwrap_or("<unnamed>"),
-            record.line().unwrap_or(0),
-            record.args()
-        )
+        if record.target().starts_with("redirect") {
+            writeln!(buf, "{} {}", record.target(), record.args())
+        }
+        else {
+            writeln!(
+                buf,
+                "[{} {} {} {}:{}] {}",
+                buf.timestamp_millis(),
+                {
+                    match record.level() {
+                        log::Level::Error => "E",
+                        log::Level::Warn => "W",
+                        log::Level::Info => "I",
+                        log::Level::Debug => "D",
+                        log::Level::Trace => "T", 
+                    } 
+                },
+                record.target().split("::").next().unwrap_or("<unnamed>"),
+                record.file().unwrap_or("<unnamed>").split(r"\").last().unwrap_or("<unnamed>"),
+                record.line().unwrap_or(0),
+                record.args()
+            )   
+        }
     })
     .write_style(env_logger::WriteStyle::Always)
     .format_level(true)
@@ -32,6 +37,7 @@ pub fn init_logger(module: &str) {
     //.filter(Some("crew"), log::LevelFilter::Trace)
     //.filter(Some("cocrew"), log::LevelFilter::Trace)
     .filter_module(module, log::LevelFilter::Trace)
+    .filter_module("redirect", log::LevelFilter::Trace)
     .target(env_logger::Target::Stdout)
     .try_init();
 

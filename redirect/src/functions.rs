@@ -1340,7 +1340,6 @@ pub unsafe fn nt_create_file(
                     );
 
                     if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
-                        crate::log!(trace, "nt_create_file file_handle: {:#?}", *file_handle);
                         NT_HANDLE_AND_DIR.with(|cell| {
                             cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, name);
                         });
