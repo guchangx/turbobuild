@@ -158,6 +158,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 if let Some(roster) = &common.resources {
                                     
                                     let mut crew = serde_json::from_str::<crate::roster::crews::CrewResource>(&notification.message).expect("register request message parse failed");
+                                    
                                     if crew.addr.is_empty() {
                                         crew.addr = addr.ip().to_string();
                                     }

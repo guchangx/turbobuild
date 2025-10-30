@@ -260,6 +260,10 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
             let target = std::path::PathBuf::from( &path[4..path.len() - 1]);
             //TODO: startwith can replace equal?
             if crate::INCLUDES.get().unwrap().iter().any(|item| item == &target || target.starts_with(item)) {
+                //return Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::IncludesDir, |modified| {
+                //    *path = modified;
+                //    ReplaceDirResult::IncludesDir
+                //});
                 return ReplaceDirResult::IncludesDir;
             }
             else {

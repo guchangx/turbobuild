@@ -1,4 +1,5 @@
 
+
 use winapi::{
     shared::{minwindef::{DWORD, LPVOID}, ntdef::{LPCWSTR, LPWSTR}},
     um::{minwinbase::LPSECURITY_ATTRIBUTES, winnt::{HANDLE, LPCSTR, LPSTR, WCHAR}}
@@ -10,6 +11,8 @@ pub static mut CREATE_FILE_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std:
 pub static mut CREATE_FILE_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut NT_QUERY_DIRECTORY_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut NT_CREATE_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+pub static mut NT_QUERY_INFORMATION_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+pub static mut NT_QUERY_VOLUME_INFORMATION_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_PROCESS_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_PROCESS_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 
@@ -399,8 +402,8 @@ pub unsafe fn kernelbase_create_file_w(
                         *cid += 1;
                         call
                     };
-                    let id = call.cid.clone();
-                    crate::log!(trace, "kernelbase_create_file_w file cid: {} path: {} process: {}", id.clone(), path, std::process::id());
+                    let cid = call.cid.clone();
+                    crate::log!(trace, "kernelbase_create_file_w file cid: {} path: {} process: {}", cid.clone(), path, std::process::id());
 
                     crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(call).unwrap();
                     let expects = rx.blocking_recv().unwrap();
@@ -820,6 +823,17 @@ pub unsafe fn nt_query_directory_file(
         restartscan: bool,
     ) -> windows_sys::Win32::Foundation::NTSTATUS = std::mem::transmute(NT_QUERY_DIRECTORY_FILE);
 
+    log!(debug, "nt_query_directory_file called: handle: {:?}, file_information_class: {:?}, return_single_entry: {}, restart_scan: {}, file_name: {:?}", file_handle, file_information_class, return_single_entry, restart_scan, 
+        if !file_name.is_null() {
+            let buffer = (*file_name).Buffer;
+            let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+            name
+        }
+        else {
+            "nt_query_directory_file file_name buffer is null".to_string()
+        }
+    );
+
     if (restart_scan && !file_name.is_null()) || (file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation) {
         let nt_status = nt_query_directory_file(
             file_handle,
@@ -877,6 +891,7 @@ pub unsafe fn nt_query_directory_file(
         }
         else {
             if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
+                crate::log!(debug, "nt_query_directory_file reached source file don't more files.");
             }
             else if nt_status == windows_sys::Win32::Foundation::STATUS_BUFFER_OVERFLOW {
                 crate::log!(warn, "nt_query_directory_file buffer overflow occurred, consider increasing buffer size.");
@@ -899,15 +914,16 @@ pub unsafe fn nt_query_directory_file(
     }
     else {
         //second or subsequent query.
+        log!(debug, "nt_query_directory_file hook second or subsequent query handle: {:?}, Information: {} length: {} status: {}", file_handle, (*io_status_block).Information, length, (*io_status_block).Anonymous.Status);
+
         if (*io_status_block).Information < length as usize && (*io_status_block).Information > 0 && (*io_status_block).Anonymous.Status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
 
             let maybe_filenames = NT_HANDLE_AND_FILENAMES.with(|cell| {
                 let handle_and_filenames = cell.borrow();
-                return handle_and_filenames.get(&file_handle).cloned();
+                handle_and_filenames.get(&file_handle).cloned()
             });
 
             //crate::logger::output_debug_string(&format!("nt_query_directory_file maybe_filenames: {:?} handle: {:?}", std::thread::current().id(), file_handle));
-
             if let Some(filenames) = maybe_filenames {
                     
                 let mut entries_written = 0;
@@ -988,7 +1004,8 @@ pub unsafe fn nt_query_directory_file(
                 //second or subsequent query no cache
 
                 //crate::logger::output_debug_string(&format!("nt_query_directory_file can't find dir: {:#?} handle dir len: {}", file_handle, NT_HANDLE_AND_DIR.with(|cell| cell.borrow().len())));
-                
+            
+
                 let handle_cache_dir = NT_HANDLE_AND_DIR.with(|cell| {
                     let handle_and_dir = cell.borrow();
                     return handle_and_dir.get(&file_handle).is_some();
@@ -1048,6 +1065,9 @@ pub unsafe fn nt_query_directory_file(
         }
         else {
             //first query.
+
+            log!(trace, "nt_query_directory_file first query handle: {:?}", file_handle);
+
             let mut file_path: Option<String> = None;
             NT_HANDLE_AND_DIR.with(|cell| {
                 let map = cell.borrow();
@@ -1166,7 +1186,7 @@ pub unsafe fn nt_query_directory_file(
                         };
                     }
 
-                    /* 
+                    
                     //try access result
                     let mut current_offset = 0usize;
                     let mut entry_count = 0;
@@ -1205,7 +1225,7 @@ pub unsafe fn nt_query_directory_file(
                             break;
                         }
                     }
-                    */
+                    
                         
                     return if entries_written > 0 {
                         windows_sys::Win32::Foundation::STATUS_SUCCESS
@@ -1300,6 +1320,7 @@ pub unsafe fn nt_create_file(
                 */
 
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+                let unmodified = name.clone();
                 crate::log!(trace, "nt_create_file hook path: {}", name);
                 let replace = crate::replace::replace_dir(&mut name);
                 if replace == crate::replace::ReplaceDirResult::Success {
@@ -1371,27 +1392,59 @@ pub unsafe fn nt_create_file(
                     return nt_status;
                 }
                 else if replace == crate::replace::ReplaceDirResult::IncludesDir {
-                    let nt_status = zw_create_file(
-                        file_handle,
-                        access_mask,
-                        object_attributes,
-                        io_status_block,
-                        allocation_size,
-                        file_attributes,
-                        share_access,
-                        create_disposition,
-                        create_options,
-                        ea_buffer,
-                        ea_length
+                    crate::log!(trace, "nt_create_file includes dir hook: {}", name.clone());
+
+                    let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
+                    let object_name_source_wide_char = std::ffi::OsString::from(name.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+                    
+                    let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
+                    if ret != windows_sys::Win32::Foundation::STATUS_SUCCESS {
+                        crate::log!(error, "rtl init unicode string failed.");
+                    }
+
+                    let mut fake_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
+                       Length: object_name.Length,
+                       MaximumLength: object_name.MaximumLength,
+                       Buffer: object_name.Buffer,
+                    };
+
+                    (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
+
+                    let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block, allocation_size,
+                        file_attributes, share_access, create_disposition, create_options, ea_buffer, ea_length
                     );
                     
                     if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                        crate::log!(error, "zw_create_file includes dir success! path: {} handle: {:?}", unmodified, *file_handle);
+
+                        NT_HANDLE_AND_DIR.with(|cell| {
+                            cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, unmodified);
+                        });
+                    }
+                    else {
+                        let cid = {
+                            let mut cid = SYS_CALL_ID.lock().unwrap();
+                            let id = *cid;
+                            *cid += 1;
+                            id
+                        };
+                        
+                        let handle = cid as windows_sys::Win32::Foundation::HANDLE; 
+                        *file_handle = handle as _;
+
+                        if !io_status_block.is_null() {
+                            (*io_status_block).Information = windows_sys::Win32::System::WindowsProgramming::FILE_OPENED as _; 
+                            (*io_status_block).Status = windows_sys::Win32::Foundation::STATUS_SUCCESS;
+                        }
+
+                        crate::log!(error, "zw_create_file includes dir failed! error_code: {:#X} path: {} handle: {:?}", nt_status, name, *handle);
+
                         NT_HANDLE_AND_DIR.with(|cell| {
                             cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, name);
                         });
                     }
 
-                    return nt_status;
+                    return windows_sys::Win32::Foundation::STATUS_SUCCESS;
                 }
                 else if let crate::replace::ReplaceDirResult::NeedObtain(expect) = replace {
                     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1591,6 +1644,115 @@ pub unsafe fn pass_project_and_replica_to_redriect(handle: winapi::shared::ntdef
         crate::log!(warn, "don't pass project name and project path, use current path and don't redirect.");
     }
     winapi::um::handleapi::CloseHandle(handle);
+}
+
+pub unsafe fn nt_query_information_file(
+    filehandle: windows_sys::Win32::Foundation::HANDLE,
+    iostatusblock: *mut windows_sys::Win32::System::IO::IO_STATUS_BLOCK,
+    fileinformation: *mut core::ffi::c_void,
+    length: u32,
+    fileinformationclass: windows_sys::Wdk::Storage::FileSystem::FILE_INFORMATION_CLASS) -> windows_sys::Win32::Foundation::NTSTATUS {
+
+    log!(trace, "nt_query_information_file called");
+
+    let nt_query_information_file: extern "system" fn(
+        filehandle: windows_sys::Win32::Foundation::HANDLE,
+        iostatusblock: *mut windows_sys::Win32::System::IO::IO_STATUS_BLOCK,
+        fileinformation: *mut core::ffi::c_void,
+        length: u32,
+        fileinformationclass: windows_sys::Wdk::Storage::FileSystem::FILE_INFORMATION_CLASS
+    ) -> windows_sys::Win32::Foundation::NTSTATUS = std::mem::transmute(NT_QUERY_INFORMATION_FILE);
+
+    let skip = NT_HANDLE_AND_DIR.with(|cell| {
+        let handle_and_dir = cell.borrow();
+        return handle_and_dir.get(&filehandle).is_some();
+    });
+
+    if false && skip && fileinformationclass == windows_sys::Wdk::Storage::FileSystem::FileIsRemoteDeviceInformation {
+        if !fileinformation.is_null() {
+            *(fileinformation as *mut u8) = 0;
+        }
+
+        if !iostatusblock.is_null() {
+            (*iostatusblock).Anonymous.Status = windows_sys::Win32::Foundation::STATUS_SUCCESS;
+            (*iostatusblock).Information = 1 as _;
+        }
+        return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+    }
+    else {
+        let nt_status = nt_query_information_file(
+            filehandle,
+            iostatusblock,
+            fileinformation,
+            length,
+            fileinformationclass
+        );
+
+        return nt_status;
+    }
+}
+
+pub unsafe fn nt_query_volume_information_file(
+    filehandle: windows_sys::Win32::Foundation::HANDLE,
+    iostatusblock: *mut windows_sys::Win32::System::IO::IO_STATUS_BLOCK,
+    fsinformation: *mut core::ffi::c_void,
+    length: u32,
+    fsinformationclass: windows_sys::Wdk::Storage::FileSystem::FS_INFORMATION_CLASS
+) -> windows_sys::Win32::Foundation::NTSTATUS {
+
+    //log!(trace, "nt_query_volume_info_file called");
+    
+    if filehandle.is_null() {
+        return windows_sys::Win32::Foundation::STATUS_INVALID_HANDLE;
+    }
+
+    crate::logger::output_debug_string(&format!("nt_query_volume_information_file called, handle: {:?}, class: {:?}" ,filehandle, fsinformationclass));
+
+
+
+    let skip = NT_HANDLE_AND_DIR.try_with(|cell| {
+        let handle_and_dir = cell.try_borrow();
+        match handle_and_dir {
+            Ok(handle_and_dir) => {
+                handle_and_dir.get(&filehandle).is_some()
+            },
+            Err(_) => {
+                false
+            }
+        }
+    }).unwrap_or(false);
+    
+    if skip && fsinformationclass == windows_sys::Wdk::Storage::FileSystem::FileFsDeviceInformation {
+        let file_fs_device_info = fsinformation as *mut windows_sys::Wdk::System::SystemServices::FILE_FS_DEVICE_INFORMATION;
+        if !file_fs_device_info.is_null() {
+            (*file_fs_device_info).DeviceType = windows_sys::Win32::Storage::FileSystem::FILE_DEVICE_DISK as u32;
+            (*file_fs_device_info).Characteristics = 0;
+        }
+
+        if !iostatusblock.is_null() {
+            (*iostatusblock).Anonymous.Status = windows_sys::Win32::Foundation::STATUS_SUCCESS;
+            (*iostatusblock).Information = std::mem::size_of::<windows_sys::Wdk::System::SystemServices::FILE_FS_DEVICE_INFORMATION>() as _;
+        }
+        return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+    }
+    else {
+        let nt_query_information_file_: extern "system" fn(
+            filehandle: windows_sys::Win32::Foundation::HANDLE,
+            iostatusblock: *mut windows_sys::Win32::System::IO::IO_STATUS_BLOCK,
+            fsinformation: *mut core::ffi::c_void,
+            length: u32,
+            fsinformationclass: windows_sys::Wdk::Storage::FileSystem::FS_INFORMATION_CLASS
+        ) -> windows_sys::Win32::Foundation::NTSTATUS = std::mem::transmute(NT_QUERY_VOLUME_INFORMATION_FILE);
+
+        let nt_status= nt_query_information_file_(
+            filehandle,
+            iostatusblock,
+            fsinformation,
+            length,
+            fsinformationclass
+        );
+        return nt_status;
+    }
 }
 
 #[cfg(test)]
