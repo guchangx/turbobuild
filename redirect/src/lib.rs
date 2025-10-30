@@ -227,8 +227,11 @@ fn fetch_args_from_command() {
     }
 
     if pdb_sub_dir.is_empty() {
-        let modified = std::path::Path::new(&crate::REPLICADIR.get().unwrap()).join("Project").join(crate::SOLUTIONNAME.get().unwrap()).join("vc143.pdb");
-        REPLICA_PDBPATH.set(modified.to_string_lossy().to_string()).unwrap();
+
+        if let Some(replica) = crate::REPLICADIR.get() {
+            let modified = std::path::Path::new(&replica).join("Project").join(crate::SOLUTIONNAME.get().unwrap()).join("vc143.pdb");
+            REPLICA_PDBPATH.set(modified.to_string_lossy().to_string()).unwrap();
+        }
     }
 
     log!(debug, "SOLUTIONNAME: {:?}", SOLUTIONNAME.get());
@@ -299,7 +302,7 @@ unsafe extern "system" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserved
 
             //winapi::um::errhandlingapi::AddVectoredExceptionHandler(1, Some(custom_exception_handler));
             //force_unbuffered_output();
-            //show_message_box_for_debug();
+            show_message_box_for_debug();
             
             winapi::um::libloaderapi::DisableThreadLibraryCalls(hinst);
 

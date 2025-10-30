@@ -726,7 +726,7 @@ fn start_local_compiler(solution: &std::ffi::OsString, project: &std::ffi::OsStr
     let (status, stdout, stderr) = start_local_compiler_with_inject(solution, project, compiler_path, working_dir, compiler_commands, envs, out_err_stream);
     
     let elapsed = start.elapsed();
-    log::info!("compile file with inject elapsed time: {:?}.", elapsed);
+    log::info!("compile file with inject elapsed time: {:0x?}.", elapsed);
     return (status, stdout, stderr);
 }
 
@@ -914,6 +914,8 @@ mod tests {
         std::thread::spawn(||{
             redirect_stdout_log();
         });
+
+        crate::communicate::syscallredirectpipe::compiler_redirect_syscall();
 
         //cargo test --package cocrew --lib -- compiler::msvc::tests::compile_sourcefile_inject_test --exact --show-output
         

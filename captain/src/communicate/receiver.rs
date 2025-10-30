@@ -154,7 +154,10 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 if let Some(roster) = &common.resources {
                                     
                                     let mut crew = serde_json::from_str::<crate::roster::crews::CrewResource>(&notification.message).expect("register request message parse failed");
-                                    crew.addr = addr.ip().to_string();
+                                    
+                                    if crew.addr.is_empty() {
+                                        crew.addr = addr.ip().to_string();
+                                    }
                                     
                                     let mut resourcelist = roster.lock().expect("roster lock failed");
                                     resourcelist.update(crew);

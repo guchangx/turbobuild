@@ -77,4 +77,27 @@ pub unsafe fn init_hook() {
     }
     
     
+    let func_nt_query_information_file = crate::utils::convert::string_2_lpstr("NtQueryInformationFile".to_string());
+    let nt_query_information_file = crate::detours::DetourFindFunction(module,  func_nt_query_information_file);
+    
+    if nt_query_information_file as usize == 0 {
+        crate::log!(error, "can not find nt_query_information_file in kernelbase module");
+    }
+    else {
+        crate::functions::NT_QUERY_INFORMATION_FILE = nt_query_information_file;
+        crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_QUERY_INFORMATION_FILE), crate::functions::nt_query_information_file as _);
+    }
+
+    /* 
+    let func_nt_query_volume_information_file = crate::utils::convert::string_2_lpstr("NtQueryVolumeInformationFile".to_string());
+    let nt_query_volume_information_file = crate::detours::DetourFindFunction(module,  func_nt_query_volume_information_file);
+
+    if nt_query_volume_information_file as usize == 0 {
+        crate::log!(error, "can not find nt_query_volume_information_file in kernelbase module");
+    }
+    else {
+        crate::functions::NT_QUERY_VOLUME_INFORMATION_FILE = nt_query_volume_information_file;
+        crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_QUERY_VOLUME_INFORMATION_FILE), crate::functions::nt_query_volume_information_file as _);
+    }
+    */
 }

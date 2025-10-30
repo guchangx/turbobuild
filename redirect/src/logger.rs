@@ -183,7 +183,7 @@ impl Logger {
     pub fn log(message: impl Into<String>) {
         let message = message.into();
 
-        //output_debug_string(&message);
+        output_debug_string(&message);
 
         match crate::LOGGER.tx.try_send(message) {
             Ok(_) => {},
