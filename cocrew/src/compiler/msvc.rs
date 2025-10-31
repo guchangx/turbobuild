@@ -905,6 +905,8 @@ mod tests {
 
     use crew::compiler;
 
+    use crate::communicate::unpackager::NAMEDPIPE_TO_GRPC_CHANNEL;
+
     use super::*;
     #[test]
     fn compile_sourcefile_with_inject_test() {
@@ -916,6 +918,36 @@ mod tests {
         });
 
         crate::communicate::syscallredirectpipe::compiler_redirect_syscall();
+
+        let rt = {crate::common::COCREW_RUNTIME.lock().unwrap().handle().clone()};
+
+        rt.spawn(async move {
+            let channel = { NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_rx.lock().await.take() };
+
+            if let Some(mut rx) = channel {
+                while let Some(syscall) = rx.recv().await {
+                    log::info!("recv syscall: {:?}", syscall);
+
+                    let responder = crate::communicate::syscallredirectpipe::GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_tx.as_ref();
+                    
+                    let command_result = crate::communicate::syscallredirectpipe::MirrorSysCall {
+                        cid: syscall.cid,
+                        api: syscall.api.clone(),
+                        args: std::collections::HashMap::from([("fileinformation".to_string(), "lz4.c".to_string())]),
+                    };
+
+                    match responder.send(command_result) {
+                        Ok(_) => {
+                            log::info!("transmit redirect handle send callback success.");
+                        },
+                        Err(err) => {
+                            log::error!("transmit redirect handle send callback failed: {:?}", err);
+                        },
+                    };
+                }
+            }
+        });
+
 
         //cargo test --package cocrew --lib -- compiler::msvc::tests::compile_sourcefile_inject_test --exact --show-output
         
@@ -965,7 +997,8 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
 
         compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, working_dir.to_string_lossy())));
-        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, working_dir.to_string_lossy())));
+        //compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, working_dir.to_string_lossy())));
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, r"D:\WorkSpace\turbobuild\fake\draft")));
 
         let (out_sender, mut out_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
         let (err_sender, mut err_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);

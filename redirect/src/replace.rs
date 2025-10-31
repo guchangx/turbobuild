@@ -156,11 +156,16 @@ pub enum ReplaceDirResult {
     Success,
     NoMatch,
     IncludesDir,
+    JustTest,
     FilePath,
     NeedObtain(String),
 }
 
 pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
+
+    if path.contains(r"\??\D:\WorkSpace\turbobuild\fake\draft\") {
+        return ReplaceDirResult::JustTest;
+    }
 
     if path.contains(r"AppData\Local\Temp\") {
         return ReplaceDirResult::NoMatch;
