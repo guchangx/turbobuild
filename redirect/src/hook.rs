@@ -52,8 +52,6 @@ pub unsafe fn init_hook() {
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_PROCESS_W_KERNEL_BASE), crate::functions::kernelbase_create_process_w as _);
     }
 
-    //GetVolumeInformationByHandleW
-
     let func_get_volume_information_by_handle_w = crate::utils::convert::string_2_lpstr("GetVolumeInformationByHandleW".to_string());
     let kernelbase_get_volume_information_by_handle_w = crate::detours::DetourFindFunction(module,  func_get_volume_information_by_handle_w);
     if kernelbase_get_volume_information_by_handle_w as usize == 0 {
@@ -64,7 +62,6 @@ pub unsafe fn init_hook() {
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::GET_VOLUME_INFORMATION_BY_HANDLE_W_KERNEL_BASE), crate::functions::kernelbase_get_volume_information_by_handle_w as _);
     }
 
-    //GetFileInformationByHandleEx
     let func_get_file_information_by_handle_ex = crate::utils::convert::string_2_lpstr("GetFileInformationByHandleEx".to_string());
     let kernelbase_get_file_information_by_handle_ex = crate::detours::DetourFindFunction(module,  func_get_file_information_by_handle_ex);
     if kernelbase_get_file_information_by_handle_ex as usize == 0 {
@@ -123,4 +120,17 @@ pub unsafe fn init_hook() {
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_QUERY_VOLUME_INFORMATION_FILE), crate::functions::nt_query_volume_information_file as _);
     }
     */
+
+
+    let func_nt_query_full_attributes_file = crate::utils::convert::string_2_lpstr("NtQueryFullAttributesFile".to_string());
+    let nt_query_full_attributes_file = crate::detours::DetourFindFunction(module,  func_nt_query_full_attributes_file);
+
+    if nt_query_full_attributes_file as usize == 0 {
+        crate::log!(error, "can not find nt_query_full_attributes_file in kernelbase module");
+    }
+    else {
+        crate::functions::NT_QUERY_FULL_ATTRIBUTES_FILE = nt_query_full_attributes_file;
+        crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_QUERY_FULL_ATTRIBUTES_FILE), crate::functions::nt_query_full_attributes_file as _);
+    }
+
 }

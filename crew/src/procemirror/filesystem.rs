@@ -237,14 +237,30 @@ unsafe fn redirect_nt_create_file(params: &std::collections::HashMap<String, Str
         objectname = objectname.replace("\\\\?\\", "");
     }
 
-    match std::fs::read(&objectname) {
-        Ok(data) => {
-            let expect = params.get("expect").unwrap().to_owned();
-            return Ok((expect, data));
-        },
-        Err(err) => {
-            return Err(err);
-        },
+    if let Some(expect) = params.get("expect") {   
+        match std::fs::read(&objectname) {
+            Ok(data) => {
+                let expect = params.get("expect").unwrap().to_owned();
+                return Ok((expect, data));
+            },
+            Err(err) => {
+                return Err(err);
+            },
+        }
+    }
+    else if let Some(_) = params.get("exists") {
+        let path = std::path::Path::new(&objectname);
+        if path.exists() {
+            return Ok(("exists".to_string(), "true".as_bytes().to_vec()));
+        }
+        else {
+            return Ok(("exists".to_string(), "false".as_bytes().to_vec()));
+        }
+    }
+    else {
+        log::error!("neither expect nor exists parameter is provided");
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "neither expect nor exists parameter is provided"));
+
     }
 }
 
