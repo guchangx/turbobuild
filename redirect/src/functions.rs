@@ -15,6 +15,7 @@ pub static mut NT_QUERY_DIRECTORY_FILE: *mut std::ffi::c_void = 0 as *mut std::f
 pub static mut NT_CREATE_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut NT_QUERY_INFORMATION_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut NT_QUERY_VOLUME_INFORMATION_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+pub static mut NT_QUERY_FULL_ATTRIBUTES_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_PROCESS_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_PROCESS_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut GET_VOLUME_INFORMATION_BY_HANDLE_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
@@ -883,6 +884,9 @@ thread_local! {
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
+static VIRTUAL_HANDLE_MAP_DIR: std::sync::LazyLock<std::sync::RwLock<std::collections::HashMap<i32, String>>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(std::collections::HashMap::new()));
+
 pub unsafe fn nt_query_directory_file(
     file_handle: windows_sys::Win32::Foundation::HANDLE,
     event: windows_sys::Win32::Foundation::HANDLE,
@@ -1274,7 +1278,7 @@ pub unsafe fn nt_query_directory_file(
                         };
                     }
 
-                    
+                    /* 
                     //try access result
                     let mut current_offset = 0usize;
                     let mut entry_count = 0;
@@ -1313,6 +1317,7 @@ pub unsafe fn nt_query_directory_file(
                             break;
                         }
                     }
+                    */
                     
                         
                     return if entries_written > 0 {
@@ -1408,7 +1413,6 @@ pub unsafe fn nt_create_file(
                 */
 
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                let unmodified = name.clone();
                 crate::log!(trace, "nt_create_file hook path: {}", name);
                 let replace = crate::replace::replace_dir(&mut name);
                 if replace == crate::replace::ReplaceDirResult::Success {
@@ -1503,60 +1507,81 @@ pub unsafe fn nt_create_file(
 
                     return windows_sys::Win32::Foundation::STATUS_SUCCESS;
                 }
-                else if replace == crate::replace::ReplaceDirResult::IncludesDir {
-                    crate::log!(trace, "nt_create_file includes dir hook: {}", name.clone());
+                else if let crate::replace::ReplaceDirResult::VirtualIncludesDir(unmodified) = replace {
+                    crate::log!(trace, "nt_create_file includes hook replace path: {} {}", name.clone(), unmodified);
 
-                    let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
-                    let object_name_source_wide_char = std::ffi::OsString::from(name.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
-                    
-                    let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
-                    if ret != windows_sys::Win32::Foundation::STATUS_SUCCESS {
-                        crate::log!(error, "rtl init unicode string failed.");
-                    }
-
-                    let mut fake_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
-                       Length: object_name.Length,
-                       MaximumLength: object_name.MaximumLength,
-                       Buffer: object_name.Buffer,
-                    };
-
-                    (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    let mut args =  std::collections::HashMap::<String, String>::new();
+                    args.insert("objectname".to_string(), unmodified.clone());
+                    args.insert("exists".to_string(), "".to_string());
 
                     let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block, allocation_size,
-                        file_attributes, share_access, create_disposition, create_options, ea_buffer, ea_length
-                    );
-                    
-                    if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
-                        crate::log!(error, "zw_create_file includes dir success! path: {} handle: {:?}", unmodified, *file_handle);
+                                file_attributes, share_access, windows_sys::Wdk::Storage::FileSystem::FILE_OPEN_IF, create_options, ea_buffer, ea_length
+                            );
 
-                        NT_HANDLE_AND_DIR.with(|cell| {
-                            cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, unmodified);
-                        });
+                    log!(trace, "test nt_create_file includes dir test file exists status: {:#X} path: {}", nt_status, unmodified);
+                    
+                    let syscall = {
+                        let mut cid = SYS_CALL_ID.lock().unwrap();
+                        let syscall = crate::syscallredirect::MirrorSysCall {
+                            cid: *cid,
+                            api: "NtCreateFile".into(),
+                            args,
+                            responder: tx,
+                        };
+                        *cid += 1;
+                        syscall
+                    };
+                        
+                    crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(syscall).unwrap();
+                    let exists = rx.blocking_recv().unwrap();
+                    if let Some(exists) = exists.get("exists") {
+                        if exists == "true" {
+                            let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
+                            let object_name_source_wide_char = std::ffi::OsString::from(name.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+                            
+                            let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
+                            if ret != windows_sys::Win32::Foundation::STATUS_SUCCESS {
+                                crate::log!(error, "rtl init unicode string failed.");
+                            }
+
+                            let mut fake_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
+                            Length: object_name.Length,
+                            MaximumLength: object_name.MaximumLength,
+                            Buffer: object_name.Buffer,
+                            };
+
+                            (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
+
+                            let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block, allocation_size,
+                                file_attributes, share_access, windows_sys::Wdk::Storage::FileSystem::FILE_OPEN_IF, create_options, ea_buffer, ea_length
+                            );
+                    
+                            if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                                crate::log!(error, "zw_create_file includes dir success! path: {} handle: {:?}", unmodified, *file_handle);
+
+                                NT_HANDLE_AND_DIR.with(|cell| {
+                                    cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, unmodified);
+                                });
+
+                                return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+                            }
+                            else {
+                                crate::log!(error, "zw_create_file includes dir failed!: path: {} handle: {:?} status: {:#X}", name, *file_handle, nt_status);
+
+                                return nt_status;
+                            }
+                        }
+                        else
+                        {
+                            crate::log!(trace, "nt_create_file includes dir file not exists: {}", unmodified);
+                            return windows_sys::Win32::Foundation::STATUS_OBJECT_NAME_NOT_FOUND;
+                        }
                     }
                     else {
-                        let cid = {
-                            let mut cid = SYS_CALL_ID.lock().unwrap();
-                            let id = *cid;
-                            *cid += 1;
-                            id
-                        };
-                        
-                        let handle = cid as windows_sys::Win32::Foundation::HANDLE; 
-                        *file_handle = handle as _;
-
-                        if !io_status_block.is_null() {
-                            (*io_status_block).Information = windows_sys::Win32::System::WindowsProgramming::FILE_OPENED as _; 
-                            (*io_status_block).Status = windows_sys::Win32::Foundation::STATUS_SUCCESS;
-                        }
-
-                        crate::log!(error, "zw_create_file includes dir failed!: path: {} handle: {:?} cid: {}", name, handle, cid);
-
-                        NT_HANDLE_AND_DIR.with(|cell| {
-                            cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, name);
-                        });
+                        crate::log!(trace, "nt_create_file includes dir file not exists: {}", unmodified);
+                        return windows_sys::Win32::Foundation::STATUS_OBJECT_NAME_NOT_FOUND;
                     }
-
-                    return windows_sys::Win32::Foundation::STATUS_SUCCESS;
                 }
                 else if let crate::replace::ReplaceDirResult::NeedObtain(expect) = replace {
                     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1866,6 +1891,15 @@ pub unsafe fn nt_query_volume_information_file(
         return nt_status;
     }
 }
+
+pub unsafe fn nt_query_full_attributes_file(
+    objectattributes: *const windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES,
+    fileinformation: *mut windows_sys::Wdk::Storage::FileSystem::FILE_NETWORK_OPEN_INFORMATION,
+) -> windows_sys::Win32::Foundation::NTSTATUS {
+    log!(trace, "nt_query_full_attributes_file called");
+    return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+}
+
 
 #[cfg(test)]
 mod tests {

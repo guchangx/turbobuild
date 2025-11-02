@@ -156,16 +156,13 @@ pub enum ReplaceDirResult {
     Success,
     NoMatch,
     IncludesDir,
+    VirtualIncludesDir(String),
     JustTest,
     FilePath,
     NeedObtain(String),
 }
 
 pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
-
-    if path.contains(r"\??\D:\WorkSpace\turbobuild\fake\draft\") {
-        return ReplaceDirResult::JustTest;
-    }
 
     if path.contains(r"AppData\Local\Temp\") {
         return ReplaceDirResult::NoMatch;
@@ -262,14 +259,14 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
         }
         else if crate::SOLUTIONNAME.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
 
-            let target = std::path::PathBuf::from( &path[4..path.len() - 1]);
+            let target = std::path::PathBuf::from(&path[4..path.len() - 1]);
             //TODO: startwith can replace equal?
             if crate::INCLUDES.get().unwrap().iter().any(|item| item == &target || target.starts_with(item)) {
-                //return Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::IncludesDir, |modified| {
-                //    *path = modified;
-                //    ReplaceDirResult::IncludesDir
-                //});
-                return ReplaceDirResult::IncludesDir;
+                return Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::VirtualIncludesDir(path.to_string()), |modified| {
+                    let unmodified = path.to_string();
+                    *path = modified;
+                    ReplaceDirResult::VirtualIncludesDir(unmodified)
+                });
             }
             else {
                 let generated = std::path::Path::new(crate::GENERATEDDIR.get().unwrap());
@@ -303,6 +300,19 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
             }
         }
         else {
+            let target = std::path::PathBuf::from(&path[4..path.len() - 1]);
+            if crate::INCLUDES.get().unwrap().iter().any(|item| item == &target || target.starts_with(item)) {
+                if let Some(name) = target.file_name() {
+                    let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name).to_string_lossy().to_string();
+                    let unmodified = path.to_string();
+                    let modified = format!(r"\??\{}", modified);
+                    *path = modified;
+                    return ReplaceDirResult::VirtualIncludesDir(unmodified)
+                }
+                else {
+                    return ReplaceDirResult::NoMatch;
+                }
+            }
             return ReplaceDirResult::NoMatch;
         }
     }
