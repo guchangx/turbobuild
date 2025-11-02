@@ -53,13 +53,17 @@ impl NotificationReceiver {
 
     pub async fn broadcast(&self, response: notify::NotifyResponse) {
         log::debug!("broadcast notify response: {:?}", response);
-        let mut broadcaster = self.broadcaster.lock().await;
+        let broadcaster = {
+            let mut guard = self.broadcaster.lock().await;
+            guard.retain(|tx| !tx.is_closed());
+            guard.clone()
+        };
 
-        broadcaster.iter_mut().for_each(|tx| {
-            if !tx.is_closed() {
-                tx.try_send(Ok(response.clone())).expect("broadcast notify response failed");
+        for sender in broadcaster {
+            if !sender.is_closed() {
+                sender.send(Ok(response.clone())).await.expect("broadcast notify response failed");
             }
-        });
+        }
     }
 }
 
@@ -154,7 +158,9 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 if let Some(roster) = &common.resources {
                                     
                                     let mut crew = serde_json::from_str::<crate::roster::crews::CrewResource>(&notification.message).expect("register request message parse failed");
-                                    crew.addr = addr.ip().to_string();
+                                    if crew.addr.is_empty() {
+                                        crew.addr = addr.ip().to_string();
+                                    }
                                     
                                     let mut resourcelist = roster.lock().expect("roster lock failed");
                                     resourcelist.update(crew);

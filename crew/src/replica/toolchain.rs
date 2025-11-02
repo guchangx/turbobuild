@@ -216,7 +216,7 @@ impl Property {
         return versions;
     } 
 
-    pub async fn check_resource_and_judge_sync(resources: Vec<crate::replica::toolchain::CrewsResource>) {
+    pub async fn check_resource_and_judge_sync(resources: Vec<crate::replica::toolchain::CrewsResource>, sender: std::sync::Arc<tokio::sync::mpsc::Sender<crate::communicate::notifier::NotificationType>>) {
     
         let compiler_env = crate::platform::windows::WindowsCompilerEnv::default();
         let bin_dir = compiler_env.compiler_path.clone();
@@ -292,29 +292,34 @@ impl Property {
                         let _ = task.await;
                     }
 
+                    let mut cversions = item.compiler_versions;
                     let version_x64 = CompilerVersion {
                         version: version.clone(),
                         host: Arch::x64,
                         target: Arch::x64,
                     };
-                    
+                    cversions.push(version_x64);
+
                     let version_x84 = CompilerVersion {
                         version: version.clone(),
                         host: Arch::x64,
                         target: Arch::x86,
                     };
+                    cversions.push(version_x84);
 
                     let resource = CrewsResource {
                         username: item.username,
                         aliasname: item.aliasname, 
                         devicename: item.devicename,
                         addr: addr__,
-                        compiler_versions: [version_x64, version_x84].to_vec(),
+                        compiler_versions: cversions,
                     };
 
                     let info = serde_json::to_string(&resource).unwrap();
                     log::info!("report synced crew resource: {:?}", info);
-                    crate::communicate::notifier::NotificationSender::notify_once(info).await;
+
+                    let res = crate::communicate::notifier::NotificationType::Resource(info);
+                    sender.send(res).await.unwrap();
                 }
             }
             else {

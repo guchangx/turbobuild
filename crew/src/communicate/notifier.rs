@@ -49,7 +49,7 @@ impl NotificationSender {
                         let mut response_stream = response.into_inner();
                         let roster = self.common.upgrade().unwrap().lock().unwrap().roster.clone();
                         let tasks = self.common.upgrade().unwrap().lock().unwrap().tasks.clone();
-        
+                        let sender = self.sender.clone();
                         tokio::spawn(async move {
                             while let Some(stream) = response_stream.next().await {
                                 match stream {
@@ -67,7 +67,7 @@ impl NotificationSender {
                                         else if response.r#type == notify::Type::Checkresource as i32 {
                                             
                                             let message = response.message.clone();
-                                            Self::handle_checkresource_response(roster.clone(), &message).await;
+                                            Self::handle_checkresource_response(roster.clone(), &message, sender.clone()).await;
                                         }
                                         else {
                                             
@@ -215,12 +215,12 @@ impl NotificationSender {
         }
     }
 
-    pub async fn handle_checkresource_response(roster: Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::ResourceList>>>, message: &str) {
+    pub async fn handle_checkresource_response(roster: Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::ResourceList>>>, message: &str, sender: std::sync::Arc<tokio::sync::mpsc::Sender<NotificationType>>) {
         
         if !message.is_empty() {
             let resources: Vec<crate::replica::toolchain::CrewsResource> = serde_json::from_str(message).expect("serde from json failed.");
             Self::update_crew_resource(roster, &resources).await;
-            crate::replica::toolchain::Property::check_resource_and_judge_sync(resources).await;  
+            crate::replica::toolchain::Property::check_resource_and_judge_sync(resources, sender).await;
             // func should do one thing at a time.
             //TODO: time-consuming task, should be done in runtime.
 
@@ -266,43 +266,5 @@ impl NotificationSender {
         };
         let register = serde_json::to_string(&register_info).unwrap();
         return register;
-    }
-
-    pub async fn notify_once(message: String) {
-
-        match crate::communicate::notifier::notify::communicate_client::CommunicateClient::connect(format!("http://{}:{}", ADDR.get().unwrap(), crate::communicate::notifier::PORT)).await {
-            Ok(mut client) => {
-    
-                let request = crate::communicate::notifier::notify::NotifyRequest {
-                    r#type: crate::communicate::notifier::notify::Type::Checkresource as i32,
-                    message: message,
-                    sequence: 0,
-                };
-    
-                let request_stream = tokio_stream::once(request);
-    
-                match client.notify(request_stream).await {
-                    Ok(response) => {
-                        let mut response_stream = response.into_inner();
-                        while let Some(response) = response_stream.next().await {
-                            match response {
-                                Ok(_) => {
-                                 
-                                },
-                                Err(status) => {
-                                    log::error!("notify once message error: {:?}", status);
-                                }
-                            }
-                        }
-                    },
-                    Err(status) => {
-                        log::error!("notify once message error: {:?}", status);
-                    }
-                }
-            }
-            Err(err) => {
-                log::error!("can't connect captain host: {}:{}, error: {:?}", "localhost", crate::communicate::notifier::PORT, err);
-            }
-        };
     }
 }

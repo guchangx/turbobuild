@@ -467,7 +467,8 @@ impl Sender {
         
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-        log::debug!("transmit redirect net start.");
+        log::debug!("transmit redirect net start addr: {}.", self.host);
+
         match self.to_owned().client.transmit_redirect(request_stream).await {
             Ok(response) => {
                 
@@ -496,6 +497,7 @@ impl Sender {
                 };
                 drop(tx);
                 log::debug!("transmit firedirect netle {} completed.", host);
+                crate::communicate::distributor::CONNECTED_ADDRS.lock().await.retain(|item| item != &host);
             },
             Err(err) => {
                 log::error!("transmit redirect net {} failed: {:?}", self.host, err);

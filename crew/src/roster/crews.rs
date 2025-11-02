@@ -56,7 +56,7 @@ impl ResourceList {
             if let Some(resource) = resource {
                 let mut resource = resource.compiler_versions.clone();
                 crew.compiler_versions.clear();
-                crew.compiler_versions.append(&mut resource); 
+                crew.compiler_versions.append(&mut resource);
             }
         }
 

@@ -1,6 +1,6 @@
 use serde::de::value::SeqDeserializer;
 
-static CONNECTED_ADDRS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Mutex<Vec<String>>>> = std::sync::LazyLock::new(|| {
+pub static CONNECTED_ADDRS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Mutex<Vec<String>>>> = std::sync::LazyLock::new(|| {
     std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new()))
 });
 
