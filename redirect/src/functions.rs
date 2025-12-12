@@ -1390,7 +1390,18 @@ pub unsafe fn nt_create_file(
 
     let zw_create_file: super::ntdef::functions::ZwCreateFile = std::mem::transmute(NT_CREATE_FILE);
     
-    if !object_attributes.is_null() {
+    let mut skip = false;
+    if file_attributes == 0 && share_access == 0 { //pipe
+        skip = true;
+    }
+    else if (file_attributes & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_TEMPORARY) != 0 { //temporary
+        skip = true;
+    }
+    else if file_attributes == 0 && share_access & windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE == 0 {
+        skip = true;
+    }
+
+    if !skip && !object_attributes.is_null() {
         let object_name = (*object_attributes).ObjectName;
         if !object_name.is_null() {
             let buffer = (*object_name).Buffer;
@@ -1412,8 +1423,17 @@ pub unsafe fn nt_create_file(
                 }
                 */
 
+
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                crate::log!(trace, "nt_create_file hook path: {}", name);
+                
+                if (access_mask & super::ntdef::enums::FILE_LIST_DIRECTORY) != 0 {
+                    crate::log!(trace, "nt_create_file hook path: directory - {}", name);
+                }
+                else
+                {
+                    crate::log!(trace, "nt_create_file hook path: file - {}", name);
+                }
+                
                 let replace = crate::replace::replace_dir(&mut name);
                 if replace == crate::replace::ReplaceDirResult::Success {
                     //TODO elpase 10ms, need optimize. 
@@ -1546,9 +1566,9 @@ pub unsafe fn nt_create_file(
                             }
 
                             let mut fake_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
-                            Length: object_name.Length,
-                            MaximumLength: object_name.MaximumLength,
-                            Buffer: object_name.Buffer,
+                                Length: object_name.Length,
+                                MaximumLength: object_name.MaximumLength,
+                                Buffer: object_name.Buffer,
                             };
 
                             (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;

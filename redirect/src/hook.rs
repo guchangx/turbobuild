@@ -119,8 +119,6 @@ pub unsafe fn init_hook() {
         crate::functions::NT_QUERY_VOLUME_INFORMATION_FILE = nt_query_volume_information_file;
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_QUERY_VOLUME_INFORMATION_FILE), crate::functions::nt_query_volume_information_file as _);
     }
-    */
-
 
     let func_nt_query_full_attributes_file = crate::utils::convert::string_2_lpstr("NtQueryFullAttributesFile".to_string());
     let nt_query_full_attributes_file = crate::detours::DetourFindFunction(module,  func_nt_query_full_attributes_file);
@@ -132,5 +130,5 @@ pub unsafe fn init_hook() {
         crate::functions::NT_QUERY_FULL_ATTRIBUTES_FILE = nt_query_full_attributes_file;
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_QUERY_FULL_ATTRIBUTES_FILE), crate::functions::nt_query_full_attributes_file as _);
     }
-
+    */
 }

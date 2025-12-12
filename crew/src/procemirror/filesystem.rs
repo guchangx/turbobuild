@@ -27,7 +27,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
                         api: redirect.api,
                         params: params.iter().map(|(k, v)| crate::communicate::package::pack::Params {
                             key: k.clone(),
-                            value: v.clone(),
+                            value: if k == "exists" { String::from_utf8(data.clone()).unwrap()} else { v.clone() },
                         }).collect(),
                         files: vec![crate::communicate::package::pack::IntermediateResult{file: expect.clone(), content: data}],
                     };
