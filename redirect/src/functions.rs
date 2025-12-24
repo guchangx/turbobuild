@@ -30,6 +30,13 @@ static INCLUDES_CACHE: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<std::
     std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()))
 });
 
+static CALL_TEMPLATE: std::sync::LazyLock<u64> = std::sync::LazyLock::new(|| {
+    let hex = "tb".as_bytes().iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
+    u64::from_str_radix(&hex, 16)
+        .unwrap_or(0)
+});
 
 const PIPE_PREFIX_CONTENT_W: &[u16] = &['\\' as u16, '\\' as u16, '.' as u16, '\\' as u16, 'p' as u16, 'i' as u16, 'p' as u16, 'e' as u16, '\\' as u16];  //\\.\\pipe\\ or \\??\\pipe\\
 
@@ -134,8 +141,61 @@ pub unsafe fn create_file_w(
     dw_flags_and_attributes: DWORD,
     h_template_file: HANDLE,
 ) -> HANDLE {
-    
-    if start_with_pipe_w(lp_file_name) {
+    crate::log!(trace, "create_file_w hook lp_file_name: {:?} {:?}", h_template_file, *CALL_TEMPLATE);
+    if h_template_file == *CALL_TEMPLATE as HANDLE {
+        let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
+        crate::log!(trace, "create_file_w pipe path: {:?}", path);
+        let create_file_w_inner: extern "system" fn (
+            lp_file_name: LPCWSTR,
+            dw_desired_access: DWORD,
+            dw_share_mode: DWORD,
+            lp_security_attributes: LPSECURITY_ATTRIBUTES,
+            dw_creation_disposition: DWORD,
+            dw_flags_and_attributes: DWORD,
+            h_template_file: HANDLE,
+        ) -> HANDLE = std::mem::transmute(CREATE_FILE_W);
+
+        let handle = create_file_w_inner(
+            lp_file_name,
+            dw_desired_access,
+            dw_share_mode,
+            lp_security_attributes,
+            dw_creation_disposition,
+            dw_flags_and_attributes,
+            h_template_file,
+        );
+        return handle;
+    }
+    //if start_with_pipe_w(lp_file_name) {
+    else if dw_desired_access & 0x40000000 != 0 && dw_desired_access & 0x80000000 == 0 && dw_share_mode == 0 {
+        let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
+        crate::log!(trace, "create_file_w pipe path: {:?}", path);
+        let create_file_w_inner: extern "system" fn (
+            lp_file_name: LPCWSTR,
+            dw_desired_access: DWORD,
+            dw_share_mode: DWORD,
+            lp_security_attributes: LPSECURITY_ATTRIBUTES,
+            dw_creation_disposition: DWORD,
+            dw_flags_and_attributes: DWORD,
+            h_template_file: HANDLE,
+        ) -> HANDLE = std::mem::transmute(CREATE_FILE_W);
+
+        let handle = create_file_w_inner(
+            lp_file_name,
+            dw_desired_access,
+            dw_share_mode,
+            lp_security_attributes,
+            dw_creation_disposition,
+            dw_flags_and_attributes,
+            h_template_file,
+        );
+        return handle;
+    }
+    else if dw_desired_access & 0x40000000 == 0 && dw_desired_access & 0x80000000 != 0
+        && dw_share_mode & windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ != 0 {
+
+        let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
+        crate::log!(trace, "create_file_w temp path: {:?}", path);
         let create_file_w_inner: extern "system" fn (
             lp_file_name: LPCWSTR,
             dw_desired_access: DWORD,
@@ -1333,19 +1393,33 @@ pub unsafe fn nt_query_directory_file(
                 }
             }
             else {
-                let mut buffer: [u16; windows_sys::Win32::Foundation::MAX_PATH as usize] = [0; windows_sys::Win32::Foundation::MAX_PATH as usize];
-                //TODO: should not call system api again, need optimize.
-                let required_length = windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW(
-                    file_handle,
-                    buffer.as_mut_ptr(),
-                    windows_sys::Win32::Foundation::MAX_PATH,
-                    0
-                );
 
-                if  required_length > 0 && required_length <= windows_sys::Win32::Foundation::MAX_PATH {
-                    let file_path = crate::utils::convert::lpwstr_2_string(buffer.as_ptr());
-                    crate::log!(trace, "nt_query_directory_file: file_path: {:?}", file_path);
+                let mut file_path: Option<String> = None;
+                NT_HANDLE_AND_DIR.with(|cell| {
+                    let map = cell.borrow();
+                    if let Some(path) = map.get(&file_handle) {
+                        file_path = Some(path.clone());
+                    }
+                });
+
+                if file_path.is_none() {
+                    let mut buffer: [u16; windows_sys::Win32::Foundation::MAX_PATH as usize] = [0; windows_sys::Win32::Foundation::MAX_PATH as usize];
+                    let required_length = windows_sys::Win32::Storage::FileSystem::GetFinalPathNameByHandleW(
+                        file_handle,
+                        buffer.as_mut_ptr(),
+                        windows_sys::Win32::Foundation::MAX_PATH,
+                        0
+                    );
+
+                    if  required_length > 0 && required_length <= windows_sys::Win32::Foundation::MAX_PATH {
+                        let file_path = crate::utils::convert::lpwstr_2_string(buffer.as_ptr());
+                        crate::log!(trace, "nt_query_directory_file by api: file_path: {:?}", file_path);
+                    }
                 }
+                else {
+                    crate::log!(trace, "nt_query_directory_file by cache: file_path: {:?}", file_path);
+                }
+
 
                 let nt_status = nt_query_directory_file(
                     file_handle,
@@ -1912,14 +1986,15 @@ pub unsafe fn nt_query_volume_information_file(
     }
 }
 
+/* 
 pub unsafe fn nt_query_full_attributes_file(
-    objectattributes: *const windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES,
+    objectattributes: windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES,
     fileinformation: *mut windows_sys::Wdk::Storage::FileSystem::FILE_NETWORK_OPEN_INFORMATION,
 ) -> windows_sys::Win32::Foundation::NTSTATUS {
     log!(trace, "nt_query_full_attributes_file called");
     return windows_sys::Win32::Foundation::STATUS_SUCCESS;
 }
-
+*/
 
 #[cfg(test)]
 mod tests {
@@ -1972,4 +2047,11 @@ mod tests {
             assert_eq!(result, false);
         }
     }
+
+    #[test]
+    fn hex_func_test() {
+        let val = *CALL_TEMPLATE;
+        assert_eq!(val, 0x7462);
+    }
+
 }

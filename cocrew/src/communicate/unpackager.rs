@@ -455,7 +455,6 @@ impl Receiver {
         where Func: Fn(package::CompileTrResponse) -> Fut + Send + Sync + Clone + 'static,
               Fut: std::future::Future<Output = ()> + Send
     {
-        //TODO: use tokio::sync::mpsc replace std::sync::mpsc.
         let (out_sender, mut out_receiver) = tokio::sync::mpsc::channel::<crew::compiler::model::CompiledResults>(128);
         let (err_sender, mut err_receiver) = tokio::sync::mpsc::channel::<crew::compiler::model::CompiledResults>(128);
     
