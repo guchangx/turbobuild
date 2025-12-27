@@ -57,14 +57,20 @@ unsafe fn redirect_syscall_2_cocrew() {
         type Map = std::collections::HashMap<u32, tokio::sync::oneshot::Sender<std::collections::HashMap<String, String>>>;
         let responders: std::sync::Arc<std::sync::Mutex<Map>> = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
         
+        let hex = "tb".as_bytes().iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>();
+        let template_value = u64::from_str_radix(&hex, 16)
+            .unwrap_or(0) as winapi::um::winnt::HANDLE;
+
         for i in 0..6 {
             let mut pipe_handle = winapi::um::fileapi::CreateFileW(name.as_ptr(), 
                 winapi::um::winnt::GENERIC_WRITE | winapi::um::winnt::GENERIC_READ,
                 0,
                 std::ptr::null_mut(),  
                 winapi::um::fileapi::OPEN_EXISTING, 
-                winapi::um::winbase::FILE_FLAG_OVERLAPPED,  
-                winapi::shared::ntdef::NULL
+                winapi::um::winbase::FILE_FLAG_OVERLAPPED,
+                template_value
             );
 
             if pipe_handle.is_null() || pipe_handle == winapi::um::handleapi::INVALID_HANDLE_VALUE {
