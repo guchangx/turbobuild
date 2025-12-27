@@ -927,86 +927,101 @@ pub unsafe fn nt_query_directory_file(
     );
 
     if (restart_scan && !file_name.is_null()) || (file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation) {
-        let nt_status = nt_query_directory_file(
-            file_handle,
-            event,
-            apc_routine,
-            apc_context,
-            io_status_block,
-            file_information,
-            length,
-            file_information_class,
-            return_single_entry,
-            file_name,
-            restart_scan
-        );
+        //if single file and in create dir, return directly.
 
-        if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS && !file_information.is_null() {
-            /* 
-            let mut current_offset = 0usize;
-            let mut entry_count = 0;
-            
-            loop {
-                let current_entry = (file_information as *const u8).add(current_offset);
-                entry_count += 1;
-                match file_information_class {
-                    windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation => {
-                        let file_info = current_entry as *const windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
-                        let file_name_length_bytes = (*file_info).FileNameLength as usize;
+        if !io_status_block.is_null() {
+            (*io_status_block).Information = 0;
+            (*io_status_block).Anonymous.Pointer = std::ptr::null_mut();
+            (*io_status_block).Anonymous.Status = windows_sys::Win32::Foundation::STATUS_SUCCESS;
+        }
+        return windows_sys::Win32::Foundation::STATUS_SUCCESS;
 
-                        if file_name_length_bytes > 0 {
-                            let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
-                            if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
-                                crate::log!(trace, "nt_query_directory_file single entry #{}: with file: '{}'", entry_count, file_name_str);
-                            }
-                        }
+        let handle_cache_dir = NT_HANDLE_AND_DIR.with(|cell| {
+            let handle_and_dir = cell.borrow();
+            return handle_and_dir.get(&file_handle).is_some();
+        });
 
-                        let next_entry_offset = (*file_info).NextEntryOffset;
-                        if next_entry_offset == 0 {
-                            break;
-                        }
-                        else {
-                            current_offset += next_entry_offset as usize;
-                        }
-                    }
-                    _ => {
-                        crate::log!(trace, "nt_query_directory_file: unsupported file_information_class: {:?}", file_information_class);
-                    }
-                }
-
-                if current_offset >= length as usize {
-                    crate::log!(warn, "reached buffer end, processed {} entries", entry_count);
-                    break;
-                }
+        if handle_cache_dir {
+            crate::log!(debug, "nt_query_directory_file hook skip handle: {:?} for cached dir return directory", file_handle);
+            if !io_status_block.is_null() {
+                (*io_status_block).Information = 0;
+                (*io_status_block).Anonymous.Pointer = std::ptr::null_mut();
+                (*io_status_block).Anonymous.Status = windows_sys::Win32::Foundation::STATUS_SUCCESS;
             }
-            */
+            return windows_sys::Win32::Foundation::STATUS_SUCCESS;
         }
         else {
-            if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
-                crate::log!(debug, "nt_query_directory_file reached source file don't more files.");
-            }
-            else if nt_status == windows_sys::Win32::Foundation::STATUS_BUFFER_OVERFLOW {
-                crate::log!(warn, "nt_query_directory_file buffer overflow occurred, consider increasing buffer size.");
+            let nt_status = nt_query_directory_file(file_handle, event, apc_routine, apc_context, io_status_block,
+                file_information, length, file_information_class, return_single_entry, file_name, restart_scan
+            );
+
+            if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS && !file_information.is_null() {
+                /* 
+                let mut current_offset = 0usize;
+                let mut entry_count = 0;
+                
+                loop {
+                    let current_entry = (file_information as *const u8).add(current_offset);
+                    entry_count += 1;
+                    match file_information_class {
+                        windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation => {
+                            let file_info = current_entry as *const windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
+                            let file_name_length_bytes = (*file_info).FileNameLength as usize;
+
+                            if file_name_length_bytes > 0 {
+                                let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
+                                if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
+                                    crate::log!(trace, "nt_query_directory_file single entry #{}: with file: '{}'", entry_count, file_name_str);
+                                }
+                            }
+
+                            let next_entry_offset = (*file_info).NextEntryOffset;
+                            if next_entry_offset == 0 {
+                                break;
+                            }
+                            else {
+                                current_offset += next_entry_offset as usize;
+                            }
+                        }
+                        _ => {
+                            crate::log!(trace, "nt_query_directory_file: unsupported file_information_class: {:?}", file_information_class);
+                        }
+                    }
+
+                    if current_offset >= length as usize {
+                        crate::log!(warn, "reached buffer end, processed {} entries", entry_count);
+                        break;
+                    }
+                }
+                */
             }
             else {
-                let name = if !file_name.is_null() {
-                    let buffer = (*file_name).Buffer;
-                    let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                    name
+                if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
+                    crate::log!(debug, "nt_query_directory_file reached source file don't more files.");
+                }
+                else if nt_status == windows_sys::Win32::Foundation::STATUS_BUFFER_OVERFLOW {
+                    crate::log!(warn, "nt_query_directory_file buffer overflow occurred, consider increasing buffer size.");
                 }
                 else {
-                    "nt_query_directory_file file_name buffer is null".to_string()
-                };
+                    let name = if !file_name.is_null() {
+                        let buffer = (*file_name).Buffer;
+                        let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+                        name
+                    }
+                    else {
+                        "nt_query_directory_file file_name buffer is null".to_string()
+                    };
 
-                crate::log!(error, "nt_query_directory_file failed with status: {:#X} file: {:?}", nt_status, name);
+                    crate::log!(error, "nt_query_directory_file failed with status: {:#X} file: {:?}", nt_status, name);
+                }
             }
-        }
 
-        return nt_status;
+            return nt_status;
+        }
     }
     else {
         //second or subsequent query.
-        crate::log!(debug, "nt_query_directory_file hook second or subsequent query handle: {:?}, Information: {} length: {} status: {}", file_handle, (*io_status_block).Information, length, (*io_status_block).Anonymous.Status);
+        crate::log!(debug, "nt_query_directory_file hook second or subsequent query handle: {:?}, Information: {} length: {} status: {:#X}", file_handle, (*io_status_block).Information, length, (*io_status_block).Anonymous.Status);
 
         if (*io_status_block).Information < length as usize && (*io_status_block).Information > 0 && (*io_status_block).Anonymous.Status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
 
@@ -1513,13 +1528,8 @@ pub unsafe fn nt_create_file(
                     let (tx, rx) = tokio::sync::oneshot::channel();
                     let mut args =  std::collections::HashMap::<String, String>::new();
                     args.insert("objectname".to_string(), unmodified.clone());
+                    args.insert("replace".to_string(), name.clone());
                     args.insert("exists".to_string(), "".to_string());
-
-                    let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block, allocation_size,
-                                file_attributes, share_access, windows_sys::Wdk::Storage::FileSystem::FILE_OPEN_IF, create_options, ea_buffer, ea_length
-                            );
-
-                    log!(trace, "test nt_create_file includes dir test file exists status: {:#X} path: {}", nt_status, unmodified);
                     
                     let syscall = {
                         let mut cid = SYS_CALL_ID.lock().unwrap();
@@ -1546,10 +1556,10 @@ pub unsafe fn nt_create_file(
                             }
 
                             let mut fake_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
-                            Length: object_name.Length,
-                            MaximumLength: object_name.MaximumLength,
-                            Buffer: object_name.Buffer,
-                            };
+                                Length: object_name.Length,
+                                MaximumLength: object_name.MaximumLength,
+                                Buffer: object_name.Buffer,
+                            }; 
 
                             (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
 
@@ -1563,14 +1573,11 @@ pub unsafe fn nt_create_file(
                                 NT_HANDLE_AND_DIR.with(|cell| {
                                     cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, unmodified);
                                 });
-
-                                return windows_sys::Win32::Foundation::STATUS_SUCCESS;
                             }
                             else {
                                 crate::log!(error, "zw_create_file includes dir failed!: path: {} handle: {:?} status: {:#X}", name, *file_handle, nt_status);
-
-                                return nt_status;
                             }
+                            return nt_status;
                         }
                         else
                         {

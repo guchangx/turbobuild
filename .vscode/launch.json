@@ -55,7 +55,7 @@
                     "kind": "bin"
                 }
             },
-            "args": [],
+            "args": ["-noco"],
             "cwd": "${workspaceFolder}"
         },
         {

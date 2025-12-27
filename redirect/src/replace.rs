@@ -302,16 +302,20 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
         else {
             let target = std::path::PathBuf::from(&path[4..path.len() - 1]);
             if crate::INCLUDES.get().unwrap().iter().any(|item| item == &target || target.starts_with(item)) {
-                if let Some(name) = target.file_name() {
-                    let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name).to_string_lossy().to_string();
+
+                let index = path.find(":\\");
+                if let Some(i) = index {
+                    let dir = &path[i + 2..];
+                    let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
                     let unmodified = path.to_string();
                     let modified = format!(r"\??\{}", modified);
                     *path = modified;
                     return ReplaceDirResult::VirtualIncludesDir(unmodified)
                 }
                 else {
+                    crate::log!(warn, "replace extern dir is not ready, original: {}", path);
                     return ReplaceDirResult::NoMatch;
-                }
+                } 
             }
             return ReplaceDirResult::NoMatch;
         }

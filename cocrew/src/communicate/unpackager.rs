@@ -298,6 +298,24 @@ impl Receiver {
                         }
                     }
 
+                    let mut dir_exists = false;
+                    let mut replace = String::new();
+                    real.params.iter().for_each(|param| {
+                        if param.key == "exists" && param.value ==  "true" {
+                            dir_exists = true;
+                        }
+                        if param.key == "replace" {
+                            replace = param.value.clone();
+                        }
+                    });
+
+                    if dir_exists && !replace.is_empty() && !std::path::Path::new(&replace).exists() {
+                        log::info!("transmit redirect handle create replace dir: {}", replace);
+                        std::fs::create_dir_all(&replace).unwrap_or_else(|err| {
+                            panic!("create replace dir failed: {} {}", replace, err);
+                        });
+                    }
+
                     let command_result = MirrorSysCall {
                         cid: real.cid,
                         api: real.api.clone(),
