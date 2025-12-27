@@ -2,7 +2,7 @@ use std::os::windows::ffi::OsStrExt;
 use std::fmt::Write;
 
 pub fn route_file_system_operation(redirect: crate::communicate::package::pack::RemoteRedirect) -> crate::communicate::package::pack::LocalRedirect {
-    let params = redirect.params.iter().map(|(param)| (param.key.clone(), param.value.clone())).collect::<std::collections::HashMap<String, String>>();
+    let mut params = redirect.params.iter().map(|(param)| (param.key.clone(), param.value.clone())).collect::<std::collections::HashMap<String, String>>();
     match redirect.api.as_str() {
         "NtQueryDirectoryFile" => {
             let results = unsafe { redirect_nt_query_directory_file(params) };
@@ -19,20 +19,37 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
             return local;
         },
         "NtCreateFile" => {
-            let context = unsafe { redirect_nt_create_file(&params) };
+            let context = unsafe { redirect_nt_create_file(&mut params) };
             match context {
                 Ok((expect, data)) => {
-                    let local = crate::communicate::package::pack::LocalRedirect {
-                        cid: redirect.cid,
-                        api: redirect.api,
-                        params: params.iter().map(|(k, v)| crate::communicate::package::pack::Params {
-                            key: k.clone(),
-                            value: v.clone(),
-                        }).collect(),
-                        files: vec![crate::communicate::package::pack::IntermediateResult{file: expect.clone(), content: data}],
-                    };
-                    log::debug!("redirect nt create file result: {:?} expect: {}", params, expect);
-                    return local;
+                    if expect == "exists" {
+                        let local = crate::communicate::package::pack::LocalRedirect {
+                            cid: redirect.cid,
+                            api: redirect.api,
+                            params: params.iter().map(|(k, v)| crate::communicate::package::pack::Params {
+                                key: k.clone(),
+                                value: v.clone(),
+                            }).collect(),
+                            files: Vec::new(),
+                        };
+
+                        log::debug!("redirect nt create file result: {:?} exists {:?}", params, String::from_utf8(data));
+                        return local;
+                    }
+                    else {
+                        let local = crate::communicate::package::pack::LocalRedirect {
+                            cid: redirect.cid,
+                            api: redirect.api,
+                            params: params.iter().map(|(k, v)| crate::communicate::package::pack::Params {
+                                key: k.clone(),
+                                value: v.clone(),
+                            }).collect(),
+                            files: vec![crate::communicate::package::pack::IntermediateResult{file: expect.clone(), content: data.clone()}],
+                        };
+
+                        log::debug!("redirect nt create file result: {:?} expect: {}", params, expect);
+                        return local;
+                    }   
                 },
                 Err(err) => {
                     let local = crate::communicate::package::pack::LocalRedirect {
@@ -226,7 +243,7 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
     }
 }
 
-unsafe fn redirect_nt_create_file(params: &std::collections::HashMap<String, String>) -> std::io::Result<(String, Vec<u8>)> {
+unsafe fn redirect_nt_create_file(params: &mut std::collections::HashMap<String, String>) -> std::io::Result<(String, Vec<u8>)> {
 
     let mut objectname = params.get("objectname").unwrap().to_owned();
     if objectname.is_empty() {
@@ -237,23 +254,24 @@ unsafe fn redirect_nt_create_file(params: &std::collections::HashMap<String, Str
         objectname = objectname.replace("\\\\?\\", "");
     }
 
-    if let Some(expect) = params.get("expect") {   
+    if let Some(expect) = params.get("expect") {
         match std::fs::read(&objectname) {
             Ok(data) => {
-                let expect = params.get("expect").unwrap().to_owned();
-                return Ok((expect, data));
+                return Ok((expect.clone(), data));
             },
             Err(err) => {
                 return Err(err);
             },
         }
     }
-    else if let Some(_) = params.get("exists") {
+    else if let Some(value) = params.get_mut("exists") {
         let path = std::path::Path::new(&objectname);
         if path.exists() {
+            *value = "true".to_string();
             return Ok(("exists".to_string(), "true".as_bytes().to_vec()));
         }
         else {
+            *value = "false".to_string();
             return Ok(("exists".to_string(), "false".as_bytes().to_vec()));
         }
     }

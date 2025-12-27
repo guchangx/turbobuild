@@ -52,6 +52,7 @@ pub unsafe fn init_hook() {
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_PROCESS_W_KERNEL_BASE), crate::functions::kernelbase_create_process_w as _);
     }
 
+    /* 
     let func_get_volume_information_by_handle_w = crate::utils::convert::string_2_lpstr("GetVolumeInformationByHandleW".to_string());
     let kernelbase_get_volume_information_by_handle_w = crate::detours::DetourFindFunction(module,  func_get_volume_information_by_handle_w);
     if kernelbase_get_volume_information_by_handle_w as usize == 0 {
@@ -71,6 +72,7 @@ pub unsafe fn init_hook() {
         crate::functions::GET_FILE_INFORMATION_BY_HANDLE_EX_KERNEL_BASE = kernelbase_get_file_information_by_handle_ex;
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::GET_FILE_INFORMATION_BY_HANDLE_EX_KERNEL_BASE), crate::functions::kernelbase_get_file_information_by_handle_ex as _);
     }
+    */
 
     let module = crate::utils::convert::string_2_lpstr("ntdll.dll".to_string());
 
