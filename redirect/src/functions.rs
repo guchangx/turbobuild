@@ -1512,18 +1512,20 @@ pub unsafe fn nt_create_file(
                 }
                 */
 
-
+                let mut rtype = crate::replace::ReplaceType::Unknown;
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
                 
                 if (access_mask & super::ntdef::enums::FILE_LIST_DIRECTORY) != 0 {
                     crate::log!(trace, "nt_create_file hook path: directory - {}", name);
+                    rtype = crate::replace::ReplaceType::Dir;
                 }
                 else
                 {
                     crate::log!(trace, "nt_create_file hook path: file - {}", name);
+                    rtype = crate::replace::ReplaceType::File;
                 }
                 
-                let replace = crate::replace::replace_dir(&mut name);
+                let replace = crate::replace::replace_dir(&mut name, rtype);
                 if replace == crate::replace::ReplaceDirResult::Success {
                     //TODO elpase 10ms, need optimize. 
                     crate::log!(trace, "nt_create_file replace hook: {}", name.clone());
