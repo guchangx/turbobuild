@@ -157,7 +157,6 @@ pub enum ReplaceDirResult {
     NoMatch,
     IncludesDir,
     VirtualIncludesDir(String),
-    JustTest,
     FilePath,
     NeedObtain(String),
 }
@@ -170,82 +169,102 @@ pub enum ReplaceType {
 }
 
 
-pub fn replace_dir(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
+pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
 
-    if path.contains(r"AppData\Local\Temp\") {
-        return ReplaceDirResult::NoMatch;
-    }
-    else if path.starts_with(r"\??\pipe\") {
-        return ReplaceDirResult::NoMatch;
-    }
-    else if let Some(extension) = std::path::Path::new(path).extension() {
-        if extension == "h" || extension == "hpp" || extension == "inl" {
-            if path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
-                return ReplaceDirResult::FilePath;
-            }
-            //TODO: files has been redirect, need not replace again.
-            else if crate::REPLICADIR.get().is_some() {
-                let stempath = std::path::Path::new(&path[4..]);
-                let stempath = stempath.with_extension("");
-                let sources = crate::SOURCES.get().unwrap();
-                if sources.contains(stempath.as_os_str()) {
-                    if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-                        Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::Success, |modified| {
-                            *path = modified;
-                            return ReplaceDirResult::Success;
-                        })
-                    }
-                    else {
-                        let name = std::path::Path::new(path).file_name().unwrap();
-                        let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name);
-                        let modified = modified.to_string_lossy().to_string();
-                        
-                        *path = format!(r"\??\{}", modified);
-                        return ReplaceDirResult::Success;
-                    }
+    if rtype == ReplaceType::File {
+        if path.contains(r"AppData\Local\Temp\") {
+            return ReplaceDirResult::NoMatch;
+        }
+        else if let Some(extension) = std::path::Path::new(path).extension() {
+            if extension == "h" || extension == "hpp" || extension == "inl" {
+                if path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
+                    return ReplaceDirResult::FilePath;
+                }
+                else if path[4..].starts_with(crate::REPLICADIR.get().unwrap_or(&"*".to_string())) {
+                    return ReplaceDirResult::FilePath;
                 }
                 else {
-                    //TODO: i do not know how to handle this case now, .h file should in generated dir or in self project dir.
-                    //TODO: if a .h file in sources dir, but name is source file name, should not obtain again.
-                    if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-                        Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::Success, |modified| {
-                            return ReplaceDirResult::NeedObtain(modified);
-                        })
+                    let stempath = std::path::Path::new(&path[4..]);
+                    let stempathbuf = stempath.with_extension("");
+                    let sources = crate::SOURCES.get().unwrap();
+                    if sources.contains(stempathbuf.as_os_str()) {
+                        if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
+                            Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::Success, |modified| {
+                                *path = modified;
+                                return ReplaceDirResult::Success;
+                            })
+                        }
+                        else {
+                            let index = path.find(":\\");
+                            if let Some(i) = index {
+                                let dir = &path[i + 2..];
+                                let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
+
+                                let modified = format!(r"\??\{}", modified);                 
+                                *path = modified;
+                                return ReplaceDirResult::Success;
+                            }
+                            else {
+                                let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&path).to_string_lossy().to_string();
+                                let modified = format!(r"\??\{}", modified);
+                                let unmodified = path.to_string();
+                                *path = modified;
+                                return ReplaceDirResult::NeedObtain(unmodified);
+                            }
+                        }
                     }
                     else {
-                        if rtype == ReplaceType::Dir {
+                        //TODO: i do not know how to handle this case now, .h file should in generated dir or in self project dir.
+                        //TODO: if a .h file in sources dir, but name is source file name, should not obtain again.
+                        
+                        if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
+                            Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::Success, |modified| {
+                                let unmodified = path.to_string();
+                                *path = modified;
+                                return ReplaceDirResult::NeedObtain(unmodified);
+                            })
+                        }
+                        else {
                             let index = path.find(":\\");
                             if let Some(i) = index 
                             {
                                 let dir = &path[i + 2..];
                                 let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
                                 let modified = format!(r"\??\{}", modified);
-                                return ReplaceDirResult::NeedObtain(modified);
+                                let unmodified = path.to_string();
+                                *path = modified;
+                                return ReplaceDirResult::NeedObtain(unmodified);
                             }
                             else {
                                 let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&path).to_string_lossy().to_string();
                                 let modified = format!(r"\??\{}", modified);
-                                return ReplaceDirResult::NeedObtain(modified);
+                                let unmodified = path.to_string();
+                                *path = modified;
+                                return ReplaceDirResult::NeedObtain(unmodified);
                             }
                         }
-                        else {
-                            return ReplaceDirResult::FilePath;
-                        }
-                    }   
+                    }
                 }
             }
             else if extension == "cpp" {
-                if path.contains("mocs_") || path.contains("qrc_") {
+                if path[4..].starts_with(crate::REPLICADIR.get().unwrap_or(&"*".to_string())) {
+                    return ReplaceDirResult::FilePath;
+                }
+                else if path.contains("mocs_") || path.contains("qrc_") {
                     if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
                         Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::Success, |modified| {
-                            return ReplaceDirResult::NeedObtain(modified);
+                                let unmodified = path.to_string();
+                                *path = modified;        
+                                return ReplaceDirResult::NeedObtain(unmodified);
                         })
                     }
                     else {
                         if let Some(name) = std::path::Path::new(path).file_name() {
                             let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&name).to_string_lossy().to_string();
                             let modified = format!(r"\??\{}", modified);
-                            return ReplaceDirResult::NeedObtain(modified);
+                            let unmodified = path.to_string();
+                            *path = modified;
+                            return ReplaceDirResult::NeedObtain(unmodified);
                         }
                         else {
                             return ReplaceDirResult::FilePath;
@@ -261,10 +280,31 @@ pub fn replace_dir(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
             }
         }
         else {
-            return ReplaceDirResult::FilePath;
+            if path[4..].starts_with(crate::REPLICADIR.get().unwrap_or(&"*".to_string())) {
+                return ReplaceDirResult::FilePath;
+            }
+            else {
+                let index = path.find(":\\");
+                if let Some(i) = index 
+                {
+                    let dir = &path[i + 2..];
+                    let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
+                    let modified = format!(r"\??\{}", modified);
+                    let unmodified = path.to_string();
+                    *path = modified;
+                    return ReplaceDirResult::NeedObtain(unmodified);
+                }
+                else {
+                    let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&path).to_string_lossy().to_string();
+                    let modified = format!(r"\??\{}", modified);
+                    let unmodified = path.to_string();
+                    *path = modified;
+                    return ReplaceDirResult::NeedObtain(unmodified);
+                }
+            }
         }
     }
-    else {
+    else if rtype == ReplaceType::Dir {
         if path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
             return ReplaceDirResult::NoMatch;
         }
@@ -291,7 +331,8 @@ pub fn replace_dir(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
                             *path = modified;
                         }
                         return ReplaceDirResult::Success;
-                    } else {
+                    } 
+                    else {
                         crate::log!(warn, "replace sources dir is not ready, original: {}", path);
                         return ReplaceDirResult::NoMatch;
                     }
@@ -305,7 +346,6 @@ pub fn replace_dir(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
                     else {
                         *path = modified;
                     }
-
                     return ReplaceDirResult::Success;
                 }
             }
@@ -321,13 +361,8 @@ pub fn replace_dir(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
                     let unmodified = path.to_string();
                     let modified = format!(r"\??\{}", modified);
                     
-                    if rtype == ReplaceType::Dir {
-                        *path = modified;
-                        return ReplaceDirResult::VirtualIncludesDir(unmodified)
-                    }
-                    else {
-                        return ReplaceDirResult::NeedObtain(modified);
-                    }
+                    *path = modified;
+                    return ReplaceDirResult::VirtualIncludesDir(unmodified);
                 }
                 else {
                     crate::log!(warn, "replace extern dir is not ready, original: {}", path);
@@ -336,6 +371,9 @@ pub fn replace_dir(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
             }
             return ReplaceDirResult::NoMatch;
         }
+    }
+    else {
+        return ReplaceDirResult::NoMatch;
     }
 }
 
