@@ -1491,12 +1491,45 @@ pub unsafe fn nt_create_file(
     }
 
     if !skip && !object_attributes.is_null() {
+
         let object_name = (*object_attributes).ObjectName;
         if !object_name.is_null() {
+
             let buffer = (*object_name).Buffer;
             let length = (*object_name).Length;
 
-            if !buffer.is_null() && length > 0 {
+            let mut rtype = crate::replace::ReplaceType::Unknown;
+            let mut is_mount_point_manager = false;
+            if access_mask & super::ntdef::enums::FILE_LIST_DIRECTORY != 0 {
+                rtype = crate::replace::ReplaceType::Dir;
+            }
+            else {
+                rtype = crate::replace::ReplaceType::File;
+
+                // UTF-16 literal for "\\??\\MountPointManager"
+                const MOUNT_POINT_MANAGER_UTF16: &[u16] = &[
+                    b'\\' as u16, b'?' as u16, b'?' as u16, b'\\' as u16,
+                    b'M' as u16, b'o' as u16, b'u' as u16, b'n' as u16, b't' as u16,
+                    b'P' as u16, b'o' as u16, b'i' as u16, b'n' as u16, b't' as u16,
+                    b'M' as u16, b'a' as u16, b'n' as u16, b'a' as u16, b'g' as u16, b'e' as u16, b'r' as u16,
+                ];
+                const MOUNT_POINT_MANAGER_BYTE_LEN: u16 = (MOUNT_POINT_MANAGER_UTF16.len() * 2) as u16;
+                
+                is_mount_point_manager = if !buffer.is_null() && length == MOUNT_POINT_MANAGER_BYTE_LEN {
+                    if rtype == crate::replace::ReplaceType::File {
+                        let slice = std::slice::from_raw_parts(buffer, MOUNT_POINT_MANAGER_UTF16.len());
+                        slice == MOUNT_POINT_MANAGER_UTF16
+                    }
+                    else {
+                        false
+                    }
+                } 
+                else {
+                    false
+                };
+            }
+
+            if !buffer.is_null() && length > 0 && !is_mount_point_manager {
 
                 /* 
                 // another way to get string from utf16 slice.
@@ -1511,21 +1544,10 @@ pub unsafe fn nt_create_file(
                     }
                 }
                 */
-
-                let mut rtype = crate::replace::ReplaceType::Unknown;
+                
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                
-                if (access_mask & super::ntdef::enums::FILE_LIST_DIRECTORY) != 0 {
-                    crate::log!(trace, "nt_create_file hook path: directory - {}", name);
-                    rtype = crate::replace::ReplaceType::Dir;
-                }
-                else
-                {
-                    crate::log!(trace, "nt_create_file hook path: file - {}", name);
-                    rtype = crate::replace::ReplaceType::File;
-                }
-                
-                let replace = crate::replace::replace_dir(&mut name, rtype);
+                crate::log!(trace, "nt_create_file hook path: {} - {}", if rtype == crate::replace::ReplaceType::Dir { "dir" } else { "file" }, name);
+                let replace = crate::replace::nt_replace(&mut name, rtype);
                 if replace == crate::replace::ReplaceDirResult::Success {
                     //TODO elpase 10ms, need optimize. 
                     crate::log!(trace, "nt_create_file replace hook: {}", name.clone());
@@ -1593,30 +1615,6 @@ pub unsafe fn nt_create_file(
                         }
                     }
                     return nt_status;
-                }
-                else if replace == crate::replace::ReplaceDirResult::JustTest {
-                    let cid = {
-                        let mut cid = SYS_CALL_ID.lock().unwrap();
-                        let id = *cid;
-                        *cid += 1;
-                        id
-                    };
-                    
-                    let handle = cid as windows_sys::Win32::Foundation::HANDLE; 
-                    *file_handle = handle as _;
-
-                    if !io_status_block.is_null() {
-                        (*io_status_block).Information = windows_sys::Win32::System::WindowsProgramming::FILE_OPENED as _; 
-                        (*io_status_block).Status = windows_sys::Win32::Foundation::STATUS_SUCCESS;
-                    }
-
-                    crate::log!(error, "zw_create_file includes dir failed!: path: {} handle: {:?} cid: {}", name, handle, cid);
-
-                    NT_HANDLE_AND_DIR.with(|cell| {
-                        cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, name);
-                    });
-
-                    return windows_sys::Win32::Foundation::STATUS_SUCCESS;
                 }
                 else if let crate::replace::ReplaceDirResult::VirtualIncludesDir(unmodified) = replace {
                     crate::log!(trace, "nt_create_file includes hook replace path: {} {}", name.clone(), unmodified);
@@ -1686,16 +1684,16 @@ pub unsafe fn nt_create_file(
                         return windows_sys::Win32::Foundation::STATUS_OBJECT_NAME_NOT_FOUND;
                     }
                 }
-                else if let crate::replace::ReplaceDirResult::NeedObtain(expect) = replace {
+                else if let crate::replace::ReplaceDirResult::NeedObtain(unmodified) = replace {
                     let (tx, rx) = tokio::sync::oneshot::channel();
 
                     let mut args =  std::collections::HashMap::<String, String>::new();
-                    args.insert("objectname".to_string(), name.clone());
-                    args.insert("expect".to_string(), expect.clone());
+                    args.insert("objectname".to_string(), unmodified.clone());
+                    args.insert("expect".to_string(), name.clone());
 
                     let item = {
                         let guard = INCLUDES_CACHE.lock().unwrap();
-                        guard.get(&name).cloned()
+                        guard.get(&unmodified).cloned()
                     };
 
                     if let Some(expect) = item {
@@ -1765,10 +1763,10 @@ pub unsafe fn nt_create_file(
                         crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(syscall).unwrap();
                         let expects = rx.blocking_recv().unwrap();
                         //let expects = std::collections::HashMap::<String, String>::new();
-                        crate::log!(trace, "nt_create_file redirect file handle path by sync result: {} elapsed: {:?}", name, now.elapsed());
+                        crate::log!(trace, "nt_create_file redirect file handle path by sync result: {} elapsed: {:?}", unmodified, now.elapsed());
                         if let Some(expect) = expects.get("expect") {
                             
-                            INCLUDES_CACHE.lock().unwrap().insert(name, expect.clone());
+                            INCLUDES_CACHE.lock().unwrap().insert(unmodified, expect.clone());
 
                             crate::log!(trace, "nt_create_file redirect file handle path by sync expect: {}", expect);
                             let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
