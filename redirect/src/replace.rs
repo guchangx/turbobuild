@@ -162,7 +162,15 @@ pub enum ReplaceDirResult {
     NeedObtain(String),
 }
 
-pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
+#[derive(PartialEq, Debug)]
+pub enum ReplaceType {
+    Unknown,
+    File,
+    Dir,
+}
+
+
+pub fn replace_dir(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
 
     if path.contains(r"AppData\Local\Temp\") {
         return ReplaceDirResult::NoMatch;
@@ -205,14 +213,17 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
                         })
                     }
                     else {
-                        if let Some(index) = path.rfind(|c| c == '\\') {
-                            if let Some(index_) = path[..index].rfind(|c| c == '\\') {
-                                let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&path[index_ + 1..]).to_string_lossy().to_string();
+                        if rtype == ReplaceType::Dir {
+                            let index = path.find(":\\");
+                            if let Some(i) = index 
+                            {
+                                let dir = &path[i + 2..];
+                                let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
                                 let modified = format!(r"\??\{}", modified);
                                 return ReplaceDirResult::NeedObtain(modified);
                             }
                             else {
-                                let modified = std::path::Path::new(&*crate::WORKINGDIR).join(crate::GENERATEDDIR.get().unwrap()).join(&path[index + 1..]).to_string_lossy().to_string();
+                                let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&path).to_string_lossy().to_string();
                                 let modified = format!(r"\??\{}", modified);
                                 return ReplaceDirResult::NeedObtain(modified);
                             }
@@ -309,8 +320,14 @@ pub fn replace_dir(path: &mut String) -> ReplaceDirResult {
                     let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
                     let unmodified = path.to_string();
                     let modified = format!(r"\??\{}", modified);
-                    *path = modified;
-                    return ReplaceDirResult::VirtualIncludesDir(unmodified)
+                    
+                    if rtype == ReplaceType::Dir {
+                        *path = modified;
+                        return ReplaceDirResult::VirtualIncludesDir(unmodified)
+                    }
+                    else {
+                        return ReplaceDirResult::NeedObtain(modified);
+                    }
                 }
                 else {
                     crate::log!(warn, "replace extern dir is not ready, original: {}", path);
