@@ -109,7 +109,7 @@ impl Sender {
             .connect_timeout(std::time::Duration::from_secs(30))
             .connect()
             .await
-            .expect("Failed to connect to the server");
+            .expect(&format!("Failed to connect to the {}:19302 server", host));
 
         let client = pack::communicate_client::CommunicateClient::new(channel)
             .max_decoding_message_size(1024 * 1024 * 180 * 2)

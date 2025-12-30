@@ -250,7 +250,7 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
                 if path[4..].starts_with(crate::REPLICADIR.get().unwrap_or(&"*".to_string())) {
                     return ReplaceDirResult::FilePath;
                 }
-                else if path.contains("mocs_") || path.contains("qrc_") {
+                else if path.contains("moc_") || path.contains("mocs_") || path.contains("qrc_") {
                     if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
                         Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::Success, |modified| {
                                 let unmodified = path.to_string();
