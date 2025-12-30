@@ -302,7 +302,7 @@ unsafe extern "system" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserved
 
             //winapi::um::errhandlingapi::AddVectoredExceptionHandler(1, Some(custom_exception_handler));
             //force_unbuffered_output();
-            show_message_box_for_debug();
+            //show_message_box_for_debug();
             
             winapi::um::libloaderapi::DisableThreadLibraryCalls(hinst);
 
