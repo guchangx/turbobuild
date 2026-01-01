@@ -70,8 +70,8 @@ pub fn get_winapi_error_message(error: u32) -> String {
     use std::os::windows::ffi::OsStringExt;
     unsafe {
         let mut buffer = vec![0u16; 256];
-        let size =  winapi::um::winbase::FormatMessageW(
-            winapi::um::winbase::FORMAT_MESSAGE_FROM_SYSTEM,
+        let size = windows_sys::Win32::System::Diagnostics::Debug::FormatMessageW(
+            windows_sys::Win32::System::Diagnostics::Debug::FORMAT_MESSAGE_FROM_SYSTEM,
             std::ptr::null_mut(),
             error,
             0,

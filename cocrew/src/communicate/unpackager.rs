@@ -3,6 +3,7 @@ use std::io::Write;
 use tokio::io::AsyncWriteExt;
 
 use crate::communicate::syscallredirectpipe::MirrorSysCall;
+use windows_sys::Win32 as win;
 
 #[allow(non_camel_case_types)]
 pub mod package {
@@ -246,7 +247,7 @@ impl Receiver {
 
                             let file = tokio::fs::OpenOptions::new()
                                 .create(true)
-                                .share_mode(winapi::um::winnt::FILE_SHARE_READ | winapi::um::winnt::FILE_SHARE_WRITE | winapi::um::winnt::FILE_SHARE_DELETE)
+                                .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
                                 .write(true)
                                 .open(format!("{}{}", &intermediate.file, ".tmp"))
                                 .await;
@@ -283,7 +284,7 @@ impl Receiver {
 
                                         let mut file = tokio::fs::OpenOptions::new()
                                             .create(true)
-                                            .share_mode(winapi::um::winnt::FILE_SHARE_READ | winapi::um::winnt::FILE_SHARE_WRITE | winapi::um::winnt::FILE_SHARE_DELETE)
+                                            .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
                                             .write(true)
                                             .open(&intermediate.file)
                                             .await.expect(&format!("create file failed: {}", &intermediate.file));

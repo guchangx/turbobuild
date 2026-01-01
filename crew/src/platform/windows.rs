@@ -1,3 +1,4 @@
+use windows_sys::Win32 as win;
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct WindowsCompilerEnv {
@@ -32,21 +33,21 @@ fn get_winsdk_includes_path() -> Option<Vec<std::ffi::OsString>> {
 
         //HKEY_LOCAL_MACHINE\SOFTWARE\Wow6432Node\Microsoft\Microsoft SDKs\Windows\v10
         let sub_key: Vec<u16> = std::ffi::OsStr::new(r"SOFTWARE\WOW6432Node\Microsoft\Microsoft SDKs\Windows\v10.0").encode_wide().chain(once(0)).collect();
-        let mut phk_result: windows_sys::Win32::System::Registry::HKEY = null_mut();
-        let open_status = windows_sys::Win32::System::Registry::RegOpenKeyW(windows_sys::Win32::System::Registry::HKEY_LOCAL_MACHINE,
+        let mut phk_result: win::System::Registry::HKEY = null_mut();
+        let open_status = win::System::Registry::RegOpenKeyW(win::System::Registry::HKEY_LOCAL_MACHINE,
             sub_key.as_ptr(), &mut phk_result);
 
-        if open_status == windows_sys::Win32::Foundation::ERROR_SUCCESS {
+        if open_status == win::Foundation::ERROR_SUCCESS {
             let value_name: Vec<u16> = std::ffi::OsStr::new("InstallationFolder").encode_wide().chain(once(0)).collect();
 
             let mut dword: u32 = 128;
             let mut data = vec![0; 128 as usize];
-            let mut reg_sz = windows_sys::Win32::System::Registry::REG_SZ;
-            let query_status = windows_sys::Win32::System::Registry::RegQueryValueExW(phk_result, value_name.as_ptr(), null_mut(), 
+            let mut reg_sz = win::System::Registry::REG_SZ;
+            let query_status = win::System::Registry::RegQueryValueExW(phk_result, value_name.as_ptr(), null_mut(), 
               &mut reg_sz, data.as_mut_ptr(), &mut dword);
 
             let mut winkits_path = String::new();
-            if query_status == windows_sys::Win32::Foundation::SEC_E_OK as u32{
+            if query_status == win::Foundation::SEC_E_OK as u32{
                 data.set_len(dword as usize);
                 let words = std::slice::from_raw_parts(data.as_ptr() as *const u16, data.len() / 2);
                 winkits_path = String::from_utf16_lossy(words);
@@ -60,11 +61,11 @@ fn get_winsdk_includes_path() -> Option<Vec<std::ffi::OsString>> {
 
             let mut version_data = vec![0; 32];
             let mut version_len: u32 = 32;
-            let query_version_status = windows_sys::Win32::System::Registry::RegQueryValueExW(phk_result, product_version.as_ptr(), null_mut(),
+            let query_version_status = win::System::Registry::RegQueryValueExW(phk_result, product_version.as_ptr(), null_mut(),
              &mut reg_sz, version_data.as_mut_ptr(),  &mut version_len);
 
             let mut winkits_version = String::new();
-            if query_version_status == windows_sys::Win32::Foundation::SEC_E_OK as u32 {
+            if query_version_status == win::Foundation::SEC_E_OK as u32 {
 
                 version_data.set_len(version_len as usize);
                 let words = std::slice::from_raw_parts(version_data.as_ptr() as *const u16, version_data.len() / 2);

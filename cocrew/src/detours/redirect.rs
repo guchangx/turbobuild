@@ -1,20 +1,20 @@
 
 use tokio::sync::mpsc::error;
- use winapi::{shared::minwindef::LPDWORD, um::{errhandlingapi::GetLastError, handleapi::CloseHandle, processthreadsapi::CreateProcessW}};
+use windows_sys::Win32 as win;
 
 use crate::detours::detours::DetourCreateProcessWithDllExW;
 use std::os::windows::{ffi::OsStrExt, io::FromRawHandle};
 
 struct HandleBox {
-    handle: winapi::shared::ntdef::HANDLE,
+    handle: win::Foundation::HANDLE,
 }
  
 impl HandleBox {
-    pub fn new(h: winapi::shared::ntdef::HANDLE) -> Self {
+    pub fn new(h: win::Foundation::HANDLE) -> Self {
         Self { handle: h }
     }
  
-    pub fn get(&self) -> &winapi::shared::ntdef::HANDLE {
+    pub fn get(&self) -> &win::Foundation::HANDLE {
         &self.handle
     }
 
@@ -37,32 +37,32 @@ static REDIRECT_DLL_PATH: std::sync::LazyLock<Option<std::ffi::CString>> = std::
         }
     });
 
-pub unsafe fn pass_params_to_redirect(handle: winapi::shared::ntdef::HANDLE, solution: &str, project: &str) {
+pub unsafe fn pass_params_to_redirect(handle: win::Foundation::HANDLE, solution: &str, project: &str) {
     if !solution.is_empty() {
         let arg = format!("solution:{}\r\nproject:{}\r\nreplica:{}\r\n", solution, project, tools::utils::access_replica_dir());
-        let mut bytes: winapi::shared::minwindef::DWORD = 0;
-        let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
-        let ret = winapi::um::fileapi::WriteFile(
+        let mut bytes: u32 = 0;
+        let mut overlapped: win::System::IO::OVERLAPPED = std::mem::zeroed();
+        let ret = win::Storage::FileSystem::WriteFile(
             handle,
-            arg.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
+            arg.as_bytes().as_ptr(),
             arg.len() as u32,
             &mut bytes,
             std::ptr::null_mut()
         );
     
-        if ret == winapi::shared::minwindef::FALSE || bytes == 0 {
-            let error = winapi::um::errhandlingapi::GetLastError();
+        if ret == win::Foundation::FALSE || bytes == 0 {
+            let error = win::Foundation::GetLastError();
             log::error!("write pipe error, failed code: {}", error);
         }
         else {
-            //winapi::um::fileapi::FlushFileBuffers(handle);
+            //FlushFileBuffers(handle);
             log::trace!("send message by pipe {} {:?}", if bytes > 0 {"success."} else {"failed."}, arg);
         }
     }
     else {
         log::warn!("don't pass project name and project path, use current path and don't redirect.");
     }
-    CloseHandle(handle);
+    win::Foundation::CloseHandle(handle);
 }
 
 fn replace_includes_path_by_replica(includes: &std::ffi::OsString) -> std::borrow::Cow<'_, std::ffi::OsString> {
@@ -101,8 +101,8 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
 
         let lpCommandLine = command.as_str();
 
-        let bInheritHandles = winapi::shared::minwindef::TRUE;
-        let dwCreationFlags = winapi::um::winbase::CREATE_DEFAULT_ERROR_MODE | winapi::um::winbase::CREATE_SUSPENDED | winapi::um::winbase::CREATE_UNICODE_ENVIRONMENT;
+        let bInheritHandles = win::Foundation::TRUE;
+        let dwCreationFlags = win::System::Threading::CREATE_DEFAULT_ERROR_MODE | win::System::Threading::CREATE_SUSPENDED | win::System::Threading::CREATE_UNICODE_ENVIRONMENT;
 
         let mut env_block: Vec<u16> = Vec::new();
 
@@ -181,40 +181,40 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
         if let Some(dllPath) = redirect_dll_path {
             let dllPath = dllPath.as_ptr();
 
-            let mut pipeAttributes = winapi::um::minwinbase::SECURITY_ATTRIBUTES {
-                nLength: std::mem::size_of::<winapi::um::minwinbase::SECURITY_ATTRIBUTES>() as u32,
+            let mut pipeAttributes = win::Security::SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<win::Security::SECURITY_ATTRIBUTES>() as u32,
                 lpSecurityDescriptor: std::ptr::null_mut(),
-                bInheritHandle: winapi::shared::minwindef::TRUE,
+                bInheritHandle: win::Foundation::TRUE,
             };
 
-            let mut hStdInRead: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-            let mut hStdInWrite: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-            let ret = winapi::um::namedpipeapi::CreatePipe(&mut hStdInRead as winapi::shared::ntdef::PHANDLE, &mut hStdInWrite as winapi::shared::ntdef::PHANDLE, &mut pipeAttributes, 0);
-            if winapi::shared::minwindef::FALSE == ret {
+            let mut hStdInRead: win::Foundation::HANDLE = std::ptr::null_mut();
+            let mut hStdInWrite: win::Foundation::HANDLE = std::ptr::null_mut();
+            let ret = win::System::Pipes::CreatePipe(&mut hStdInRead, &mut hStdInWrite, &mut pipeAttributes, 0);
+            if win::Foundation::FALSE == ret {
                 log::error!("create input pipe failed.")
             }
             else {
-                winapi::um::handleapi::SetHandleInformation(hStdInWrite, winapi::um::winbase::HANDLE_FLAG_INHERIT, 0);
+                win::Foundation::SetHandleInformation(hStdInWrite, win::Foundation::HANDLE_FLAG_INHERIT, 0);
             }
             
-            let mut hStdOutputRead: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-            let mut hStdOutputWrite: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-            let ret = winapi::um::namedpipeapi::CreatePipe( &mut hStdOutputRead as winapi::shared::ntdef::PHANDLE, &mut hStdOutputWrite as winapi::shared::ntdef::PHANDLE, &mut pipeAttributes, 0);
-            if winapi::shared::minwindef::FALSE == ret {
+            let mut hStdOutputRead: win::Foundation::HANDLE = std::ptr::null_mut();
+            let mut hStdOutputWrite: win::Foundation::HANDLE = std::ptr::null_mut();
+            let ret = win::System::Pipes::CreatePipe( &mut hStdOutputRead, &mut hStdOutputWrite, &mut pipeAttributes, 0);
+            if win::Foundation::FALSE == ret {
                 log::error!("create output pipe failed.")
             }
             else {
-                winapi::um::handleapi::SetHandleInformation(hStdOutputRead, winapi::um::winbase::HANDLE_FLAG_INHERIT, 0);
+                win::Foundation::SetHandleInformation(hStdOutputRead, win::Foundation::HANDLE_FLAG_INHERIT, 0);
             }
 
-            let mut hStdErrorRead: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-            let mut hStdErrorWrite: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-            let ret = winapi::um::namedpipeapi::CreatePipe(&mut hStdErrorRead as winapi::shared::ntdef::PHANDLE, &mut hStdErrorWrite as winapi::shared::ntdef::PHANDLE, &mut pipeAttributes, 0);
-            if winapi::shared::minwindef::FALSE == ret {
+            let mut hStdErrorRead: win::Foundation::HANDLE = std::ptr::null_mut();
+            let mut hStdErrorWrite: win::Foundation::HANDLE = std::ptr::null_mut();
+            let ret = win::System::Pipes::CreatePipe(&mut hStdErrorRead, &mut hStdErrorWrite, &mut pipeAttributes, 0);
+            if win::Foundation::FALSE == ret {
                 log::error!("create error pipe failed.")
             }
             else {
-                winapi::um::handleapi::SetHandleInformation(hStdErrorRead, winapi::um::winbase::HANDLE_FLAG_INHERIT, 0);
+                win::Foundation::SetHandleInformation(hStdErrorRead, win::Foundation::HANDLE_FLAG_INHERIT, 0);
             }
 
             let lpProcessAttributes = std::ptr::null_mut();
@@ -224,7 +224,7 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
             lpStartupInfo.hStdInput = hStdInRead as *mut std::ffi::c_void;            
             lpStartupInfo.hStdOutput = hStdOutputWrite as *mut std::ffi::c_void;
             lpStartupInfo.hStdError = hStdErrorWrite as *mut std::ffi::c_void;
-            lpStartupInfo.dwFlags |=  winapi::um::winbase::STARTF_USESTDHANDLES;
+            lpStartupInfo.dwFlags |= win::System::Threading::STARTF_USESTDHANDLES;
 
             let mut lpProcessInformation: crate::detours::detours::_PROCESS_INFORMATION = std::mem::MaybeUninit::zeroed().assume_init();
                
@@ -243,19 +243,19 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                 Option::None
             );
         
-            CloseHandle(hStdOutputWrite);
-            CloseHandle(hStdErrorWrite);
-            CloseHandle(hStdInRead);
+            win::Foundation::CloseHandle(hStdOutputWrite);
+            win::Foundation::CloseHandle(hStdErrorWrite);
+            win::Foundation::CloseHandle(hStdInRead);
 
-            if ret == winapi::shared::minwindef::TRUE {
+            if ret == win::Foundation::TRUE {
                 let stdoutstream = std::sync::Arc::new(out_err_stream.stdout.to_owned());
                 let stderrstream = std::sync::Arc::new(out_err_stream.stderr.to_owned());
 
                 pass_params_to_redirect(hStdInWrite, &solution, &project);
 
-                let ret = winapi::um::processthreadsapi::ResumeThread(lpProcessInformation.hThread as _);
-                if ret == winapi::shared::minwindef::FALSE as u32 {
-                    let error_code = winapi::um::errhandlingapi::GetLastError();
+                let ret = win::System::Threading::ResumeThread(lpProcessInformation.hThread as _);
+                if ret == win::Foundation::FALSE as u32 {
+                    let error_code = win::Foundation::GetLastError();
                     log::error!("ResumeThread failed! error code: {}.", error_code);
                 }
 
@@ -264,13 +264,13 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                 let task = std::thread::Builder::new().name("build-stdout-reader".into()).spawn(move || {
 
                     let mut chTmpStdOutputReadBuffer = [0u8; 1024];
-                    let mut bytesStdOuputRead: winapi::shared::minwindef::DWORD = 0;
+                    let mut bytesStdOuputRead: u32 = 0;
                     
                     let mut line = Vec::new();
                     let mut stdout = Vec::new();
                     loop {
                         chTmpStdOutputReadBuffer.fill(0);
-                        let bStdOutputRead = winapi::um::fileapi::ReadFile(
+                        let bStdOutputRead = win::Storage::FileSystem::ReadFile(
                             *hStdOutputReadBox.get(),
                             chTmpStdOutputReadBuffer.as_mut_ptr() as *mut _, 
                             chTmpStdOutputReadBuffer.len() as u32,
@@ -278,13 +278,13 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                             std::ptr::null_mut()
                         );
                         
-                        if bStdOutputRead == winapi::shared::minwindef::FALSE || bytesStdOuputRead == 0 {
-                            let error = winapi::um::errhandlingapi::GetLastError();
-                            if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+                        if bStdOutputRead == win::Foundation::FALSE || bytesStdOuputRead == 0 {
+                            let error = win::Foundation::GetLastError();
+                            if error == win::Foundation::ERROR_BROKEN_PIPE {
                                 
                             }
                             else {
-                                log::error!("can't read stdout pipe. error code: {}", winapi::um::errhandlingapi::GetLastError());
+                                log::error!("can't read stdout pipe. error code: {}", win::Foundation::GetLastError());
                             }
                             break;
                         }
@@ -314,27 +314,27 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                 }).unwrap();
                 
                 let mut chTmpStdErrorReadBuffer =  [0u8; 1024];
-                let mut bytesStdErrorRead: winapi::shared::minwindef::DWORD = 0;
+                let mut bytesStdErrorRead: u32 = 0;
 
                 let mut stderr = Vec::new();
 
                 loop {
                     chTmpStdErrorReadBuffer.fill(0);
-                    let bStdErrorRead = winapi::um::fileapi::ReadFile(
+                    let bStdErrorRead = win::Storage::FileSystem::ReadFile(
                         hStdErrorRead, 
-                        chTmpStdErrorReadBuffer.as_mut_ptr() as *mut _, 
+                        chTmpStdErrorReadBuffer.as_mut_ptr(), 
                         chTmpStdErrorReadBuffer.len() as u32, 
                         &mut bytesStdErrorRead, 
                         std::ptr::null_mut()
                     );
                     
-                    if bStdErrorRead == winapi::shared::minwindef::FALSE || bytesStdErrorRead == 0 {
-                        let error = winapi::um::errhandlingapi::GetLastError();
-                        if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+                    if bStdErrorRead == win::Foundation::FALSE || bytesStdErrorRead == 0 {
+                        let error = win::Foundation::GetLastError();
+                        if error == win::Foundation::ERROR_BROKEN_PIPE {
 
                         }
                         else {
-                            log::error!("can't read stderr pipe. error code: {}", winapi::um::errhandlingapi::GetLastError());
+                            log::error!("can't read stderr pipe. error code: {}", win::Foundation::GetLastError());
                         }
                         break;
                     }
@@ -348,21 +348,21 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
                 }
                 drop(stderrstream);
                 
-                winapi::um::synchapi::WaitForSingleObject(lpProcessInformation.hProcess as winapi::um::winnt::HANDLE, winapi::um::winbase::INFINITE);
+                win::System::Threading::WaitForSingleObject(lpProcessInformation.hProcess as win::Foundation::HANDLE, win::System::Threading::INFINITE);
                 
-                let mut code: winapi::shared::minwindef::DWORD = 0;
-                winapi::um::processthreadsapi::GetExitCodeProcess(lpProcessInformation.hProcess as winapi::um::winnt::HANDLE, &mut code as *mut winapi::shared::minwindef::DWORD);
+                let mut code: u32 = 0;
+                win::System::Threading::GetExitCodeProcess(lpProcessInformation.hProcess as win::Foundation::HANDLE, &mut code as _);
 
-                winapi::um::handleapi::CloseHandle(lpProcessInformation.hThread as _);
-                winapi::um::handleapi::CloseHandle(lpProcessInformation.hProcess as _);
+                win::Foundation::CloseHandle(lpProcessInformation.hThread as _);
+                win::Foundation::CloseHandle(lpProcessInformation.hProcess as _);
 
                 log::info!("msvc detours: {} end with exit code: {:#x}. error message: {}.", project, code, tools::utils::get_winapi_error_message(code));
                 if !hStdOutputRead.is_null() {
-                    winapi::um::handleapi::CloseHandle(hStdOutputRead);
+                    win::Foundation::CloseHandle(hStdOutputRead);
                 }
 
                 if !hStdErrorRead.is_null() {
-                    winapi::um::handleapi::CloseHandle(hStdErrorRead);
+                    win::Foundation::CloseHandle(hStdErrorRead);
                 }
 
                 let stdout = task.join().unwrap();
@@ -371,13 +371,13 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
             }
             else {
                 if !hStdOutputRead.is_null() {
-                    winapi::um::handleapi::CloseHandle(hStdOutputRead);
+                    win::Foundation::CloseHandle(hStdOutputRead);
                 }
                 if !hStdErrorRead.is_null() {
-                    winapi::um::handleapi::CloseHandle(hStdErrorRead);
+                    win::Foundation::CloseHandle(hStdErrorRead);
                 }
 
-                let code = winapi::um::errhandlingapi::GetLastError();
+                let code = win::Foundation::GetLastError();
                 log::error!("DetourCreateProcessWithDllExW failed! error code: {}. error message: {}.", code, tools::utils::get_winapi_error_message(code));
                 return (code, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
             }

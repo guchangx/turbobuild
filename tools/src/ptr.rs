@@ -1,14 +1,14 @@
 
 pub struct HandleBox {
-    handle: winapi::shared::ntdef::HANDLE,
+    handle: crate::win::Foundation::HANDLE,
 }
  
 impl HandleBox {
-    pub fn new(h: winapi::shared::ntdef::HANDLE) -> Self {
+    pub fn new(h: crate::win::Foundation::HANDLE) -> Self {
         Self { handle: h }
     }
  
-    pub fn get(&self) -> &winapi::shared::ntdef::HANDLE {
+    pub fn get(&self) -> &crate::win::Foundation::HANDLE {
         &self.handle
     }
     

@@ -1,6 +1,7 @@
 
 use crew::compiler::model::{CompiledResult, CompiledResults, CompilerInput, CompilerOutput};
 use std::io::Read;
+use windows_sys::Win32 as win;
 
 pub struct MSVC {
     pub version: String,
@@ -744,45 +745,45 @@ pub fn redirect_stdout_log() {
     let rt = {crate::common::COCREW_RUNTIME.lock().unwrap().handle().clone()};
     unsafe { loop {
 
-        let pipe = winapi::um::namedpipeapi::CreateNamedPipeW(wchars.as_ptr(), winapi::um::winbase::PIPE_ACCESS_INBOUND,  
-        winapi::um::winbase::PIPE_TYPE_MESSAGE | winapi::um::winbase::PIPE_READMODE_MESSAGE | winapi::um::winbase::PIPE_WAIT,
-        winapi::um::winbase::PIPE_UNLIMITED_INSTANCES,
+        let pipe = win::System::Pipes::CreateNamedPipeW(wchars.as_ptr(), win::Storage::FileSystem::PIPE_ACCESS_INBOUND,  
+        win::System::Pipes::PIPE_TYPE_MESSAGE | win::System::Pipes::PIPE_READMODE_MESSAGE | win::System::Pipes::PIPE_WAIT,
+        win::System::Pipes::PIPE_UNLIMITED_INSTANCES,
         0, 0, 0, std::ptr::null_mut());
         
-        if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
+        if !pipe.is_null() && pipe != win::Foundation::INVALID_HANDLE_VALUE {
             
-            if winapi::shared::minwindef::TRUE == winapi::um::namedpipeapi::ConnectNamedPipe(pipe, std::ptr::null_mut()) {
+            if win::Foundation::TRUE == win::System::Pipes::ConnectNamedPipe(pipe, std::ptr::null_mut()) {
 
                 let handle = tools::ptr::HandleBox::new(pipe);
                 let _ = rt.spawn_blocking(move || {
 
                     log::info!("redirect stdout log read named pipe message task start. count: {}", count);
                     let mut buffer = vec![0u8; 512];
-                    let mut bytes: winapi::shared::minwindef::DWORD = 0;
+                    let mut bytes: u32 = 0;
                     let mut moredata = String::new();
                     loop {
-                        let result = winapi::um::fileapi::ReadFile(
-                            handle.get().to_owned(),
+                        let result = win::Storage::FileSystem::ReadFile(
+                            handle.get().to_owned() as _,
                             buffer.as_mut_ptr() as *mut _,
                             512,
                             &mut bytes,
                             std::ptr::null_mut()
                         );
         
-                        if result == winapi::shared::minwindef::FALSE || bytes == 0 {
-                            let error = winapi::um::errhandlingapi::GetLastError();
+                        if result == win::Foundation::FALSE || bytes == 0 {
+                            let error = win::Foundation::GetLastError();
 
-                            if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+                            if error == win::Foundation::ERROR_BROKEN_PIPE {
                                 //The pipe has been ended.
                                 break;
                             }
-                            else if error == winapi::shared::winerror::ERROR_MORE_DATA {
+                            else if error == win::Foundation::ERROR_MORE_DATA {
                                 //The buffer is not enough.
                                 let output = String::from_utf8_lossy(&buffer[..bytes as usize]);
                                 moredata.push_str(&output);
                                 continue;
                             }
-                            else if error == winapi::shared::winerror::ERROR_IO_PENDING {
+                            else if error == win::Foundation::ERROR_IO_PENDING {
                                 //The operation is pending.
                                 continue;
                             }
@@ -802,26 +803,26 @@ pub fn redirect_stdout_log() {
                         }
                         //tokio::io::stdout().write_all(format!("redirect: {}\n", output).as_bytes()).await.expect("Failed to write to stdout");
                     }
-                    winapi::um::namedpipeapi::DisconnectNamedPipe(handle.get().to_owned());
-                    winapi::um::handleapi::CloseHandle(handle.get().to_owned());
+                    win::System::Pipes::DisconnectNamedPipe(handle.get().to_owned() as _);
+                    win::Foundation::CloseHandle(handle.get().to_owned() as _);
                     log::warn!("redirect stdout log read named pipe message task exit. count: {}", count);
                 });
             }
             else {
-                let error = winapi::um::errhandlingapi::GetLastError();
+                let error = win::Foundation::GetLastError();
                 log::debug!("connect named pipe failed. error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
 
-                if error == winapi::shared::winerror::ERROR_NO_DATA {
+                if error == win::Foundation::ERROR_NO_DATA {
     
                 }
                 else {
         
                 }
-                winapi::um::handleapi::CloseHandle(pipe);
+                win::Foundation::CloseHandle(pipe);
             }
         }
         else {
-            let error = winapi::um::errhandlingapi::GetLastError();
+            let error = win::Foundation::GetLastError();
             log::error!("connect named pipe failcreate named pipe failed. error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
         }
         count += 1;
@@ -1191,7 +1192,7 @@ mod tests {
         let name = name.encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
 
   
-                if winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 500) == winapi::shared::minwindef::TRUE {
+                if win::System::Pipes::WaitNamedPipeW(name.as_ptr(), 500) == win::Foundation::TRUE {
                    println!("wait named pipe success");
                 }
                 else {
@@ -1200,33 +1201,33 @@ mod tests {
 
     
         if true {
-            let pipe = winapi::um::fileapi::CreateFileW(name.as_ptr(), 
-                winapi::um::winnt::GENERIC_WRITE, 
+            let pipe = win::Storage::FileSystem::CreateFileW(name.as_ptr(), 
+                win::Foundation::GENERIC_WRITE, 
                 0,
                 std::ptr::null_mut(), 
-                winapi::um::fileapi::OPEN_EXISTING, 
-                winapi::um::winnt::FILE_ATTRIBUTE_NORMAL, 
-                winapi::shared::ntdef::NULL
+                win::Storage::FileSystem::OPEN_EXISTING, 
+                win::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL, 
+                std::ptr::null_mut()
             );
      
-            if !pipe.is_null() && pipe != winapi::um::handleapi::INVALID_HANDLE_VALUE {
+            if !pipe.is_null() && pipe != win::Foundation::INVALID_HANDLE_VALUE {
                 let handle = tools::ptr::HandleBox::new(pipe);
 
                 for i in 0..20 {
                     let message = String::from(format!("test pipe {} thread: {:?} ...", i, id));
-                    let mut bytes: winapi::shared::minwindef::DWORD = 0;
-                    let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
-                    let result = winapi::um::fileapi::WriteFile(
-                        handle.get().to_owned(),
-                        message.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
+                    let mut bytes: u32 = 0;
+                    let mut overlapped: win::System::IO::OVERLAPPED = std::mem::zeroed();
+                    let result = win::Storage::FileSystem::WriteFile(
+                        handle.get().to_owned() as _,
+                        message.as_bytes().as_ptr(),
                         message.len() as u32,
                         &mut bytes,
                         &mut overlapped
                     );
     
-                    if result == winapi::shared::minwindef::FALSE || bytes == 0 {
-                        let error = winapi::um::errhandlingapi::GetLastError();
-                        if error == winapi::shared::winerror::ERROR_BROKEN_PIPE {
+                    if result == win::Foundation::FALSE || bytes == 0 {
+                        let error = win::Foundation::GetLastError();
+                        if error == win::Foundation::ERROR_BROKEN_PIPE {
                             break;
                         }
                         println!("write pipe error, failed code: {} message: {}", error, tools::utils::get_winapi_error_message(error));
@@ -1234,11 +1235,11 @@ mod tests {
                     }
                 };
 
-                winapi::um::fileapi::FlushFileBuffers(handle.get().to_owned());
-                winapi::um::handleapi::CloseHandle(handle.get().to_owned()); 
+                win::Storage::FileSystem::FlushFileBuffers(handle.get().to_owned() as _);
+                win::Foundation::CloseHandle(handle.get().to_owned() as _); 
             }
             else {
-                let error = winapi::um::errhandlingapi::GetLastError();
+                let error = win::Foundation::GetLastError();
                 println!("create pipe failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
             }
         }

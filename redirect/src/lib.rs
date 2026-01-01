@@ -1,32 +1,96 @@
 
-extern crate winapi;
 mod detours;
 mod hook;
 mod utils;
 mod replace;
 mod functions;
-mod ntdef;
 mod logger;
 pub mod syscallredirect;
+use windows_sys::Win32 as win;
 
 //TODO The current size of the package is 1.24M
-//TODO Remove winapi, use windows-sys replace and remove ntdef.
+
+
+struct StackWriter {
+    buf: [u8; 512],
+    cursor: usize,
+}
+
+impl StackWriter {
+    fn new() -> Self { Self { buf: [0; 512], cursor: 0 } }    
+    fn as_ptr(&self) -> *const u8 { self.buf.as_ptr() }
+}
+
+impl core::fmt::Write for StackWriter {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let bytes = s.as_bytes();
+        let remaining = self.buf.len() - self.cursor - 1;
+        let len = bytes.len().min(remaining);
+        
+        if len > 0 {
+            self.buf[self.cursor..self.cursor+len].copy_from_slice(&bytes[..len]);
+            self.cursor += len;
+        }
+        self.buf[self.cursor] = 0;
+        Ok(())
+    }
+}
 
 unsafe extern "system" fn custom_exception_handler(
-    exception_info: *mut winapi::um::winnt::EXCEPTION_POINTERS
+    exception_info: *mut win::System::Diagnostics::Debug::EXCEPTION_POINTERS
 ) -> i32 {
-    let exception_record = (*exception_info).ExceptionRecord;
-    if !exception_record.is_null() {
-        let code = (*exception_record).ExceptionCode;
-        if code == 0x80000003 {  // EXCEPTION_BREAKPOINT
-            return winapi::vc::excpt::EXCEPTION_CONTINUE_EXECUTION;
-        }
-        else if code & 0x80000000 != 0 {
-            println!("Unhandled exception code in redirect: {:#X}", code);
-        }
+    if exception_info.is_null() {
+        return win::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
     }
-    return winapi::vc::excpt::EXCEPTION_CONTINUE_SEARCH;
+    
+    let exception_record = (*exception_info).ExceptionRecord;
+    if exception_record.is_null() {
+        return win::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
+    }
+
+    let code = (*exception_record).ExceptionCode as u32;
+    
+    if code == 0x406D1388 { //SetThreadName exception
+        return win::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
+    }
+
+    let mut writer = StackWriter::new();
+    use core::fmt::Write;
+
+    if code == 0xC0000005u32 { // EXCEPTION_ACCESS_VIOLATION
+        let address = (*exception_record).ExceptionAddress;
+        let flags = (*exception_record).ExceptionFlags as u32;
+        let num_params = (*exception_record).NumberParameters;
+        let mut operation = "Unknown";
+        let mut fault_address = 0usize;
+        
+        if (*exception_record).NumberParameters >= 2 {
+            let op_code = *(*exception_record).ExceptionInformation.as_ptr();
+            fault_address = *(*exception_record).ExceptionInformation.as_ptr().add(1);
+            operation = if op_code == 0 { "Read" } else if op_code == 1 { "Write" } else { "Execute" };
+        }
+
+        let _ = write!(writer, "[CRASH] Access Violation (0xC0000005): {} at {:#X}, addr: {:p}, flags={:#X}, params={}\n\0", 
+            operation, fault_address, address, flags, num_params);
+            
+        win::System::Diagnostics::Debug::OutputDebugStringA(writer.as_ptr());
+        
+        return win::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
+    }
+    else if code == 0x80000003u32 { // EXCEPTION_BREAKPOINT
+        return win::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
+    }
+    else if code == 0x80000004u32 { // EXCEPTION_SINGLE_STEP
+        return win::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
+    }
+    else if (code & 0xF0000000) >= 0xC0000000 {
+        let _ = write!(writer, "[EXCEPTION] Code: {:#X} at {:p}\n\0", code, (*exception_record).ExceptionAddress);
+        win::System::Diagnostics::Debug::OutputDebugStringA(writer.as_ptr());
+    }
+
+    return win::System::Diagnostics::Debug::EXCEPTION_CONTINUE_SEARCH;
 }
+
 struct Channel {
     tx: tokio::sync::mpsc::Sender<String>, 
     rx: std::sync::Mutex<Option<tokio::sync::mpsc::Receiver<String>>>,
@@ -112,11 +176,11 @@ fn read_project_property_from_stdin() {
 
 static MODULE_PATH: std::sync::OnceLock<std::ffi::CString> = std::sync::OnceLock::new();
 
-fn fetch_module_path(hinst: HINSTANCE) {
+fn fetch_module_path(hinst: win::Foundation::HINSTANCE) {
     let mut buffer = vec![0u16; 512];
-    let length = unsafe { GetModuleFileNameW(hinst, buffer.as_mut_ptr(), buffer.len() as u32) };
+    let length = unsafe { win::System::LibraryLoader::GetModuleFileNameW(hinst, buffer.as_mut_ptr(), buffer.len() as u32) };
     if length == 0 {
-        log!(error, "GetModuleFileNameW failed, error code: {}", unsafe {winapi::um::errhandlingapi::GetLastError()});
+        log!(error, "GetModuleFileNameW failed, error code: {}", unsafe {win::Foundation::GetLastError()});
     }
     else {
         use std::os::windows::ffi::OsStringExt;
@@ -265,8 +329,6 @@ fn uninit_custom_resource() {
 
 use std::io::BufRead;
 
-use winapi::{shared::minwindef::{BOOL, DWORD, HINSTANCE, LPVOID}, um::libloaderapi::GetModuleFileNameW};
-
 unsafe fn show_message_box_for_debug() {
     use std::os::windows::ffi::OsStrExt;
     let text: Vec<u16> = std::ffi::OsStr::new("Debug BreakPoint")
@@ -282,7 +344,7 @@ unsafe fn show_message_box_for_debug() {
     log!(info, "show debug message box for process attach");
     
     //just for attach debug, when message box block process run.
-    winapi::um::winuser::MessageBoxW(0 as winapi::shared::windef::HWND, text.as_ptr(), caption.as_ptr(), 0);
+    win::UI::WindowsAndMessaging::MessageBoxW(0 as win::Foundation::HWND, text.as_ptr(), caption.as_ptr(), 0);
 }
 
 thread_local! {
@@ -290,21 +352,25 @@ thread_local! {
 }
 
 #[no_mangle]
-unsafe extern "system" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserved: LPVOID) -> BOOL {
+unsafe extern "system" fn DllMain(
+    hinst: win::Foundation::HINSTANCE, 
+    fdw_reason: u32, 
+    _reserved: *mut core::ffi::c_void
+) -> i32 {
     
-    if crate::detours::DetourIsHelperProcess() == winapi::shared::minwindef::TRUE {
+    if crate::detours::DetourIsHelperProcess() == win::Foundation::TRUE {
         //println!("target application is a helper process, so do nothing.");
-        return winapi::shared::minwindef::TRUE;
+        return win::Foundation::TRUE;
     }
 
     match fdw_reason {
-        winapi::um::winnt::DLL_PROCESS_ATTACH => {
+        win::System::SystemServices::DLL_PROCESS_ATTACH => {
 
-            //winapi::um::errhandlingapi::AddVectoredExceptionHandler(1, Some(custom_exception_handler));
+            //win::System::Diagnostics::Debug::AddVectoredExceptionHandler(1, Some(custom_exception_handler));
             //force_unbuffered_output();
             //show_message_box_for_debug();
             
-            winapi::um::libloaderapi::DisableThreadLibraryCalls(hinst);
+            win::System::LibraryLoader::DisableThreadLibraryCalls(hinst);
 
             fetch_module_path(hinst);
             read_project_property_from_stdin();
@@ -316,20 +382,20 @@ unsafe extern "system" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserved
             crate::syscallredirect::async_connect_syscall_namedpipe();
             
             let ret = crate::detours::DetourRestoreAfterWith();
-            if ret == winapi::shared::minwindef::FALSE {
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+            if ret == win::Foundation::FALSE {
+                let error_code = win::Foundation::GetLastError();
                 log!(error, "DetourRestoreAfterWith failed, error code: {}.", error_code);
             }
 
             let ret = crate::detours::DetourTransactionBegin();
-            if ret != winapi::shared::winerror::NO_ERROR as i32 {
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+            if ret != win::Foundation::NO_ERROR as i32 {
+                let error_code = win::Foundation::GetLastError();
                 log!(error, "DetourTransactionBegin failed, error code: {}.", error_code);
             }
 
-            let ret = crate::detours::DetourUpdateThread(winapi::um::processthreadsapi::GetCurrentThread() as _);
-            if ret != winapi::shared::winerror::NO_ERROR as i32 {
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+            let ret = crate::detours::DetourUpdateThread(win::System::Threading::GetCurrentThread() as _);
+            if ret != win::Foundation::NO_ERROR as i32 {
+                let error_code = win::Foundation::GetLastError();
                 log!(error, "DetourUpdateThread failed, erro code: {}.", error_code);
             }
         
@@ -340,17 +406,17 @@ unsafe extern "system" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserved
             crate::hook::init_hook();
             
             let ret = crate::detours::DetourTransactionCommit();
-            if ret != winapi::shared::winerror::NO_ERROR as i32 {
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+            if ret != win::Foundation::NO_ERROR as i32 {
+                let error_code = win::Foundation::GetLastError();
                 log!(error, "DetourTransactionCommit failed, error code: {}.", error_code);
             }
         },
-        winapi::um::winnt::DLL_THREAD_ATTACH => {
+        win::System::SystemServices::DLL_THREAD_ATTACH => {
 
         },
-        winapi::um::winnt::DLL_PROCESS_DETACH => {
+        win::System::SystemServices::DLL_PROCESS_DETACH => {
             crate::detours::DetourTransactionBegin();
-            crate::detours::DetourUpdateThread(winapi::um::processthreadsapi::GetCurrentThread() as _);
+            crate::detours::DetourUpdateThread(win::System::Threading::GetCurrentThread() as _);
            
             //DetourDetach();
 
@@ -360,14 +426,14 @@ unsafe extern "system" fn DllMain(hinst: HINSTANCE, fdw_reason: DWORD, _reserved
 
             uninit_custom_resource();
         }
-        winapi::um::winnt::DLL_THREAD_DETACH => {
+        win::System::SystemServices::DLL_THREAD_DETACH => {
 
         },
         _ => {
         },
     }
 
-    return winapi::shared::minwindef::TRUE;
+    return win::Foundation::TRUE;
 }
 
 

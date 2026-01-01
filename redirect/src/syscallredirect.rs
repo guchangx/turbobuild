@@ -1,3 +1,4 @@
+use windows_sys::Win32 as win;
 
 use crate::log;
 
@@ -38,9 +39,9 @@ pub static REDIRECT_SYS_CALL_CHANNEL: std::sync::LazyLock<Channel> = std::sync::
     return channel;
 });
 
-struct EventGuard(winapi::shared::ntdef::HANDLE);
+struct EventGuard(win::Foundation::HANDLE);
 impl Drop for EventGuard {
-    fn drop(&mut self) { unsafe { winapi::um::handleapi::CloseHandle(self.0); } }
+    fn drop(&mut self) { unsafe { win::Foundation::CloseHandle(self.0); } }
 }
 
 unsafe fn redirect_syscall_2_cocrew() {
@@ -61,26 +62,26 @@ unsafe fn redirect_syscall_2_cocrew() {
             .map(|b| format!("{:02x}", b))
             .collect::<String>();
         let template_value = u64::from_str_radix(&hex, 16)
-            .unwrap_or(0) as winapi::um::winnt::HANDLE;
+            .unwrap_or(0) as win::Foundation::HANDLE;
 
         for i in 0..6 {
-            let mut pipe_handle = winapi::um::fileapi::CreateFileW(name.as_ptr(), 
-                winapi::um::winnt::GENERIC_WRITE | winapi::um::winnt::GENERIC_READ,
+            let mut pipe_handle = win::Storage::FileSystem::CreateFileW(name.as_ptr(), 
+                win::Foundation::GENERIC_WRITE | win::Foundation::GENERIC_READ,
                 0,
                 std::ptr::null_mut(),  
-                winapi::um::fileapi::OPEN_EXISTING, 
-                winapi::um::winbase::FILE_FLAG_OVERLAPPED,
-                template_value
+                win::Storage::FileSystem::OPEN_EXISTING, 
+                win::Storage::FileSystem::FILE_FLAG_OVERLAPPED,
+                template_value as _
             );
 
-            if pipe_handle.is_null() || pipe_handle == winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                let error = winapi::um::errhandlingapi::GetLastError();
+            if pipe_handle.is_null() || pipe_handle == win::Foundation::INVALID_HANDLE_VALUE {
+                let error = win::Foundation::GetLastError();
                 crate::log!(info, "connecting to named pipe failed and wait: {} current process: {} error code: {} message: {}", r"\\.\pipe\os_operate_request_pipe", std::process::id(), error, tools::utils::get_winapi_error_message(error));
-                if winapi::um::namedpipeapi::WaitNamedPipeW(name.as_ptr(), 300 * i) == winapi::shared::minwindef::TRUE {
+                if win::System::Pipes::WaitNamedPipeW(name.as_ptr(), 300 * i) == win::Foundation::TRUE {
 
                 }
                 else {
-                    let error = winapi::um::errhandlingapi::GetLastError();
+                    let error = win::Foundation::GetLastError();
                     crate::log!(info, "redirect_syscall_2_cocrew WaitNamedPipeW failed, current process: {} error code: {}, message: {}", std::process::id(), error, tools::utils::get_winapi_error_message(error));
                     std::thread::sleep(std::time::Duration::from_millis(100));
                     continue;
@@ -90,32 +91,32 @@ unsafe fn redirect_syscall_2_cocrew() {
             let responders = responders.clone();
             for _ in 0..3 {
 
-                if pipe_handle.is_null() || pipe_handle == winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                if pipe_handle.is_null() || pipe_handle == win::Foundation::INVALID_HANDLE_VALUE {
                 
-                    pipe_handle = winapi::um::fileapi::CreateFileW(name.as_ptr(), 
-                        winapi::um::winnt::GENERIC_WRITE | winapi::um::winnt::GENERIC_READ,
+                    pipe_handle = win::Storage::FileSystem::CreateFileW(name.as_ptr(), 
+                        win::Foundation::GENERIC_WRITE | win::Foundation::GENERIC_READ,
                         0,
                         std::ptr::null_mut(),  
-                        winapi::um::fileapi::OPEN_EXISTING, 
-                        winapi::um::winbase::FILE_FLAG_OVERLAPPED,  
-                        winapi::shared::ntdef::NULL
+                        win::Storage::FileSystem::OPEN_EXISTING, 
+                        win::Storage::FileSystem::FILE_FLAG_OVERLAPPED,  
+                         std::ptr::null_mut()
                     );
                 }
 
-                if !pipe_handle.is_null() && pipe_handle != winapi::um::handleapi::INVALID_HANDLE_VALUE {
+                if !pipe_handle.is_null() && pipe_handle != win::Foundation::INVALID_HANDLE_VALUE {
                     
-                    let mut mode: u32 = winapi::um::winbase::PIPE_READMODE_MESSAGE;
-                    if winapi::um::namedpipeapi::SetNamedPipeHandleState(pipe_handle,
+                    let mut mode: u32 = win::System::Pipes::PIPE_READMODE_MESSAGE;
+                    if win::System::Pipes::SetNamedPipeHandleState(pipe_handle,
                         &mut mode,
                         std::ptr::null_mut(),
                         std::ptr::null_mut()
-                    ) == winapi::shared::minwindef::FALSE {
-                        let error = winapi::um::errhandlingapi::GetLastError();
+                    ) == win::Foundation::FALSE {
+                        let error = win::Foundation::GetLastError();
                         crate::log!(error, "SetNamedPipeHandleState failed, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
                     }
 
                     let mut pid: u32 = 0;
-                    winapi::um::winbase::GetNamedPipeServerProcessId(pipe_handle as *mut _, &mut pid as *mut u32);
+                    win::System::Pipes::GetNamedPipeServerProcessId(pipe_handle as *mut _, &mut pid as *mut u32);
                     crate::log!(info, "connected to syscall namedpipe server process id: {} current process: {}", pid, std::process::id());
                     
                     let pipe_handle = tools::ptr::HandleBox::new(pipe_handle);
@@ -127,50 +128,50 @@ unsafe fn redirect_syscall_2_cocrew() {
                         let mut moredata = Vec::new();
                         loop {
                             let mut buffer: [u8; 512] = [0 as u8; 512];
-                            let mut bytes: winapi::shared::minwindef::DWORD = 0;
+                            let mut bytes: u32= 0;
                             
-                            let event = winapi::um::synchapi::CreateEventW(
+                            let event = win::System::Threading::CreateEventW(
                                 std::ptr::null_mut(),
-                                winapi::shared::minwindef::TRUE, 
-                                winapi::shared::minwindef::FALSE,
+                                win::Foundation::TRUE, 
+                                win::Foundation::FALSE,
                                 std::ptr::null_mut()
                             );
 
-                            let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+                            let mut overlapped: win::System::IO::OVERLAPPED = std::mem::zeroed();
                             overlapped.hEvent = event;
 
-                            let result = winapi::um::fileapi::ReadFile(
+                            let result = win::Storage::FileSystem::ReadFile(
                                 pipe_handle.get().to_owned(),
                                 buffer.as_mut_ptr() as *mut _,
                                 buffer.len() as u32,
                                 &mut bytes,
                                 &mut overlapped,
-                            );         
+                            );
                             
                             let _eg = EventGuard(event);
 
-                            if result == winapi::shared::minwindef::FALSE {
+                            if result == win::Foundation::FALSE {
 
-                                let err = winapi::um::errhandlingapi::GetLastError();
+                                let err = win::Foundation::GetLastError();
 
-                                if err == winapi::shared::winerror::ERROR_IO_PENDING || err == winapi::shared::winerror::ERROR_MORE_DATA {
+                                if err == win::Foundation::ERROR_IO_PENDING || err == win::Foundation::ERROR_MORE_DATA {
 
-                                    if err == winapi::shared::winerror::ERROR_IO_PENDING {
-                                        winapi::um::synchapi::WaitForSingleObject(event, winapi::um::winbase::INFINITE);
+                                    if err == win::Foundation::ERROR_IO_PENDING {
+                                        win::System::Threading::WaitForSingleObject(event, win::System::Threading::INFINITE);
                                     }
                                     
-                                    let mut final_bytes: winapi::shared::minwindef::DWORD = 0;
-                                    let result = winapi::um::ioapiset::GetOverlappedResult(
+                                    let mut final_bytes: u32 = 0;
+                                    let result = win::System::IO::GetOverlappedResult(
                                         pipe_handle.get().to_owned(),
                                         &mut overlapped,
                                         &mut final_bytes,
-                                        winapi::shared::minwindef::FALSE
+                                        win::Foundation::FALSE
                                     );
 
                                     let mut is_moredata = false;
-                                    if result == winapi::shared::minwindef::FALSE {
-                                        let err = winapi::um::errhandlingapi::GetLastError();
-                                        if err == winapi::shared::winerror::ERROR_MORE_DATA {
+                                    if result == win::Foundation::FALSE {
+                                        let err = win::Foundation::GetLastError();
+                                        if err == win::Foundation::ERROR_MORE_DATA {
                                             is_moredata = true;
                                         }
                                         else
@@ -311,20 +312,20 @@ unsafe fn redirect_syscall_2_cocrew() {
                                     responders_.lock().unwrap().insert(mirror_call.cid, responder);
                                 }
 
-                                let event = winapi::um::synchapi::CreateEventW(
+                                let event =  win::System::Threading::CreateEventW(
                                     std::ptr::null_mut(),
-                                    winapi::shared::minwindef::TRUE, 
-                                    winapi::shared::minwindef::FALSE,
+                                    win::Foundation::TRUE, 
+                                    win::Foundation::FALSE,
                                     std::ptr::null_mut()
                                 );
 
-                                let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
+                                let mut overlapped: win::System::IO::OVERLAPPED = std::mem::zeroed();
                                 overlapped.hEvent = event;
 
-                                let mut bytes: winapi::shared::minwindef::DWORD = 0;
-                                let result = winapi::um::fileapi::WriteFile(
+                                let mut bytes: u32 = 0;
+                                let result = win::Storage::FileSystem::WriteFile(
                                     pipe_handle_.get().to_owned(),
-                                    formatted_call.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
+                                    formatted_call.as_bytes().as_ptr(),
                                     formatted_call.len() as u32,
                                     &mut bytes,
                                     &mut overlapped
@@ -332,20 +333,20 @@ unsafe fn redirect_syscall_2_cocrew() {
                                 
                                 let _eg = EventGuard(event);
 
-                                if result == winapi::shared::minwindef::FALSE {
-                                    let error = winapi::um::errhandlingapi::GetLastError();
-                                    if error == winapi::shared::winerror::ERROR_IO_PENDING {
-                                        winapi::um::synchapi::WaitForSingleObject(event, winapi::um::winbase::INFINITE);
+                                if result == win::Foundation::FALSE {
+                                    let error = win::Foundation::GetLastError();
+                                    if error == win::Foundation::ERROR_IO_PENDING {
+                                        win::System::Threading::WaitForSingleObject(event, win::System::Threading::INFINITE);
                                         
-                                        let mut final_bytes: winapi::shared::minwindef::DWORD = 0;
-                                        let ret = winapi::um::ioapiset::GetOverlappedResult(
+                                        let mut final_bytes: u32 = 0;
+                                        let ret = win::System::IO::GetOverlappedResult(
                                             pipe_handle_.get().to_owned(),
                                             &mut overlapped,
                                             &mut final_bytes,
-                                            winapi::shared::minwindef::FALSE
+                                            win::Foundation::FALSE
                                         );
 
-                                        if ret == winapi::shared::minwindef::FALSE {
+                                        if ret == win::Foundation::FALSE {
                                             if let Some(responder) = responders_.lock().unwrap().remove(&mirror_call.cid) {
                                                 responder.send(std::collections::HashMap::new()).unwrap_or_else(|err| {
                                                     crate::log!(error, "send empty result to virtual syscall failed. {:?}", err);
@@ -372,14 +373,14 @@ unsafe fn redirect_syscall_2_cocrew() {
                     };
 
                     rx.close();
-                    winapi::um::handleapi::CloseHandle(pipe_handle_.get().to_owned());
+                    win::Foundation::CloseHandle(pipe_handle_.get().to_owned());
                     log!(error, "redirect_syscall_2_cocrew named pipe writer closed.");
                     break;
                 }
                 else {
-                    let error = winapi::um::errhandlingapi::GetLastError();
+                    let error = win::Foundation::GetLastError();
                     
-                    if error == winapi::shared::winerror::ERROR_PIPE_BUSY || error == winapi::shared::winerror::ERROR_FILE_NOT_FOUND {
+                    if error == win::Foundation::ERROR_PIPE_BUSY || error == win::Foundation::ERROR_FILE_NOT_FOUND {
                         crate::log!(info, "redirect_syscall_2_cocrew CreateFileW wait and retry, error code: {}, message: {}", error, tools::utils::get_winapi_error_message(error));
                         std::thread::sleep(std::time::Duration::from_millis(100));
                     }

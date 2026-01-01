@@ -4,6 +4,8 @@ use std::os::windows::io::AsRawHandle;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
+use windows_sys::Win32 as win;
+
 #[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
 pub struct MirrorSysCall {
     pub cid: u32,
@@ -96,7 +98,7 @@ pub fn compiler_redirect_syscall() {
 
             let mut pid: u32 = 0;
             unsafe {
-                windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId(server.as_raw_handle() as _, &mut pid as *mut u32);
+                win::System::Pipes::GetNamedPipeClientProcessId(server.as_raw_handle() as _, &mut pid as *mut u32);
             }
             
             let (mut reader, mut writer) = tokio::io::split(server);
@@ -196,10 +198,10 @@ pub fn compiler_redirect_syscall_2() {
     let rt_ = rt.clone();
     rt_.spawn_blocking(move || { unsafe {
 
-        let mut pipe = windows_sys::Win32::System::Pipes::CreateNamedPipeW(name_wchars.as_ptr(), 
-        winapi::um::winbase::PIPE_ACCESS_DUPLEX, 
-        winapi::um::winbase::PIPE_TYPE_MESSAGE | winapi::um::winbase::PIPE_READMODE_MESSAGE | winapi::um::winbase::PIPE_WAIT,
-        winapi::um::winbase::PIPE_UNLIMITED_INSTANCES,
+        let mut pipe = win::System::Pipes::CreateNamedPipeW(name_wchars.as_ptr(), 
+        win::Storage::FileSystem::PIPE_ACCESS_DUPLEX, 
+        win::System::Pipes::PIPE_TYPE_MESSAGE | win::System::Pipes::PIPE_READMODE_MESSAGE | win::System::Pipes::PIPE_WAIT,
+        win::System::Pipes::PIPE_UNLIMITED_INSTANCES,
         65536,
         65536,
         0,
@@ -207,24 +209,24 @@ pub fn compiler_redirect_syscall_2() {
 
         loop {
         
-        if !pipe.is_null() && pipe != windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+        if !pipe.is_null() && pipe != win::Foundation::INVALID_HANDLE_VALUE {
             
-            if windows_sys::Win32::Foundation::TRUE == windows_sys::Win32::System::Pipes::ConnectNamedPipe(pipe, std::ptr::null_mut()) {
+            if win::Foundation::TRUE == win::System::Pipes::ConnectNamedPipe(pipe, std::ptr::null_mut()) {
 
-                let handle = tools::ptr::HandleBox::new(pipe as _);
+                let handle = tools::ptr::HandleBox::new(pipe);
                 let handle_ = handle.clone();
 
-                pipe = windows_sys::Win32::System::Pipes::CreateNamedPipeW(name_wchars.as_ptr(),
-                winapi::um::winbase::PIPE_ACCESS_DUPLEX, 
-                winapi::um::winbase::PIPE_TYPE_MESSAGE | winapi::um::winbase::PIPE_READMODE_MESSAGE | winapi::um::winbase::PIPE_WAIT,
-                winapi::um::winbase::PIPE_UNLIMITED_INSTANCES,
+                pipe = win::System::Pipes::CreateNamedPipeW(name_wchars.as_ptr(),
+                win::Storage::FileSystem::PIPE_ACCESS_DUPLEX, 
+                win::System::Pipes::PIPE_TYPE_MESSAGE | win::System::Pipes::PIPE_READMODE_MESSAGE | win::System::Pipes::PIPE_WAIT,
+                win::System::Pipes::PIPE_UNLIMITED_INSTANCES,
                 65536,
                 65536,
                 0,
                 std::ptr::null_mut());
 
                 let mut pid: u32 = 0;
-                windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId(handle.get().to_owned() as _, &mut pid as *mut u32);
+                win::System::Pipes::GetNamedPipeClientProcessId(handle.get().to_owned() as _, &mut pid as *mut u32);
                 log::info!("namedpipe connected count {} success, client pid: {}", count, pid);
 
                 let _ = rt.spawn_blocking(move || {
@@ -233,7 +235,7 @@ pub fn compiler_redirect_syscall_2() {
                     let mut bytes: u32 = 0;
                     loop {
                         let mut total_bytes_avail: u32 = 0;
-                        let result = windows_sys::Win32::System::Pipes::PeekNamedPipe(
+                        let result = win::System::Pipes::PeekNamedPipe(
                             handle.get().to_owned() as _,
                             std::ptr::null_mut(),
                             0,
@@ -242,8 +244,8 @@ pub fn compiler_redirect_syscall_2() {
                             std::ptr::null_mut(),
                         );
 
-                        if result == windows_sys::Win32::Foundation::FALSE {
-                            let error = windows_sys::Win32::Foundation::GetLastError();
+                        if result == win::Foundation::FALSE {
+                            let error = win::Foundation::GetLastError();
                             log::warn!("peek pipe failed, error code: {}, message: {}, count: {} client pid: {}", error, tools::utils::get_winapi_error_message(error), count, pid);
                             break;
                         }
@@ -252,7 +254,7 @@ pub fn compiler_redirect_syscall_2() {
                             continue;
                         }
 
-                        let result = windows_sys::Win32::Storage::FileSystem::ReadFile(
+                        let result = win::Storage::FileSystem::ReadFile(
                             handle.get().to_owned() as _,
                             buffer.as_mut_ptr() as *mut _,
                             512,
@@ -260,8 +262,8 @@ pub fn compiler_redirect_syscall_2() {
                             std::ptr::null_mut()
                         );
         
-                        if result == windows_sys::Win32::Foundation::FALSE {
-                            let error = windows_sys::Win32::Foundation::GetLastError();
+                        if result == win::Foundation::FALSE {
+                            let error = win::Foundation::GetLastError();
                             log::warn!("reaf pipe failed, error code: {}, message: {}, count: {}", error, tools::utils::get_winapi_error_message(error), count);
                             break;
                         }
@@ -286,22 +288,22 @@ pub fn compiler_redirect_syscall_2() {
                             }
                         }
                     }
-                    winapi::um::namedpipeapi::DisconnectNamedPipe(handle.get().to_owned() as _);
-                    winapi::um::handleapi::CloseHandle(handle.get().to_owned() as _);
+                    win::System::Pipes::DisconnectNamedPipe(handle.get().to_owned() as _);
+                    win::Foundation::CloseHandle(handle.get().to_owned() as _);
                     log::warn!("redirect syscall read named pipe message task exit. count: {} client pid: {}", count, pid);
                 });
 
                 /* 
-                let process = windows_sys::Win32::System::Threading::GetCurrentProcess();
+                let process = win::System::Threading::GetCurrentProcess();
                 let dup_pipe: *mut core::ffi::c_void = std::ptr::null_mut();
-                let ret = windows_sys::Win32::Foundation::DuplicateHandle(
+                let ret = win::Foundation::DuplicateHandle(
                     process,
                     pipe,
                     process,
                     &dup_pipe as *const _ as *mut _,
                     0,
-                    windows_sys::Win32::Foundation::FALSE,
-                    windows_sys::Win32::Foundation::DUPLICATE_SAME_ACCESS
+                    win::Foundation::FALSE,
+                    win::Foundation::DUPLICATE_SAME_ACCESS
                 );
                 */
 
@@ -320,15 +322,15 @@ pub fn compiler_redirect_syscall_2() {
                                 log::debug!("received grpc response: {:?}", response);
 
                                 let mut bytes: u32 = 0;
-                                let result = windows_sys::Win32::Storage::FileSystem::WriteFile(
+                                let result = win::Storage::FileSystem::WriteFile(
                                     handle_.get().to_owned() as _,
                                     response.as_bytes().as_ptr() as *const u8,
                                     response.len() as u32,
                                     &mut bytes,
                                     std::ptr::null_mut()
                                 );
-                                if result == winapi::shared::minwindef::FALSE {
-                                    let error = winapi::um::errhandlingapi::GetLastError();
+                                if result == win::Foundation::FALSE {
+                                    let error = win::Foundation::GetLastError();
                                     log::error!("failed to write mirror syscall response to pipe. {:?} err: {}, message: {}", response, error, tools::utils::get_winapi_error_message(error));
                                 }
                                 else {
@@ -345,14 +347,14 @@ pub fn compiler_redirect_syscall_2() {
                 });
             }
             else {
-                let error = windows_sys::Win32::Foundation::GetLastError();
+                let error = win::Foundation::GetLastError();
                 log::debug!("connect named pipe failed. error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
-                windows_sys::Win32::Foundation::CloseHandle(pipe as _);
+                win::Foundation::CloseHandle(pipe as _);
                 break;
             }
         }
         else {
-            let error = windows_sys::Win32::Foundation::GetLastError();
+            let error = win::Foundation::GetLastError();
             log::error!("connect named pipe failcreate named pipe failed. error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
             break;
         }
@@ -372,7 +374,7 @@ mod tests {
             .pipe_mode(tokio::net::windows::named_pipe::PipeMode::Message)
             .open(PIPE_NAME) {
                 Ok(client) => break client,
-                Err(e) if e.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_PIPE_BUSY as i32) => (),
+                Err(e) if e.raw_os_error() == Some(win::Foundation::ERROR_PIPE_BUSY as i32) => (),
                 Err(e) => return Err(e),
             }
 

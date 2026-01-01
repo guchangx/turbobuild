@@ -1,12 +1,12 @@
-
+use windows_sys::Win32 as win;
 
 pub unsafe fn init_hook() {
     crate::log!(info, "[{:?}] init compiler hk.", crate::PROJECTNAME.get());
 
-    crate::functions::CREATE_FILE_A = winapi::um::fileapi::CreateFileA as *mut std::ffi::c_void;
+    crate::functions::CREATE_FILE_A = win::Storage::FileSystem::CreateFileA as *mut std::ffi::c_void;
     crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_A), crate::functions::create_file_a as _);
 
-    crate::functions::CREATE_FILE_W = winapi::um::fileapi::CreateFileW as *mut std::ffi::c_void;
+    crate::functions::CREATE_FILE_W = win::Storage::FileSystem::CreateFileW as *mut std::ffi::c_void;
     crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_W), crate::functions::create_file_w as _);
 
     let module = crate::utils::convert::string_2_lpstr("KernelBase.dll".to_string());

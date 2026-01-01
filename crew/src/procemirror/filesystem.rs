@@ -1,6 +1,8 @@
 use std::os::windows::ffi::OsStrExt;
 use std::fmt::Write;
 
+use windows_sys::Win32 as win;
+
 pub fn route_file_system_operation(redirect: crate::communicate::package::pack::RemoteRedirect) -> crate::communicate::package::pack::LocalRedirect {
     let mut params = redirect.params.iter().map(|(param)| (param.key.clone(), param.value.clone())).collect::<std::collections::HashMap<String, String>>();
     match redirect.api.as_str() {
@@ -124,42 +126,42 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
         fileh = format!("\\??\\{}", fileh);
     }
 
-    let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
+    let mut object_name: win::Foundation::UNICODE_STRING = std::mem::zeroed();
     let object_name_source_wide_char = std::ffi::OsString::from(&fileh).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
 
     let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
-    if ret != windows_sys::Win32::Foundation::STATUS_SUCCESS {
+    if ret != win::Foundation::STATUS_SUCCESS {
         log::error!("failed to init object name: {} {:#x}", fileh, ret);
         return std::collections::HashMap::new();
     }
 
-    let mut filehandle: windows_sys::Win32::Foundation::HANDLE = std::ptr::null_mut();
+    let mut filehandle: win::Foundation::HANDLE = std::ptr::null_mut();
     let mut objectattributes: windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES = windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES {
         Length: std::mem::size_of::<windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES>() as u32,
         RootDirectory: std::ptr::null_mut(),
         ObjectName: &mut object_name,
-        Attributes: windows_sys::Win32::Foundation::OBJ_CASE_INSENSITIVE,
+        Attributes: win::Foundation::OBJ_CASE_INSENSITIVE,
         SecurityDescriptor: std::ptr::null_mut(),
         SecurityQualityOfService: std::ptr::null_mut(),
     };
 
-    let mut iostatusblock: windows_sys::Win32::System::IO::IO_STATUS_BLOCK = std::mem::zeroed();
+    let mut iostatusblock: win::System::IO::IO_STATUS_BLOCK = std::mem::zeroed();
 
     let nt_status = windows_sys::Wdk::Storage::FileSystem::NtCreateFile(
         &mut filehandle,
-        windows_sys::Win32::Storage::FileSystem::FILE_LIST_DIRECTORY | windows_sys::Win32::Storage::FileSystem::SYNCHRONIZE,
+        win::Storage::FileSystem::FILE_LIST_DIRECTORY | win::Storage::FileSystem::SYNCHRONIZE,
         &mut objectattributes,
         &mut iostatusblock,
         std::ptr::null_mut(),
-        windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL,
-        windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE,
+        win::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL,
+        win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE,
         windows_sys::Wdk::Storage::FileSystem::FILE_OPEN,
         windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_FILE | windows_sys::Wdk::Storage::FileSystem::FILE_SYNCHRONOUS_IO_NONALERT,
         std::ptr::null_mut(),
         0,
     );
     
-    if nt_status != windows_sys::Win32::Foundation::STATUS_SUCCESS {
+    if nt_status != win::Foundation::STATUS_SUCCESS {
         log::error!("failed to open directory: {} with status: {:#x}", fileh, nt_status);
         return std::collections::HashMap::new();
     }
@@ -177,7 +179,7 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
         let nt_status = windows_sys::Wdk::Storage::FileSystem::NtQueryDirectoryFile(
             filehandle,
             std::ptr::null_mut(),
-            windows_sys::Win32::System::IO::PIO_APC_ROUTINE::None,
+            win::System::IO::PIO_APC_ROUTINE::None,
             std::ptr::null_mut(),
             &mut iostatusblock,
             fileinformation,
@@ -188,9 +190,9 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
             false,
         );
 
-        if nt_status != windows_sys::Win32::Foundation::STATUS_SUCCESS {
+        if nt_status != win::Foundation::STATUS_SUCCESS {
             log::error!("failed to query directory: {} with status: {}", fileh, nt_status);
-            windows_sys::Win32::Foundation::CloseHandle(filehandle);
+            win::Foundation::CloseHandle(filehandle);
             return std::collections::HashMap::new();
         } else {
             let mut filenames = std::string::String::new();
@@ -233,7 +235,7 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
                 }
             }
             log::info!("successfully queried directory: {} entry count: {}", fileh, entry_count);
-            windows_sys::Win32::Foundation::CloseHandle(filehandle);
+            win::Foundation::CloseHandle(filehandle);
 
             let mut results = std::collections::HashMap::new();
             results.insert("fileinformation".to_string(), filenames.clone());

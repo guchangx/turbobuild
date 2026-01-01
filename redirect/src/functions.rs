@@ -1,9 +1,4 @@
-
-
-use winapi::{
-    shared::{minwindef::{DWORD, LPVOID}, ntdef::{LPCWSTR, LPWSTR}},
-    um::{minwinbase::LPSECURITY_ATTRIBUTES, winnt::{HANDLE, LPCSTR, LPSTR, WCHAR}}
-};
+use windows_sys::Win32 as win;
 
 use crate::log;
 
@@ -57,29 +52,29 @@ pub unsafe fn start_with_pipe_w(lp_file_name: *const u16) -> bool {
 }
 
 pub unsafe fn create_file_a(
-    lp_file_name: LPCSTR,
-    dw_desired_access: DWORD,
-    dw_share_mode: DWORD,
-    lp_security_attributes: LPSECURITY_ATTRIBUTES,
-    dw_creation_disposition: DWORD,
-    dw_flags_and_attributes: DWORD,
-    h_template_file: HANDLE,
-) -> HANDLE {
+    lp_file_name: windows_sys::core::PCSTR,
+    dw_desired_access: u32,
+    dw_share_mode: win::Storage::FileSystem::FILE_SHARE_MODE,
+    lp_security_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+    dw_creation_disposition: win::Storage::FileSystem::FILE_CREATION_DISPOSITION,
+    dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+    h_template_file: win::Foundation::HANDLE,
+) -> win::Foundation::HANDLE {
 
-    let path = crate::utils::convert::lpstr_2_string(lp_file_name);
+    let path = crate::utils::convert::lpstr_2_string(lp_file_name as *const i8);
   
     if let Ok(mut path) = path {
         crate::log!(trace, "create_file_a hook path: {}", path);
 
         let create_file_a: extern "system" fn(
-            lp_file_name: LPCSTR,
-            dw_desired_access: DWORD,
-            dw_share_mode: DWORD,
-            lp_security_attributes: LPSECURITY_ATTRIBUTES,
-            dw_creation_disposition: DWORD,
-            dw_flags_and_attributes: DWORD,
-            h_template_file: HANDLE,
-        ) -> HANDLE = std::mem::transmute(CREATE_FILE_A);
+            lp_file_name: windows_sys::core::PCSTR,
+            dw_desired_access: u32,
+            dw_share_mode: win::Storage::FileSystem::FILE_SHARE_MODE,
+            lp_security_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+            dw_creation_disposition: win::Storage::FileSystem::FILE_CREATION_DISPOSITION,
+            dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+            h_template_file: win::Foundation::HANDLE,
+        ) -> win::Foundation::HANDLE = std::mem::transmute(CREATE_FILE_A);
 
         let replace = crate::replace::replace(&mut path);
         if replace == crate::replace::ReplaceResult::Success{
@@ -87,7 +82,7 @@ pub unsafe fn create_file_a(
             let fake_path = crate::utils::convert::string_2_lpstr(path);
 
             let handle = create_file_a(
-                fake_path,
+                fake_path as windows_sys::core::PCSTR,
                 dw_desired_access,
                 dw_share_mode,
                 lp_security_attributes,
@@ -101,8 +96,8 @@ pub unsafe fn create_file_a(
                 drop(c_string);
             }
 
-            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+            if handle == win::Foundation::INVALID_HANDLE_VALUE {
+                let error_code = win::Foundation::GetLastError();
                 crate::log!(error, "create_file_a failed! error code: {}.", error_code);
             }
 
@@ -119,8 +114,8 @@ pub unsafe fn create_file_a(
                 h_template_file,
             );
 
-            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+            if handle == win::Foundation::INVALID_HANDLE_VALUE {
+                let error_code = win::Foundation::GetLastError();
                 crate::log!(error, "create_file_a failed! error code: {}.", error_code)
             }
 
@@ -128,32 +123,32 @@ pub unsafe fn create_file_a(
         }
     }
     else {
-        return 0 as HANDLE;
+        return 0 as win::Foundation::HANDLE;
     }
 }
 
 pub unsafe fn create_file_w(
-    lp_file_name: LPCWSTR,
-    dw_desired_access: DWORD,
-    dw_share_mode: DWORD,
-    lp_security_attributes: LPSECURITY_ATTRIBUTES,
-    dw_creation_disposition: DWORD,
-    dw_flags_and_attributes: DWORD,
-    h_template_file: HANDLE,
-) -> HANDLE {
+    lp_file_name: windows_sys::core::PCWSTR,
+    dw_desired_access: u32,
+    dw_share_mode: win::Storage::FileSystem::FILE_SHARE_MODE,
+    lp_security_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+    dw_creation_disposition: win::Storage::FileSystem::FILE_CREATION_DISPOSITION,
+    dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+    h_template_file: win::Foundation::HANDLE,
+) -> win::Foundation::HANDLE {
     crate::log!(trace, "create_file_w hook lp_file_name: {:?} {:?}", h_template_file, *CALL_TEMPLATE);
-    if h_template_file == *CALL_TEMPLATE as HANDLE {
+    if h_template_file == *CALL_TEMPLATE as win::Foundation::HANDLE {
         let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
         crate::log!(trace, "create_file_w pipe path: {:?}", path);
         let create_file_w_inner: extern "system" fn (
-            lp_file_name: LPCWSTR,
-            dw_desired_access: DWORD,
-            dw_share_mode: DWORD,
-            lp_security_attributes: LPSECURITY_ATTRIBUTES,
-            dw_creation_disposition: DWORD,
-            dw_flags_and_attributes: DWORD,
-            h_template_file: HANDLE,
-        ) -> HANDLE = std::mem::transmute(CREATE_FILE_W);
+            lp_file_name: windows_sys::core::PCWSTR,
+            dw_desired_access: u32,
+            dw_share_mode: win::Storage::FileSystem::FILE_SHARE_MODE,
+            lp_security_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+            dw_creation_disposition: win::Storage::FileSystem::FILE_CREATION_DISPOSITION,
+            dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+            h_template_file: win::Foundation::HANDLE,
+        ) -> win::Foundation::HANDLE = std::mem::transmute(CREATE_FILE_W);
 
         let handle = create_file_w_inner(
             lp_file_name,
@@ -171,14 +166,14 @@ pub unsafe fn create_file_w(
         let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
         crate::log!(trace, "create_file_w pipe path: {:?}", path);
         let create_file_w_inner: extern "system" fn (
-            lp_file_name: LPCWSTR,
-            dw_desired_access: DWORD,
-            dw_share_mode: DWORD,
-            lp_security_attributes: LPSECURITY_ATTRIBUTES,
-            dw_creation_disposition: DWORD,
-            dw_flags_and_attributes: DWORD,
-            h_template_file: HANDLE,
-        ) -> HANDLE = std::mem::transmute(CREATE_FILE_W);
+            lp_file_name: windows_sys::core::PCWSTR,
+            dw_desired_access: u32,
+            dw_share_mode: win::Storage::FileSystem::FILE_SHARE_MODE,
+            lp_security_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+            dw_creation_disposition: win::Storage::FileSystem::FILE_CREATION_DISPOSITION,
+            dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+            h_template_file: win::Foundation::HANDLE,
+        ) -> win::Foundation::HANDLE = std::mem::transmute(CREATE_FILE_W);
 
         let handle = create_file_w_inner(
             lp_file_name,
@@ -197,14 +192,14 @@ pub unsafe fn create_file_w(
         let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
         crate::log!(trace, "create_file_w temp path: {:?}", path);
         let create_file_w_inner: extern "system" fn (
-            lp_file_name: LPCWSTR,
-            dw_desired_access: DWORD,
-            dw_share_mode: DWORD,
-            lp_security_attributes: LPSECURITY_ATTRIBUTES,
-            dw_creation_disposition: DWORD,
-            dw_flags_and_attributes: DWORD,
-            h_template_file: HANDLE,
-        ) -> HANDLE = std::mem::transmute(CREATE_FILE_W);
+            lp_file_name: windows_sys::core::PCWSTR,
+            dw_desired_access: u32,
+            dw_share_mode: win::Storage::FileSystem::FILE_SHARE_MODE,
+            lp_security_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+            dw_creation_disposition: win::Storage::FileSystem::FILE_CREATION_DISPOSITION,
+            dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+            h_template_file: win::Foundation::HANDLE,
+        ) -> win::Foundation::HANDLE = std::mem::transmute(CREATE_FILE_W);
 
         let handle = create_file_w_inner(
             lp_file_name,
@@ -224,14 +219,14 @@ pub unsafe fn create_file_w(
         crate::log!(trace, "create_file_w hook path: {}", path);
 
         let create_file_w: extern "system" fn (
-            lp_file_name: LPCWSTR,
-            dw_desired_access: DWORD,
-            dw_share_mode: DWORD,
-            lp_security_attributes: LPSECURITY_ATTRIBUTES,
-            dw_creation_disposition: DWORD,
-            dw_flags_and_attributes: DWORD,
-            h_template_file: HANDLE,
-        ) -> HANDLE = std::mem::transmute(CREATE_FILE_W);
+            lp_file_name: windows_sys::core::PCWSTR,
+            dw_desired_access: u32,
+            dw_share_mode: win::Storage::FileSystem::FILE_SHARE_MODE,
+            lp_security_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+            dw_creation_disposition: win::Storage::FileSystem::FILE_CREATION_DISPOSITION,
+            dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+            h_template_file: win::Foundation::HANDLE,
+        ) -> win::Foundation::HANDLE = std::mem::transmute(CREATE_FILE_W);
 
         let replace = crate::replace::replace(&mut path);
 
@@ -240,7 +235,7 @@ pub unsafe fn create_file_w(
             let fake_path = crate::utils::convert::string_2_lpwstr(path);
                 
             let handle = create_file_w(
-                fake_path.as_ptr() as winapi::um::winnt::LPWSTR,
+                fake_path.as_ptr(),
                 dw_desired_access,
                 dw_share_mode,
                 lp_security_attributes,
@@ -249,9 +244,9 @@ pub unsafe fn create_file_w(
                 h_template_file,
             );
 
-            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+            if handle == win::Foundation::INVALID_HANDLE_VALUE {
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+                let error_code = win::Foundation::GetLastError();
                 crate::log!(error, "create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
             }
 
@@ -269,9 +264,9 @@ pub unsafe fn create_file_w(
                 h_template_file,
             );
 
-            if handle == winapi::um::handleapi::INVALID_HANDLE_VALUE {
+            if handle == win::Foundation::INVALID_HANDLE_VALUE {
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+                let error_code = win::Foundation::GetLastError();
                 crate::log!(error, "create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
             }
 
@@ -279,36 +274,36 @@ pub unsafe fn create_file_w(
         }
     }
     else {
-        return 0 as HANDLE;
+        return 0 as win::Foundation::HANDLE;
     }
 
 }
 
 pub unsafe fn kernelbase_create_file_a(
-    lp_file_name: LPCSTR,
-    dw_desired_access: DWORD,
-    dw_share_mode: DWORD,
-    lp_security_attributes: LPSECURITY_ATTRIBUTES,
-    dw_creation_disposition: DWORD,
-    dw_flags_and_attributes: DWORD,
-    h_template_file: HANDLE,
-) -> HANDLE {
+    lp_file_name: windows_sys::core::PCSTR,
+    dw_desired_access: u32,
+    dw_share_mode: win::Storage::FileSystem::FILE_SHARE_MODE,
+    lp_security_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+    dw_creation_disposition: win::Storage::FileSystem::FILE_CREATION_DISPOSITION,
+    dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+    h_template_file: win::Foundation::HANDLE,
+) -> win::Foundation::HANDLE {
 
-    let path = crate::utils::convert::lpstr_2_string(lp_file_name);
+    let path = crate::utils::convert::lpstr_2_string(lp_file_name as *const i8);
   
     if let Ok(mut path) = path {
         
         crate::log!(trace, "kernelbase_create_file_a hook path: {}", path);
 
         let create_file_a: extern "system" fn(
-            lp_file_name: LPCSTR,
-            dw_desired_access: DWORD,
-            dw_share_mode: DWORD,
-            lp_security_attributes: LPSECURITY_ATTRIBUTES,
-            dw_creation_disposition: DWORD,
-            dw_flags_and_attributes: DWORD,
-            h_template_file: HANDLE,
-        ) -> HANDLE = std::mem::transmute(CREATE_FILE_A_KERNEL_BASE);
+            lp_file_name: windows_sys::core::PCSTR,
+            dw_desired_access: u32,
+            dw_share_mode: win::Storage::FileSystem::FILE_SHARE_MODE,
+            lp_security_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+            dw_creation_disposition: win::Storage::FileSystem::FILE_CREATION_DISPOSITION,
+            dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+            h_template_file: win::Foundation::HANDLE,
+        ) -> win::Foundation::HANDLE = std::mem::transmute(CREATE_FILE_A_KERNEL_BASE);
 
         let replace = crate::replace::replace(&mut path);
 
@@ -316,7 +311,7 @@ pub unsafe fn kernelbase_create_file_a(
             crate::log!(trace, "kernelbase_create_file_a replace hook: {}", path);
             let fake_path = crate::utils::convert::string_2_lpstr(path);
             let handle = create_file_a(
-                fake_path,
+                fake_path as windows_sys::core::PCSTR,
                 dw_desired_access,
                 dw_share_mode,
                 lp_security_attributes,
@@ -330,8 +325,8 @@ pub unsafe fn kernelbase_create_file_a(
                 drop(c_string);
             }
 
-            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+            if handle == win::Foundation::INVALID_HANDLE_VALUE {
+                let error_code = win::Foundation::GetLastError();
                 crate::log!(error, "kernelbase create_file_a failed! error_code: {}.", error_code);
             }
 
@@ -349,38 +344,38 @@ pub unsafe fn kernelbase_create_file_a(
                 h_template_file,
             );
 
-            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+            if handle == win::Foundation::INVALID_HANDLE_VALUE {
+                let error_code = win::Foundation::GetLastError();
                 crate::log!(error, "kernelbase create_file_a failed! error_code: {}.", error_code);
             }
             return handle;    
         }
     }
     else {
-        return 0 as HANDLE;
+        return 0 as win::Foundation::HANDLE;
     }
 }
 
 pub unsafe fn kernelbase_create_file_w(
-    lp_file_name: LPCWSTR,
-    dw_desired_access: DWORD,
-    dw_share_mode: DWORD,
-    lp_security_attributes: LPSECURITY_ATTRIBUTES,
-    dw_creation_disposition: DWORD,
-    dw_flags_and_attributes: DWORD,
-    h_template_file: HANDLE,
-) -> HANDLE {
+    lp_file_name: windows_sys::core::PCWSTR,
+    dw_desired_access: u32,
+    dw_share_mode: win::Storage::FileSystem::FILE_SHARE_MODE,
+    lp_security_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+    dw_creation_disposition: win::Storage::FileSystem::FILE_CREATION_DISPOSITION,
+    dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+    h_template_file: win::Foundation::HANDLE,
+) -> win::Foundation::HANDLE {
 
     if start_with_pipe_w(lp_file_name) {
         let create_file_w_inner: extern "system" fn (
-            lp_file_name: LPCWSTR,
-            dw_desired_access: DWORD,
-            dw_share_mode: DWORD,
-            lp_security_attributes: LPSECURITY_ATTRIBUTES,
-            dw_creation_disposition: DWORD,
-            dw_flags_and_attributes: DWORD,
-            h_template_file: HANDLE,
-        ) -> HANDLE = std::mem::transmute(CREATE_FILE_W_KERNEL_BASE);
+            lp_file_name: windows_sys::core::PCWSTR,
+            dw_desired_access: u32,
+            dw_share_mode: win::Storage::FileSystem::FILE_SHARE_MODE,
+            lp_security_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+            dw_creation_disposition: win::Storage::FileSystem::FILE_CREATION_DISPOSITION,
+            dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+            h_template_file: win::Foundation::HANDLE,
+        ) -> win::Foundation::HANDLE = std::mem::transmute(CREATE_FILE_W_KERNEL_BASE);
 
         let handle = create_file_w_inner(
             lp_file_name,
@@ -400,18 +395,18 @@ pub unsafe fn kernelbase_create_file_w(
 
         if CREATE_FILE_W_KERNEL_BASE as usize == 0 {
             crate::log!(error, "can not find kernelbase create_file_w");
-            return winapi::um::handleapi::INVALID_HANDLE_VALUE;
+            return win::Foundation::INVALID_HANDLE_VALUE;
         }
 
         let create_file_w: extern "system" fn (
-            lp_file_name: LPCWSTR,
-            dw_desired_access: DWORD,
-            dw_share_mode: DWORD,
-            lp_security_attributes: LPSECURITY_ATTRIBUTES,
-            dw_creation_disposition: DWORD,
-            dw_flags_and_attributes: DWORD,
-            h_template_file: HANDLE,
-        ) -> HANDLE = std::mem::transmute(CREATE_FILE_W_KERNEL_BASE);
+            lp_file_name: windows_sys::core::PCWSTR,
+            dw_desired_access: u32,
+            dw_share_mode: win::Storage::FileSystem::FILE_SHARE_MODE,
+            lp_security_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+            dw_creation_disposition: win::Storage::FileSystem::FILE_CREATION_DISPOSITION,
+            dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+            h_template_file: win::Foundation::HANDLE,
+        ) -> win::Foundation::HANDLE = std::mem::transmute(CREATE_FILE_W_KERNEL_BASE);
 
         //crate::log!(trace, "kernelbase_create_file_w hook path: {}", path);
         let replace = crate::replace::replace(&mut path);
@@ -420,7 +415,7 @@ pub unsafe fn kernelbase_create_file_w(
             let fake_path = crate::utils::convert::string_2_lpwstr(path);
             
             let handle = create_file_w(
-                fake_path.as_ptr() as winapi::um::winnt::LPWSTR,
+                fake_path.as_ptr(),
                 dw_desired_access,
                 dw_share_mode,
                 lp_security_attributes,
@@ -429,9 +424,9 @@ pub unsafe fn kernelbase_create_file_w(
                 h_template_file,
             );
     
-            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+            if handle == win::Foundation::INVALID_HANDLE_VALUE {
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+                let error_code = win::Foundation::GetLastError();
                 crate::log!(error, "kernelbase create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
             }
     
@@ -441,16 +436,16 @@ pub unsafe fn kernelbase_create_file_w(
             crate::log!(trace, "kernelbase_create_file_w replace hook: {}", path);
             let fake_path = crate::utils::convert::string_2_lpwstr(path.clone());
 
-            let handle = create_file_w(fake_path.as_ptr() as winapi::um::winnt::LPWSTR,
+            let handle = create_file_w(fake_path.as_ptr() as windows_sys::core::PCWSTR,
                 dw_desired_access, dw_share_mode, lp_security_attributes,
                 dw_creation_disposition, dw_flags_and_attributes, h_template_file,
             );
     
-            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+            if handle == win::Foundation::INVALID_HANDLE_VALUE {
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+                let error_code = win::Foundation::GetLastError();
 
-                if error_code == winapi::shared::winerror::ERROR_FILE_NOT_FOUND {
+                if error_code == win::Foundation::ERROR_FILE_NOT_FOUND {
                     let (tx, rx) = tokio::sync::oneshot::channel();
                     let mut args =  std::collections::HashMap::<String, String>::new();
                     args.insert("filename".to_string(), option_path.unwrap());
@@ -473,7 +468,7 @@ pub unsafe fn kernelbase_create_file_w(
                     crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(call).unwrap();
                     let expects = rx.blocking_recv().unwrap();
                     if let Some(_) = expects.get("expect") {
-                        let handle = create_file_w(fake_path.as_ptr() as winapi::um::winnt::LPWSTR, dw_desired_access, dw_share_mode, lp_security_attributes,
+                        let handle = create_file_w(fake_path.as_ptr(), dw_desired_access, dw_share_mode, lp_security_attributes,
                             dw_creation_disposition, dw_flags_and_attributes, h_template_file,
                         );
                         return handle;
@@ -497,34 +492,33 @@ pub unsafe fn kernelbase_create_file_w(
                 h_template_file,
             );
     
-            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
+            if handle ==  win::Foundation::INVALID_HANDLE_VALUE {
                 let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+                let error_code = win::Foundation::GetLastError();
                 crate::log!(error, "kernelbase create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
             }
             return handle;   
         }
     }
     else {
-        return 0 as HANDLE;
+        return 0 as win::Foundation::HANDLE;
     }
 
 }
 
 pub unsafe fn kernelbase_create_process_a(
-    lp_application_name: LPCSTR,
-    lp_command_line: LPSTR,
-    lp_process_attributes: LPSECURITY_ATTRIBUTES,
-    lp_thread_attributes: LPSECURITY_ATTRIBUTES,
-    b_inherit_handles: super::ntdef::types::BOOL,
-    dw_creation_flags: DWORD,
-    lp_environment: LPVOID,
-    lp_current_directory: LPCSTR,
-    lp_startup_info: crate::detours::LPSTARTUPINFOA,
-    lp_process_information: crate::detours::LPPROCESS_INFORMATION,
-) -> HANDLE {
-
-    let application = crate::utils::convert::lpstr_2_string(lp_application_name);
+    lp_application_name: windows_sys::core::PCSTR,
+    lp_command_line: windows_sys::core::PSTR,
+    lp_process_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+    lp_thread_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+    b_inherit_handles: windows_sys::core::BOOL,
+    dw_creation_flags: win::System::Threading::PROCESS_CREATION_FLAGS,
+    lp_environment: *const core::ffi::c_void,
+    lp_current_directory: windows_sys::core::PCSTR,
+    lp_startup_info: *mut win::System::Threading::STARTUPINFOA,
+    lp_process_information: *mut win::System::Threading::PROCESS_INFORMATION,
+) -> windows_sys::core::BOOL {
+    let application = crate::utils::convert::lpstr_2_string(lp_application_name as *const i8);
   
     if let Ok(application) = application {
         
@@ -536,76 +530,75 @@ pub unsafe fn kernelbase_create_process_a(
         if application.ends_with("cl.exe") && dllpath.is_some() && crate::IN_HOOK.get() == false {
             crate::IN_HOOK.set(true);
 
-            let mut stdin_write_handle: Option<winapi::shared::ntdef::HANDLE> = None;
+            let mut stdin_write_handle: Option<win::Foundation::HANDLE> = None;
 
-            if ((*lp_startup_info).dwFlags & winapi::um::winbase::STARTF_USESTDHANDLES) != 0 {
+            if ((*lp_startup_info).dwFlags & win::System::Threading::STARTF_USESTDHANDLES) != 0 {
 
-                let mut pipe_attributes = winapi::um::minwinbase::SECURITY_ATTRIBUTES {
-                    nLength: std::mem::size_of::<winapi::um::minwinbase::SECURITY_ATTRIBUTES>() as u32,
+                let mut pipe_attributes = win::Security::SECURITY_ATTRIBUTES {
+                    nLength: std::mem::size_of::<win::Security::SECURITY_ATTRIBUTES>() as u32,
                     lpSecurityDescriptor: std::ptr::null_mut(),
-                    bInheritHandle: winapi::shared::minwindef::TRUE,
+                    bInheritHandle: win::Foundation::TRUE,
                 };
 
-                let mut h_stdin_read: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-                let mut h_stdin_write: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
+                let mut h_stdin_read: win::Foundation::HANDLE = std::ptr::null_mut();
+                let mut h_stdin_write: win::Foundation::HANDLE = std::ptr::null_mut();
 
-                let ret = winapi::um::namedpipeapi::CreatePipe(
-                    &mut h_stdin_read as winapi::shared::ntdef::PHANDLE, 
-                    &mut h_stdin_write as winapi::shared::ntdef::PHANDLE, 
+                let ret = win::System::Pipes::CreatePipe(
+                    &mut h_stdin_read, 
+                    &mut h_stdin_write, 
                     &mut pipe_attributes, 
                     0
                 );
 
-                if winapi::shared::minwindef::FALSE == ret {
+                if win::Foundation::FALSE == ret {
                     crate::log!(error, "create input pipe failed.")
                 }
                 else {
-                    (*lp_startup_info).hStdInput = h_stdin_read as *mut std::ffi::c_void;
+                    (*lp_startup_info).hStdInput = h_stdin_read;
                     stdin_write_handle = Some(h_stdin_write);
                 }
             }
 
             let ret = crate::detours::DetourCreateProcessWithDllExA(
-                lp_application_name,
-                lp_command_line,
+                lp_application_name as *const i8,
+                lp_command_line as *mut i8,
                 lp_process_attributes as *mut crate::detours::_SECURITY_ATTRIBUTES,
                 lp_thread_attributes as *mut crate::detours::_SECURITY_ATTRIBUTES, 
                 b_inherit_handles as i32, 
                 dw_creation_flags,
                 lp_environment as *mut std::ffi::c_void,
-                lp_current_directory, 
-                lp_startup_info,
-                lp_process_information, 
+                lp_current_directory as *const i8,
+                lp_startup_info as crate::detours::LPSTARTUPINFOA,
+                lp_process_information as crate::detours::LPPROCESS_INFORMATION, 
                 dllpath.unwrap().as_ptr() as *const i8,
                 Option::None
             );
             
-            if ret == winapi::shared::minwindef::TRUE {
+            if ret == win::Foundation::TRUE {
                 if let Some(stdin_write) = stdin_write_handle {
                     pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
                 }
 
-                return (*lp_process_information).hProcess as winapi::um::winnt::HANDLE;
+                return ret;
             }
             else {
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+                let error_code = win::Foundation::GetLastError();
                 crate::log!(error, "detour create process withdllexa failed! error_code: {}.", error_code);
 
                 let create_process_a: extern "system" fn(
-                    lp_application_name: LPCSTR,
-                    lp_command_line: LPSTR,
-                    lp_process_attributes: LPSECURITY_ATTRIBUTES,
-                    lp_thread_attributes: LPSECURITY_ATTRIBUTES,
-                    b_inherit_handles: super::ntdef::types::BOOL,
-                    dw_creation_flags: DWORD,
-                    lp_environment: LPVOID,
-                    lp_current_directory: LPCSTR,
-                    lp_startup_info: crate::detours::LPSTARTUPINFOA,
-                    lp_process_information: crate::detours::LPPROCESS_INFORMATION,
-                ) -> HANDLE = std::mem::transmute(CREATE_PROCESS_A_KERNEL_BASE);
-                
+                    lp_application_name: windows_sys::core::PCSTR,
+                    lp_command_line: windows_sys::core::PSTR,
+                    lp_process_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+                    lp_thread_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+                    b_inherit_handles: windows_sys::core::BOOL,
+                    dw_creation_flags: win::System::Threading::PROCESS_CREATION_FLAGS,
+                    lp_environment:  *const core::ffi::c_void,
+                    lp_current_directory: windows_sys::core::PCSTR,
+                    lp_startup_info: *const win::System::Threading::STARTUPINFOA,
+                    lp_process_information: *mut win::System::Threading::PROCESS_INFORMATION,
+                ) -> windows_sys::core::BOOL = std::mem::transmute(CREATE_PROCESS_A_KERNEL_BASE);
 
-                let handle = create_process_a (
+                let ret = create_process_a (
                     lp_application_name,
                     lp_command_line,
                     lp_process_attributes,
@@ -617,29 +610,29 @@ pub unsafe fn kernelbase_create_process_a(
                     lp_startup_info,
                     lp_process_information);
                 
-                if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                    let error_code = winapi::um::errhandlingapi::GetLastError();
+                if ret == win::Foundation::FALSE {
+                    let error_code = win::Foundation::GetLastError();
                     crate::log!(error, "kernelbase_create_process_a failed! error_code: {}.", error_code);
                 }
-                return handle;
+                return ret;
             }
         }
         else
         {
             let create_process_a: extern "system" fn(
-                lp_application_name: LPCSTR,
-                lp_command_line: LPSTR,
-                lp_process_attributes: LPSECURITY_ATTRIBUTES,
-                lp_thread_attributes: LPSECURITY_ATTRIBUTES,
-                b_inherit_handles: super::ntdef::types::BOOL,
-                dw_creation_flags: DWORD,
-                lp_environment: LPVOID,
-                lp_current_directory: LPCSTR,
-                lp_startup_info: crate::detours::LPSTARTUPINFOA,
-                lp_process_information: crate::detours::LPPROCESS_INFORMATION,
-            ) -> HANDLE = std::mem::transmute(CREATE_PROCESS_A_KERNEL_BASE);
+                lp_application_name: windows_sys::core::PCSTR,
+                lp_command_line: windows_sys::core::PSTR,
+                lp_process_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+                lp_thread_attributes: *const windows_sys::Win32::Security::SECURITY_ATTRIBUTES,
+                b_inherit_handles: windows_sys::core::BOOL,
+                dw_creation_flags: win::System::Threading::PROCESS_CREATION_FLAGS,
+                lp_environment:  *const core::ffi::c_void,
+                lp_current_directory: windows_sys::core::PCSTR,
+                lp_startup_info: *const win::System::Threading::STARTUPINFOA,
+                lp_process_information: *mut win::System::Threading::PROCESS_INFORMATION,
+            ) -> windows_sys::core::BOOL = std::mem::transmute(CREATE_PROCESS_A_KERNEL_BASE);
     
-            let handle = create_process_a (
+            let ret = create_process_a (
                 lp_application_name,
                 lp_command_line,
                 lp_process_attributes,
@@ -651,31 +644,31 @@ pub unsafe fn kernelbase_create_process_a(
                 lp_startup_info,
                 lp_process_information);
             
-            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+            if ret == win::Foundation::FALSE {
+                let error_code = win::Foundation::GetLastError();
                 crate::log!(error, "kernelbase_create_process_a failed! error_code: {}.", error_code);
             }
     
-            return handle;
+            return ret;
         }
     }
     else {
-        return 0 as HANDLE;
+        return win::Foundation::FALSE;
     }
 }
 
 pub unsafe fn kernelbase_create_process_w(
-    lp_application_name: LPCWSTR,
-    lp_command_line: LPWSTR,
-    lp_process_attributes: LPSECURITY_ATTRIBUTES,
-    lp_thread_attributes: LPSECURITY_ATTRIBUTES,
-    b_inherit_handles: super::ntdef::types::BOOL,
-    dw_creation_flags: DWORD,
-    lp_environment: LPVOID,
-    lp_current_directory: LPCWSTR,
-    lp_startup_info: crate::detours::LPSTARTUPINFOW,
-    lp_process_information: crate::detours::LPPROCESS_INFORMATION,
-) -> HANDLE {
+    lp_application_name: windows_sys::core::PCWSTR,
+    lp_command_line: windows_sys::core::PWSTR,
+    lp_process_attributes: *const win::Security::SECURITY_ATTRIBUTES,
+    lp_thread_attributes: *const win::Security::SECURITY_ATTRIBUTES,
+    b_inherit_handles: windows_sys::core::BOOL,
+    dw_creation_flags: win::System::Threading::PROCESS_CREATION_FLAGS,
+    lp_environment: *const core::ffi::c_void,
+    lp_current_directory: windows_sys::core::PCWSTR,
+    lp_startup_info: *mut win::System::Threading::STARTUPINFOW,
+    lp_process_information: *mut win::System::Threading::PROCESS_INFORMATION,
+) -> windows_sys::core::BOOL {
     
     let application = crate::utils::convert::lpwstr_2_string(lp_application_name);
 
@@ -690,47 +683,47 @@ pub unsafe fn kernelbase_create_process_w(
             
             crate::IN_HOOK.set(true);
             
-            let mut stdin_write_handle: Option<winapi::shared::ntdef::HANDLE> = None;
+            let mut stdin_write_handle: Option<win::Foundation::HANDLE> = None;
 
-            let mut pipe_attributes = winapi::um::minwinbase::SECURITY_ATTRIBUTES {
-                nLength: std::mem::size_of::<winapi::um::minwinbase::SECURITY_ATTRIBUTES>() as u32,
+            let mut pipe_attributes = win::Security::SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<win::Security::SECURITY_ATTRIBUTES>() as u32,
                 lpSecurityDescriptor: std::ptr::null_mut(),
-                bInheritHandle: winapi::shared::minwindef::TRUE,
+                bInheritHandle: win::Foundation::TRUE,
             };
 
-            let mut h_stdin_read: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
-            let mut h_stdin_write: winapi::shared::ntdef::HANDLE = std::ptr::null_mut();
+            let mut h_stdin_read: win::Foundation::HANDLE = std::ptr::null_mut();
+            let mut h_stdin_write: win::Foundation::HANDLE = std::ptr::null_mut();
 
-            let ret = winapi::um::namedpipeapi::CreatePipe(
-                &mut h_stdin_read as winapi::shared::ntdef::PHANDLE, 
-                &mut h_stdin_write as winapi::shared::ntdef::PHANDLE, 
+            let ret = win::System::Pipes::CreatePipe(
+                &mut h_stdin_read, 
+                &mut h_stdin_write, 
                 &mut pipe_attributes, 
                 0
             );
 
             let mut b_inherit_handles = b_inherit_handles;
-            if winapi::shared::minwindef::FALSE == ret {
+            if win::Foundation::FALSE == ret {
                 crate::log!(error, "create input pipe failed.")
             }
             else {
 
                 if application.ends_with("mspdbsrv.exe") {
 
-                    let current_stdout = winapi::um::processenv::GetStdHandle(winapi::um::winbase::STD_OUTPUT_HANDLE);
-                    let current_stderr = winapi::um::processenv::GetStdHandle(winapi::um::winbase::STD_ERROR_HANDLE);
+                    let current_stdout = win::System::Console::GetStdHandle(win::System::Console::STD_OUTPUT_HANDLE);
+                    let current_stderr = win::System::Console::GetStdHandle(win::System::Console::STD_ERROR_HANDLE);
                     
                     if !current_stdout.is_null() {
-                        winapi::um::handleapi::SetHandleInformation(
+                        win::Foundation::SetHandleInformation(
                             current_stdout,
-                            winapi::um::winbase::HANDLE_FLAG_INHERIT,
+                            win::Foundation::HANDLE_FLAG_INHERIT,
                             0
                         );
                     }
                     
                     if !current_stderr.is_null() {
-                        winapi::um::handleapi::SetHandleInformation(
+                        win::Foundation::SetHandleInformation(
                             current_stderr,
-                            winapi::um::winbase::HANDLE_FLAG_INHERIT,
+                            win::Foundation::HANDLE_FLAG_INHERIT,
                             0
                         );
                     }
@@ -738,11 +731,11 @@ pub unsafe fn kernelbase_create_process_w(
                     (*lp_startup_info).hStdOutput = std::ptr::null_mut();
                     (*lp_startup_info).hStdError = std::ptr::null_mut();
                 }
-                b_inherit_handles = super::ntdef::enums::TRUE;
+                b_inherit_handles = win::Foundation::TRUE;
 
-                winapi::um::handleapi::SetHandleInformation(h_stdin_write, winapi::um::winbase::HANDLE_FLAG_INHERIT, 0);
-                (*lp_startup_info).hStdInput = h_stdin_read as *mut std::ffi::c_void;
-                (*lp_startup_info).dwFlags |=  winapi::um::winbase::STARTF_USESTDHANDLES;
+                win::Foundation::SetHandleInformation(h_stdin_write, win::Foundation::HANDLE_FLAG_INHERIT, 0);
+                (*lp_startup_info).hStdInput = h_stdin_read;
+                (*lp_startup_info).dwFlags |= win::System::Threading::STARTF_USESTDHANDLES;
 
                 stdin_write_handle = Some(h_stdin_write);
             }
@@ -756,44 +749,42 @@ pub unsafe fn kernelbase_create_process_w(
                 dw_creation_flags,
                 lp_environment as *mut std::ffi::c_void,
                 lp_current_directory, 
-                lp_startup_info,
-                lp_process_information,
+                lp_startup_info as crate::detours::LPSTARTUPINFOW,
+                lp_process_information as crate::detours::LPPROCESS_INFORMATION,
                 dllpath.unwrap().as_ptr() as *const i8,
                 Option::None
             );
             
-            if ret == winapi::shared::minwindef::TRUE {
+            if ret == win::Foundation::TRUE {
                 
-                winapi::um::handleapi::CloseHandle(h_stdin_read);
+                win::Foundation::CloseHandle(h_stdin_read);
 
                 if let Some(stdin_write) = stdin_write_handle {
                     pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
                 }
 
-                return (*lp_process_information).hProcess as winapi::um::winnt::HANDLE;
+                return ret;
             }
             else {
-                winapi::um::handleapi::CloseHandle(h_stdin_read);
-                winapi::um::handleapi::CloseHandle(h_stdin_write);
-
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+                win::Foundation::CloseHandle(h_stdin_read);
+                win::Foundation::CloseHandle(h_stdin_write);
+                let error_code = win::Foundation::GetLastError();
                 crate::log!(error, "detour create process withdllexw failed! error_code: {}.", error_code);
 
                 let create_process_w: extern "system" fn(
-                    lp_application_name: LPCWSTR,
-                    lp_command_line: LPWSTR,
-                    lp_process_attributes: LPSECURITY_ATTRIBUTES,
-                    lp_thread_attributes: LPSECURITY_ATTRIBUTES,
-                    b_inherit_handles: super::ntdef::types::BOOL,
-                    dw_creation_flags: DWORD,
-                    lp_environment: LPVOID,
-                    lp_current_directory: LPCWSTR,
-                    lp_startup_info: crate::detours::LPSTARTUPINFOW,
-                    lp_process_information: crate::detours::LPPROCESS_INFORMATION,
-                ) -> HANDLE = std::mem::transmute(CREATE_PROCESS_W_KERNEL_BASE);
-                
+                    lp_application_name: windows_sys::core::PCWSTR,
+                    lp_command_line: windows_sys::core::PWSTR,
+                    lp_process_attributes: *const win::Security::SECURITY_ATTRIBUTES,
+                    lp_thread_attributes: *const win::Security::SECURITY_ATTRIBUTES,
+                    b_inherit_handles: windows_sys::core::BOOL,
+                    dw_creation_flags: win::System::Threading::PROCESS_CREATION_FLAGS,
+                    lp_environment: *const core::ffi::c_void,
+                    lp_current_directory: windows_sys::core::PCWSTR,
+                    lp_startup_info: *const win::System::Threading::STARTUPINFOW,
+                    lp_process_information: *mut win::System::Threading::PROCESS_INFORMATION,
+                ) -> windows_sys::core::BOOL = std::mem::transmute(CREATE_PROCESS_W_KERNEL_BASE);
 
-                let handle = create_process_w (
+                let ret = create_process_w (
                     lp_application_name,
                     lp_command_line,
                     lp_process_attributes,
@@ -805,28 +796,28 @@ pub unsafe fn kernelbase_create_process_w(
                     lp_startup_info,
                     lp_process_information);
                 
-                if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                    let error_code = winapi::um::errhandlingapi::GetLastError();
+                if ret == win::Foundation::FALSE {
+                    let error_code = win::Foundation::GetLastError();
                     crate::log!(error, "kernelbase create_file_w failed! error_code: {}.", error_code);
                 }
-                return handle;
+                return ret;
             }
         } 
         else {
             let create_process_w: extern "system" fn(
-                lp_application_name: LPCWSTR,
-                lp_command_line: LPWSTR,
-                lp_process_attributes: LPSECURITY_ATTRIBUTES,
-                lp_thread_attributes: LPSECURITY_ATTRIBUTES,
-                b_inherit_handles: super::ntdef::types::BOOL,
-                dw_creation_flags: DWORD,
-                lp_environment: LPVOID,
-                lp_current_directory: LPCWSTR,
-                lp_startup_info: crate::detours::LPSTARTUPINFOW,
-                lp_process_information: crate::detours::LPPROCESS_INFORMATION,
-            ) -> HANDLE = std::mem::transmute(CREATE_PROCESS_W_KERNEL_BASE);
+                lp_application_name: windows_sys::core::PCWSTR,
+                lp_command_line: windows_sys::core::PWSTR,
+                lp_process_attributes: *const win::Security::SECURITY_ATTRIBUTES,
+                lp_thread_attributes: *const win::Security::SECURITY_ATTRIBUTES,
+                b_inherit_handles: windows_sys::core::BOOL,
+                dw_creation_flags: win::System::Threading::PROCESS_CREATION_FLAGS,
+                lp_environment: *const core::ffi::c_void,
+                lp_current_directory: windows_sys::core::PCWSTR,
+                lp_startup_info: *const win::System::Threading::STARTUPINFOW,
+                lp_process_information: *mut win::System::Threading::PROCESS_INFORMATION,
+            ) -> windows_sys::core::BOOL = std::mem::transmute(CREATE_PROCESS_W_KERNEL_BASE);
             
-            let handle = create_process_w (
+            let ret = create_process_w (
                 lp_application_name,
                 lp_command_line,
                 lp_process_attributes,
@@ -838,15 +829,15 @@ pub unsafe fn kernelbase_create_process_w(
                 lp_startup_info,
                 lp_process_information);
             
-            if handle ==  winapi::um::handleapi::INVALID_HANDLE_VALUE {
-                let error_code = winapi::um::errhandlingapi::GetLastError();
+            if ret == win::Foundation::FALSE {
+                let error_code = win::Foundation::GetLastError();
                 crate::log!(error, "kernelbase create_file_w failed! error_code: {}.", error_code);
             }
-            return handle;
+            return ret;
         }
     }
     else {
-        return 0 as HANDLE;
+        return win::Foundation::FALSE;
     }
 }
 
@@ -1462,22 +1453,33 @@ pub unsafe fn nt_query_directory_file(
 }
 
 pub unsafe fn nt_create_file(
-    file_handle:         super::ntdef::types::PHANDLE,
-    access_mask:         super::ntdef::types::ACCESS_MASK,
-    object_attributes:   super::ntdef::structs::POBJECT_ATTRIBUTES,
-    io_status_block:      super::ntdef::structs::PIO_STATUS_BLOCK,
-    allocation_size:     super::ntdef::structs::PLARGE_INTEGER,
-    file_attributes:     super::ntdef::types::ULONG,
-    share_access:        super::ntdef::types::ULONG,
-    create_disposition:  super::ntdef::types::ULONG,
-    create_options:      super::ntdef::types::ULONG,
-    ea_buffer:           super::ntdef::types::PVOID,
-    ea_length:           super::ntdef::types::ULONG
-    ) -> super::ntdef::types::NTSTATUS {
+    file_handle:         *mut win::Foundation::HANDLE,
+    access_mask:         win::Storage::FileSystem::FILE_ACCESS_RIGHTS,
+    object_attributes:   *mut windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES,
+    io_status_block:     *mut windows_sys::Win32::System::IO::IO_STATUS_BLOCK,
+    allocation_size:     *const i64,
+    file_attributes:     win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
+    share_access:        win::Storage::FileSystem::FILE_SHARE_MODE,
+    create_disposition:  windows_sys::Wdk::Storage::FileSystem::NTCREATEFILE_CREATE_DISPOSITION,
+    create_options:      windows_sys::Wdk::Storage::FileSystem::NTCREATEFILE_CREATE_OPTIONS,
+    ea_buffer:           *const core::ffi::c_void,
+    ea_length:           u32
+    ) -> win::Foundation::NTSTATUS {
 
     use std::os::windows::ffi::OsStrExt;
-
-    let zw_create_file: super::ntdef::functions::ZwCreateFile = std::mem::transmute(NT_CREATE_FILE);
+    let zw_create_file: extern "system" fn(
+        filehandle: *mut win::Foundation::HANDLE,
+        desiredaccess: u32,
+        objectattributes: *mut windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES,
+        iostatusblock: *mut windows_sys::Win32::System::IO::IO_STATUS_BLOCK,
+        allocationsize: *const i64,
+        fileattributes: u32,
+        shareaccess: u32,
+        createdisposition: u32,
+        createoptions: u32,
+        eabuffer: *const core::ffi::c_void,
+        ealength: u32,
+    ) -> win::Foundation::NTSTATUS = std::mem::transmute(NT_CREATE_FILE);
     
     let mut skip = false;
     if file_attributes == 0 && share_access == 0 { //pipe
@@ -1500,7 +1502,7 @@ pub unsafe fn nt_create_file(
 
             let mut rtype = crate::replace::ReplaceType::Unknown;
             let mut is_mount_point_manager = false;
-            if access_mask & super::ntdef::enums::FILE_LIST_DIRECTORY != 0 {
+            if access_mask & win::Storage::FileSystem::FILE_LIST_DIRECTORY != 0 {
                 rtype = crate::replace::ReplaceType::Dir;
             }
             else {
@@ -1560,7 +1562,7 @@ pub unsafe fn nt_create_file(
                         crate::log!(error, "rtl init unicode string failed.");
                     }
 
-                    let mut fake_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
+                    let mut fake_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
                        Length: object_name.Length,
                        MaximumLength: object_name.MaximumLength,
                        Buffer: object_name.Buffer,
@@ -1585,19 +1587,19 @@ pub unsafe fn nt_create_file(
                         ea_length
                     );
 
-                    if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                    if nt_status == win::Foundation::STATUS_SUCCESS {
                         NT_HANDLE_AND_DIR.with(|cell| {
                             cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, name);
                         });
                     }
                     else {
-                        if nt_status == winapi::shared::ntstatus::STATUS_OBJECT_NAME_NOT_FOUND {
+                        if nt_status == win::Foundation::STATUS_OBJECT_NAME_NOT_FOUND {
 
                         }
                         else {
                             crate::log!(error, "zw_create_file failed! error_code: {:#X} path: {}", nt_status, name);
 
-                            if nt_status == winapi::shared::ntstatus::STATUS_SHARING_VIOLATION {
+                            if nt_status == win::Foundation::STATUS_SHARING_VIOLATION {
                                 nt_status = zw_create_file(
                                     file_handle,
                                     access_mask,
@@ -1649,7 +1651,7 @@ pub unsafe fn nt_create_file(
                                 crate::log!(error, "rtl init unicode string failed.");
                             }
 
-                            let mut fake_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
+                            let mut fake_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
                                 Length: object_name.Length,
                                 MaximumLength: object_name.MaximumLength,
                                 Buffer: object_name.Buffer,
@@ -1661,7 +1663,7 @@ pub unsafe fn nt_create_file(
                                 file_attributes, share_access, windows_sys::Wdk::Storage::FileSystem::FILE_OPEN_IF, create_options, ea_buffer, ea_length
                             );
                     
-                            if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                            if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
                                 crate::log!(error, "zw_create_file includes dir success! path: {} handle: {:?}", unmodified, *file_handle);
 
                                 NT_HANDLE_AND_DIR.with(|cell| {
@@ -1707,7 +1709,7 @@ pub unsafe fn nt_create_file(
                             crate::log!(error, "rtl init unicode string failed.");
                         }
 
-                        let mut expect_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
+                        let mut expect_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
                             Length: object_name.Length,
                             MaximumLength: object_name.MaximumLength,
                             Buffer: object_name.Buffer,
@@ -1718,16 +1720,16 @@ pub unsafe fn nt_create_file(
                             allocation_size, file_attributes, share_access, create_disposition, create_options, ea_buffer, ea_length
                         );
 
-                        if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                        if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
                     
                         }
                         else {
-                            if nt_status == winapi::shared::ntstatus::STATUS_SHARING_VIOLATION {
+                            if nt_status == windows_sys::Win32::Foundation::STATUS_SHARING_VIOLATION {
                                 std::thread::sleep(std::time::Duration::from_millis(5));
                                 let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block,
                                     allocation_size, file_attributes, share_access, create_disposition, create_options, ea_buffer, ea_length
                                 );
-                                if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                                if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
                                    
                                 }
                                 else {
@@ -1778,7 +1780,7 @@ pub unsafe fn nt_create_file(
                                 crate::log!(error, "rtl init unicode string failed.");
                             }
 
-                            let mut expect_obejct_name_adapter = crate::ntdef::structs::UNICODE_STRING {
+                            let mut expect_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
                                 Length: object_name.Length,
                                 MaximumLength: object_name.MaximumLength,
                                 Buffer: object_name.Buffer,
@@ -1790,16 +1792,16 @@ pub unsafe fn nt_create_file(
                                 allocation_size, file_attributes, share_access, create_disposition, create_options, ea_buffer, ea_length
                             );
 
-                            if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                            if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
                         
                             }
                             else {
-                                if nt_status == winapi::shared::ntstatus::STATUS_SHARING_VIOLATION {
+                                if nt_status == windows_sys::Win32::Foundation::STATUS_SHARING_VIOLATION {
                                     std::thread::sleep(std::time::Duration::from_millis(5));
                                     let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block,
                                         allocation_size, file_attributes, share_access, create_disposition, create_options, ea_buffer, ea_length
                                     );
-                                    if nt_status == winapi::shared::ntstatus::STATUS_SUCCESS {
+                                    if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
                                         // Handle success case
                                     }
                                     else {
@@ -1856,32 +1858,32 @@ pub unsafe fn nt_create_file(
     return nt_status;
 }
 
-pub unsafe fn pass_project_and_replica_to_redriect(handle: winapi::shared::ntdef::HANDLE, solution: &str, project: &str, replica: &str) {
+pub unsafe fn pass_project_and_replica_to_redriect(handle: win::Foundation::HANDLE, solution: &str, project: &str, replica: &str) {
     if !project.is_empty() {
         let arg = format!("solution:{}\nproject:{}\nreplica:{}\n", solution, project, replica);
-        let mut bytes: winapi::shared::minwindef::DWORD = 0;
-        let mut overlapped: winapi::um::minwinbase::OVERLAPPED = std::mem::zeroed();
-        let ret = winapi::um::fileapi::WriteFile(
+        let mut bytes: u32 = 0;
+        let mut overlapped: win::System::IO::OVERLAPPED = std::mem::zeroed();
+        let ret = win::Storage::FileSystem::WriteFile(
             handle,
-            arg.as_bytes().as_ptr() as *const winapi::ctypes::c_void,
+            arg.as_bytes().as_ptr(),
             arg.len() as u32,
             &mut bytes,
             &mut overlapped
         );
     
-        if ret == winapi::shared::minwindef::FALSE || bytes == 0 {
-            let error = winapi::um::errhandlingapi::GetLastError();
+        if ret == win::Foundation::FALSE || bytes == 0 {
+            let error = win::Foundation::GetLastError();
             crate::log!(error, "write pipe error, failed code: {}", error);
         }
         else {
-            //winapi::um::fileapi::FlushFileBuffers(handle);
+            //FlushFileBuffers(handle);
             crate::log!(trace, "childprocess send message by pipe {} {:?}", if bytes > 0 {"success."} else {"failed."}, arg);
         }
     }
     else {
         crate::log!(warn, "don't pass project name and project path, use current path and don't redirect.");
     }
-    winapi::um::handleapi::CloseHandle(handle);
+    win::Foundation::CloseHandle(handle);
 }
 
 pub unsafe fn nt_query_information_file(
@@ -1963,7 +1965,7 @@ pub unsafe fn nt_query_volume_information_file(
     if skip && fsinformationclass == windows_sys::Wdk::Storage::FileSystem::FileFsDeviceInformation {
         let file_fs_device_info = fsinformation as *mut windows_sys::Wdk::System::SystemServices::FILE_FS_DEVICE_INFORMATION;
         if !file_fs_device_info.is_null() {
-            (*file_fs_device_info).DeviceType = windows_sys::Win32::Storage::FileSystem::FILE_DEVICE_DISK as u32;
+            (*file_fs_device_info).DeviceType = windows_sys::Win32::Storage::FileSystem::FILE_DEVICE_DISK;
             (*file_fs_device_info).Characteristics = 0;
         }
 

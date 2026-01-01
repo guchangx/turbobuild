@@ -1,5 +1,6 @@
+use crate::detours::LPCWSTR;
 
-pub fn lpwstr_2_string(lp_param: winapi::um::winnt::LPCWSTR) -> core::option::Option<std::string::String> {
+pub fn lpwstr_2_string(lp_param: LPCWSTR) -> core::option::Option<std::string::String> {
     use std::os::windows::prelude::*;
 
     if !lp_param.is_null() {
