@@ -210,7 +210,7 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
                         if file_name_length_bytes > 0 {
                             let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
                             if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
-                                writeln!(&mut filenames, "{}", file_name_str).unwrap();
+                                writeln!(&mut filenames, "{}|{}", file_name_str, (*file_info).FileAttributes).unwrap();
                             } else {
                                 log::warn!("failed to convert file name to UTF-16: {:?}", file_name_slice);
                             }
