@@ -15,7 +15,7 @@ crew = {path = "../crew", features = ["fake"]}
 cocrew = {path = "../cocrew"}
 tools = {path = "../tools"}
 tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread"] }
-
+windows-sys = {version = "0.60"}
 
 [features]
 default = ["fake"]

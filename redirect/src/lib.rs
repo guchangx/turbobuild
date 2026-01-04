@@ -148,30 +148,50 @@ static PROCESS_ID: std::sync::LazyLock<u32> = std::sync::LazyLock::new(|| {
 });
 
 fn read_project_property_from_stdin() {
-    //let hendle = RUNTIME.lock().unwrap().spawn(
-    //    async move {
-        let stdin = std::io::stdin();
-        let handle = stdin.lock();
-        
-        for line in handle.lines() {
-            log!(trace, "read stdin pipe to string: {:?}", line);
-            let arg = line.unwrap();
-            if arg.starts_with("solution") {
-                //solution:xxxxxxx or solution xxxxxx
-                let (_, sln) = arg.split_at("solution".len() + 1);
-                SOLUTIONNAME.set(String::from(&sln[0..sln.len()])).unwrap();
-            }
-            else if arg.starts_with("project") {
-                //project:xxxxxxx or project xxxxxx 
-                let (_, proj) = arg.split_at("project".len() + 1);
-                PROJECTNAME.set(String::from(&proj[0..proj.len()])).unwrap();
-            }
-            else if arg.starts_with("replica") {
-                let (_, dir) = arg.split_at("replica".len() + 1);
-                REPLICADIR.set(String::from(&dir[0..dir.len()])).unwrap();
+    log!(trace, "read_project_property_from_stdin started.");
+    let runtime = RUNTIME.lock().unwrap();
+    runtime.spawn(async move {
+        use tokio::io::{AsyncBufReadExt, BufReader};
+        use tokio::time::{timeout, Duration};
+
+        let stdin = tokio::io::stdin();
+        let reader = BufReader::new(stdin);
+        let mut lines = reader.lines();
+
+        loop {
+            match timeout(Duration::from_millis(100), lines.next_line()).await {
+                Ok(Ok(Some(line))) => {
+                    log!(trace, "read stdin pipe to string: {:?}", line);
+                    let arg = line;
+                    if arg.starts_with("solution") {
+                        let (_, sln) = arg.split_at("solution".len() + 1);
+                        SOLUTIONNAME.set(String::from(&sln[0..sln.len()])).unwrap();
+                    }
+                    else if arg.starts_with("project") {
+                        let (_, proj) = arg.split_at("project".len() + 1);
+                        PROJECTNAME.set(String::from(&proj[0..proj.len()])).unwrap();
+                    }
+                    else if arg.starts_with("replica") {
+                        let (_, dir) = arg.split_at("replica".len() + 1);
+                        REPLICADIR.set(String::from(&dir[0..dir.len()])).unwrap();
+                    }
+                }
+                Ok(Ok(None)) => {
+                    // EOF
+                    break;
+                }
+                Ok(Err(e)) => {
+                    log!(error, "Error reading line: {:?}", e);
+                    break;
+                }
+                Err(_) => {
+                    // Timeout, no input
+                    break;
+                }
             }
         }
-    //});
+    });
+    log!(trace, "read_project_property_from_stdin completed.");
 }
 
 static MODULE_PATH: std::sync::OnceLock<std::ffi::CString> = std::sync::OnceLock::new();
@@ -326,8 +346,6 @@ fn fetch_args_from_command() {
 fn uninit_custom_resource() {
     log!(info, "[{:?}] uninit custom resource. receive is closed: {}", crate::PROJECTNAME.get(), LOGGER.tx.capacity());
 }
-
-use std::io::BufRead;
 
 unsafe fn show_message_box_for_debug() {
     use std::os::windows::ffi::OsStrExt;

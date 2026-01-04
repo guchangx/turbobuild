@@ -2,7 +2,7 @@
 pub mod communicate;
 pub mod common;
 mod compiler;
-mod detours;
+pub mod detours;
 extern crate serde_json;
 
 
