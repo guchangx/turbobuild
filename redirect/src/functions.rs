@@ -15,6 +15,7 @@ pub static mut CREATE_PROCESS_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut s
 pub static mut CREATE_PROCESS_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut GET_VOLUME_INFORMATION_BY_HANDLE_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut GET_FILE_INFORMATION_BY_HANDLE_EX_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+pub static mut NT_CLOSE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 
 static SYS_CALL_ID: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<u32>>> = std::sync::LazyLock::new(|| {
     let pid = std::process::id();
@@ -934,8 +935,50 @@ thread_local! {
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
-static VIRTUAL_HANDLE_MAP_DIR: std::sync::LazyLock<std::sync::RwLock<std::collections::HashMap<i32, String>>> =
+static NT_HANDLE_MAP_FILES: std::sync::LazyLock<std::sync::RwLock<std::collections::HashMap<i32, Vec<String>>>> =
     std::sync::LazyLock::new(|| std::sync::RwLock::new(std::collections::HashMap::new()));
+
+
+unsafe fn dump_files(file_information: *mut core::ffi::c_void, file_information_class: windows_sys::Wdk::Storage::FileSystem::FILE_INFORMATION_CLASS, length: u32) {
+               
+    let mut current_offset = 0usize;
+    let mut entry_count = 0;
+    
+    loop {
+        let current_entry = (file_information as *const u8).add(current_offset);
+        entry_count += 1;
+        match file_information_class {
+            windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation => {
+                let file_info = current_entry as *const windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
+                let file_name_length_bytes = (*file_info).FileNameLength as usize;
+
+                if file_name_length_bytes > 0 {
+                    let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
+                    if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
+                        crate::log!(trace, "nt_query_directory_file single entry #{}: with file: '{}'", entry_count, file_name_str);
+                    }
+                }
+
+                let next_entry_offset = (*file_info).NextEntryOffset;
+                if next_entry_offset == 0 {
+                    break;
+                }
+                else {
+                    current_offset += next_entry_offset as usize;
+                }
+            }
+            _ => {
+                crate::log!(trace, "nt_query_directory_file: unsupported file_information_class: {:?}", file_information_class);
+            }
+        }
+
+        if current_offset >= length as usize {
+            crate::log!(warn, "reached buffer end, processed {} entries", entry_count);
+            break;
+        }
+    }
+                
+}
 
 pub unsafe fn nt_query_directory_file(
     file_handle: windows_sys::Win32::Foundation::HANDLE,
@@ -977,86 +1020,91 @@ pub unsafe fn nt_query_directory_file(
     );
 
     if (restart_scan && !file_name.is_null()) || (file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation) {
-        //if single file and in create dir, return directly.
+      
+        if let Some(val) = NT_HANDLE_MAP_FILES.read().unwrap().get(&(file_handle as i32)) {
+            let buffer = (*file_name).Buffer;
+            let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
 
-        let handle_cache_dir = NT_HANDLE_AND_DIR.with(|cell| {
-            let handle_and_dir = cell.borrow();
-            return handle_and_dir.get(&file_handle).is_some();
-        });
+            if val.contains(&name) {
+                crate::log!(debug, "nt_query_directory_file: hit cached dir file: {}", name);
 
-        if handle_cache_dir {
-            if !io_status_block.is_null() {
-                (*io_status_block).Information = 0;
-                (*io_status_block).Anonymous.Pointer = std::ptr::null_mut();
-                (*io_status_block).Anonymous.Status = windows_sys::Win32::Foundation::STATUS_SUCCESS;
+                if !file_information.is_null() {
+                    let virtual_file_name: Vec<u16> = name.encode_utf16().collect();
+                    let virtual_file_name_bytes: u32 = (virtual_file_name.len() * 2) as u32;
+                    
+                    let base_size = 64 as usize;
+                    let entry_size = base_size + virtual_file_name_bytes as usize;
+                    let aligned_entry_size = (entry_size + 7) & !7; // Align to 8 bytes
+                    
+                    std::ptr::write_bytes(file_information, 0u8, aligned_entry_size);
+                    let entry = file_information as *mut windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
+                    
+                    (*entry).NextEntryOffset = 0;
+                    (*entry).FileIndex = 0;
+                    (*entry).FileNameLength = virtual_file_name_bytes as u32;
+
+                    (*entry).FileAttributes = win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE;
+                    (*entry).EndOfFile = 1024;
+                    (*entry).AllocationSize = 1024;
+                    let time: i64 = 0x1DB777E6D1C0000i64;
+                    (*entry).CreationTime = time;
+                    (*entry).LastAccessTime = time;
+                    (*entry).LastWriteTime = time;
+                    (*entry).ChangeTime = time;
+                    
+                    std::ptr::copy_nonoverlapping(
+                        virtual_file_name.as_ptr(),
+                        (*entry).FileName.as_mut_ptr(),
+                        virtual_file_name.len()
+                    );
+                
+                    if !io_status_block.is_null() {
+                        (*io_status_block).Information = aligned_entry_size;
+                        (*io_status_block).Anonymous.Pointer = std::ptr::null_mut();
+                        (*io_status_block).Anonymous.Status = windows_sys::Win32::Foundation::STATUS_SUCCESS;
+                    }    
+                    return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+                }
+                else {
+                    crate::log!(trace, "nt_query_directory_file: buffer too small {}", name);
+                    if !io_status_block.is_null() {
+                        (*io_status_block).Information = 0;
+                        (*io_status_block).Anonymous.Pointer = std::ptr::null_mut();
+                        (*io_status_block).Anonymous.Status = windows_sys::Win32::Foundation::STATUS_BUFFER_TOO_SMALL;
+                    }
+                    return windows_sys::Win32::Foundation::STATUS_BUFFER_TOO_SMALL;
+                }
             }
-            return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+            else {
+                crate::log!(debug, "nt_query_directory_file: not hit cached dir file: {}", name);
+                let nt_status = nt_query_directory_file(file_handle, event, apc_routine, apc_context, io_status_block,
+                    file_information, length, file_information_class, return_single_entry, file_name, restart_scan
+                );
+                return nt_status;
+            }
         }
         else {
+            let buffer = (*file_name).Buffer;
+            let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+
             let nt_status = nt_query_directory_file(file_handle, event, apc_routine, apc_context, io_status_block,
                 file_information, length, file_information_class, return_single_entry, file_name, restart_scan
             );
 
             if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS && !file_information.is_null() {
-                /* 
-                let mut current_offset = 0usize;
-                let mut entry_count = 0;
-                
-                loop {
-                    let current_entry = (file_information as *const u8).add(current_offset);
-                    entry_count += 1;
-                    match file_information_class {
-                        windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation => {
-                            let file_info = current_entry as *const windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
-                            let file_name_length_bytes = (*file_info).FileNameLength as usize;
-
-                            if file_name_length_bytes > 0 {
-                                let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
-                                if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
-                                    crate::log!(trace, "nt_query_directory_file single entry #{}: with file: '{}'", entry_count, file_name_str);
-                                }
-                            }
-
-                            let next_entry_offset = (*file_info).NextEntryOffset;
-                            if next_entry_offset == 0 {
-                                break;
-                            }
-                            else {
-                                current_offset += next_entry_offset as usize;
-                            }
-                        }
-                        _ => {
-                            crate::log!(trace, "nt_query_directory_file: unsupported file_information_class: {:?}", file_information_class);
-                        }
-                    }
-
-                    if current_offset >= length as usize {
-                        crate::log!(warn, "reached buffer end, processed {} entries", entry_count);
-                        break;
-                    }
-                }
-                */
+                //dump_files(file_information, file_information_class, length);
             }
             else {
                 if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
-                    crate::log!(debug, "nt_query_directory_file reached source file don't more files.");
+                    crate::log!(debug, "nt_query_directory_file no more files. {}", name);
                 }
                 else if nt_status == windows_sys::Win32::Foundation::STATUS_NO_SUCH_FILE {
-                    crate::log!(warn, "nt_query_directory_file no such file.");
+                    crate::log!(warn, "nt_query_directory_file no such file. {}", name);
                 }
                 else if nt_status == windows_sys::Win32::Foundation::STATUS_BUFFER_OVERFLOW {
-                    crate::log!(warn, "nt_query_directory_file buffer overflow occurred, consider increasing buffer size.");
+                    crate::log!(warn, "nt_query_directory_file buffer overflow occurred, consider increasing buffer size. {}", name);
                 }
                 else {
-                    let name = if !file_name.is_null() {
-                        let buffer = (*file_name).Buffer;
-                        let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                        name
-                    }
-                    else {
-                        "nt_query_directory_file file_name buffer is null".to_string()
-                    };
-
                     crate::log!(error, "nt_query_directory_file failed with status: {:#X} file: {:?}", nt_status, name);
                 }
             }
@@ -1289,6 +1337,8 @@ pub unsafe fn nt_query_directory_file(
                     let files_count = filenames.len();
 
                     let mut entries_written = 0;
+
+                    let mut collectfiles = Vec::new();
                     for (index, fileinfo) in filenames.iter().enumerate() {
                         let fileinfo = fileinfo.split('|').collect::<Vec<&str>>();
      
@@ -1318,11 +1368,14 @@ pub unsafe fn nt_query_directory_file(
                             aligned_entry_size as u32
                         };
 
-                        (*entry).NextEntryOffset = next_offset;                        
+                        (*entry).NextEntryOffset = next_offset;                      
                         (*entry).FileIndex = index as u32;
                         (*entry).FileNameLength = virtual_file_name_bytes as u32;
                         
                         let attr = fileinfo[1].parse::<u32>().unwrap_or(win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE);
+                        if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE {
+                            collectfiles.push(fileinfo[0].to_string());
+                        }
                         let end_of_file: i64 = if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY { 0 } else { 1024 };
                         let alloc_size: i64 = if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY { 0 } else { 1024 };
                         let time: i64 = 0x1DB777E6D1C0000i64;
@@ -1359,6 +1412,8 @@ pub unsafe fn nt_query_directory_file(
                         }
                     }
 
+                    NT_HANDLE_MAP_FILES.write().unwrap().insert(file_handle as i32, collectfiles);
+
                     if !io_status_block.is_null() {
                         (*io_status_block).Information = current_offset;
                         (*io_status_block).Anonymous.Pointer = std::ptr::null_mut();
@@ -1370,6 +1425,7 @@ pub unsafe fn nt_query_directory_file(
                         };
                     }
 
+                    /* 
                     //try access result
                     let mut current_offset = 0usize;
                     let mut entry_count = 0;
@@ -1414,12 +1470,14 @@ pub unsafe fn nt_query_directory_file(
                                 crate::log!(trace, "test nt_query_directory_file: unsupported file_information_class: {:?}", file_information_class);
                             }
                         }
-
+                        
                         if current_offset >= length as usize {
                             crate::log!(warn, "Test Reached buffer end, processed {} entries", entry_count);
                             break;
                         }
-                    } 
+                        
+                    }
+                    */ 
                         
                     return if entries_written > 0 {
                         windows_sys::Win32::Foundation::STATUS_SUCCESS
@@ -2025,6 +2083,18 @@ pub unsafe fn nt_query_full_attributes_file(
     return windows_sys::Win32::Foundation::STATUS_SUCCESS;
 }
 */
+
+pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> windows_sys::Win32::Foundation::NTSTATUS {
+
+    let nt_close_inner: extern "system" fn(
+        handle: windows_sys::Win32::Foundation::HANDLE
+    ) -> windows_sys::Win32::Foundation::NTSTATUS = std::mem::transmute(NT_CLOSE);
+
+    NT_HANDLE_MAP_FILES.write().unwrap().remove(&(handle as i32));
+
+    let nt_status = nt_close_inner(handle);
+    return nt_status;
+}
 
 #[cfg(test)]
 mod tests {

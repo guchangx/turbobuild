@@ -133,4 +133,16 @@ pub unsafe fn init_hook() {
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_QUERY_FULL_ATTRIBUTES_FILE), crate::functions::nt_query_full_attributes_file as _);
     }
     */
+
+    let func_nt_close = crate::utils::convert::string_2_lpstr("NtClose".to_string());
+    let nt_close = crate::detours::DetourFindFunction(module,  func_nt_close);
+
+    if nt_close as usize == 0 {
+        crate::log!(error, "can not find nt_close in kernelbase module");
+    }
+    else {
+        crate::functions::NT_CLOSE = nt_close;
+        crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_CLOSE), crate::functions::nt_close as _);
+    }
+
 }
