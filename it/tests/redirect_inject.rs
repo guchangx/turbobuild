@@ -1,22 +1,32 @@
 #[cfg(test)]
 mod integration_tests {
+    use std::env::current_dir;
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStrExt;
 
     #[test]
     fn redirect_inject_test() {
+        let current = std::env::var_os("CARGO_MANIFEST_DIR").unwrap();
+        let path = std::path::PathBuf::from(current);
+        let dir = path.parent().unwrap().join("target").join("debug");
 
-        let command: Vec<u16> = OsString::from("redirect_inject_test.exe")
+        let app = dir.join("redirect_inject_test.exe");
+        let appname: Vec<u16> = OsString::from(&app)
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
 
-        let dll_path = "redirect64.dll";
-        let dll_path_cstr = std::ffi::CString::new(dll_path).expect("Invalid redirect DLL path");
+        let line = format!("{} {}", app.to_string_lossy(), dir.to_string_lossy());
+        let command: Vec<u16> = OsString::from(line)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+
+        let dll = dir.join("redirect64.dll");
+        let dll_path_cstr = std::ffi::CString::new(dll.to_string_lossy().as_ref()).expect("Invalid redirect DLL path");
 
         unsafe {
 
-            // Create pipes for stdout redirection
             let mut read_pipe: windows_sys::Win32::Foundation::HANDLE = std::ptr::null_mut();
             let mut write_pipe: windows_sys::Win32::Foundation::HANDLE = std::ptr::null_mut();
             let mut sa: windows_sys::Win32::Security::SECURITY_ATTRIBUTES = std::mem::zeroed();
@@ -39,13 +49,12 @@ mod integration_tests {
             startup_info.hStdError = write_pipe;
             startup_info.hStdInput = windows_sys::Win32::System::Console::GetStdHandle(windows_sys::Win32::System::Console::STD_INPUT_HANDLE);
 
-            // Initialize PROCESS_INFORMATION
             let mut process_info: cocrew::detours::detours::_PROCESS_INFORMATION = std::mem::zeroed();
             let dw_creation_flags = windows_sys::Win32::System::Threading::CREATE_DEFAULT_ERROR_MODE | windows_sys::Win32::System::Threading::CREATE_SUSPENDED | windows_sys::Win32::System::Threading::CREATE_UNICODE_ENVIRONMENT;
 
             let ret = cocrew::detours::detours::DetourCreateProcessWithDllExW(
-                    std::ptr::null(),
-                    command.as_ptr() as *mut u16, 
+                    appname.as_ptr() as *const u16,
+                    command.as_ptr() as *mut u16,
                     std::ptr::null_mut(), 
                     std::ptr::null_mut(), 
                     windows_sys::Win32::Foundation::TRUE,
@@ -64,7 +73,11 @@ mod integration_tests {
                 windows_sys::Win32::System::Threading::WaitForSingleObject(process_info.hProcess, windows_sys::Win32::System::Threading::INFINITE);    
             }
             else {
-                print!("DetourCreateProcessWithDllExW failed\n");
+                windows_sys::Win32::Foundation::CloseHandle(write_pipe);
+                windows_sys::Win32::Foundation::CloseHandle(read_pipe);
+                let err = windows_sys::Win32::Foundation::GetLastError();
+
+                print!("DetourCreateProcessWithDllExW failed, error code: {}\n", err);
             }
 
             // Close the write end of the pipe in the parent process
@@ -93,7 +106,6 @@ mod integration_tests {
                 println!("dir list process stdout:\n{}", String::from_utf8_lossy(&buffer));
             }
 
-            // Close the read pipe
             windows_sys::Win32::Foundation::CloseHandle(read_pipe);
         
             let mut code: u32 = 0;
