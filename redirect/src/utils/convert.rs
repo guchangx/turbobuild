@@ -9,9 +9,14 @@ pub fn lpwstr_2_string(lp_param: LPCWSTR) -> core::option::Option<std::string::S
         let len = unsafe { (0..).take_while(|&i| *lp_param.offset(i) != 0).count() };
         if len != 0 {
             let wide_slice = unsafe { std::slice::from_raw_parts(non_null_wstr_ptr.as_ptr(), len) };
-            let os_string = std::ffi::OsString::from_wide(wide_slice);
-            let result_string = os_string.to_string_lossy().into_owned();
-            return Some(result_string);
+            match std::string::String::from_utf16(wide_slice) {
+                Ok(s) => return Some(s),
+                Err(_) => {
+                    let os_string = std::ffi::OsString::from_wide(wide_slice);
+                    let result_string = os_string.to_string_lossy().into_owned();
+                    return Some(result_string);
+                },
+            }
         }
         else {
             return None;

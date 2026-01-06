@@ -1175,7 +1175,6 @@ pub unsafe fn nt_query_directory_file(
                     (*entry).LastAccessTime = time;
                     (*entry).LastWriteTime = time;
                     (*entry).ChangeTime = time;
-
                     
                     std::ptr::copy_nonoverlapping(
                         virtual_file_name.as_ptr(),
@@ -1628,22 +1627,28 @@ pub unsafe fn nt_create_file(
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
                 crate::log!(trace, "nt_create_file hook path: {} - {}", if rtype == crate::replace::ReplaceType::Dir { "dir" } else { "file" }, name);
                 let replace = crate::replace::nt_replace(&mut name, rtype);
-                if replace == crate::replace::ReplaceDirResult::Success {
+                if replace == crate::replace::ReplaceNtResult::Success {
                     //TODO elpase 10ms, need optimize. 
                     crate::log!(trace, "nt_create_file replace hook: {}", name.clone());
 
+                    let mut object_name_source_wide_char = std::ffi::OsString::from(name.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+                    /*
                     let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
-                    let object_name_source_wide_char = std::ffi::OsString::from(name.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
-                    
                     let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
                     if ret != windows_sys::Win32::Foundation::STATUS_SUCCESS {
                         crate::log!(error, "rtl init unicode string failed.");
                     }
-
+                     
                     let mut fake_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
                        Length: object_name.Length,
                        MaximumLength: object_name.MaximumLength,
                        Buffer: object_name.Buffer,
+                    };
+                    */
+                    let mut fake_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
+                       Length: object_name_source_wide_char.len().saturating_sub(1) as u16 * 2,
+                       MaximumLength: object_name_source_wide_char.len() as u16 * 2,
+                       Buffer: object_name_source_wide_char.as_mut_ptr(),
                     };
 
                     (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
@@ -1696,7 +1701,7 @@ pub unsafe fn nt_create_file(
                     }
                     return nt_status;
                 }
-                else if let crate::replace::ReplaceDirResult::VirtualIncludesDir(unmodified) = replace {
+                else if let crate::replace::ReplaceNtResult::VirtualIncludesDir(unmodified) = replace {
                     crate::log!(trace, "nt_create_file includes hook replace path: {} {}", name.clone(), unmodified);
 
                     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -1721,20 +1726,12 @@ pub unsafe fn nt_create_file(
                     let exists = rx.blocking_recv().unwrap();
                     if let Some(exists) = exists.get("exists") {
                         if exists == "true" {
-                            let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
-                            let object_name_source_wide_char = std::ffi::OsString::from(name.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
-                            
-                            let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
-                            if ret != windows_sys::Win32::Foundation::STATUS_SUCCESS {
-                                crate::log!(error, "rtl init unicode string failed.");
-                            }
-
+                            let mut object_name_source_wide_char = std::ffi::OsString::from(name.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
                             let mut fake_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
-                                Length: object_name.Length,
-                                MaximumLength: object_name.MaximumLength,
-                                Buffer: object_name.Buffer,
+                                Length: object_name_source_wide_char.len().saturating_sub(1) as u16 * 2,
+                                MaximumLength: object_name_source_wide_char.len() as u16 * 2,
+                                Buffer: object_name_source_wide_char.as_mut_ptr(),
                             };
-
                             (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
 
                             let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block, allocation_size,
@@ -1764,7 +1761,7 @@ pub unsafe fn nt_create_file(
                         return windows_sys::Win32::Foundation::STATUS_OBJECT_NAME_NOT_FOUND;
                     }
                 }
-                else if let crate::replace::ReplaceDirResult::NeedObtain(unmodified) = replace {
+                else if let crate::replace::ReplaceNtResult::NeedObtain(unmodified) = replace {
                     let (tx, rx) = tokio::sync::oneshot::channel();
 
                     let mut args =  std::collections::HashMap::<String, String>::new();
@@ -1778,21 +1775,16 @@ pub unsafe fn nt_create_file(
 
                     if let Some(expect) = item {
                         crate::log!(trace, "nt_create_file redirect file handle path by cache expect: {}", expect);
-                        let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
-                        //let expect = format!(r"\??\{}", expect);
-                        let object_name_source_wide_char = std::ffi::OsString::from(&expect).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
                         
-                        let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
-                        if ret != windows_sys::Win32::Foundation::STATUS_SUCCESS {
-                            crate::log!(error, "rtl init unicode string failed.");
-                        }
+                        //let expect = format!(r"\??\{}", expect);
+                        let mut object_name_source_wide_char = std::ffi::OsString::from(&expect).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
 
                         let mut expect_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
-                            Length: object_name.Length,
-                            MaximumLength: object_name.MaximumLength,
-                            Buffer: object_name.Buffer,
+                            Length: object_name_source_wide_char.len().saturating_sub(1) as u16 * 2,
+                            MaximumLength: object_name_source_wide_char.len() as u16 * 2,
+                            Buffer: object_name_source_wide_char.as_mut_ptr(),
                         };
-
+            
                         (*object_attributes).ObjectName = &mut expect_obejct_name_adapter;
                         let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block,
                             allocation_size, file_attributes, share_access, create_disposition, create_options, ea_buffer, ea_length
@@ -1849,19 +1841,13 @@ pub unsafe fn nt_create_file(
                             INCLUDES_CACHE.lock().unwrap().insert(unmodified, expect.clone());
 
                             crate::log!(trace, "nt_create_file redirect file handle path by sync expect: {}", expect);
-                            let mut object_name: windows_sys::Win32::Foundation::UNICODE_STRING = std::mem::zeroed();
-                            //let expect = format!(r"\??\{}", expect);
-                            let object_name_source_wide_char = std::ffi::OsString::from(&expect).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
                             
-                            let ret = windows_sys::Wdk::Storage::FileSystem::RtlInitUnicodeStringEx(&mut object_name, object_name_source_wide_char.as_ptr());
-                            if ret != windows_sys::Win32::Foundation::STATUS_SUCCESS {
-                                crate::log!(error, "rtl init unicode string failed.");
-                            }
-
+                            //let expect = format!(r"\??\{}", expect);
+                            let mut object_name_source_wide_char = std::ffi::OsString::from(&expect).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
                             let mut expect_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
-                                Length: object_name.Length,
-                                MaximumLength: object_name.MaximumLength,
-                                Buffer: object_name.Buffer,
+                                Length: object_name_source_wide_char.len().saturating_sub(1) as u16 * 2,
+                                MaximumLength: object_name_source_wide_char.len() as u16 * 2,
+                                Buffer: object_name_source_wide_char.as_mut_ptr(),
                             };
 
                             (*object_attributes).ObjectName = &mut expect_obejct_name_adapter;

@@ -152,7 +152,7 @@ pub fn replace(path: &mut String) -> ReplaceResult {
 }
 
 #[derive(PartialEq, Debug)]
-pub enum ReplaceDirResult {
+pub enum ReplaceNtResult {
     Success,
     NoMatch,
     IncludesDir,
@@ -169,19 +169,19 @@ pub enum ReplaceType {
 }
 
 
-pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
+pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
 
     if rtype == ReplaceType::File {
         if path.contains(r"AppData\Local\Temp\") {
-            return ReplaceDirResult::NoMatch;
+            return ReplaceNtResult::NoMatch;
         }
         else if let Some(extension) = std::path::Path::new(path).extension() {
             if extension == "h" || extension == "hpp" || extension == "inl" {
                 if path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
-                    return ReplaceDirResult::FilePath;
+                    return ReplaceNtResult::FilePath;
                 }
                 else if path[4..].starts_with(crate::REPLICADIR.get().unwrap_or(&"*".to_string())) {
-                    return ReplaceDirResult::FilePath;
+                    return ReplaceNtResult::FilePath;
                 }
                 else {
                     let stempath = std::path::Path::new(&path[4..]);
@@ -189,9 +189,9 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
                     let sources = crate::SOURCES.get().unwrap();
                     if sources.contains(stempathbuf.as_os_str()) {
                         if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-                            Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::Success, |modified| {
+                            Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::Success, |modified| {
                                 *path = modified;
-                                return ReplaceDirResult::Success;
+                                return ReplaceNtResult::Success;
                             })
                         }
                         else {
@@ -202,14 +202,14 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
 
                                 let modified = format!(r"\??\{}", modified);                 
                                 *path = modified;
-                                return ReplaceDirResult::Success;
+                                return ReplaceNtResult::Success;
                             }
                             else {
                                 let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&path).to_string_lossy().to_string();
                                 let modified = format!(r"\??\{}", modified);
                                 let unmodified = path.to_string();
                                 *path = modified;
-                                return ReplaceDirResult::NeedObtain(unmodified);
+                                return ReplaceNtResult::NeedObtain(unmodified);
                             }
                         }
                     }
@@ -218,10 +218,10 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
                         //TODO: if a .h file in sources dir, but name is source file name, should not obtain again.
                         
                         if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-                            Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::Success, |modified| {
+                            Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::Success, |modified| {
                                 let unmodified = path.to_string();
                                 *path = modified;
-                                return ReplaceDirResult::NeedObtain(unmodified);
+                                return ReplaceNtResult::NeedObtain(unmodified);
                             })
                         }
                         else {
@@ -233,14 +233,14 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
                                 let modified = format!(r"\??\{}", modified);
                                 let unmodified = path.to_string();
                                 *path = modified;
-                                return ReplaceDirResult::NeedObtain(unmodified);
+                                return ReplaceNtResult::NeedObtain(unmodified);
                             }
                             else {
                                 let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&path).to_string_lossy().to_string();
                                 let modified = format!(r"\??\{}", modified);
                                 let unmodified = path.to_string();
                                 *path = modified;
-                                return ReplaceDirResult::NeedObtain(unmodified);
+                                return ReplaceNtResult::NeedObtain(unmodified);
                             }
                         }
                     }
@@ -248,14 +248,14 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
             }
             else if extension == "cpp" {
                 if path[4..].starts_with(crate::REPLICADIR.get().unwrap_or(&"*".to_string())) {
-                    return ReplaceDirResult::FilePath;
+                    return ReplaceNtResult::FilePath;
                 }
                 else if path.contains("moc_") || path.contains("mocs_") || path.contains("qrc_") {
                     if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-                        Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::Success, |modified| {
+                        Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::Success, |modified| {
                                 let unmodified = path.to_string();
                                 *path = modified;        
-                                return ReplaceDirResult::NeedObtain(unmodified);
+                                return ReplaceNtResult::NeedObtain(unmodified);
                         })
                     }
                     else {
@@ -264,24 +264,24 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
                             let modified = format!(r"\??\{}", modified);
                             let unmodified = path.to_string();
                             *path = modified;
-                            return ReplaceDirResult::NeedObtain(unmodified);
+                            return ReplaceNtResult::NeedObtain(unmodified);
                         }
                         else {
-                            return ReplaceDirResult::FilePath;
+                            return ReplaceNtResult::FilePath;
                         }
                     }
                 }
                 else {
-                    return ReplaceDirResult::FilePath;
+                    return ReplaceNtResult::FilePath;
                 }
             }
             else {
-                return ReplaceDirResult::FilePath;
+                return ReplaceNtResult::FilePath;
             }
         }
         else {
             if path[4..].starts_with(crate::REPLICADIR.get().unwrap_or(&"*".to_string())) {
-                return ReplaceDirResult::FilePath;
+                return ReplaceNtResult::FilePath;
             }
             else {
                 let index = path.find(":\\");
@@ -292,31 +292,30 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
                     let modified = format!(r"\??\{}", modified);
                     let unmodified = path.to_string();
                     *path = modified;
-                    return ReplaceDirResult::NeedObtain(unmodified);
+                    return ReplaceNtResult::NeedObtain(unmodified);
                 }
                 else {
                     let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&path).to_string_lossy().to_string();
                     let modified = format!(r"\??\{}", modified);
                     let unmodified = path.to_string();
                     *path = modified;
-                    return ReplaceDirResult::NeedObtain(unmodified);
+                    return ReplaceNtResult::NeedObtain(unmodified);
                 }
             }
         }
     }
     else if rtype == ReplaceType::Dir {
         if path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
-            return ReplaceDirResult::NoMatch;
+            return ReplaceNtResult::NoMatch;
         }
         else if crate::SOLUTIONNAME.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
 
             let target = std::path::PathBuf::from(&path[4..path.len() - 1]);
-            //TODO: startwith can replace equal?
             if crate::INCLUDES.get().unwrap().iter().any(|item| item == &target || target.starts_with(item)) {
-                return Model::fetch_local_replica_project_path(&path).map_or(ReplaceDirResult::VirtualIncludesDir(path.to_string()), |modified| {
+                return Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::VirtualIncludesDir(path.to_string()), |modified| {
                     let unmodified = path.to_string();
                     *path = modified;
-                    ReplaceDirResult::VirtualIncludesDir(unmodified)
+                    ReplaceNtResult::VirtualIncludesDir(unmodified)
                 });
             }
             else {
@@ -330,11 +329,11 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
                         else {
                             *path = modified;
                         }
-                        return ReplaceDirResult::Success;
+                        return ReplaceNtResult::Success;
                     } 
                     else {
                         crate::log!(warn, "replace sources dir is not ready, original: {}", path);
-                        return ReplaceDirResult::NoMatch;
+                        return ReplaceNtResult::NoMatch;
                     }
                 } 
                 else {
@@ -346,7 +345,7 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
                     else {
                         *path = modified;
                     }
-                    return ReplaceDirResult::Success;
+                    return ReplaceNtResult::Success;
                 }
             }
         }
@@ -362,18 +361,18 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceDirResult {
                     let modified = format!(r"\??\{}", modified);
                     
                     *path = modified;
-                    return ReplaceDirResult::VirtualIncludesDir(unmodified);
+                    return ReplaceNtResult::VirtualIncludesDir(unmodified);
                 }
                 else {
                     crate::log!(warn, "replace extern dir is not ready, original: {}", path);
-                    return ReplaceDirResult::NoMatch;
+                    return ReplaceNtResult::NoMatch;
                 } 
             }
-            return ReplaceDirResult::NoMatch;
+            return ReplaceNtResult::NoMatch;
         }
     }
     else {
-        return ReplaceDirResult::NoMatch;
+        return ReplaceNtResult::NoMatch;
     }
 }
 

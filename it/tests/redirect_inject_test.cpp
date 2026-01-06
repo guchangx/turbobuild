@@ -34,6 +34,8 @@ typedef struct _FILE_DIRECTORY_INFORMATION {
 } FILE_DIRECTORY_INFORMATION, * PFILE_DIRECTORY_INFORMATION;
 
 int wmain(int argc, wchar_t** argv) {
+    std::cout << "redirect_inject_test.exe running..." << std::endl;
+
     if (argc < 2) return -1;
     
     const wchar_t* dirPath = argv[1];
