@@ -242,7 +242,7 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
                     }
                 }
             }
-            else if extension == "cpp" {
+            else if extension == "cpp" || extension == "cxx" || extension == "cc" || extension == "c" || extension == "c++" {
                 if path[4..].starts_with(crate::REPLICADIR.get().unwrap_or(&"*".to_string())) {
                     return ReplaceNtResult::FilePath;
                 }
