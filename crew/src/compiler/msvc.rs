@@ -480,33 +480,6 @@ impl MSVC {
             }
         }
     }
-
-    //Discarded function
-    async fn _request_dist_compile_from_file(&self, precompiled_result: &PrecompiledResult, addr: &str, source_files: Vec<String>, compiler_input: &CompilerInput)
-        -> CompilerOutput {
-        let now = std::time::Instant::now();
-
-        let precompiled_files = self.load_and_transmit_precompiled_result(&source_files, &addr, &compiler_input.project, &precompiled_result).await;
-        let len = precompiled_files.len();
-        log::debug!("request dist sync precompiled source file. count: {:?}, addr: {}, elapsed time {:?}", len, addr, now.elapsed());
-        let mut commands = compiler_input.compiler_commands.clone();
-        for file in precompiled_files {
-            commands.push(file);
-        }
-        
-        let mut input = CompilerInput::from(compiler_input.clone());
-        input.compiler_commands =  commands.to_owned();
-        input.build_and_compiler_type = std::ffi::OsString::from("msbuild_precompile");
-
-        let precompiled_suorce = crate::compiler::model::PrecompiledSource {
-            contents: None,
-            path: std::ffi::OsString::new(),
-        };
-
-        let output = self.request_dist_compile(&addr, &input, &precompiled_suorce).await;
-        log::debug!("request dist compile with precompiled source files. count: {:?}, addr: {:?}, elapsed time {:?}", len, addr, now.elapsed());
-        return output;
-    }
     
     async fn request_dist_compile_with_command(&self, addr: &str, compiler_input: CompilerInput, requires: &crate::compiler::model::PrecompiledSource)
         -> CompilerOutput {
@@ -753,35 +726,18 @@ impl MSVC {
 
     async fn request_dist_compile_with_source_and_include(&self, input: &CompilerInput) -> CompilerOutput {
         log::debug!("request dist compile with source and include file.");
-    
-        let (mut sources, others): (Vec<std::ffi::OsString>, Vec<std::ffi::OsString>) =
-        input.compiler_commands.clone().into_iter().partition(|item| {
-            let item = item.to_string_lossy().to_lowercase();
-            item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cxx") || item.ends_with(".cc")
-        });
 
         let mut set = tokio::task::JoinSet::new();
         let len = self.sender.lock().unwrap().all().len();
 
-        let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &others, &input.compiler_working_dir);         
-        let mut intermediate = std::path::PathBuf::from(&input.compiler_working_dir);
-        match &actions.precompiled_result_file {
-            PrecompiledResult::PathWithPCResultName(path) => {
-                intermediate = path.parent().unwrap().to_owned();
-            },
-            PrecompiledResult::PathWithoutPCResultName(path) => {
-                intermediate = path.to_owned();
+        let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &input.compiler_commands, &input.compiler_working_dir);
 
-            },
-            PrecompiledResult::PCResultNameWithoutPath(_path) => {
+        let others = actions.compile_instruction;
 
-            }
-            _ => {},
-        }
-
+        let mut sources = Vec::new();
         let mut sources_dir = std::collections::HashSet::new();
-        for item in &sources {
-            let path = std::path::PathBuf::from(&item);
+        for (_, path) in &actions.compile_source_file {
+            sources.push(path.clone().into_os_string());
             path.parent().map(|parent| {
                 sources_dir.insert(parent.to_owned());
             });
@@ -819,7 +775,6 @@ impl MSVC {
 
                 let input_ = input.clone();
 
-                let intermediate_ = intermediate.clone();
                 let mut others_ = others.clone();
 
                 let header_files = header_files.clone();
@@ -938,6 +893,7 @@ impl MSVC {
                                 else {
                                     *item = std::ffi::OsString::from(format!("{}/v143_tb_{}.pdb", item.to_string_lossy(), index));
                                 }
+                                log::debug!("modify pdb path for tb  {:?}", item);
                             }
                         }
                     }
@@ -946,7 +902,7 @@ impl MSVC {
                     input.compiler_commands = others_;
                     input.compiler_commands.append(&mut left.iter().map(|item| item.clone()).collect());
                     
-                    let output = self_.request_dist_compile_with_command(&addr, input, &requires).await;
+                    let output = self_.request_dist_compile(&addr, &input, &requires).await;
                     return (addr, output);
                 });
             }
@@ -1013,6 +969,7 @@ impl MSVC {
                                         else {
                                             *item = std::ffi::OsString::from(format!("{}/v143_tb_{}.pdb", item.to_string_lossy(), index));
                                         }
+                                        log::debug!("modify pdb path for tb  {:?}", item);
                                     }
                                 }
                             }
@@ -1021,7 +978,7 @@ impl MSVC {
                             input.compiler_commands = others_;
                             input.compiler_commands.append(&mut left.iter().map(|item| item.clone()).collect());
 
-                            let output = self_.request_dist_compile_with_command(&addr_, input_.clone(), &requires).await;
+                            let output = self_.request_dist_compile(&addr_, &input, &requires).await;
                             
                             return (addr_, output);
                         });
@@ -2130,7 +2087,10 @@ fn filter_compiler_warning_and_error(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>)
 struct CompileAction {
     pub precompile_2_stdout: bool,
     pub compile_source_file: std::collections::HashMap<std::string::String, std::path::PathBuf>,
+    pub compile_instruction: Vec<std::ffi::OsString>,
     pub precompiled_result_file: PrecompiledResult,
+    pub object_file: GeneratedObject,
+    pub pdb_file: ProgramDataBase,
 }
 
 fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> CompileAction {
@@ -2143,11 +2103,14 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
     let mut object_file = GeneratedObject::NoneObjPath;
     let mut pdb_file = ProgramDataBase::NonePDBPath;
 
+    let mut compile_other_commands: Vec<std::ffi::OsString> = Vec::new();
+
     if build_and_compiler_type.to_string_lossy().contains("msbuild")
         || build_and_compiler_type.to_string_lossy().contains("cmake")
         || build_and_compiler_type.to_string_lossy().contains("dist") {
 
         for command in compiler_commands {
+            let mut isfile = false;
             let mut command = command.to_string_lossy();
             if command == "/P" {
                 precompile_2_stdout = false;
@@ -2156,6 +2119,8 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
                 precompile_2_stdout = true;
             }
             else if command.to_lowercase().ends_with(".cpp") || command.to_lowercase().ends_with(".c") || command.to_lowercase().ends_with(".cc") {
+
+                isfile = true;
                 let source = command.replace(r#"""#, "");
                 let mut index = source.rfind(r"\");
                 if index.is_none() {
@@ -2181,10 +2146,10 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
                 }
             }
             else if command.starts_with("/Fd") {
-                (pdb_file, _) = exact_compile_pdb_file(command, &working_dir);
+                (pdb_file, _) = exact_compile_pdb_file(command.clone(), &working_dir);
             }
             else if command.starts_with("/Fo") {
-                object_file = exact_compile_object_file(command, &working_dir);
+                object_file = exact_compile_object_file(command.clone(), &working_dir);
             }
             else if command.starts_with("/Fi") {
 
@@ -2211,17 +2176,21 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
                     }
                 }
             }
+
+            if !isfile {
+                compile_other_commands.push(std::ffi::OsString::from(command.into_owned()));
+            }
         }
 
         match precompiled_result_file {
             PrecompiledResult::NonePCResultPath => {
                 match object_file {
-                    GeneratedObject::PathWithObjName(mut path) => {
+                    GeneratedObject::PathWithObjName(ref mut path) => {
                         path.set_extension("i");
-                        precompiled_result_file = PrecompiledResult::PathWithPCResultName(path);
+                        precompiled_result_file = PrecompiledResult::PathWithPCResultName(path.clone());
                     },
-                    GeneratedObject::PathWithoutObjName(path) => {
-                        precompiled_result_file = PrecompiledResult::PathWithoutPCResultName(path);
+                    GeneratedObject::PathWithoutObjName(ref path) => {
+                        precompiled_result_file = PrecompiledResult::PathWithoutPCResultName(path.clone());
                     },
                     _ => {}
                 }
@@ -2233,7 +2202,10 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
     return CompileAction {
         precompile_2_stdout,
         compile_source_file: sourcefile,
+        compile_instruction: compile_other_commands,
         precompiled_result_file: precompiled_result_file,
+        object_file: object_file,
+        pdb_file: pdb_file,
     }
 
 }
@@ -2358,6 +2330,7 @@ fn fetch_compile_object_file(build_and_compiler_type: &std::ffi::OsString, compi
     return GeneratedObject::NoneObjPath;
 }
 
+#[derive(Debug)]
 enum ProgramDataBase {
     NonePDBPath,
     PathWithPDBName(std::path::PathBuf),

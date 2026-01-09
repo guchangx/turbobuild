@@ -1677,6 +1677,7 @@ pub unsafe fn nt_create_file(
                     }
                     else {
                         if nt_status == win::Foundation::STATUS_OBJECT_NAME_NOT_FOUND {
+                            crate::log!(error, "zw_create_file failed! object name not found path: {}", name);
 
                         }
                         else {
