@@ -149,48 +149,37 @@ static PROCESS_ID: std::sync::LazyLock<u32> = std::sync::LazyLock::new(|| {
 
 fn read_project_property_from_stdin() {
     log!(trace, "read_project_property_from_stdin started.");
-    let runtime = RUNTIME.lock().unwrap();
-    runtime.spawn(async move {
-        use tokio::io::{AsyncBufReadExt, BufReader};
-        use tokio::time::{timeout, Duration};
+    
+    use std::io::{BufRead, BufReader};
+    
+    let stdin = std::io::stdin();
+    let reader = BufReader::new(stdin.lock());
 
-        let stdin = tokio::io::stdin();
-        let reader = BufReader::new(stdin);
-        let mut lines = reader.lines();
-
-        loop {
-            match timeout(Duration::from_millis(100), lines.next_line()).await {
-                Ok(Ok(Some(line))) => {
-                    log!(trace, "read stdin pipe to string: {:?}", line);
-                    let arg = line;
-                    if arg.starts_with("solution") {
-                        let (_, sln) = arg.split_at("solution".len() + 1);
-                        SOLUTIONNAME.set(String::from(&sln[0..sln.len()])).unwrap();
-                    }
-                    else if arg.starts_with("project") {
-                        let (_, proj) = arg.split_at("project".len() + 1);
-                        PROJECTNAME.set(String::from(&proj[0..proj.len()])).unwrap();
-                    }
-                    else if arg.starts_with("replica") {
-                        let (_, dir) = arg.split_at("replica".len() + 1);
-                        REPLICADIR.set(String::from(&dir[0..dir.len()])).unwrap();
-                    }
+    for line in reader.lines().take(6) {
+        match line {
+            Ok(line) if line.is_empty() => break,
+            Ok(line) => {
+                log!(trace, "read stdin: {:?}", line);
+                if line.starts_with("solution:") {
+                    let sln = &line["solution:".len()..].trim();
+                    let _ = SOLUTIONNAME.set(sln.to_string());
                 }
-                Ok(Ok(None)) => {
-                    // EOF
-                    break;
+                else if line.starts_with("project:") {
+                    let proj = &line["project:".len()..].trim();
+                    let _ = PROJECTNAME.set(proj.to_string());
                 }
-                Ok(Err(e)) => {
-                    log!(error, "Error reading line: {:?}", e);
-                    break;
-                }
-                Err(_) => {
-                    // Timeout, no input
-                    break;
+                else if line.starts_with("replica:") {
+                    let dir = &line["replica:".len()..].trim();
+                    let _ = REPLICADIR.set(dir.to_string());
                 }
             }
+            Err(e) => {
+                log!(error, "Error reading stdin: {:?}", e);
+                break;
+            }
         }
-    });
+    }
+    
     log!(trace, "read_project_property_from_stdin completed.");
 }
 
@@ -390,14 +379,12 @@ unsafe extern "system" fn DllMain(
             
             win::System::LibraryLoader::DisableThreadLibraryCalls(hinst);
 
-            fetch_module_path(hinst);
-            read_project_property_from_stdin();
+            fetch_module_path(hinst); // 1ms
+            read_project_property_from_stdin(); // 100ns 
 
-            fetch_args_from_command(); 
-
-            crate::logger::redirect_stdout_log_2_cocrew();
-            
-            crate::syscallredirect::async_connect_syscall_namedpipe();
+            fetch_args_from_command(); // 300ns
+            crate::logger::redirect_stdout_log_2_cocrew(); // 600ns
+            crate::syscallredirect::async_connect_syscall_namedpipe(); // 40ns
             
             let ret = crate::detours::DetourRestoreAfterWith();
             if ret == win::Foundation::FALSE {

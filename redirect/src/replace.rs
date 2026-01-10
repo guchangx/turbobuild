@@ -268,11 +268,25 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
                     }
                 }
                 else {
-                    if path.contains(crate::SOLUTIONNAME.get().unwrap()) {  
-                        Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::Success, |modified| {
-                            *path = modified;
-                            return ReplaceNtResult::Success;
-                        })
+                    if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
+                        let has = crate::SOURCES.get().unwrap().iter().find(|&item| {
+                            path[4..].starts_with(item.to_str().unwrap())
+                        });
+
+                        if has.is_some() {
+                            Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::Success, |modified| {
+                                *path = modified;
+                                return ReplaceNtResult::Success;
+                            })
+                        }
+                        else {
+                            crate::log!(warn, "source file not in sources dir, need obtain: {}", path);
+                            Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::Success, |modified| {
+                                let unmodified = path.to_string();
+                                *path = modified;
+                                return ReplaceNtResult::NeedObtain(unmodified);
+                            })
+                        }
                     }
                     else {
                         let index = path.find(":\\");
