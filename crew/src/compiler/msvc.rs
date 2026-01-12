@@ -743,7 +743,7 @@ impl MSVC {
             });
         }
 
-        let mut header_files = std::collections::HashSet::new();
+        let mut headers = std::collections::HashSet::new();
         for dir in sources_dir {
             if let Ok(entries) = std::fs::read_dir(dir) {
                 for entry in entries {
@@ -751,14 +751,14 @@ impl MSVC {
                         let path = entry.path();
                         if path.is_file() && path.extension().map(|ext| ext == "h" || ext == "hpp" 
                                 || ext == "hh" || ext == "hxx" || ext == "h++" || ext == "inl").unwrap_or(false) {
-                            header_files.insert(path);
+                            headers.insert(path);
                         }
                     }
                 }
             }
         }
         
-        let header_files = std::sync::Arc::new(tokio::sync::Mutex::new(header_files));
+        let headers = std::sync::Arc::new(tokio::sync::Mutex::new(headers));
 
         for _ in 0..len {
             let mut addr = String::new();
@@ -777,78 +777,92 @@ impl MSVC {
 
                 let mut others_ = others.clone();
 
-                let header_files = header_files.clone();
+                let headers = headers.clone();
                 set.spawn(async move {
                     
                     let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self_.runtime).await;
 
                     //sync source files and same name header files.
                     if let Some(stream) = stream {
-                        let solution_ = solution.clone();
-                        let project_ = project.clone();
 
-                        for file in &left {
+                        let mut archive_stream_task = Vec::new();
 
-                            let path = std::path::PathBuf::from(&file);
-                            let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
-                                log::error!("failed to read file: {:?}", file);
-                                Vec::new()
+                        for file in left.clone() {
+                            let solution_ = solution.clone();
+                            let project_ = project.clone();
+
+                            let stream_ = stream.clone();
+                            let stream__ = stream.clone();
+                            let headers = headers.clone();
+
+                            let file_ = file.clone();
+                            let stask = self_.runtime.spawn(async move {
+                                let path = std::path::PathBuf::from(&file);
+                                let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
+                                    log::error!("failed to read file: {:?}", file);
+                                    Vec::new()
+                                });
+
+                                let name = path.file_name().unwrap().to_string_lossy().to_string();
+
+                                let archive = crate::communicate::package::ArchiveArgs {
+                                    file_type:  crate::communicate::package::FileType::SourceFiles,
+                                    solution: solution_.clone(),
+                                    project: project_.clone(),
+                                    name: name.clone(),
+                                    //path: intermediate_.join(&name).to_string_lossy().to_string(),
+                                    path: path.to_string_lossy().to_string(),
+                                    content: content.into(),
+                                };
+
+                                let _ = stream_.send(archive).await;
                             });
+                            archive_stream_task.push(stask);
 
-                            let name = path.file_name().unwrap().to_string_lossy().to_string();
-
-                            let archive = crate::communicate::package::ArchiveArgs {
-                                file_type:  crate::communicate::package::FileType::SourceFiles,
-                                solution: solution_.clone(),
-                                project: project_.clone(),
-                                name: name.clone(),
-                                //path: intermediate_.join(&name).to_string_lossy().to_string(),
-                                path: path.to_string_lossy().to_string(),
-                                content: content.into(),
-                            };
-
-                            let _ = stream.send(archive).await;
-
-                            //.inc;.rc;.resx;.idl;.rc2;.def
-                            //.odl;.asm;.asmx;.xsd;.bin;.rgs;.html;.htm;.manifest
-                            //.cpp;.cxx;.cc;.c;.c++;.cppm;.ixx;.inl;.ipp
-                            //.h;.hh;.hpp;.hxx;.h++;.hm
-                            let header_file = {
-                                let guard = header_files.lock().await;
-                                if let Some(found) = guard.iter().find(|&item| item.file_stem().map(|item| item == path.file_stem().unwrap()).unwrap_or(false)) {
-                                    Some(found.to_owned())
+                            let solution__ = solution.clone();
+                            let project__ = project.clone();
+                            let htask = self_.runtime.spawn(async move {
+                                //.inc;.rc;.resx;.idl;.rc2;.def
+                                //.odl;.asm;.asmx;.xsd;.bin;.rgs;.html;.htm;.manifest
+                                //.cpp;.cxx;.cc;.c;.c++;.cppm;.ixx;.inl;.ipp
+                                //.h;.hh;.hpp;.hxx;.h++;.hm
+                                let path = std::path::PathBuf::from(&file_);
+                                let header_file = {
+                                    let guard = headers.lock().await;
+                                    if let Some(found) = guard.iter().find(|&item| item.file_stem().map(|item| item == path.file_stem().unwrap()).unwrap_or(false)) {
+                                        Some(found.to_owned())
+                                    }
+                                    else {
+                                        None
+                                    }
+                                };
+    
+                                if let Some(found) = header_file {
+                                    { headers.lock().await.remove(&found) };
+                                    if found.exists() {
+                                        let content = tokio::fs::read(&found).await.unwrap_or_else(|_| {
+                                            log::error!("failed to read file: {:?}", found);
+                                            Vec::new()
+                                        });
+    
+                                        let name = found.file_name().unwrap().to_string_lossy().to_string();
+    
+                                        let archive = crate::communicate::package::ArchiveArgs {
+                                            file_type: crate::communicate::package::FileType::SourceFiles,
+                                            solution: solution__.clone(),
+                                            project: project__.clone(),
+                                            name: name.clone(),
+                                            //path: intermediate_.join(name).to_string_lossy().to_string(),
+                                            path: found.to_string_lossy().to_string(),
+                                            content: content.into(),
+                                        };
+    
+                                        let _ = stream__.send(archive).await;
+                                    }
                                 }
-                                else {
-                                    None
-                                }
-                            };
-
-                            if let Some(found) = header_file {
-                                { header_files.lock().await.remove(&found) };
-                                if found.exists() {
-                                    let content = tokio::fs::read(&found).await.unwrap_or_else(|_| {
-                                        log::error!("failed to read file: {:?}", found);
-                                        Vec::new()
-                                    });
-
-                                    let name = found.file_name().unwrap().to_string_lossy().to_string();
-
-                                    let archive = crate::communicate::package::ArchiveArgs {
-                                        file_type:  crate::communicate::package::FileType::SourceFiles,
-                                        solution: solution_.clone(),
-                                        project: project_.clone(),
-                                        name: name.clone(),
-                                        //path: intermediate_.join(name).to_string_lossy().to_string(),
-                                        path: found.to_string_lossy().to_string(),
-                                        content: content.into(),
-                                    };
-
-                                    let _ = stream.send(archive).await;
-                                }
-                            }
+                            });
+                            archive_stream_task.push(htask);
                         }
-
-                        log::info!("sync other dep files and header files {:?}", { header_files.lock().await });
 
                         //cancel initiative sync other dep files and header files.
                         /*
@@ -875,6 +889,9 @@ impl MSVC {
                             }                        
                         */
 
+                        for task in archive_stream_task {
+                            let _ = task.await; 
+                        }
                     }
 
                     notify.notified().await;
@@ -929,27 +946,38 @@ impl MSVC {
                         let input_ = input.clone();
                         let mut others_ = others.clone();
                         set.spawn(async move {
-                            
                             let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr_, &self_.runtime).await;
                             
                             if let Some(stream) = stream {
-                                for file in &left {
+                                let mut archive_stream_task = Vec::new();
 
-                                    let content = tokio::fs::read(std::path::PathBuf::from(&file)).await.unwrap_or_else(|_| {
-                                        log::error!("failed to read file: {:?}", file);
-                                        Vec::new()
+                                for file in left.clone() {
+                                    let solution = input_.solution.clone();
+                                    let project = input_.project.clone();
+                                    let stream = stream.clone();
+
+                                    let task = self_.runtime.spawn(async move {
+                                        let content = tokio::fs::read(std::path::PathBuf::from(&file)).await.unwrap_or_else(|_| {
+                                            log::error!("failed to read file: {:?}", file);
+                                            Vec::new()
+                                        });
+    
+                                        let archive = crate::communicate::package::ArchiveArgs {
+                                            file_type: crate::communicate::package::FileType::SourceFiles,
+                                            solution: solution.to_string_lossy().to_string(),
+                                            project: project.to_string_lossy().to_string(),
+                                            name: file.to_string_lossy().to_string(),
+                                            path: file.to_string_lossy().to_string(),
+                                            content: content.into(),
+                                        };
+    
+                                        let _ = stream.send(archive).await;
                                     });
 
-                                    let archive = crate::communicate::package::ArchiveArgs {
-                                        file_type:  crate::communicate::package::FileType::SourceFiles,
-                                        solution: input_.solution.to_string_lossy().to_string(),
-                                        project: input_.project.to_string_lossy().to_string(),
-                                        name: file.to_string_lossy().to_string(),
-                                        path: file.to_string_lossy().to_string(),
-                                        content: content.into(),
-                                    };
-
-                                    let _ = stream.send(archive).await;
+                                    archive_stream_task.push(task);
+                                }
+                                for task in archive_stream_task {
+                                    let _ = task.await; 
                                 }
                             }
 

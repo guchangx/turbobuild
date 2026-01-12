@@ -437,7 +437,7 @@ impl Receiver {
             }
         }
 
-        log::info!("transmit storage file done. elapsed: {:?}", now.elapsed());
+        log::info!("transmit storage file done. elapsed: {} ms", now.elapsed().as_millis());
         return Ok(());   
     }
 
