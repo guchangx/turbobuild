@@ -79,7 +79,7 @@ pub struct Params {
     pub value: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RemoteRedirect {
+pub struct RemoteSyscall {
     #[prost(uint32, tag = "1")]
     pub cid: u32,
     #[prost(string, tag = "2")]
@@ -88,7 +88,7 @@ pub struct RemoteRedirect {
     pub params: ::prost::alloc::vec::Vec<Params>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct LocalRedirect {
+pub struct LocalSyscall {
     #[prost(uint32, tag = "1")]
     pub cid: u32,
     #[prost(string, tag = "2")]
@@ -213,17 +213,17 @@ pub mod communicate_server {
             tonic::Response<Self::transmit_taskStream>,
             tonic::Status,
         >;
-        /// Server streaming response type for the transmit_redirect method.
-        type transmit_redirectStream: tonic::codegen::tokio_stream::Stream<
-                Item = std::result::Result<super::RemoteRedirect, tonic::Status>,
+        /// Server streaming response type for the transmit_syscall method.
+        type transmit_syscallStream: tonic::codegen::tokio_stream::Stream<
+                Item = std::result::Result<super::RemoteSyscall, tonic::Status>,
             >
             + std::marker::Send
             + 'static;
-        async fn transmit_redirect(
+        async fn transmit_syscall(
             &self,
-            request: tonic::Request<tonic::Streaming<super::LocalRedirect>>,
+            request: tonic::Request<tonic::Streaming<super::LocalSyscall>>,
         ) -> std::result::Result<
-            tonic::Response<Self::transmit_redirectStream>,
+            tonic::Response<Self::transmit_syscallStream>,
             tonic::Status,
         >;
     }
@@ -397,15 +397,15 @@ pub mod communicate_server {
                     };
                     Box::pin(fut)
                 }
-                "/pack.communicate/transmit_redirect" => {
+                "/pack.communicate/transmit_syscall" => {
                     #[allow(non_camel_case_types)]
-                    struct transmit_redirectSvc<T: Communicate>(pub Arc<T>);
+                    struct transmit_syscallSvc<T: Communicate>(pub Arc<T>);
                     impl<
                         T: Communicate,
-                    > tonic::server::StreamingService<super::LocalRedirect>
-                    for transmit_redirectSvc<T> {
-                        type Response = super::RemoteRedirect;
-                        type ResponseStream = T::transmit_redirectStream;
+                    > tonic::server::StreamingService<super::LocalSyscall>
+                    for transmit_syscallSvc<T> {
+                        type Response = super::RemoteSyscall;
+                        type ResponseStream = T::transmit_syscallStream;
                         type Future = BoxFuture<
                             tonic::Response<Self::ResponseStream>,
                             tonic::Status,
@@ -413,12 +413,12 @@ pub mod communicate_server {
                         fn call(
                             &mut self,
                             request: tonic::Request<
-                                tonic::Streaming<super::LocalRedirect>,
+                                tonic::Streaming<super::LocalSyscall>,
                             >,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as Communicate>::transmit_redirect(&inner, request).await
+                                <T as Communicate>::transmit_syscall(&inner, request).await
                             };
                             Box::pin(fut)
                         }
@@ -429,7 +429,7 @@ pub mod communicate_server {
                     let max_encoding_message_size = self.max_encoding_message_size;
                     let inner = self.inner.clone();
                     let fut = async move {
-                        let method = transmit_redirectSvc(inner);
+                        let method = transmit_syscallSvc(inner);
                         let codec = tonic_prost::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

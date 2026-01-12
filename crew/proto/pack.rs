@@ -79,7 +79,7 @@ pub struct Params {
     pub value: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct RemoteRedirect {
+pub struct RemoteSyscall {
     #[prost(uint32, tag = "1")]
     pub cid: u32,
     #[prost(string, tag = "2")]
@@ -88,7 +88,7 @@ pub struct RemoteRedirect {
     pub params: ::prost::alloc::vec::Vec<Params>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct LocalRedirect {
+pub struct LocalSyscall {
     #[prost(uint32, tag = "1")]
     pub cid: u32,
     #[prost(string, tag = "2")]
@@ -313,11 +313,11 @@ pub mod communicate_client {
                 .insert(GrpcMethod::new("pack.communicate", "transmit_task"));
             self.inner.server_streaming(req, path, codec).await
         }
-        pub async fn transmit_redirect(
+        pub async fn transmit_syscall(
             &mut self,
-            request: impl tonic::IntoStreamingRequest<Message = super::LocalRedirect>,
+            request: impl tonic::IntoStreamingRequest<Message = super::LocalSyscall>,
         ) -> std::result::Result<
-            tonic::Response<tonic::codec::Streaming<super::RemoteRedirect>>,
+            tonic::Response<tonic::codec::Streaming<super::RemoteSyscall>>,
             tonic::Status,
         > {
             self.inner
@@ -330,11 +330,11 @@ pub mod communicate_client {
                 })?;
             let codec = tonic_prost::ProstCodec::default();
             let path = http::uri::PathAndQuery::from_static(
-                "/pack.communicate/transmit_redirect",
+                "/pack.communicate/transmit_syscall",
             );
             let mut req = request.into_streaming_request();
             req.extensions_mut()
-                .insert(GrpcMethod::new("pack.communicate", "transmit_redirect"));
+                .insert(GrpcMethod::new("pack.communicate", "transmit_syscall"));
             self.inner.streaming(req, path, codec).await
         }
     }

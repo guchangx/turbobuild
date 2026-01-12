@@ -224,7 +224,7 @@ impl Receiver {
         }
     }
 
-    async fn transmit_redirect_handle(&self, request: tonic::Request<tonic::Streaming<package::LocalRedirect>>, tx: tokio::sync::mpsc::Sender<Result<package::RemoteRedirect, tonic::Status>>) {
+    async fn transmit_syscall_handle(&self, request: tonic::Request<tonic::Streaming<package::LocalSyscall>>, tx: tokio::sync::mpsc::Sender<Result<package::RemoteSyscall, tonic::Status>>) {
         
         use tokio_stream::StreamExt;
         let self_= self.clone();
@@ -370,7 +370,7 @@ impl Receiver {
                         }
                     }
 
-                    let reply = package::RemoteRedirect {
+                    let reply = package::RemoteSyscall {
                         cid: syscall.cid,
                         api: syscall.api.clone(), 
                         params: syscall.args.iter().map(|(k, v)| package::Params { key: k.clone(), value: v.clone() }).collect(),
@@ -710,7 +710,7 @@ impl Receiver {
 type ResponseTaskStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::CompileTrResponse, tonic::Status>> + Send>>;
 type ResponseFileStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::FileTrResponse, tonic::Status>> + Send>>;
 
-type RemoteRedirectStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::RemoteRedirect, tonic::Status>> + Send>>;
+type RemoteRedirectStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::RemoteSyscall, tonic::Status>> + Send>>;
 
 #[tonic::async_trait]
 impl package::communicate_server::Communicate for Receiver {
@@ -746,8 +746,8 @@ impl package::communicate_server::Communicate for Receiver {
         return Ok(tonic::Response::new(Box::pin(response) as ResponseTaskStream));
     }
 
-    type transmit_redirectStream = RemoteRedirectStream;
-    async fn transmit_redirect(&self, request: tonic::Request<tonic::Streaming<package::LocalRedirect>>) -> core::result::Result<tonic::Response<Self::transmit_redirectStream>, tonic::Status> {
+    type transmit_syscallStream = RemoteRedirectStream;
+    async fn transmit_syscall(&self, request: tonic::Request<tonic::Streaming<package::LocalSyscall>>) -> core::result::Result<tonic::Response<Self::transmit_syscallStream>, tonic::Status> {
         log::debug!("sync request transmit redirect: {:?}", request.remote_addr());
 
         let exist = { NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_rx.lock().await.is_some() };
@@ -756,7 +756,7 @@ impl package::communicate_server::Communicate for Receiver {
             let (tx, rx) = tokio::sync::mpsc::channel(256);
         
             let self_ = self.clone();
-            self_.transmit_redirect_handle(request, tx).await;
+            self_.transmit_syscall_handle(request, tx).await;
 
             let response = tokio_stream::wrappers::ReceiverStream::new(rx);
             return Ok(tonic::Response::new(Box::pin(response) as RemoteRedirectStream));

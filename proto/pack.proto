@@ -70,13 +70,13 @@ message Params {
     string value = 2;
 }
 
-message RemoteRedirect {
+message RemoteSyscall {
     uint32 cid = 1;
     string api = 2;
     repeated Params params = 3;
 }
 
-message LocalRedirect {
+message LocalSyscall {
     uint32 cid = 1;
     string api = 2;
     repeated Params params = 3;
@@ -86,5 +86,5 @@ message LocalRedirect {
 service communicate {
     rpc transmit_file(stream FileTrRequest) returns (stream FileTrResponse) {}
     rpc transmit_task(CompileTrRequest) returns (stream CompileTrResponse) {}
-    rpc transmit_redirect(stream LocalRedirect) returns (stream RemoteRedirect) {}
+    rpc transmit_syscall(stream LocalSyscall) returns (stream RemoteSyscall) {}
 }

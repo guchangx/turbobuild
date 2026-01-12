@@ -469,7 +469,7 @@ impl Sender {
         let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
         log::debug!("transmit redirect net start addr: {}.", self.host);
 
-        match self.to_owned().client.transmit_redirect(request_stream).await {
+        match self.to_owned().client.transmit_syscall(request_stream).await {
             Ok(response) => {
                 
                 let host = self.host.clone();
