@@ -176,7 +176,7 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
             return ReplaceNtResult::NoMatch;
         }
         else if let Some(extension) = std::path::Path::new(path).extension() {
-            if extension == "h" || extension == "hpp" || extension == "inl" {
+            if extension == "h" || extension == "hpp" || extension == "hxx" || extension == "inl" {
                 if path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
                     return ReplaceNtResult::FilePath;
                 }
@@ -269,11 +269,17 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
                 }
                 else {
                     if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-                        let has = crate::SOURCES.get().unwrap().iter().find(|&item| {
-                            path[4..].starts_with(item.to_str().unwrap())
+                        let filestem = std::path::Path::new(&path[4..]).file_stem().unwrap();
+                        let any = crate::SOURCES.get().unwrap().iter().any(|item| {
+                            if filestem == std::path::Path::new(item).file_stem().unwrap() {
+                                return true;
+                            } 
+                            else {
+                                return false;
+                            }
                         });
 
-                        if has.is_some() {
+                        if any {
                             Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::Success, |modified| {
                                 *path = modified;
                                 return ReplaceNtResult::Success;

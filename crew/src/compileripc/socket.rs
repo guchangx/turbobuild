@@ -54,7 +54,7 @@ impl Receiver {
                 Ok(size) => {
                     data.push_str(std::str::from_utf8(&buffer[..size]).unwrap());
 
-                    if size < buffer.len() || ( size == buffer.len() && (buffer.ends_with(b"}}") || buffer.ends_with(br#""}"#))) {
+                    if size < buffer.len() || ( size == buffer.len() && buffer.ends_with(b"}}")) {
                         log::debug!("buildassist connection data: {}", data);
 
                         let input: serde_json::Value = serde_json::from_str(data.as_str()).expect(&format!("invalid json data: {}", data));

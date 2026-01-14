@@ -1025,7 +1025,7 @@ pub unsafe fn nt_query_directory_file(
             let buffer = (*file_name).Buffer;
             let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
 
-            if val.contains(&name) {
+            if val.contains(&name.to_lowercase()) {
                 crate::log!(debug, "nt_query_directory_file: hit cached dir file: {}", name);
 
                 if !file_information.is_null() {
@@ -1076,7 +1076,7 @@ pub unsafe fn nt_query_directory_file(
                 }
             }
             else {
-                crate::log!(debug, "nt_query_directory_file: not hit cached dir file: {}", name);
+                crate::log!(debug, "nt_query_directory_file: not hit cached dir file: {} handle: {:?} col: {:?}", name, file_handle, val);
                 let nt_status = nt_query_directory_file(file_handle, event, apc_routine, apc_context, io_status_block,
                     file_information, length, file_information_class, return_single_entry, file_name, restart_scan
                 );
@@ -1096,13 +1096,13 @@ pub unsafe fn nt_query_directory_file(
             }
             else {
                 if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
-                    crate::log!(debug, "nt_query_directory_file no more files. {}", name);
+                    crate::log!(debug, "nt_query_directory_file no more files. {} handle: {:?}", name, file_handle);
                 }
                 else if nt_status == windows_sys::Win32::Foundation::STATUS_NO_SUCH_FILE {
-                    crate::log!(warn, "nt_query_directory_file no such file. {}", name);
+                    crate::log!(warn, "nt_query_directory_file no such file. {} handle: {:?}", name, file_handle);
                 }
                 else if nt_status == windows_sys::Win32::Foundation::STATUS_BUFFER_OVERFLOW {
-                    crate::log!(warn, "nt_query_directory_file buffer overflow occurred, consider increasing buffer size. {}", name);
+                    crate::log!(warn, "nt_query_directory_file buffer overflow occurred, consider increasing buffer size. {} handle: {:?}", name, file_handle);
                 }
                 else {
                     crate::log!(error, "nt_query_directory_file failed with status: {:#X} file: {:?}", nt_status, name);
@@ -1373,7 +1373,7 @@ pub unsafe fn nt_query_directory_file(
                         
                         let attr = fileinfo[1].parse::<u32>().unwrap_or(win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE);
                         if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE {
-                            collectfiles.push(fileinfo[0].to_string());
+                            collectfiles.push(fileinfo[0].to_lowercase());
                         }
                         let end_of_file: i64 = if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY { 0 } else { 1024 };
                         let alloc_size: i64 = if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY { 0 } else { 1024 };
@@ -1678,7 +1678,6 @@ pub unsafe fn nt_create_file(
                     else {
                         if nt_status == win::Foundation::STATUS_OBJECT_NAME_NOT_FOUND {
                             crate::log!(error, "zw_create_file failed! object name not found path: {}", name);
-
                         }
                         else {
                             crate::log!(error, "zw_create_file failed! error_code: {:#X} path: {}", nt_status, name);
@@ -1882,6 +1881,18 @@ pub unsafe fn nt_create_file(
                                     }
                                     return nt_status;
                                 }
+                                else
+                                {
+                                    let object_name = (*object_attributes).ObjectName;
+                                    if !object_name.is_null() {
+                                        let buffer = (*object_name).Buffer;
+                                        let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+                                        crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: {} access: {}", nt_status, name, share_access);
+                                    }
+                                    else {
+                                        crate::log!(error, "zw_create_file with expect failed! error_code: {:#X} expect: <null>", nt_status);
+                                    } 
+                                }
                             }
                             return nt_status;
                         }
@@ -2077,7 +2088,8 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
         handle: windows_sys::Win32::Foundation::HANDLE
     ) -> windows_sys::Win32::Foundation::NTSTATUS = std::mem::transmute(NT_CLOSE);
 
-    NT_HANDLE_MAP_FILES.write().unwrap().remove(&(handle as i32));
+    //do not remove handle from map, when cl.exe run done, it will close all handles.
+    //NT_HANDLE_MAP_FILES.write().unwrap().remove(&(handle as i32));
 
     let nt_status = nt_close_inner(handle);
     return nt_status;

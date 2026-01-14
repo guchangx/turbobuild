@@ -17,23 +17,24 @@ pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMa
     if let Some(sln) = environment.get("VSTEL_SolutionPath") {
 
         let sln = std::path::PathBuf::from(sln);
-        sln.file_stem().map(|stem| {
 
-            sln.parent().map(|parent| {
-                let mut peekable = parent.components().peekable();
-                
-                while let Some(component) = peekable.next() {
-                    if component.as_os_str().to_string_lossy().to_lowercase() == stem.to_string_lossy().to_lowercase() {
-                        solution = Some(stem.to_owned());
-                        break;
-                    }
-                    else if peekable.peek().is_none() {
-                        solution = Some(component.as_os_str().to_os_string());
-                        break;
-                    }
+        let mut tmp = sln.clone();
+        loop {
+            if let Some(parent) = tmp.parent() {
+                let marker = parent.join("CMakeLists.txt");
+                if marker.exists() {
+                    solution = parent.file_name().map(|name| name.to_os_string());
+                    break;
                 }
-            });
-        });
+                tmp = parent.to_path_buf();
+            }
+            else {
+                sln.file_stem().map(|stem| {
+                    solution = Some(stem.to_owned());
+                });
+                break;
+            }
+        }
     }
 
     let mut project = None;
@@ -42,6 +43,24 @@ pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMa
         std::path::PathBuf::from(proj).file_stem().map(|stem| {
             project = Some(stem.to_owned());
         });
+
+        if solution.is_none() || solution.as_ref().unwrap() == "*Undefined*" {
+            let mut tmp = std::path::PathBuf::from(proj);
+            loop {
+                if let Some(parent) = tmp.parent() {
+                    let marker = parent.join("CMakeLists.txt");
+                    if marker.exists() {
+                        solution = parent.file_name().map(|name| name.to_os_string());
+                        break;
+                    }
+                    tmp = parent.to_path_buf();
+                }
+                else {
+                    solution = project.clone();
+                    break;
+                }
+            }
+        }
     }
 
     /*
@@ -246,7 +265,6 @@ fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsStr
 
             match fetch_compiler_parameters_from_response_file(rspfile.to_string_lossy().replace("@", "")) {
                 Some(line) => {
-                    
                     let (project, compiler, commands) = parse_commands_by_line(line.as_str());
                     
                     if !compiler.is_empty() {
@@ -274,7 +292,6 @@ fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsStr
 }
 
 fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString>) {
-    
     let mut line_ = String::new();
     let mut compiler = String::new();
     let assist = "BuildAssistCompilerPath:";
@@ -386,7 +403,6 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
             result_.push(std::ffi::OsString::from(item));
         }
     }
-    
     return (project, compiler, result_);
 }
 

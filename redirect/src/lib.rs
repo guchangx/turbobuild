@@ -210,11 +210,13 @@ fn fetch_args_from_command() {
     let mut sources = std::collections::HashSet::new();
     let mut pdb_sub_dir = String::new();
 
+    let mut is_compiler = true;
     for (index, item) in commands.iter().enumerate() {
 
         let item = item.to_string_lossy();
         if item.eq("mspdbsrv.exe") {
             // Handle mspdbsrv.exe specific logic
+            is_compiler = false;
             break;
         }
         else if item.eq("/I") || item.eq("/external:I") {
@@ -299,8 +301,7 @@ fn fetch_args_from_command() {
         SOURCES.set(sources).unwrap();
     }
 
-    if pdb_sub_dir.is_empty() {
-
+    if is_compiler && pdb_sub_dir.is_empty() {
         if let Some(replica) = crate::REPLICADIR.get() {
             let modified = std::path::Path::new(&replica).join("Project").join(crate::SOLUTIONNAME.get().unwrap()).join("vc143.pdb");
             REPLICA_PDBPATH.set(modified.to_string_lossy().to_string()).unwrap();

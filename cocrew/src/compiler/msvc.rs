@@ -294,7 +294,7 @@ async fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, st
     if line.starts_with("Generating Code...") { 
     
     }
-    else if line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") {
+    else if line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") || line.ends_with(".cxx") {
 
         let mut compiled_results: CompiledResults = Vec::new();
         let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
@@ -503,7 +503,7 @@ enum GeneratedObject {
 }
 
 fn filter_compiler_warning(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
-    let (files, warning):(Vec<_>, Vec<_>) = lines.into_iter().partition(|item| item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cc"));
+    let (files, warning):(Vec<_>, Vec<_>) = lines.into_iter().partition(|item| item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cc") || item.ends_with(".cxx"));
     return (files, warning);
 }
 
@@ -514,7 +514,7 @@ fn filter_compiler_error(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>) {
     let mut iter = lines.iter().peekable();
 
     while let Some(&item) = iter.next() {
-        if item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cc") {
+        if item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cc") || item.ends_with(".cxx") {
             if let Some(next) = iter.peek() {
                 if next.contains(": error ") {
                    continue;
@@ -670,7 +670,7 @@ fn parse_action_from_commands(compiler_input: &CompilerInput) -> CompileAction {
             else if command.starts_with("/Fo") {
                 obj = exact_compiler_object_file(solution_name.to_string_lossy(), command, &working_dir);
             }
-            else if command.to_lowercase().ends_with(".i") || command.to_lowercase().ends_with(".cpp") || command.to_lowercase().ends_with(".c") || command.to_lowercase().ends_with(".cc") {
+            else if command.to_lowercase().ends_with(".i") || command.to_lowercase().ends_with(".cpp") || command.to_lowercase().ends_with(".c") || command.to_lowercase().ends_with(".cc") || command.to_lowercase().ends_with(".cxx") {
                 let source = command.replace(r#"""#, "");
                 let mut index = source.rfind(r"\");
                 if index.is_none() {

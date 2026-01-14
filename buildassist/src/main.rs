@@ -62,14 +62,17 @@ fn fetch_and_dist_compiler_commands() -> std::result::Result<(), ()> {
 }
 
 fn local_retry(input: &commands::CompilerInput) {
-    let exec = input.compiler_path.to_string_lossy().to_string();
-    let working_dir = input.compiler_working_dir.to_string_lossy().to_string();
-    let args: Vec<String> = input.compiler_commands.clone().into_iter()
-        .map(|item| item.into_string().unwrap())
-        .collect();
+    use std::os::windows::process::CommandExt;
 
-    let mut child = std::process::Command::new(exec)
-        .args(args)
+    let exec = &input.compiler_path;
+    let working_dir = &input.compiler_working_dir;
+
+    let mut process = std::process::Command::new(exec);
+    for arg in &input.compiler_commands {
+        process.raw_arg(arg);
+    }
+
+    let mut child = process
         .current_dir(working_dir)
         .spawn()
         .expect("failed to execute compile.");
