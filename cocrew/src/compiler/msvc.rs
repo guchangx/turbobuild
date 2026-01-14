@@ -18,6 +18,11 @@ pub struct CompiledResultsStream {
     pub stderr: tokio::sync::mpsc::Sender<crew::compiler::model::CompiledResults>,
 }
 
+static COMPILER_VERSION_MAP_PATH_CACHE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<std::string::String, std::ffi::OsString>>> = std::sync::LazyLock::new(|| {
+    let map = std::collections::HashMap::new();
+    std::sync::Mutex::new(map)
+});
+
 impl crate::compiler::interface::Compiler for MSVC {
 
     fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
@@ -160,8 +165,10 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         stderr: err_sender,
     };
     
-    let solution_name = compiler_input.solution.clone();
-    let project_name = compiler_input.project.clone();
+    let solution_name = std::sync::Arc::new(compiler_input.solution.clone());
+    let solution_name_ = std::sync::Arc::clone(&solution_name);
+
+    let project_name = std::sync::Arc::new(compiler_input.project.clone());
 
     let compiler_path = compiler_input.compiler_path.clone();
     let replica_working_dir = compiler_input.compiler_working_dir.clone();
@@ -169,12 +176,11 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     let envs = compiler_input.envs.clone();
 
     let actions = parse_action_from_commands(&compiler_input);
-    let generated_object = actions.generated_object;
-    let program_database = actions.program_database;
+    let generated_object = std::sync::Arc::new(actions.generated_object);
+    let program_database = std::sync::Arc::new(actions.program_database);
 
     let out_stream = out_err_stream.stdout.clone();
 
-    let solution_name_ = solution_name.clone();
     let project_name_ = project_name.clone();
     let project_name__ = project_name_.clone();
     let origin_working_dir_ = origin_working_dir.clone();
@@ -185,22 +191,31 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     let unready_objfiles = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
     let unready_objfiles_ = unready_objfiles.clone();
     let rt = {crate::common::COCREW_RUNTIME.lock().unwrap().handle().clone()};
+    let rt_  = rt.clone();
     let _ = rt.spawn(async move {
 
         while let Some(data) = out_receiver.recv().await {
             stream_objfiles.lock().unwrap().push(data.clone());
-
             let line = String::from_utf8_lossy(&data);
+
             log::info!("{:?} stream stdout: {:?}", &project_name_, line);
 
             line.lines().for_each(|item| {
-                if !item.is_empty() {
-                    let item = std::borrow::Cow::from(item);
-                    let objfile = pre_return_local_compile_result_objfiles(&item, generated_object_.clone(), &solution_name_, &origin_working_dir_, &out_stream);
-                    if let Some(objfile) = objfile {
-                        unready_objfiles_.lock().unwrap().insert(objfile.0, objfile.1);
+                let item = item.to_string();
+                let generated_object_ = generated_object_.clone();
+                let solution_name_ = std::sync::Arc::clone(&solution_name_);
+                let origin_working_dir_ = origin_working_dir_.clone();
+                let out_stream = out_stream.clone();
+                let unready_objfiles_ = unready_objfiles_.clone();
+
+                rt_.spawn(async move {
+                    if !item.is_empty() {
+                        let objfile = pre_return_local_compile_result_objfiles(&std::borrow::Cow::from(item), &(*generated_object_), &solution_name_, &origin_working_dir_, &out_stream).await;
+                        if let Some(objfile) = objfile {
+                            unready_objfiles_.lock().unwrap().insert(objfile.0, objfile.1);
+                        }
                     }
-                }
+                });
             });
         }
 
@@ -235,14 +250,21 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         if unready_objfiles.lock().unwrap().is_empty() {
             let out_stream = out_err_stream.stdout.clone();
             for line in files {
-                let _ = pre_return_local_compile_result_objfiles(&std::borrow::Cow::from(line), generated_object.clone(), &solution_name, &origin_working_dir, &out_stream);
+                let out_stream_ = out_stream.clone();
+                let generated_object = generated_object.clone();
+                let line = line.to_string();
+                let solution_name = solution_name.clone();
+                let origin_working_dir = origin_working_dir.clone();
+                rt.spawn(async move {
+                    let _ = pre_return_local_compile_result_objfiles(&std::borrow::Cow::from(line), &(*generated_object), &solution_name, &origin_working_dir, &out_stream_);
+                });
             }
             drop(out_stream);
         }
         else {
             return_local_compile_result_objfiles(unready_objfiles, &solution_name, &origin_working_dir, out_err_stream);
         }
-        return_local_compile_result_pdbfiles(program_database, &solution_name, &origin_working_dir, out_err_stream);
+        return_local_compile_result_pdbfiles((*program_database).clone(), &solution_name, &origin_working_dir, out_err_stream);
     }
     else {
         let lines: Vec<&str> = compile_output.lines().collect();
@@ -261,17 +283,18 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     return (result, None);
 }
 
-fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, generated_object: GeneratedObject, solution_name: &std::ffi::OsString, 
+async fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, generated_object: &GeneratedObject, solution_name: &std::ffi::OsString, 
                                                 origin_working_dir: &std::ffi::OsString, out_stream: &tokio::sync::mpsc::Sender<CompiledResults>) 
                                                 -> std::option::Option<(std::string::String, std::path::PathBuf)> {
 
+    use tokio::io::AsyncReadExt;
     let mut unready_objfiles: std::option::Option<(std::string::String, std::path::PathBuf)> = None;
 
     let line = line.replace(r#"""#, "").trim_end().to_string();
     if line.starts_with("Generating Code...") { 
     
     }
-    else if  line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") {
+    else if line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") {
 
         let mut compiled_results: CompiledResults = Vec::new();
         let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
@@ -294,12 +317,12 @@ fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, ge
         };
 
         log::trace!("compile result generated object path: {:?}", result);
-            
-        match std::fs::File::open(&result) {
+        
+        match tokio::fs::File::open(&result).await {
             Ok(file) => {
                 let mut contents = Vec::new();
-                let mut file = std::io::BufReader::new(file);
-                let _ = file.read_to_end(&mut contents).unwrap();
+                let mut file = tokio::io::BufReader::new(file);
+                let _ = file.read_to_end(&mut contents).await.unwrap();
 
                 let origin = repair_original_path(&solution_name, &origin_working_dir, &result);        
 
@@ -693,8 +716,7 @@ fn start_local_compiler_with_inject(solution: &std::ffi::OsString, project: &std
         .map(|item| {
             //"/I \"D:\\WorkSpace\\OpenSource\\ZLMediaKit\\3rdpart\\wepoll\""
             if item.to_string_lossy().starts_with("/I ") {
-                let mut include = item.to_string_lossy().to_string();
-
+                let include = item.to_string_lossy().to_string();
                 includes.push(include);
             }
             else if item.to_string_lossy().starts_with("/external:I") {
@@ -861,12 +883,21 @@ fn redirect_compiler_path(compiler: std::ffi::OsString) -> Option<std::ffi::OsSt
     match compiler.to_string_lossy().find("MSVC") {
         Some(index) => {
             let mut path = compiler.to_string_lossy().to_string();
-            let path = std::path::PathBuf::from(format!(r#"{}\{}"#, tools::utils::access_replica_dir(), path.split_off(index)));
-            if std::fs::exists(&path).unwrap() {
-                return Some(path.into_os_string());
+            let tail = path.split_off(index); 
+            
+            let mut map = COMPILER_VERSION_MAP_PATH_CACHE.lock().unwrap();
+            if let Some(value) = map.get(&tail) {
+                return Some(value.clone());
             }
             else {
-                return None;
+                let path = std::path::PathBuf::from(format!(r#"{}\{}"#, tools::utils::access_replica_dir(), tail));
+                if std::fs::exists(&path).unwrap() {
+                    map.insert(tail, path.clone().into_os_string());
+                    return Some(path.into_os_string());
+                }
+                else {
+                    return None;
+                }
             }
         },
         None => {
@@ -1461,5 +1492,26 @@ mod tests {
     fn redirect_logger_test() {
         tools::logger::init_once_logger();
         log::info!(target: "redirect", "{}", "test output");
+    }
+
+    #[test]
+    fn redirect_compiler_path_test() {
+        
+        let current = std::env::var_os("CARGO_MANIFEST_DIR").unwrap();
+        let path = std::path::PathBuf::from(current);
+        let dir = path.parent().unwrap().join("target").join("debug");
+
+        let path = std::ffi::OsString::from(dir.join("Replica\\MSVC\\14.33.31629\\bin\\Hostx64\\x64\\cl.exe"));
+        let now = std::time::Instant::now();
+        let val = redirect_compiler_path(path);
+        let elapsed = now.elapsed();
+        println!("redirect compiler path first elapsed: {:?} path: {:?}", elapsed, val);
+
+        let path = std::ffi::OsString::from(dir.join("Replica\\MSVC\\14.33.31629\\bin\\Hostx64\\x64\\cl.exe"));
+        let now = std::time::Instant::now();
+        let val = redirect_compiler_path(path);
+        let elapsed = now.elapsed();
+        println!("redirect compiler path second elapsed: {:?} path: {:?}", elapsed, val);
+
     }
 }

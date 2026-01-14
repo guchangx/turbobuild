@@ -37,6 +37,11 @@ static REDIRECT_DLL_PATH: std::sync::LazyLock<Option<std::ffi::CString>> = std::
         }
     });
 
+static VERSION_MAP_ENV: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, Vec<u16>>>> = std::sync::LazyLock::new(|| {
+    let mut map = std::collections::HashMap::new();
+    std::sync::Mutex::new(map)
+});
+
 pub unsafe fn pass_params_to_redirect(handle: win::Foundation::HANDLE, solution: &str, project: &str) {
     if !solution.is_empty() {
         let arg = format!("solution:{}\r\nproject:{}\r\nreplica:{}\r\n", solution, project, tools::utils::access_replica_dir());
@@ -93,11 +98,30 @@ fn replace_includes_path_by_replica(includes: &std::ffi::OsString) -> std::borro
     }
 }
 
-pub fn msvc_detours(solution: String, project: String, app_path: String, command: String, workding_dir: String,
+fn extract_version_from_path(app: &String) -> Option<String> {
+
+    let p = std::path::Path::new(app);
+    let comps: Vec<_> = p.components()
+        .filter_map(|c| c.as_os_str().to_str().map(|s| s.to_string()))
+        .collect();
+
+    for (i, comp) in comps.iter().enumerate() {
+        if comp.eq_ignore_ascii_case("MSVC") {
+            if let Some(ver) = comps.get(i + 1) {
+                if ver.chars().all(|ch| ch.is_ascii_digit() || ch == '.') {
+                    return Some(ver.clone());
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn msvc_detours(solution: String, project: String, app: String, command: String, workding_dir: String,
     envs: std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
 
     unsafe {
-        let lpApplicationName = app_path.as_str();
+        let lpApplicationName = app.as_str();
 
         let lpCommandLine = command.as_str();
 
@@ -105,65 +129,78 @@ pub fn msvc_detours(solution: String, project: String, app_path: String, command
         let dwCreationFlags = win::System::Threading::CREATE_DEFAULT_ERROR_MODE | win::System::Threading::CREATE_SUSPENDED | win::System::Threading::CREATE_UNICODE_ENVIRONMENT;
 
         let mut env_block: Vec<u16> = Vec::new();
-
-        std::env::var("SystemRoot").map(|value| {
-            let mut env = std::ffi::OsString::from("SystemRoot");
-            env.push("=");
-            env.push(value);
-            env_block.extend(env.encode_wide());
-            env_block.push(0);
-        });
-        
-        if let Ok(value) = std::env::var("TMP") {
-            let mut env = std::ffi::OsString::from("TMP");
-            env.push("=");
-            env.push(value);
-            env_block.extend(env.encode_wide());
-            env_block.push(0);
+        let version = extract_version_from_path(&app);
+        if let Some(ver) = &version {
+            if let Some(val) = VERSION_MAP_ENV.lock().unwrap().get(ver) {
+                env_block = val.clone();
+            }
         }
-        else {
-            std::env::var("TEMP").map(|value| {
-                let mut env = std::ffi::OsString::from("TEMP");
+
+        if env_block.is_empty() {
+            std::env::var("SystemRoot").map(|value| {
+                let mut env = std::ffi::OsString::from("SystemRoot");
                 env.push("=");
                 env.push(value);
                 env_block.extend(env.encode_wide());
                 env_block.push(0);
             });
-        }
-        // must set SystemRoot TMP/TEMP envs, must not set VS_UNICODE_OUTPUT envs. i don't know why, it is test result.
-        if !envs.is_empty() {
-            for (key, value) in envs.iter() {
-                if  key.to_string_lossy().starts_with("VS_UNICODE_OUTPUT") {
-                    continue;
-                }
-
-                if key.to_string_lossy().to_lowercase() == "include" {
-                    let replaced = replace_includes_path_by_replica(&value);
-                    let mut pair = key.clone();
-                    pair.push("=");
-                    pair.push(replaced.into_owned());
-                    env_block.extend(pair.encode_wide());
-                }
-                else if key.to_string_lossy().to_lowercase() == "external_include" {
-                    let replaced = replace_includes_path_by_replica(&value);
-                    let mut pair = key.clone();
-                    pair.push("=");
-                    pair.push(replaced.into_owned());
-                    env_block.extend(pair.encode_wide());
-                }
-                else {
-                    let mut pair = key.clone();
-                    pair.push("=");
-                    pair.push(value);
-                    env_block.extend(pair.encode_wide());
-                }
-
+            
+            if let Ok(value) = std::env::var("TMP") {
+                let mut env = std::ffi::OsString::from("TMP");
+                env.push("=");
+                env.push(value);
+                env_block.extend(env.encode_wide());
                 env_block.push(0);
             }
-            env_block.push(0);
+            else {
+                std::env::var("TEMP").map(|value| {
+                    let mut env = std::ffi::OsString::from("TEMP");
+                    env.push("=");
+                    env.push(value);
+                    env_block.extend(env.encode_wide());
+                    env_block.push(0);
+                });
+            }
+            // must set SystemRoot TMP/TEMP envs, must not set VS_UNICODE_OUTPUT envs. i don't know why, it is test result.
+            if !envs.is_empty() {
+                for (key, value) in envs.iter() {
+                    if  key.to_string_lossy().starts_with("VS_UNICODE_OUTPUT") {
+                        continue;
+                    }
+    
+                    if key.to_string_lossy().to_lowercase() == "include" {
+                        let replaced = replace_includes_path_by_replica(&value);
+                        let mut pair = key.clone();
+                        pair.push("=");
+                        pair.push(replaced.into_owned());
+                        env_block.extend(pair.encode_wide());
+                    }
+                    else if key.to_string_lossy().to_lowercase() == "external_include" {
+                        let replaced = replace_includes_path_by_replica(&value);
+                        let mut pair = key.clone();
+                        pair.push("=");
+                        pair.push(replaced.into_owned());
+                        env_block.extend(pair.encode_wide());
+                    }
+                    else {
+                        let mut pair = key.clone();
+                        pair.push("=");
+                        pair.push(value);
+                        env_block.extend(pair.encode_wide());
+                    }
+    
+                    env_block.push(0);
+                }
+                env_block.push(0);
+            }
+            else {
+                env_block.push(0);
+            }
+
+            VERSION_MAP_ENV.lock().unwrap().insert(version.unwrap(), env_block.clone());
         }
         else {
-            env_block.push(0);
+            log::debug!("use cached env block for version {}.", app);
         }
 
         let lpEnvironment = env_block.as_mut_ptr() as *mut std::ffi::c_void;
