@@ -8,6 +8,7 @@ documentation.workspace = true
 
 
 [dependencies]
+windows-sys = {version = "0.60.2", features = ["Win32_System_Memory"]}
 
 
 [dev-dependencies]

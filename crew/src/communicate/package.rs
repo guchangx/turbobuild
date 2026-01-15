@@ -1,6 +1,7 @@
-
 use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
+
+use std::sync::OnceLock;
 
 //TODO package.rs packager.rs should be merged into one file.
 pub mod pack {
@@ -96,6 +97,70 @@ pub enum ReceiverType {
     Archive(ArchiveRecv),
     Compile(CompileRecv),
     None,
+}
+
+static SYSTEM_MARK_MAPPING: OnceLock<windows_sys::Win32::Foundation::HANDLE> = OnceLock::new();
+
+struct SystemMarkDrop;
+
+impl Drop for SystemMarkDrop {
+    fn drop(&mut self) {
+        if let Some(&h) = SYSTEM_MARK_MAPPING.get() {
+            unsafe {
+                windows_sys::Win32::Foundation::CloseHandle(h);
+            }
+        }
+    }
+}
+
+static SYSTEM_MARK_DROP_GUARD: OnceLock<SystemMarkDrop> = OnceLock::new();
+
+fn set_system_mark() {
+
+    const SIZE_BYTES: u32 = 1;
+
+    let name = "Global\\CrewRunningSystemMark";
+    let name_utf16: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+
+    unsafe {
+        let hmap = windows_sys::Win32::System::Memory::CreateFileMappingW(
+            windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE,
+            std::ptr::null_mut(),
+            windows_sys::Win32::System::Memory::PAGE_READWRITE,
+            0,
+            SIZE_BYTES,
+            name_utf16.as_ptr(),
+        );
+
+        if hmap.is_null() {
+            log::warn!("CreateFileMappingW failed, mark not set. GetLastError={}", windows_sys::Win32::Foundation::GetLastError());
+            return;
+        }
+
+        // Keep handle alive for the whole process.
+        let _ = SYSTEM_MARK_MAPPING.set(hmap);
+        let _ = SYSTEM_MARK_DROP_GUARD.set(SystemMarkDrop);
+
+        
+        let view = windows_sys::Win32::System::Memory::MapViewOfFile(
+            hmap,
+            windows_sys::Win32::System::Memory::FILE_MAP_WRITE,
+            0,
+            0,
+            SIZE_BYTES as usize,
+        );
+
+        if view.Value.is_null() {
+            log::warn!("MapViewOfFile failed, mark not set. GetLastError={}", windows_sys::Win32::Foundation::GetLastError());
+            return;
+        }
+
+        let pview = view.Value as *mut u8;
+        *pview = 1u8;
+
+        let _ = windows_sys::Win32::System::Memory::FlushViewOfFile(pview as *const std::ffi::c_void, SIZE_BYTES as usize);
+        windows_sys::Win32::System::Memory::UnmapViewOfFile(view);
+    }
 }
 
 impl Sender {

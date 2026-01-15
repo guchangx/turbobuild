@@ -80,3 +80,23 @@ fn local_retry(input: &commands::CompilerInput) {
     child.wait()
         .expect("failed to wait on child.");
 }
+
+fn get_system_mark() {
+    let name = "Global\\BuildAssistSystemMark";
+    let name_utf16: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+    unsafe {
+        let h_map_memory = windows_sys::Win32::System::Memory::OpenFileMappingW (
+            windows_sys::Win32::System::Memory::FILE_MAP_ALL_ACCESS,
+            windows_sys::Win32::Foundation::FALSE,
+            name_utf16.as_ptr(),
+        );
+
+        let shared_data = windows_sys::Win32::System::Memory::MapViewOfFile(
+            h_map_memory,
+            windows_sys::Win32::System::Memory::FILE_MAP_ALL_ACCESS,
+            0,
+            0,
+            1
+        );
+    }
+}
