@@ -2,6 +2,70 @@
 use std::io::BufRead;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+struct SystemMarkDrop {
+    handle: tools::ptr::HandleBox, 
+}
+
+impl Drop for SystemMarkDrop {
+    fn drop(&mut self) {
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(*self.handle.get());
+        }
+    }
+}
+
+static SYSTEM_MARK_DROP_GUARD: std::sync::OnceLock<SystemMarkDrop> = std::sync::OnceLock::new();
+
+fn set_system_mark() {
+
+    log::debug!("set crewruning system mark.");
+    let data = b"run\0";
+
+    let name = "Local\\CrewRunningSystemMark";
+    let name_utf16: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
+
+    unsafe {
+        let hmap = windows_sys::Win32::System::Memory::CreateFileMappingW(
+            windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE,
+            std::ptr::null_mut(),
+            windows_sys::Win32::System::Memory::PAGE_READWRITE,
+            0,
+            data.len() as u32,
+            name_utf16.as_ptr(),
+        );
+
+        if hmap.is_null() {
+            log::warn!("CreateFileMappingW failed, mark not set. GetLastError={}", windows_sys::Win32::Foundation::GetLastError());
+            return;
+        }
+
+        let mark = SystemMarkDrop {
+            handle: tools::ptr::HandleBox::new(hmap),
+        };
+        let _ = SYSTEM_MARK_DROP_GUARD.set(mark);
+        
+        let view = windows_sys::Win32::System::Memory::MapViewOfFile(
+            hmap,
+            windows_sys::Win32::System::Memory::FILE_MAP_WRITE,
+            0,
+            0,
+            data.len() as usize,
+        );
+
+        if view.Value.is_null() {
+            log::warn!("MapViewOfFile failed, mark not set. GetLastError={}", windows_sys::Win32::Foundation::GetLastError());
+            return;
+        }
+
+        let pview = view.Value as *mut u8;
+        
+        std::ptr::copy_nonoverlapping(data.as_ptr(), pview, data.len());
+
+        let _ = windows_sys::Win32::System::Memory::FlushViewOfFile(pview as *const std::ffi::c_void, data.len() as usize);
+        windows_sys::Win32::System::Memory::UnmapViewOfFile(view);
+    }
+}
+
 #[derive(Default, Clone)]
 pub struct Receiver {
     port: u16,
@@ -30,6 +94,9 @@ impl Receiver {
         let runtime = self.common.upgrade().unwrap()
                 .lock().unwrap()
                 .pool.clone().unwrap();
+
+        set_system_mark();
+        
         loop {
             let (stream, _) = listener.accept().await.unwrap();
             let metrics = runtime.metrics(); 

@@ -1,15 +1,24 @@
 mod commands;
 mod compileripc;
+use std::io::BufRead;
 
 fn main() -> std::process::ExitCode {
-
-    match fetch_and_dist_compiler_commands() {
-        Ok(_) => {
-            return std::process::ExitCode::SUCCESS;
-        },
-        Err(_) => {
-           return std::process::ExitCode::FAILURE;
-        },
+    let is_crew_running = get_system_mark();
+    if is_crew_running {
+        match fetch_and_dist_compiler_commands() {
+            Ok(_) => {
+                return std::process::ExitCode::SUCCESS;
+            },
+            Err(_) => {
+            return std::process::ExitCode::FAILURE;
+            },
+        }
+    }
+    else {
+        let commandline = std::env::args_os();
+        let commands: Vec<std::ffi::OsString> = commandline.collect();
+        local_direct(commands);
+        return std::process::ExitCode::SUCCESS;
     }
 }
 
@@ -81,8 +90,28 @@ fn local_retry(input: &commands::CompilerInput) {
         .expect("failed to wait on child.");
 }
 
-fn get_system_mark() {
-    let name = "Global\\BuildAssistSystemMark";
+fn local_direct(commands: Vec<std::ffi::OsString>) {
+    let mut child = std::process::Command::new(&commands[0])
+        .args(&commands[1..])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("failed to execute compile.");
+
+    if let Some(stdout) = child.stdout.take() {
+        let reader = std::io::BufReader::new(stdout);
+        for line in reader.lines() {
+            match line {
+                Ok(l) => println!("{}", l),
+                Err(e) => eprintln!("read stdout error: {:?}", e),
+            }
+        }
+    }
+
+    child.wait().expect("failed to execute compile.");
+}
+
+fn get_system_mark() -> bool {
+    let name = "Local\\CrewRunningSystemMark";
     let name_utf16: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
     unsafe {
         let h_map_memory = windows_sys::Win32::System::Memory::OpenFileMappingW (
@@ -91,12 +120,47 @@ fn get_system_mark() {
             name_utf16.as_ptr(),
         );
 
-        let shared_data = windows_sys::Win32::System::Memory::MapViewOfFile(
+        if h_map_memory.is_null() {
+            let error = windows_sys::Win32::Foundation::GetLastError();
+            println!("OpenFileMappingW failed. error: {}", error);
+            return false;
+        }
+
+        let view = windows_sys::Win32::System::Memory::MapViewOfFile(
             h_map_memory,
             windows_sys::Win32::System::Memory::FILE_MAP_ALL_ACCESS,
             0,
             0,
             1
         );
+        if view.Value.is_null() {
+            let error = windows_sys::Win32::Foundation::GetLastError();
+            println!("MapViewOfFile failed. {}", error);
+            windows_sys::Win32::Foundation::CloseHandle(h_map_memory);
+            return false;
+        }
+
+        let max = 8usize;
+        let bytes = std::slice::from_raw_parts(view.Value as *const u8, max);
+        let s = String::from_utf8_lossy(&bytes[..max]).to_string();
+
+        windows_sys::Win32::System::Memory::UnmapViewOfFile(view);
+        windows_sys::Win32::Foundation::CloseHandle(h_map_memory);
+        if s.is_empty() {
+            return false;
+        }
+        else {
+            return true;
+        }
     }
+}
+
+#[cfg(test)]
+mod tests {
+
+    #[test]
+    fn check_system_mark_test() {
+        let mark = crate::get_system_mark();
+        println!("system mark: {}", mark);
+    }   
 }
