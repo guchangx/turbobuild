@@ -15,6 +15,7 @@ fn main() -> std::process::ExitCode {
         }
     }
     else {
+        println!("Crew system not running, fallback to local compile.");
         let commandline = std::env::args_os();
         let commands: Vec<std::ffi::OsString> = commandline.collect();
         local_direct(commands);
@@ -38,7 +39,7 @@ fn fetch_and_dist_compiler_commands() -> std::result::Result<(), ()> {
     match input {
         Some(input) => {
             project = format!("{:?} {}", input.project, input.index);
-            println!("{} buildassist start: {:?}", time, project);
+            println!("{} buildassist start: {}", time, project);
             match handle.join() {
                 Ok(client) => {
                     if client.stream.is_some() {
@@ -91,7 +92,10 @@ fn local_retry(input: &commands::CompilerInput) {
 }
 
 fn local_direct(commands: Vec<std::ffi::OsString>) {
-    let mut child = std::process::Command::new(&commands[0])
+    
+    let (_, _, _, compiler, _) = commands::fetch_compiler_args_path_from_envs();
+
+    let mut child = std::process::Command::new(compiler.unwrap())
         .args(&commands[1..])
         .stdout(std::process::Stdio::piped())
         .spawn()

@@ -102,15 +102,17 @@ static LOGGER: std::sync::LazyLock<Channel> = std::sync::LazyLock::new(|| {
         return channel; 
 });
 
-static RUNTIME: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex::<tokio::runtime::Runtime>>> = std::sync::LazyLock::new(|| {
+static REDIRECT_RUNTIME: std::sync::LazyLock<std::sync::Arc<tokio::runtime::Runtime>> = std::sync::LazyLock::new(|| {
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name_fn(|| {
             static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
             let id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             format!("redirect-worker-{}", id)
-        }).build().unwrap();
-    std::sync::Arc::new(std::sync::Mutex::new(runtime))
+        })
+        .build()
+        .unwrap();
+    std::sync::Arc::new(runtime)
 });
 
 /* 

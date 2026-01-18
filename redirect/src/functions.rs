@@ -1008,7 +1008,7 @@ pub unsafe fn nt_query_directory_file(
         restartscan: bool,
     ) -> windows_sys::Win32::Foundation::NTSTATUS = std::mem::transmute(NT_QUERY_DIRECTORY_FILE);
 
-    crate::log!(debug, "nt_query_directory_file called: handle: {:?}, file_information_class: {:?}, return_single_entry: {}, restart_scan: {}, file_name: {:?}", file_handle, file_information_class, return_single_entry, restart_scan, 
+    crate::log!(debug, "nt_query_directory_file called: handle: {:?}, file_information_class: {:?}, return_single_entry: {}, restart_scan: {}, file_name: {:?}, buffer length: {}", file_handle, file_information_class, return_single_entry, restart_scan, 
         if !file_name.is_null() {
             let buffer = (*file_name).Buffer;
             let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
@@ -1016,7 +1016,7 @@ pub unsafe fn nt_query_directory_file(
         }
         else {
             "nt_query_directory_file file_name buffer is null".to_string()
-        }
+        }, length
     );
 
     if (restart_scan && !file_name.is_null()) || (file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation) {
@@ -1076,7 +1076,6 @@ pub unsafe fn nt_query_directory_file(
                 }
             }
             else {
-                crate::log!(debug, "nt_query_directory_file: not hit cached dir file: {} handle: {:?} col: {:?}", name, file_handle, val);
                 let nt_status = nt_query_directory_file(file_handle, event, apc_routine, apc_context, io_status_block,
                     file_information, length, file_information_class, return_single_entry, file_name, restart_scan
                 );
@@ -1125,10 +1124,11 @@ pub unsafe fn nt_query_directory_file(
 
             //second or subsequent query with filenames cache
             if let Some(filenames) = maybe_filenames {
-                    
                 let mut entries_written = 0;
                 let mut current_offset = 0usize;
-
+                let mut islastone = false;
+                let last_file_attribute_archive = win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE + 1;
+                let mut collectfiles: Vec<String> = Vec::new();
                 for (index, fileinfo) in filenames.iter().enumerate() {
 
                     let fileinfo = fileinfo.split('|').collect::<Vec<&str>>();
@@ -1149,10 +1149,22 @@ pub unsafe fn nt_query_directory_file(
 
                     let entry_ptr = file_information.add(current_offset);
                     std::ptr::write_bytes(entry_ptr, 0u8, aligned_entry_size);
-
+                    
                     let entry = entry_ptr as *mut windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
+                    
+                    let mut attr = fileinfo[1].parse::<u32>().unwrap_or(win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE);
+                    if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE {
+                        collectfiles.push(fileinfo[0].to_lowercase());
+                    }
+                    else if attr == last_file_attribute_archive {
+                        islastone = true;
+                        attr = win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE;
+                        collectfiles.push(fileinfo[0].to_lowercase());
+                    }
 
-                    let next_offset = if index == filenames.len() - 1 || return_single_entry {
+                    entries_written = index + 1;
+
+                    let next_offset = if entries_written == filenames.len() || islastone || return_single_entry {
                         0
                     } 
                     else {
@@ -1163,7 +1175,6 @@ pub unsafe fn nt_query_directory_file(
                     (*entry).FileIndex = index as u32;
                     (*entry).FileNameLength = virtual_file_name_bytes as u32;
 
-                    let attr = fileinfo[1].parse::<u32>().unwrap_or(win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE);
                     let end_of_file: i64 = if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY { 0 } else { 1024 };
                     let alloc_size: i64 = if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY { 0 } else { 1024 };
                     let time: i64 = 0x1DB777E6D1C0000i64;
@@ -1183,22 +1194,21 @@ pub unsafe fn nt_query_directory_file(
                     );
 
                     current_offset += aligned_entry_size as usize;
-                    entries_written += 1;
 
-                    if return_single_entry {
-                        NT_HANDLE_AND_FILENAMES.with(|cell| {
-                            let mut handle_and_filenames = cell.borrow_mut();
-                            if index + 1 < filenames.len() {
-                                handle_and_filenames.insert(file_handle, filenames[index + 1..].to_vec());
-                            }
-                            else {
-                                handle_and_filenames.remove(&file_handle);
-                            }
-                        });
-                        
+                    if return_single_entry || islastone {
                         break;
                     }
                 }
+
+                NT_HANDLE_AND_FILENAMES.with(|cell| {
+                    let mut handle_and_filenames = cell.borrow_mut();
+                    if entries_written < filenames.len() {
+                        handle_and_filenames.insert(file_handle, filenames[entries_written..].to_vec());
+                    }
+                    else {
+                        handle_and_filenames.remove(&file_handle);
+                    }
+                });
 
                 if !io_status_block.is_null() {
                     (*io_status_block).Information = current_offset;
@@ -1212,9 +1222,17 @@ pub unsafe fn nt_query_directory_file(
                 }
 
                 return if entries_written > 0 {
+
+                    if let Some(val) = NT_HANDLE_MAP_FILES.read().unwrap().get(&(file_handle as i32)) {
+                        collectfiles.extend(val.iter().cloned());
+                    }
+
+                    NT_HANDLE_MAP_FILES.write().unwrap().insert(file_handle as i32, collectfiles);
+
                     windows_sys::Win32::Foundation::STATUS_SUCCESS
                 } 
                 else {
+                    NT_HANDLE_MAP_FILES.write().unwrap().remove(&(file_handle as i32));
                     windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES
                 };
             }
@@ -1326,7 +1344,7 @@ pub unsafe fn nt_query_directory_file(
                 if let Some(fileinfo) = result.get("fileinformation") {
                     if file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation {
                         crate::log!(warn, "unsupported file_information_class: {:?}, falling back to original", file_information_class);
-                    } 
+                    }
                     else {
                     
                     }
@@ -1338,6 +1356,8 @@ pub unsafe fn nt_query_directory_file(
                     let mut entries_written = 0;
 
                     let mut collectfiles = Vec::new();
+                    let mut islastone = false;
+                    let last_file_attribute_archive = win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE + 1;
                     for (index, fileinfo) in filenames.iter().enumerate() {
                         let fileinfo = fileinfo.split('|').collect::<Vec<&str>>();
      
@@ -1351,19 +1371,25 @@ pub unsafe fn nt_query_directory_file(
 
                         let aligned_entry_size = (entry_size + 7) & !7; // Align to 8 bytes
 
-                        if current_offset + aligned_entry_size as usize > length as usize {
-                            crate::log!(error, "nt_query_directory_file: buffer overflow, current_offset: {}, aligned_entry_size: {}, length: {}", current_offset, aligned_entry_size, length);
-                            break;
-                        }
-
                         let entry_ptr = file_information.add(current_offset);
                         std::ptr::write_bytes(entry_ptr, 0u8, aligned_entry_size);
 
                         let entry = entry_ptr as *mut windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
 
-                        let next_offset = if index == files_count - 1 || return_single_entry {
+                        let mut attr = fileinfo[1].parse::<u32>().unwrap_or(win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE);
+                        if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE {
+                            collectfiles.push(fileinfo[0].to_lowercase());
+                        } 
+                        else if attr == last_file_attribute_archive {
+                            islastone = true;
+                            attr = win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE;
+                            collectfiles.push(fileinfo[0].to_lowercase());
+                        }
+                        entries_written = index + 1;
+                        let next_offset = if entries_written == files_count || islastone || return_single_entry {
                             0
-                        } else {
+                        } 
+                        else {
                             aligned_entry_size as u32
                         };
 
@@ -1371,10 +1397,6 @@ pub unsafe fn nt_query_directory_file(
                         (*entry).FileIndex = index as u32;
                         (*entry).FileNameLength = virtual_file_name_bytes as u32;
                         
-                        let attr = fileinfo[1].parse::<u32>().unwrap_or(win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE);
-                        if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE {
-                            collectfiles.push(fileinfo[0].to_lowercase());
-                        }
                         let end_of_file: i64 = if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY { 0 } else { 1024 };
                         let alloc_size: i64 = if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY { 0 } else { 1024 };
                         let time: i64 = 0x1DB777E6D1C0000i64;
@@ -1394,22 +1416,21 @@ pub unsafe fn nt_query_directory_file(
                         );
 
                         current_offset += aligned_entry_size as usize;
-                        entries_written += 1;
 
-                        if return_single_entry {
-                            NT_HANDLE_AND_FILENAMES.with(|cell| {
-                                let mut handle_and_filenames = cell.borrow_mut();
-                                if index + 1 < files_count {
-                                    handle_and_filenames.insert(file_handle, filenames[index + 1..].to_vec());
-                                }
-                                else {
-                                    handle_and_filenames.remove(&file_handle);
-                                }
-                            });
-                            
+                        if return_single_entry || islastone {                      
                             break;
                         }
                     }
+
+                    NT_HANDLE_AND_FILENAMES.with(|cell| {
+                        let mut handle_and_filenames = cell.borrow_mut();
+                        if entries_written < files_count {
+                            handle_and_filenames.insert(file_handle, filenames[entries_written..].to_vec());
+                        }
+                        else {
+                            handle_and_filenames.remove(&file_handle);
+                        }
+                    });
 
                     NT_HANDLE_MAP_FILES.write().unwrap().insert(file_handle as i32, collectfiles);
 
@@ -2024,8 +2045,6 @@ pub unsafe fn nt_query_volume_information_file(
     }
 
     crate::logger::output_debug_string(&format!("nt_query_volume_information_file called, handle: {:?}, class: {:?}" ,filehandle, fsinformationclass));
-
-
 
     let skip = NT_HANDLE_AND_DIR.try_with(|cell| {
         let handle_and_dir = cell.try_borrow();

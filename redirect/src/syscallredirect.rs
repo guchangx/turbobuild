@@ -48,7 +48,7 @@ unsafe fn redirect_syscall_2_cocrew() {
 
     use std::os::windows::ffi::OsStrExt;
 
-    let runtime = { crate::RUNTIME.lock().unwrap().handle().clone() };
+    let runtime = crate::REDIRECT_RUNTIME.handle().clone();
     let runtime_ = runtime.clone();
     let _ = runtime.spawn_blocking(move || {
 

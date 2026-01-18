@@ -312,9 +312,17 @@ impl Receiver {
 
                     if dir_exists && !replace.is_empty() && !std::path::Path::new(&replace).exists() {
                         log::info!("transmit redirect handle create replace dir: {}", replace);
-                        std::fs::create_dir_all(&replace).unwrap_or_else(|err| {
-                            panic!("create replace dir failed: {} {}", replace, err);
-                        });
+                        match std::fs::create_dir_all(&replace) {
+                            Ok(_) => {},
+                            Err(err) => {
+                                if err.kind() == std::io::ErrorKind::AlreadyExists {
+                                    log::error!("create replace dir failed: {} {}", replace, err)
+                                }
+                                else {
+                                    panic!("create replace dir failed: {} {}", replace, err);
+                                }
+                            },
+                        };
                     }
 
                     let command_result = MirrorSysCall {
@@ -437,7 +445,7 @@ impl Receiver {
             }
         }
 
-        log::info!("transmit storage file done. elapsed: {} ms", now.elapsed().as_millis());
+        log::info!("transmit storage file done. elapsed: {:?}", now.elapsed());
         return Ok(());   
     }
 

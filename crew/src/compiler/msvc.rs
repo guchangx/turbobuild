@@ -923,6 +923,10 @@ impl MSVC {
                     return (addr, output);
                 });
             }
+            else  {
+                log::error!("no available addr to schedule for dist compile.");
+            }
+
             if sources.is_empty() {
                 break;
             }

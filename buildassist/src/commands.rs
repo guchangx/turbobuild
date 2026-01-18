@@ -10,8 +10,18 @@ pub struct CompilerInput {
     pub build_and_compiler_type: std::ffi::OsString,
 }
 
-pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMap<String, String>) 
-    -> (Option<std::ffi::OsString>, Option<std::ffi::OsString>, String, Option<std::ffi::OsString>) {
+pub fn fetch_compiler_args_path_from_envs() 
+    -> (Option<std::ffi::OsString>, Option<std::ffi::OsString>, String, Option<std::ffi::OsString>, std::collections::HashMap<String, String>) {
+
+    let mut environment = std::collections::HashMap::new();
+    for (key, value) in std::env::vars() {
+        if key.eq("EXTERNAL_INCLUDE") || key.eq("INCLUDE") || key.eq("VSAPPIDDIR") 
+            || key.eq("VSSKUEDITION") || key.eq("VSLANG")
+           /*|| key.starts_with("TRACKER_")*/  || key.starts_with("TRACKER_INTERMEDIATE")
+           || key.starts_with("VSTEL_") {
+            environment.insert(key, value);
+        }
+    }
 
     let mut solution= None;
     if let Some(sln) = environment.get("VSTEL_SolutionPath") {
@@ -133,22 +143,12 @@ pub fn fetch_compiler_args_path_from_envs(environment: &std::collections::HashMa
         }
     }
 
-    return (solution, project, index, if compiler.is_empty() {None} else { Some(std::ffi::OsString::from(compiler))});
+    return (solution, project, index, if compiler.is_empty() {None} else { Some(std::ffi::OsString::from(compiler))}, environment);
 }
 
 pub fn fetch_compiler_commands() -> Option<CompilerInput> {
 
-    let mut environment = std::collections::HashMap::new();
-    for (key, value) in std::env::vars() {
-        if key.eq("EXTERNAL_INCLUDE") || key.eq("INCLUDE") || key.eq("VSAPPIDDIR") 
-            || key.eq("VSSKUEDITION") || key.eq("VSLANG")
-           /*|| key.starts_with("TRACKER_")*/  || key.starts_with("TRACKER_INTERMEDIATE")
-           || key.starts_with("VSTEL_") {
-            environment.insert(key, value);
-        }
-    }
-
-    let (mut solution_, mut project_, index, compiler_) = fetch_compiler_args_path_from_envs(&environment);
+    let (mut solution_, mut project_, index, compiler_, environment) = fetch_compiler_args_path_from_envs();
 
     let commandline = std::env::args_os();
     let mut commands: Vec<std::ffi::OsString> = commandline.collect();

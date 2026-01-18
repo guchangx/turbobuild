@@ -22,7 +22,7 @@ pub unsafe fn redirect_stdout_log_2_cocrew() {
     let iocp_handle = tools::ptr::HandleBox::new(iocp);
     let iocp_handle_ = iocp_handle.clone();
 
-    let handle = crate::RUNTIME.lock().unwrap().spawn(async move {
+    let _ = crate::REDIRECT_RUNTIME.spawn(async move {
 
         let name = std::ffi::OsString::from("\\\\.\\pipe\\redirect_stdout_log_pipe");
         let name = name.encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();

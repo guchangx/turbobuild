@@ -141,7 +141,7 @@ impl TasksManager {
             return self.tasks.first().unwrap().addr.as_str();
         }
         else {
-            let iter = self.tasks.iter_mut().filter(|item| item.running < item.max && item.usage.cpu <= 95.00).min_by(|x, y| x.running.cmp(&y.running));
+            let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= 95.00).min_by(|x, y| x.running.cmp(&y.running));
             if let Some(item) = iter {
                 item.running += 1;    
                 return item.addr.as_str();
@@ -153,7 +153,8 @@ impl TasksManager {
     }
 
     pub fn schedule_for_sources(&mut self, size: u32) ->(&str, i32, u32) {
-        let iter = self.tasks.iter_mut().filter(|item| item.running < item.max).min_by(|x, y| x.running.cmp(&y.running));
+        //features: limit by cpu usage
+        let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= item.max as f32).min_by(|x, y| x.running.cmp(&y.running));
         if let Some(item) = iter {
             if size <= item.core {
                 if size <= size / 2 + item.core {

@@ -171,77 +171,87 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
         return std::collections::HashMap::new();
     }
     else {
-        let length = 65536;
-        let mut buffer: Vec<u8> = vec![0; length];
-        let fileinformation = buffer.as_mut_ptr() as *mut std::ffi::c_void;
-
-        let fileinformationclass = windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation;
-        let nt_status = windows_sys::Wdk::Storage::FileSystem::NtQueryDirectoryFile(
-            filehandle,
-            std::ptr::null_mut(),
-            win::System::IO::PIO_APC_ROUTINE::None,
-            std::ptr::null_mut(),
-            &mut iostatusblock,
-            fileinformation,
-            length as u32,
-            fileinformationclass,
-            false,
-            std::ptr::null_mut(),
-            false,
-        );
-
-        if nt_status != win::Foundation::STATUS_SUCCESS {
-            log::error!("failed to query directory: {} with status: {}", fileh, nt_status);
-            win::Foundation::CloseHandle(filehandle);
-            return std::collections::HashMap::new();
-        } else {
-            let mut filenames = std::string::String::new();
-            let mut current_offset = 0usize;
-            let mut entry_count = 0;
-        
-            loop {
-                let current_entry = (fileinformation as *const u8).add(current_offset);
-                entry_count += 1;
-                match fileinformationclass {
-                    windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation => {
-                        let file_info = current_entry as *const windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
-                        let file_name_length_bytes = (*file_info).FileNameLength as usize;
-
-                        if file_name_length_bytes > 0 {
-                            let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
-                            if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
-                                writeln!(&mut filenames, "{}|{}", file_name_str, (*file_info).FileAttributes).unwrap();
-                            } else {
-                                log::warn!("failed to convert file name to UTF-16: {:?}", file_name_slice);
-                            }
-                        }
-
-                        let next_entry_offset = (*file_info).NextEntryOffset;
-                        if next_entry_offset == 0 {
-                            break;
-                        }
-                        else {
-                            current_offset += next_entry_offset as usize;
-                        }
-                    }
-                    _ => {
-                       
-                    }
-                }
-
-                if current_offset >= length as usize {
-                   
+        let mut results = std::collections::HashMap::new();
+        let mut filenames = std::string::String::new();
+        let mut restart = true;
+        loop {
+            let length = 65536;
+            let mut buffer: Vec<u8> = vec![0; length];
+            let fileinformation = buffer.as_mut_ptr() as *mut std::ffi::c_void;
+    
+            let fileinformationclass = windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation;
+            let nt_status = windows_sys::Wdk::Storage::FileSystem::NtQueryDirectoryFile(
+                filehandle,
+                std::ptr::null_mut(),
+                win::System::IO::PIO_APC_ROUTINE::None,
+                std::ptr::null_mut(),
+                &mut iostatusblock,
+                fileinformation,
+                length as u32,
+                fileinformationclass,
+                false,
+                std::ptr::null_mut(),
+                restart,
+            );
+            restart = false;
+            if nt_status != win::Foundation::STATUS_SUCCESS {
+                if nt_status == win::Foundation::STATUS_NO_MORE_FILES {
                     break;
                 }
-            }
-            log::info!("successfully queried directory: {} entry count: {}", fileh, entry_count);
-            win::Foundation::CloseHandle(filehandle);
+                else {
+                    log::error!("failed to query directory: {} with status: {}", fileh, nt_status);
+                    win::Foundation::CloseHandle(filehandle);
+                    return results;
+                }
+            } 
+            else {
 
-            let mut results = std::collections::HashMap::new();
-            results.insert("fileinformation".to_string(), filenames.clone());
-            
-            return results;
+                let mut current_offset = 0usize;
+                let mut batchsize = 0;
+                loop {
+                    batchsize += 1;
+                    let current_entry = (fileinformation as *const u8).add(current_offset);
+                    match fileinformationclass {
+                        windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation => {
+                            let file_info = current_entry as *const windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
+                            let file_name_length_bytes = (*file_info).FileNameLength as usize;
+    
+                            let next_entry_offset = (*file_info).NextEntryOffset;
+
+                            if file_name_length_bytes > 0 {
+                                let file_name_slice = std::slice::from_raw_parts((*file_info).FileName.as_ptr(), file_name_length_bytes / 2);
+                                if let Ok(file_name_str) = String::from_utf16(file_name_slice) {
+                                    let attr = if next_entry_offset == 0 { (*file_info).FileAttributes + 1} else {
+                                        (*file_info).FileAttributes
+                                    };
+                                    writeln!(&mut filenames, "{}|{}", file_name_str, attr).unwrap();
+                                } else {
+                                    log::warn!("failed to convert file name to UTF-16: {:?}", file_name_slice);
+                                }
+                            }
+                            
+                            if next_entry_offset == 0 {
+                                break;
+                            }
+                            else {
+                                current_offset += next_entry_offset as usize;
+                            }
+                        }
+                        _ => {
+                           
+                        }
+                    }
+                    
+                    if current_offset >= iostatusblock.Information {
+                        break;
+                    }
+                }
+            }
         }
+        log::info!("successfully queried directory: {} entry count: {}", fileh, filenames.lines().count());
+        win::Foundation::CloseHandle(filehandle);
+        results.insert("fileinformation".to_string(), filenames.clone());
+        return results;
     }
 }
 
