@@ -210,7 +210,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
 
                 rt_.spawn(async move {
                     if !item.is_empty() {
-                        let objfile = pre_return_local_compile_result_objfiles(&std::borrow::Cow::from(item), &(*generated_object_), &solution_name_, &origin_working_dir_, &out_stream).await;
+                        let objfile = pre_return_local_compile_result_object_files(&std::borrow::Cow::from(item), &(*generated_object_), &solution_name_, &origin_working_dir_, &out_stream).await;
                         if let Some(objfile) = objfile {
                             unready_objfiles_.lock().unwrap().insert(objfile.0, objfile.1);
                         }
@@ -256,7 +256,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
                 let solution_name = solution_name.clone();
                 let origin_working_dir = origin_working_dir.clone();
                 rt.spawn(async move {
-                    let _ = pre_return_local_compile_result_objfiles(&std::borrow::Cow::from(line), &(*generated_object), &solution_name, &origin_working_dir, &out_stream_);
+                    let _ = pre_return_local_compile_result_object_files(&std::borrow::Cow::from(line), &(*generated_object), &solution_name, &origin_working_dir, &out_stream_);
                 });
             }
             drop(out_stream);
@@ -283,7 +283,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     return (result, None);
 }
 
-async fn pre_return_local_compile_result_objfiles(line: &std::borrow::Cow<'_, str>, generated_object: &GeneratedObject, solution_name: &std::ffi::OsString, 
+async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_, str>, generated_object: &GeneratedObject, solution_name: &std::ffi::OsString, 
                                                 origin_working_dir: &std::ffi::OsString, out_stream: &tokio::sync::mpsc::Sender<CompiledResults>) 
                                                 -> std::option::Option<(std::string::String, std::path::PathBuf)> {
 

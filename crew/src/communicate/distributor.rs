@@ -63,7 +63,7 @@ impl Distributor {
     }
     
     pub async fn compile<'a>(addr: &str, file: std::ffi::OsString, input: &crate::compiler::model::CompilerInput, content: &std::borrow::Cow<'a, [u8]>,
-        runtime: &std::sync::Arc<tokio::runtime::Handle>) -> crate::communicate::package::ReceiverType {
+        runtime: &std::sync::Arc<tokio::runtime::Handle>, output_callback: crate::compiler::model::OutputCallback) -> crate::communicate::package::ReceiverType {
 
         let args = super::package::SourcesFile {
             solution: input.solution.to_string_lossy().to_string(),
@@ -93,7 +93,7 @@ impl Distributor {
 
         let mut sender = super::package::Sender::new(addr, Some(runtime)).await;
         
-        let args = super::package::SenderType::Compile(args);
+        let args = super::package::SenderType::Compile(args, output_callback);
         let result = sender.dist(args).await;
         
         return result;

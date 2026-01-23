@@ -64,3 +64,8 @@ pub struct CompiledResult {
 }
 
 pub type CompiledResults = Vec<CompiledResult>;
+
+
+pub type OutputCallback = std::sync::Arc<dyn Fn(crate::compiler::model::CompilerOutput) 
+            -> Box<dyn std::future::Future<Output = ()> + Send> 
+            + Send + Sync>;

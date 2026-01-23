@@ -507,8 +507,9 @@ impl Receiver {
             while let Some(results) = out_receiver.recv().await {
                 for result in results {
                     let mut intermediates = Vec::new();
-                    let _source = result.source_file;
-      
+
+                    let source = result.source_file;
+                    
                     if let Some(obj) = result.obj {
                         let file = obj.0;
                         let content = obj.1;
@@ -540,7 +541,7 @@ impl Receiver {
 
                     let reply = package::CompileTrResponse {
                         progress: package::CompileProgress::Compiling.into(),
-                        out: Vec::new(),
+                        out: source.to_str().unwrap_or("").as_bytes().to_vec(),
                         err: Vec::new(),
                         results: intermediates,
                         status: 0,
@@ -586,7 +587,7 @@ impl Receiver {
                 out: output.out.to_vec(),
                 err: output.err.to_vec(),
                 results: Vec::new(),
-                status: 1,
+                status: output.status,
                 tips: "transmit do compile failed.".to_string(),
             };
             sender(reply).await;
