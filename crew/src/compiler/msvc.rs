@@ -750,7 +750,7 @@ impl MSVC {
                     if let Ok(entry) = entry {
                         let path = entry.path();
                         if path.is_file() && path.extension().map(|ext| ext == "h" || ext == "hpp" 
-                                || ext == "hh" || ext == "hxx" || ext == "h++" || ext == "inl").unwrap_or(false) {
+                                || ext == "hh" || ext == "hxx" || ext == "h++" || ext == ".hm" || ext == "inl").unwrap_or(false) {
                             headers.insert(path);
                         }
                     }
@@ -759,6 +759,7 @@ impl MSVC {
         }
         
         let headers = std::sync::Arc::new(tokio::sync::Mutex::new(headers));
+        let extracted_pdb = actions.pdb_file.clone();
 
         for _ in 0..len {
             let mut addr = String::new();
@@ -768,6 +769,17 @@ impl MSVC {
             // if addr is local, we can skip the dist compile
 
             if !left.is_empty() {
+                let mut is_split = false;
+                if len == 1 {
+                    let sources_split_index = check_instruction_length(&others, &left);    
+                    if sources_split_index < left.len() {
+                        log::info!("split sources at index: {} for instruction length more than processer max params length.", sources_split_index);
+                        let split_off = left.split_off(sources_split_index);
+                        sources = split_off;
+                        is_split = true;
+                    }
+                }
+                 
                 let self_ = self.clone();
 
                 let solution = input.solution.to_string_lossy().to_string();
@@ -776,6 +788,7 @@ impl MSVC {
                 let input_ = input.clone();
 
                 let mut others_ = others.clone();
+                let extracted_pdb_ = extracted_pdb.clone();
 
                 let headers = headers.clone();
                 set.spawn(async move {
@@ -826,38 +839,43 @@ impl MSVC {
                                 //.odl;.asm;.asmx;.xsd;.bin;.rgs;.html;.htm;.manifest
                                 //.cpp;.cxx;.cc;.c;.c++;.cppm;.ixx;.inl;.ipp
                                 //.h;.hh;.hpp;.hxx;.h++;.hm
-                                let path = std::path::PathBuf::from(&file_);
-                                let header_file = {
-                                    let guard = headers.lock().await;
-                                    if let Some(found) = guard.iter().find(|&item| item.file_stem().map(|item| item == path.file_stem().unwrap()).unwrap_or(false)) {
-                                        Some(found.to_owned())
+                                loop {
+                                    let path = std::path::PathBuf::from(&file_);
+                                    let relevant_file = {
+                                        let guard = headers.lock().await;
+                                        if let Some(found) = guard.iter().find(|&item| item.file_stem().map(|item| item == path.file_stem().unwrap()).unwrap_or(false)) {
+                                            Some(found.to_owned())
+                                        }
+                                        else {
+                                            None
+                                        }
+                                    };
+        
+                                    if let Some(found) = relevant_file {
+                                        { headers.lock().await.remove(&found) };
+                                        if found.exists() {
+                                            let content = tokio::fs::read(&found).await.unwrap_or_else(|_| {
+                                                log::error!("failed to read file: {:?}", found);
+                                                Vec::new()
+                                            });
+        
+                                            let name = found.file_name().unwrap().to_string_lossy().to_string();
+        
+                                            let archive = crate::communicate::package::ArchiveArgs {
+                                                file_type: crate::communicate::package::FileType::SourceFiles,
+                                                solution: solution__.clone(),
+                                                project: project__.clone(),
+                                                name: name.clone(),
+                                                //path: intermediate_.join(name).to_string_lossy().to_string(),
+                                                path: found.to_string_lossy().to_string(),
+                                                content: content.into(),
+                                            };
+        
+                                            let _ = stream__.send(archive).await;
+                                        }
                                     }
                                     else {
-                                        None
-                                    }
-                                };
-    
-                                if let Some(found) = header_file {
-                                    { headers.lock().await.remove(&found) };
-                                    if found.exists() {
-                                        let content = tokio::fs::read(&found).await.unwrap_or_else(|_| {
-                                            log::error!("failed to read file: {:?}", found);
-                                            Vec::new()
-                                        });
-    
-                                        let name = found.file_name().unwrap().to_string_lossy().to_string();
-    
-                                        let archive = crate::communicate::package::ArchiveArgs {
-                                            file_type: crate::communicate::package::FileType::SourceFiles,
-                                            solution: solution__.clone(),
-                                            project: project__.clone(),
-                                            name: name.clone(),
-                                            //path: intermediate_.join(name).to_string_lossy().to_string(),
-                                            path: found.to_string_lossy().to_string(),
-                                            content: content.into(),
-                                        };
-    
-                                        let _ = stream__.send(archive).await;
+                                        break;
                                     }
                                 }
                             });
@@ -901,23 +919,24 @@ impl MSVC {
                         path: std::ffi::OsString::new(),
                     };
 
-                    if index != 0 {
-                        for item in others_.iter_mut() {
-                            if item.to_string_lossy().starts_with("/Fd") {
-                                if item.to_string_lossy().ends_with(".pdb") {
-                                    *item = std::ffi::OsString::from(format!("{}_tb_{}.pdb", item.to_string_lossy().strip_suffix(".pdb").unwrap(), index));
-                                }
-                                else {
-                                    *item = std::ffi::OsString::from(format!("{}/v143_tb_{}.pdb", item.to_string_lossy(), index));
-                                }
-                                log::debug!("modify pdb path for tb  {:?}", item);
-                            }
-                        }
-                    }
+                    match &extracted_pdb_ {
+                        crate::compiler::msvc::ProgramDataBase::PathWithPDBName(pdb) => {
+                            let path = std::path::PathBuf::from(&pdb);
+                            let pdb = std::ffi::OsString::from(format!("/Fd{}_tb_{}.pdb", path.with_extension("").display(), index + 1));
+                            others_.push(pdb);
+                        },
+                        crate::compiler::msvc::ProgramDataBase::PathWithoutPDBName(path) => {
+                            let pdb = std::ffi::OsString::from(format!("/Fd{}/v143_tb_{}.pdb", path.to_string_lossy(), index + 1));
+                            others_.push(pdb);
+                        },
+                        _ => {
+                            log::warn!("no parsed pdb file path found.");
+                        },
+                    };
 
                     let mut input = input_.clone();
                     input.compiler_commands = others_;
-                    input.compiler_commands.append(&mut left.iter().map(|item| item.clone()).collect());
+                    input.compiler_commands.extend(left.iter().cloned());
                     
                     let output = self_.request_dist_compile(&addr, &input, &requires).await;
                     return (addr, output);
@@ -948,6 +967,7 @@ impl MSVC {
 
                         let self_ = self.clone();
                         let input_ = input.clone();
+                        let extracted_pdb_ = extracted_pdb.clone();
                         let mut others_ = others.clone();
                         set.spawn(async move {
                             let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr_, &self_.runtime).await;
@@ -992,23 +1012,24 @@ impl MSVC {
                                 path: std::ffi::OsString::new(),
                             };
 
-                            if index != 0 {
-                                for item in others_.iter_mut() {
-                                    if item.to_string_lossy().starts_with("/Fd") {
-                                        if item.to_string_lossy().ends_with(".pdb") {
-                                            *item = std::ffi::OsString::from(format!("{}_tb_{}.pdb", item.to_string_lossy().strip_suffix(".pdb").unwrap(), index));
-                                        }
-                                        else {
-                                            *item = std::ffi::OsString::from(format!("{}/v143_tb_{}.pdb", item.to_string_lossy(), index));
-                                        }
-                                        log::debug!("modify pdb path for tb  {:?}", item);
-                                    }
-                                }
-                            }
+                            match &extracted_pdb_ {
+                                crate::compiler::msvc::ProgramDataBase::PathWithPDBName(pdb) => {
+                                    let path = std::path::PathBuf::from(&pdb);
+                                    let pdb = std::ffi::OsString::from(format!("/Fd{}_tb_{}.pdb", path.with_extension("").display(), index + 1));
+                                    others_.push(pdb);
+                                },
+                                crate::compiler::msvc::ProgramDataBase::PathWithoutPDBName(path) => {
+                                    let pdb = std::ffi::OsString::from(format!("/Fd{}/v143_tb_{}.pdb", path.to_string_lossy(), index + 1));
+                                    others_.push(pdb);
+                                },
+                                _ => {
+                                    log::warn!("no parsed pdb file path found.");
+                                },
+                            };
 
                             let mut input = input_.clone();
                             input.compiler_commands = others_;
-                            input.compiler_commands.append(&mut left.iter().map(|item| item.clone()).collect());
+                            input.compiler_commands.extend(left.iter().cloned());
 
                             let output = self_.request_dist_compile(&addr_, &input, &requires).await;
                             
@@ -1025,6 +1046,23 @@ impl MSVC {
         return CompilerOutput::default();
     }
 
+}
+
+fn check_instruction_length(base: &Vec<std::ffi::OsString>, source_files: &Vec<std::ffi::OsString>) -> usize {
+
+    let mut sum = base.iter().map(|item| 
+        1 + item.len()
+    ).sum::<usize>() + 120;
+
+    for (index, item) in source_files.iter().enumerate() {
+        sum += item.len() + 1;
+        if sum > 32600 {
+            log::debug!("source file {:?} len {:?} exceed max command line length, split batch here.", item, sum);
+            return index;
+        }
+    }
+
+    return source_files.len();
 }
 
 fn winapi_get_long_path_name(path: &std::ffi::OsString) -> std::ffi::OsString {
@@ -2118,7 +2156,7 @@ fn filter_compiler_warning_and_error(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>)
 #[derive(Debug)]
 struct CompileAction {
     pub precompile_2_stdout: bool,
-    pub compile_source_file: std::collections::HashMap<std::string::String, std::path::PathBuf>,
+    pub compile_source_file: std::vec::Vec<(std::string::String, std::path::PathBuf)>,
     pub compile_instruction: Vec<std::ffi::OsString>,
     pub precompiled_result_file: PrecompiledResult,
     pub object_file: GeneratedObject,
@@ -2130,7 +2168,7 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
     let working_dir = std::path::PathBuf::from(working_dir);
 
     let mut precompile_2_stdout = false;
-    let mut sourcefile: std::collections::HashMap<String, std::path::PathBuf> = std::collections::HashMap::new();
+    let mut sourcefile: std::vec::Vec<(std::string::String, std::path::PathBuf)> = Vec::new();
     let mut precompiled_result_file = PrecompiledResult::NonePCResultPath;
     let mut object_file = GeneratedObject::NoneObjPath;
     let mut pdb_file = ProgramDataBase::NonePDBPath;
@@ -2142,7 +2180,7 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
         || build_and_compiler_type.to_string_lossy().contains("dist") {
 
         for command in compiler_commands {
-            let mut isfile = false;
+            let mut isother = false;
             let mut command = command.to_string_lossy();
             if command == "/P" {
                 precompile_2_stdout = false;
@@ -2153,7 +2191,7 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
             else if command.to_lowercase().ends_with(".cpp") || command.to_lowercase().ends_with(".c") || command.to_lowercase().ends_with(".cc") 
                 || command.to_lowercase().ends_with(".cxx") {
 
-                isfile = true;
+                isother = true;
                 let source = command.replace(r#"""#, "");
                 let mut index = source.rfind(r"\");
                 if index.is_none() {
@@ -2165,27 +2203,27 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
 
                         let source_path = std::path::PathBuf::from(source.clone());
                         if source_path.is_absolute() {
-                            sourcefile.insert(source_file_name, source_path);
+                            sourcefile.push((source_file_name, source_path));
                         }
                         else {
                             let source_path = working_dir.join(source.clone());
-                            sourcefile.insert(source_file_name, source_path);
+                            sourcefile.push((source_file_name, source_path));
                         }
                     },
                     None => {
                         let absolute_source_path = working_dir.join(source.clone());
-                        sourcefile.insert(source.clone(), absolute_source_path);
+                        sourcefile.push((source.clone(), absolute_source_path));
                     }
                 }
             }
             else if command.starts_with("/Fd") {
+                isother = true;
                 (pdb_file, _) = exact_compile_pdb_file(command.clone(), &working_dir);
             }
             else if command.starts_with("/Fo") {
                 object_file = exact_compile_object_file(command.clone(), &working_dir);
             }
             else if command.starts_with("/Fi") {
-
                 let result_path = command.to_mut().split_off(3).replace(r#"""#, "").replace(r"\\", r"\");
                 if result_path.ends_with(".i") {
                     let path = std::path::PathBuf::from(result_path);
@@ -2210,7 +2248,7 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
                 }
             }
 
-            if !isfile {
+            if !isother {
                 compile_other_commands.push(std::ffi::OsString::from(command.into_owned()));
             }
         }
@@ -2308,7 +2346,7 @@ fn commands_dist_parameters_requires(input: &CompilerInput) -> std::ffi::OsStrin
     return extra_requires;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum GeneratedObject {
     NoneObjPath,
     PathWithObjName(std::path::PathBuf),
@@ -2363,7 +2401,7 @@ fn fetch_compile_object_file(build_and_compiler_type: &std::ffi::OsString, compi
     return GeneratedObject::NoneObjPath;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum ProgramDataBase {
     NonePDBPath,
     PathWithPDBName(std::path::PathBuf),

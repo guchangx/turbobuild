@@ -711,17 +711,9 @@ fn parse_action_from_commands(compiler_input: &CompilerInput) -> CompileAction {
 
 fn start_local_compiler_with_inject(solution: &std::ffi::OsString, project: &std::ffi::OsString, compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, 
                             compiler_commands: &Vec<std::ffi::OsString>, envs: &std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>, out_err_stream: &OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
-    let mut includes = Vec::new();
+
     let line: String = compiler_commands.clone().into_iter()
         .map(|item| {
-            //"/I \"D:\\WorkSpace\\OpenSource\\ZLMediaKit\\3rdpart\\wepoll\""
-            if item.to_string_lossy().starts_with("/I ") {
-                let include = item.to_string_lossy().to_string();
-                includes.push(include);
-            }
-            else if item.to_string_lossy().starts_with("/external:I") {
-            }
-
             return format!("{} ", item.to_string_lossy());
         })
         .collect();

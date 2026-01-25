@@ -154,47 +154,61 @@ impl TasksManager {
 
     pub fn schedule_for_sources(&mut self, size: u32) ->(&str, i32, u32) {
         //features: limit by cpu usage
-        let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= item.max as f32).min_by(|x, y| x.running.cmp(&y.running));
-        if let Some(item) = iter {
-            if size <= item.core {
-                if size <= size / 2 + item.core {
-                    item.running += size;
-                    return (item.addr.as_str(), item.index, size);
-                }
-                else {
-                    item.running += item.core;
-                    return (item.addr.as_str(), item.index, item.core);
-                }
-            }
-            else {
-                item.running += size;
-                return (item.addr.as_str(), item.index, size);
-            }            
+        if self.tasks.len() == 1 as usize{
+            let item = self.tasks.first_mut().unwrap();
+            item.running += size;
+            return (item.addr.as_str(), item.index, size);
         }
         else {
-            return ("", -1, 0);
+            let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= item.max as f32).min_by(|x, y| x.running.cmp(&y.running));
+            if let Some(item) = iter {
+                if size >= item.core {
+                    if size <= item.core * 2.5 as u32 {
+                        item.running += size;
+                        return (item.addr.as_str(), item.index, size);
+                    }
+                    else {
+                        item.running += item.core;
+                        return (item.addr.as_str(), item.index, item.core);
+                    }
+                }
+                else {
+                    item.running += size;
+                    return (item.addr.as_str(), item.index, size);
+                }            
+            }
+            else {
+                return ("", -1, 0);
+            }
         }
     }
 
     pub fn schedule_by_specific_host(&mut self, addr: &str, size: u32) -> (i32, u32) {
-        if let Some(item) = self.tasks.iter_mut().find(|item| item.addr == addr) {
-            if size <= item.core {
-                if size <= size / 2 + item.core {
-                    item.running += size;
-                    return (item.index,size as u32);
+        if self.tasks.len() == 1 as usize{
+            let item = self.tasks.first_mut().unwrap();
+            item.running += size;
+            return (item.index, size);
+        }
+        else {
+            if let Some(item) = self.tasks.iter_mut().find(|item| item.addr == addr) {
+                if size >= item.core {
+                    if size <= item.core * 2.5 as u32 {
+                        item.running += size;
+                        return (item.index, size as u32);
+                    }
+                    else {
+                        item.running += item.core;
+                        return (item.index, item.core as u32);
+                    }
                 }
                 else {
-                    item.running += item.core;
-                    return (item.index, item.core as u32);
+                    item.running += size;
+                    return (item.index, size as u32);
                 }
             }
             else {
-                item.running += size;
-                return (item.index, size as u32);
+                return (-1, 0);
             }
-        }
-        else {
-            return (-1, 0);
         }
     }
     
