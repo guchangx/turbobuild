@@ -2,12 +2,13 @@
 //#[cfg(target_os = "windows")]
 //extern crate regex;
 
+
 #[derive(Clone)]
 pub struct MSVC {
     pub work_env: crate::platform::windows::WindowsCompilerEnv,
     pub runtime: std::sync::Arc<tokio::runtime::Handle>,
     pub sender: std::sync::Arc<std::sync::Mutex<crate::communicate::distributor::Distributor>>,
-    pub output_callback: std::sync::Arc<dyn Fn(crate::compiler::model::CompilerOutput) -> Box<dyn std::future::Future<Output = ()> + Send> + Send + Sync>,
+    pub output_callback: crate::compiler::model::OutputCallback,
 }
 
 pub struct StdOut {
@@ -493,7 +494,7 @@ impl MSVC {
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
         log::debug!("{:?} in commands compiler version: {:?}, addr: {:?}", input.project, cversion, addr);
         if input.build_and_compiler_type.to_string_lossy().contains("clang_cl") {
-            let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled, &self.runtime).await;
+            let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled, &self.runtime, self.output_callback.clone()).await;
             if output.status == 0 {
             
             }
@@ -505,7 +506,7 @@ impl MSVC {
         else {
             if self.sender.lock().unwrap().check(addr, &cversion) {
             
-                let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled, &self.runtime).await;
+                let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled, &self.runtime, self.output_callback.clone()).await;
                 if output.status == 0 {
                 
                 }
@@ -955,9 +956,6 @@ impl MSVC {
             match handle {
                 Ok((addr, output)) => {
                     log::debug!("dist compile with source and include file output: {:?}", addr);
-                    let callback = (self.output_callback)(output);
-                    let callback = Box::into_pin(callback);
-                    let _ = callback.await;
 
                     if !sources.is_empty() {
                         let mut index = -1;
@@ -1688,7 +1686,9 @@ fn request_local_compile_by_preprocessed_source(msvc_compile_input: &CompilerInp
     return (output, results);
 }
 
-async fn request_dist_compile_with_precompiled_source(addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> CompilerOutput {
+async fn request_dist_compile_with_precompiled_source(addr: &str, input: &CompilerInput, precompiled: 
+    &PrecompiledSource, runtime: &std::sync::Arc<tokio::runtime::Handle>, output_callback: crate::compiler::model::OutputCallback) 
+    -> CompilerOutput {
 
     let mut output = CompilerOutput::default();
 
@@ -1698,7 +1698,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
         if let Some(content) = precompiled.contents.clone() {
             log::info!("precompiled sourcefile result has content. so just transmit file");
             let content = std::borrow::Cow::from(content);
-            let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &content, runtime).await;
+            let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &content, runtime, output_callback).await;
             match receiver {
                 crate::communicate::package::ReceiverType::Archive(recv) => {
                     output.status = recv.status as u32;
@@ -1710,7 +1710,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
         }
         else {
             log::info!("precompiled sourcefile result content is empty. so just transmit command"); 
-            let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &std::borrow::Cow::from(Vec::new()), runtime).await;
+            let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &std::borrow::Cow::from(Vec::new()), runtime, output_callback).await;
             match receiver {
                 crate::communicate::package::ReceiverType::Compile(recv) => {
                     output.status = recv.status;
