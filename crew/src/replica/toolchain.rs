@@ -329,12 +329,12 @@ impl Property {
     }
     
     pub async fn sync_compiler_toolchain(path: &str, addr: &str) {
-        let packager = crate::communicate::packager::Packager::default();
+        let packager = crate::communicate::packer::Packer::default();
         packager.toolchain(path, addr).await;
     }
     
     pub async fn sync_compiler_includes(path: &str, addr: &str) {
-        let packager = crate::communicate::packager::Packager::default();
+        let packager = crate::communicate::packer::Packer::default();
         packager.includes(path, addr).await;
     }
 }

@@ -3,15 +3,15 @@ use std::fmt::Write;
 
 use windows_sys::Win32 as win;
 
-pub fn route_file_system_operation(redirect: crate::communicate::package::pack::RemoteSyscall) -> crate::communicate::package::pack::LocalSyscall {
+pub fn route_file_system_operation(redirect: crate::communicate::packager::pack::RemoteSyscall) -> crate::communicate::packager::pack::LocalSyscall {
     let mut params = redirect.params.iter().map(|(param)| (param.key.clone(), param.value.clone())).collect::<std::collections::HashMap<String, String>>();
     match redirect.api.as_str() {
         "NtQueryDirectoryFile" => {
             let results = unsafe { redirect_nt_query_directory_file(params) };
-            let local = crate::communicate::package::pack::LocalSyscall {
+            let local = crate::communicate::packager::pack::LocalSyscall {
                 cid: redirect.cid,
                 api: redirect.api,
-                params: results.iter().map(|(k, v)| crate::communicate::package::pack::Params {
+                params: results.iter().map(|(k, v)| crate::communicate::packager::pack::Params {
                     key: k.clone(),
                     value: v.clone(),
                 }).collect(),
@@ -25,10 +25,10 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
             match context {
                 Ok((expect, data)) => {
                     if expect == "exists" {
-                        let local = crate::communicate::package::pack::LocalSyscall {
+                        let local = crate::communicate::packager::pack::LocalSyscall {
                             cid: redirect.cid,
                             api: redirect.api,
-                            params: params.iter().map(|(k, v)| crate::communicate::package::pack::Params {
+                            params: params.iter().map(|(k, v)| crate::communicate::packager::pack::Params {
                                 key: k.clone(),
                                 value: v.clone(),
                             }).collect(),
@@ -39,14 +39,14 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
                         return local;
                     }
                     else {
-                        let local = crate::communicate::package::pack::LocalSyscall {
+                        let local = crate::communicate::packager::pack::LocalSyscall {
                             cid: redirect.cid,
                             api: redirect.api,
-                            params: params.iter().map(|(k, v)| crate::communicate::package::pack::Params {
+                            params: params.iter().map(|(k, v)| crate::communicate::packager::pack::Params {
                                 key: k.clone(),
                                 value: v.clone(),
                             }).collect(),
-                            files: vec![crate::communicate::package::pack::IntermediateResult{file: expect.clone(), content: data.clone()}],
+                            files: vec![crate::communicate::packager::pack::IntermediateResult{file: expect.clone(), content: data.clone()}],
                         };
 
                         log::debug!("redirect nt create file result: {:?} expect: {}", params, expect);
@@ -54,10 +54,10 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
                     }   
                 },
                 Err(err) => {
-                    let local = crate::communicate::package::pack::LocalSyscall {
+                    let local = crate::communicate::packager::pack::LocalSyscall {
                         cid: redirect.cid,
                         api: redirect.api,
-                        params: vec![crate::communicate::package::pack::Params {
+                        params: vec![crate::communicate::packager::pack::Params {
                             key: "error".to_string(),
                             value: format!("{}", err),
                         }],
@@ -72,23 +72,23 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
             let context = unsafe { redirect_create_file_w(&params) };
             match context {
                 Ok((expect, data)) => {
-                    let local = crate::communicate::package::pack::LocalSyscall {
+                    let local = crate::communicate::packager::pack::LocalSyscall {
                         cid: redirect.cid,
                         api: redirect.api,
-                        params: params.iter().map(|(k, v)| crate::communicate::package::pack::Params {
+                        params: params.iter().map(|(k, v)| crate::communicate::packager::pack::Params {
                             key: k.clone(),
                             value: v.clone(),
                         }).collect(),
-                        files: vec![crate::communicate::package::pack::IntermediateResult{file: expect.clone(), content: data}],
+                        files: vec![crate::communicate::packager::pack::IntermediateResult{file: expect.clone(), content: data}],
                     };
                     log::debug!("redirect create file w result: {:?} expect: {}", params, expect);
                     return local;
                 },
                 Err(err) => {
-                    let local = crate::communicate::package::pack::LocalSyscall {
+                    let local = crate::communicate::packager::pack::LocalSyscall {
                         cid: redirect.cid,
                         api: redirect.api,
-                        params: vec![crate::communicate::package::pack::Params {
+                        params: vec![crate::communicate::packager::pack::Params {
                             key: "error".to_string(),
                             value: format!("{}", err),
                         }],
@@ -101,7 +101,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::package::pack::
         },
         _ => {
             log::warn!("Received unknown file system operation from remote redirect: {:?}", redirect);
-            let local = crate::communicate::package::pack::LocalSyscall {
+            let local = crate::communicate::packager::pack::LocalSyscall {
                 cid: redirect.cid,
                 api: redirect.api,
                 params: Vec::new(),

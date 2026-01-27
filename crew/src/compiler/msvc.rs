@@ -660,7 +660,7 @@ impl MSVC {
 
                 let requires_params = commands_dist_parameters_requires(&compiler_input);
                 if !requires_params.is_empty() {
-                    let (contents, path) = crate::communicate::packager::Packager::pack_separate_file(&requires_params.to_str().unwrap());
+                    let (contents, path) = crate::communicate::packer::Packer::pack_separate_file(&requires_params.to_str().unwrap());
                 
                     requires = crate::compiler::model::PrecompiledSource {
                         contents: Some(contents.to_vec()),
@@ -709,7 +709,7 @@ impl MSVC {
             else if compiler_input.build_and_compiler_type.to_string_lossy().contains("clang_cl") {
                 let requires_params = commands_dist_parameters_requires(&compiler_input);
                 if !requires_params.is_empty() {
-                    let (contents, path) = crate::communicate::packager::Packager::pack_separate_file(&requires_params.to_str().unwrap());
+                    let (contents, path) = crate::communicate::packer::Packer::pack_separate_file(&requires_params.to_str().unwrap());
                 
                     requires = crate::compiler::model::PrecompiledSource {
                         contents: Some(contents.to_vec()),
@@ -819,8 +819,8 @@ impl MSVC {
 
                                 let name = path.file_name().unwrap().to_string_lossy().to_string();
 
-                                let archive = crate::communicate::package::ArchiveArgs {
-                                    file_type:  crate::communicate::package::FileType::SourceFiles,
+                                let archive = crate::communicate::packager::ArchiveArgs {
+                                    file_type:  crate::communicate::packager::FileType::SourceFiles,
                                     solution: solution_.clone(),
                                     project: project_.clone(),
                                     name: name.clone(),
@@ -862,8 +862,8 @@ impl MSVC {
         
                                             let name = found.file_name().unwrap().to_string_lossy().to_string();
         
-                                            let archive = crate::communicate::package::ArchiveArgs {
-                                                file_type: crate::communicate::package::FileType::SourceFiles,
+                                            let archive = crate::communicate::packager::ArchiveArgs {
+                                                file_type: crate::communicate::packager::FileType::SourceFiles,
                                                 solution: solution__.clone(),
                                                 project: project__.clone(),
                                                 name: name.clone(),
@@ -984,8 +984,8 @@ impl MSVC {
                                             Vec::new()
                                         });
     
-                                        let archive = crate::communicate::package::ArchiveArgs {
-                                            file_type: crate::communicate::package::FileType::SourceFiles,
+                                        let archive = crate::communicate::packager::ArchiveArgs {
+                                            file_type: crate::communicate::packager::FileType::SourceFiles,
                                             solution: solution.to_string_lossy().to_string(),
                                             project: project.to_string_lossy().to_string(),
                                             name: file.to_string_lossy().to_string(),
@@ -1210,7 +1210,7 @@ async fn handle_compile_by_stdstream(mut stdout: StdOut) {
      */
 }   
 
-async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream: Option<tokio::sync::mpsc::Sender<crate::communicate::package::ArchiveArgs<'static>>>, precompiled_result: PrecompiledResult, source_files: &Vec<String>, runtime: &std::sync::Arc<tokio::runtime::Handle>)-> Vec<std::ffi::OsString> {
+async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream: Option<tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs<'static>>>, precompiled_result: PrecompiledResult, source_files: &Vec<String>, runtime: &std::sync::Arc<tokio::runtime::Handle>)-> Vec<std::ffi::OsString> {
 
     let now = std::time::Instant::now();
     let options = zip::write::SimpleFileOptions::default()
@@ -1288,8 +1288,8 @@ async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream
         }
     }
 
-    let file = crate::communicate::package::ArchiveArgs {
-        file_type:  crate::communicate::package::FileType::PrecompiledSrcFiles,
+    let file = crate::communicate::packager::ArchiveArgs {
+        file_type:  crate::communicate::packager::FileType::PrecompiledSrcFiles,
         solution: compiler_input.solution.to_string_lossy().to_string(),
         project: compiler_input.project.to_string_lossy().to_string(),
         name: source_files.join(",").into(),
@@ -1700,7 +1700,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
             let content = std::borrow::Cow::from(content);
             let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &content, runtime, output_callback).await;
             match receiver {
-                crate::communicate::package::ReceiverType::Archive(recv) => {
+                crate::communicate::packager::ReceiverType::Archive(recv) => {
                     output.status = recv.status as u32;
                 },
                 _ => {
@@ -1712,7 +1712,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
             log::info!("precompiled sourcefile result content is empty. so just transmit command"); 
             let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &std::borrow::Cow::from(Vec::new()), runtime, output_callback).await;
             match receiver {
-                crate::communicate::package::ReceiverType::Compile(recv) => {
+                crate::communicate::packager::ReceiverType::Compile(recv) => {
                     output.status = recv.status;
                     output.out = std::sync::Arc::new(recv.out);
                     output.err = std::sync::Arc::new(recv.err);
@@ -3053,7 +3053,7 @@ mod tests {
 
     #[test]
     fn test_zip_separate_file() {
-        let (contents, path) = crate::communicate::packager::Packager::pack_separate_file("G:\\Chromium\\chromium\\src\\out\\Default\\../../build/config/warning_suppression.txt");
+        let (contents, path) = crate::communicate::packer::Packer::pack_separate_file("G:\\Chromium\\chromium\\src\\out\\Default\\../../build/config/warning_suppression.txt");
         
         let dir = "D:\\turbobuild\\target\\debug\\Replica\\Project\\Default";
         let cursor = std::io::Cursor::new(contents);
