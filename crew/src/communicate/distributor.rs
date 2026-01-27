@@ -21,9 +21,9 @@ impl Distributor {
     
     //should replace with archive_stream, after test.
     pub async fn archive<'a>(addr: &str, path: &str, content: &std::borrow::Cow<'a, [u8]>, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> String {
-        let mut sender = super::package::Sender::new(addr, Some(runtime)).await;
-        let file = super::package::ArchiveArgs {
-            file_type: super::package::FileType::ToolChain,
+        let mut sender = super::packager::Sender::new(addr, Some(runtime)).await;
+        let file = super::packager::ArchiveArgs {
+            file_type: super::packager::FileType::ToolChain,
             solution: "".to_string(),
             project: "".to_string(),
             name: "".to_string(),
@@ -31,20 +31,20 @@ impl Distributor {
             content: content.clone(),
         };
         
-        let file = super::package::SenderType::Archive(file);
+        let file = super::packager::SenderType::Archive(file);
         sender.dist(file).await;
         
         return "".to_string();
     }
 
     pub async fn archive_stream<'a>(addr: &str, runtime: &std::sync::Arc<tokio::runtime::Handle>) 
-        -> (Option<tokio::sync::mpsc::Sender<super::package::ArchiveArgs<'static>>>, std::sync::Arc<tokio::sync::Notify>) {
+        -> (Option<tokio::sync::mpsc::Sender<super::packager::ArchiveArgs<'static>>>, std::sync::Arc<tokio::sync::Notify>) {
         
-        let (tx, rx) = tokio::sync::mpsc::channel::<super::package::ArchiveArgs>(128);
+        let (tx, rx) = tokio::sync::mpsc::channel::<super::packager::ArchiveArgs>(128);
 
         let notify = std::sync::Arc::new(tokio::sync::Notify::new());
         let notify_ = notify.clone();
-        let args = super::package::ArchiveStreamArgs {
+        let args = super::packager::ArchiveStreamArgs {
             rx: rx,
             callback: Box::new(move || {
                 notify.notify_waiters();
@@ -54,8 +54,8 @@ impl Distributor {
         let addr = addr.to_owned();
         let runtime_ = runtime.clone();
         runtime.spawn(async move {
-            let mut sender = super::package::Sender::new(&addr, Some(&runtime_)).await;
-            let archive = super::package::SenderType::ArchiveStream(args);
+            let mut sender = super::packager::Sender::new(&addr, Some(&runtime_)).await;
+            let archive = super::packager::SenderType::ArchiveStream(args);
             sender.dist(archive).await;
         });
         
@@ -63,9 +63,9 @@ impl Distributor {
     }
     
     pub async fn compile<'a>(addr: &str, file: std::ffi::OsString, input: &crate::compiler::model::CompilerInput, content: &std::borrow::Cow<'a, [u8]>,
-        runtime: &std::sync::Arc<tokio::runtime::Handle>) -> crate::communicate::package::ReceiverType {
+        runtime: &std::sync::Arc<tokio::runtime::Handle>) -> crate::communicate::packager::ReceiverType {
 
-        let args = super::package::SourcesFile {
+        let args = super::packager::SourcesFile {
             solution: input.solution.to_string_lossy().to_string(),
             project: input.project.to_string_lossy().to_string(),
             file: file.to_string_lossy().to_string(),
@@ -83,17 +83,17 @@ impl Distributor {
             let mut addrs = CONNECTED_ADDRS.lock().await;
         
             if !addrs.iter().any(|item| item == addr) {
-                let mut sender = super::package::Sender::new(addr, Some(runtime)).await;
+                let mut sender = super::packager::Sender::new(addr, Some(runtime)).await;
                 addrs.push(addr.to_string());
                 runtime.spawn(async move {
-                    sender.dist(super::package::SenderType::Command(crate::communicate::package::CommandArgs {})).await;
+                    sender.dist(super::packager::SenderType::Command(crate::communicate::packager::CommandArgs {})).await;
                 });
             }
         }
 
-        let mut sender = super::package::Sender::new(addr, Some(runtime)).await;
+        let mut sender = super::packager::Sender::new(addr, Some(runtime)).await;
         
-        let args = super::package::SenderType::Compile(args);
+        let args = super::packager::SenderType::Compile(args);
         let result = sender.dist(args).await;
         
         return result;

@@ -1,347 +1,527 @@
-use std::io::{Read, Write};
+use tokio::io::AsyncWriteExt;
+use tokio_stream::StreamExt;
 
-#[derive(Default, Clone)]
+pub mod pack {
+    include!("../../proto/pack.rs");
+}
 
-pub struct Packager {
+#[derive(Clone)]
+pub struct Sender {
+    client: pack::communicate_client::CommunicateClient<tonic::transport::Channel>,
+    host: String,
+    runtime: Option<std::sync::Arc<tokio::runtime::Handle>>,
+}
+
+pub struct CommandArgs {
+
+}
+
+pub struct FileArgs {
     
 }
 
-impl Packager {
-    pub async fn toolchain(&self, path: &str, addr: &str) {
+pub struct PrecompiledFile<'a> {
+    pub solution: String,
+    pub project: String,
+    pub file: String,
+    pub compiler: String,
+    pub working_dir: String,
+    pub variety: String,
+    pub commands: Vec<String>,
+    pub content: std::borrow::Cow<'a, [u8]>,
+}
 
-        //msvc bin dir
+pub struct SourcesFile<'a> {
+    pub solution: String,
+    pub project: String,
+    pub file: String,
+    pub compiler: String,
+    pub working_dir: String,
+    pub variety: String,
+    pub commands: Vec<String>,
+    pub content: std::borrow::Cow<'a, [u8]>,
+    pub envs: std::collections::HashMap<String, String>,
+}
 
-        let content = Self::pack_compiler(path, "msvc");
-        
-        log::info!("sync compiler packager path: {}, size: {} KB", path, content.len() / 1024);
-        Self::send_package("msvc", path, &content, addr).await;
-    }
+pub enum FileType {
+    Unknown = 0,
+    SourceFiles = 1,
+    PrecompiledSrcFiles = 2,
+    ToolChain = 3,
+    Kits = 4,
+}
 
-    fn pack_compiler<'a>(dir: &str, _name: &str) -> std::borrow::Cow<'a, [u8]> {
-        let path = std::path::PathBuf::from(dir);
+pub struct ArchiveArgs<'a> {
+    pub file_type: FileType,
+    pub solution: String,
+    pub project: String,
+    pub name: String,
+    pub path: String,
+    pub content: std::borrow::Cow<'a, [u8]>,
+}
 
-        let mut cursor = std::io::Cursor::new(Vec::new());
+pub struct ArchiveStreamArgs {
+    pub rx: tokio::sync::mpsc::Receiver<super::packager::ArchiveArgs<'static>>,
+    pub callback: Box<dyn Fn() + Send + Sync>,
+}
 
-        let mut zip = zip::ZipWriter::new(&mut cursor);
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Zstd);
+pub enum SenderType<'a> {
+    Command(CommandArgs),
+    Archive(ArchiveArgs<'a>),
+    ArchiveStream(ArchiveStreamArgs),
+    Compile(SourcesFile<'a>),
+    CheckResource,
+} 
 
-        //C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.33.31629\bin
+pub struct CommandRecv {
+    pub status: bool,
+    pub message: String,
+}
 
-        log::trace!("pack path {:?}", path);
-        let cl = path.clone();
-        
-        let _ = zip.start_file(format!("Hostx64/x64/cl.exe"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/cl.exe")).expect("can't find x64 cl.exe");
-        let _ = std::io::copy(&mut file, &mut zip);
+pub struct ArchiveRecv {
+    pub status: bool,
+    pub message: String,
+}
 
-        let _ = zip.start_file(format!("Hostx64/x64/cl.exe.config"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/cl.exe.config")).expect("can't find x64 cl.exe.config");
-        let _ = std::io::copy(&mut file, &mut zip);
+pub struct CompileRecv {
+    pub status: u32,
+    pub out: Vec<u8>,
+    pub err: Vec<u8>
+}
 
-        let _ = zip.start_file(format!("Hostx64/x64/c1.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/c1.dll")).expect("can't find x64 c1.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
+pub enum ReceiverType {
+    Command(CommandRecv),
+    Archive(ArchiveRecv),
+    Compile(CompileRecv),
+    None,
+}
 
-        let _ = zip.start_file(format!("Hostx64/x64/c1xx.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/c1xx.dll")).expect("can't find x64 c1xx.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x64/c2.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/c2.dll")).expect("can't find x64 c2.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x64/mspdb140.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/mspdb140.dll")).expect("can't find x64 mspdb140.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x64/mspdbcore.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/mspdbcore.dll")).expect("can't find x64 mspdbcore.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x64/mspdbsrv.exe"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/mspdbsrv.exe")).expect("can't find x64 mspdbsrv.exe");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x64/tbbmalloc.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/tbbmalloc.dll")).expect("can't find x64 tbbmalloc.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x64/vcruntime140.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/vcruntime140.dll")).expect("can't find x64 vcruntime140.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x64/vcruntime140_1.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/vcruntime140_1.dll")).expect("can't find x64 vcruntime140_1.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x64/msvcp140.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/msvcp140.dll")).expect("can't find x64 msvcp140.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x64/MSVCP140_ATOMIC_WAIT.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x64/MSVCP140_ATOMIC_WAIT.dll")).expect("can't find x64 MSVCP140_ATOMIC_WAIT.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        //Tracker.exe
-
-        let clui = path.clone();
-
-        let _ = zip.start_file(format!("Hostx64/x64/1033/clui.dll"), options.clone());
-        let mut file = std::fs::File::open(clui.join("Hostx64/x64/1033/clui.dll")).expect("can't find x64 clui.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/cl.exe"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/cl.exe")).expect("can't find x86 cl.exe");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/cl.exe.config"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/cl.exe.config")).expect("can't find x86 cl.exe.config");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/c1.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/c1.dll")).expect("can't find x86 c1.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/c1xx.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/c1xx.dll")).expect("can't find x86 c1xx.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/c2.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/c2.dll")).expect("can't find x86 c2.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/mspdb140.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/mspdb140.dll")).expect("can't find x86 mspdb140.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/mspdbcore.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/mspdbcore.dll")).expect("can't find x86 mspdbcore.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/mspdbsrv.exe"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/mspdbsrv.exe")).expect("can't find x86 mspdbsrv.exe");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/tbbmalloc.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/tbbmalloc.dll")).expect("can't find x86 tbbmalloc.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/vcruntime140.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/vcruntime140.dll")).expect("can't find x86 vcruntime140.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/vcruntime140_1.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/vcruntime140_1.dll")).expect("can't find x86 vcruntime140_1.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/msvcp140.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/msvcp140.dll")).expect("can't find x86 msvcp140.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/MSVCP140_ATOMIC_WAIT.dll"), options.clone()).unwrap();
-        let mut file = std::fs::File::open(cl.join("Hostx64/x86/MSVCP140_ATOMIC_WAIT.dll")).expect("can't find x86 MSVCP140_ATOMIC_WAIT.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-
-        let _ = zip.start_file(format!("Hostx64/x86/1033/clui.dll"), options.clone());
-        let mut file = std::fs::File::open(clui.join("Hostx64/x86/1033/clui.dll")).expect("can't find x86 clui.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
-        
-        //Tracker.exe
-
-        let content = zip.finish().unwrap();
-        let file = content.to_owned().into_inner();
-        let content = std::borrow::Cow::from(file);
-
-        return content;
-    }
-
-    pub fn pack_separate_file<'a>(path: &str)  -> (std::borrow::Cow<'a, [u8]>, std::ffi::OsString) {
-        let mut cursor = std::io::Cursor::new(Vec::new());
-
-        let mut zip = zip::ZipWriter::new(&mut cursor);
-        let options = zip::write::SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Zstd);
-
-        if let Ok(mut file) = std::fs::File::open(path) {
-            let mut buffer = Vec::new();
-            
-            let path = std::path::PathBuf::from(path);
-            path.file_name().map(|name| {
-                zip.start_file(name.to_string_lossy(), options.to_owned()).unwrap();
-            });
-
-            file.read_to_end(&mut buffer).unwrap();
-            zip.write_all(&buffer[..]).unwrap();
-            buffer.clear();
-
-            let content = zip.finish().unwrap();
-            let file = content.to_owned().into_inner();
-            let content = std::borrow::Cow::from(file);
-
-            let mut path = path.parent().unwrap().to_path_buf();
-            path.set_extension("zip");
-
-            return (content, path.into_os_string());
+impl Sender {
+    pub async fn new(addr: &str, runtime: Option<&std::sync::Arc<tokio::runtime::Handle>>) -> Self {
+        let mut host = "localhost"; 
+        if !addr.is_empty() {
+            host = addr;
         }
-        else {
-            return (std::borrow::Cow::from(Vec::new()), std::ffi::OsString::new());
-        }
+        
+        let channel = tonic::transport::Endpoint::from_shared(std::format!("http://{}:19302", host)).unwrap()
+            .connect_timeout(std::time::Duration::from_secs(30))
+            .connect()
+            .await
+            .expect(&format!("Failed to connect to the {}:19302 server", host));
+
+        let client = pack::communicate_client::CommunicateClient::new(channel)
+            .max_decoding_message_size(1024 * 1024 * 180 * 2)
+            .max_encoding_message_size(1024 * 1024 * 180 * 2);
+        let sender = Sender {
+            client,
+            host: host.to_string(),
+            runtime: runtime.cloned(),
+        };
+
+        return sender;
     }
+    
+    pub async fn dist<'a>(&mut self, sender_type: SenderType<'a>) -> ReceiverType {
+        
+        match sender_type {
+            SenderType::Command(_args) => {
+                self.redirect_net_command().await;
 
-    fn pack_dir<'a>(dir: &str, _name: &str) -> std::borrow::Cow<'a, [u8]> {
-        let mut path = std::path::PathBuf::from(dir);
-
-        let mut cursor = std::io::Cursor::new(Vec::new());
-
-        let mut zip = zip::ZipWriter::new(&mut cursor);
-        let options = zip::write::FileOptions::default()
-            .compression_method(zip::CompressionMethod::Zstd);
-
-        let start = std::time::Instant::now();
-
-        Self::zip_dir(path.as_path(), path.as_path(), &mut zip, &options);
-        let content = zip.finish().unwrap();
-        let file = content.to_owned().into_inner();
-        let content = std::borrow::Cow::from(file);
-        let elapsed = start.elapsed();
-
-        match path.extension() {
-            Some(extension) => {
-                let mut ex = extension.to_str().unwrap().to_string();
-                ex.push_str(".zip");
-                path.set_extension(ex);
+                let result = CommandRecv {
+                    status: true,
+                    message: "".to_string(),
+                };
+                return ReceiverType::Command(result);
             },
-            None => {
-                path.set_extension("zip");
+            SenderType::Archive(args) => {
+                let result= self.dist_archive(args).await;
+                return ReceiverType::Archive(result);
+            },
+            SenderType::ArchiveStream(args) => {
+                let result= self.dist_archive_stream(args).await;
+                return ReceiverType::Archive(result);
+            },
+            SenderType::Compile(args) => {
+                let result = self.dist_compile(args).await;
+                return ReceiverType::Compile(result);
+            },
+            _ => {
+                return ReceiverType::None;
             }
         }
+    }
+    
+    async fn dist_archive(&mut self, args: ArchiveArgs<'_>) -> ArchiveRecv {
 
-        log::info!("zip dir elapsed time: {:?}", elapsed);
-        return content;
+        let (tx, rx) = tokio::sync::mpsc::channel(128);
+        let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+        
+        let request = pack::FileTrRequest {
+            file_type: args.file_type as i32,
+            solution: args.solution.clone(),
+            project: args.project.clone(),
+            name: args.name,
+            path:  args.path,
+            content: args.content.to_vec(),
+        };
+
+        if let Err(err) = tx.send(request).await {
+            log::error!("transmit file error: {:?}", err);
+            let result = ArchiveRecv {
+                status: false,
+                message: "".to_string(),
+            };
+            return result;
+        };
+        
+        drop(tx);
+
+        match self.to_owned().client.transmit_file(request_stream).await {
+            Ok(response) => {
+                
+                let host = self.host.clone();
+
+                let mut response_stream = response.into_inner();
+                while let Some(stream) = response_stream.next().await {
+                    match stream {
+                        Ok(stream) => {
+                            log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
+                        }
+                        Err(err) => {
+                            log::error!("transmit file {} failed: {:?}", host, err);
+                            break;
+                        }
+                    }
+                };
+                
+                let result = ArchiveRecv {
+                    status: true,
+                    message: "".to_string(),
+                };
+                return result;
+            },
+            Err(err) => {
+                log::error!("transmit file  {} failed: {:?}", self.host, err);
+                let result = ArchiveRecv {
+                    status: false,
+                    message: "".to_string(),
+                };
+                return result;
+            }
+        }
     }
 
-    fn zip_dir(entry_dir: &std::path::Path, dir: &std::path::Path, zip: &mut zip::ZipWriter<&mut std::io::Cursor<Vec<u8>>>, options: &zip::write::SimpleFileOptions) {
-        let mut buffer = Vec::new();
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries {
-                if let Ok(entry) = entry {
-                    if let Ok(file_type) = entry.file_type() {
-                        let path = entry.path();
-                        let name = path.strip_prefix(entry_dir).unwrap().to_str().unwrap();
+    async fn dist_archive_stream(&mut self, args: ArchiveStreamArgs) -> ArchiveRecv {
 
-                        if file_type.is_dir() {
-                            zip.add_directory(name, *options).unwrap();
-                            Self::zip_dir(entry_dir, &path, zip, options);
-                            log::debug!("name: {:?}, path: {:?}", name, entry.path().to_str().unwrap());
+        let (tx, rx) = tokio::sync::mpsc::channel(128);
+        let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+
+        let mut receiver = args.rx;
+        let callback = args.callback;
+
+        let handle = self.runtime.as_ref().map(|runtime| runtime.spawn(async move {
+
+            while let Some(archive) = receiver.recv().await {
+                let request = pack::FileTrRequest {
+                    file_type: archive.file_type as i32,
+                    solution: archive.solution.clone(),
+                    project: archive.project.clone(),
+                    name: archive.name,
+                    path: archive.path,
+                    content: archive.content.to_vec(),
+                };
+        
+                if let Err(err) = tx.send(request).await {
+                    log::error!("transmit file error: {:?}", err);
+                };
+            }
+
+            drop(tx);
+        }));
+
+        let mut result = ArchiveRecv {
+            status: true,
+            message: "".to_string(),
+        };
+
+        match self.to_owned().client.transmit_file(request_stream).await {
+            Ok(response) => {
+                
+                let host = self.host.clone();
+
+                let mut response_stream = response.into_inner();
+                while let Some(stream) = response_stream.next().await {
+                    match stream {
+                        Ok(stream) => {
+                            //log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
                         }
-                        else if file_type.is_file() {
-                            zip.start_file(name, options.to_owned()).unwrap();
-                            let mut file = std::fs::File::open(path).unwrap();
-                            file.read_to_end(&mut buffer).unwrap();
-                            zip.write_all(&buffer[..]).unwrap();
-                            buffer.clear();
+                        Err(err) => {
+                            log::error!("transmit file {} failed: {:?}", host, err);
+                            break;
                         }
                     }
-                    else {
+                };
 
+                log::debug!("transmit file {} completed.", host);
+                callback();
+            },
+            Err(err) => {
+                log::error!("transmit file {} failed: {:?}", self.host, err);
+                result.status = false;
+            }
+        };
+
+        if let Some(handle) = handle {
+            let _ = handle.await.unwrap();
+        }
+
+        return result;
+    }
+
+    //TODO should think split dist compiler command or ziped precompilre sourcefile.
+    async fn dist_compile(&mut self, compile: SourcesFile<'_>) -> CompileRecv {
+        let project = compile.project.clone();
+        let request = tonic::Request::new(pack::CompileTrRequest {
+            solution: compile.solution,
+            project: compile.project,
+            file: compile.file,
+            compiler: compile.compiler,
+            working_dir: compile.working_dir,
+            variety: compile.variety,
+            commands: compile.commands,
+            envs: compile.envs.iter().map(|(k,v)| pack::Envs {
+                key: k.clone(),
+                value: v.clone(),
+            }).collect(),
+            
+            content: compile.content.to_vec(),
+        });
+
+        let response = self.to_owned().client.transmit_task(request).await;
+
+        let mut recv = CompileRecv {
+            status: 0,
+            out: Vec::new(),
+            err: Vec::new(),
+        };
+
+        match response {
+            Ok(response) => {
+
+                let (tx, rx) = tokio::sync::mpsc::channel::<Vec<pack::IntermediateResult>>(128);
+                let mut myself = self.clone();
+                let save_compile_ouput_handle = self.runtime.as_ref().map(|runtime| {
+                    let handle = runtime.spawn(async move {
+                        myself.save_compile_ouput_form_channel(rx).await;
+                    });
+                    return handle;
+                });
+
+                let mut stream = response.into_inner();
+                while let Some(inner) = stream.next().await {
+                    match inner {
+                        Ok(response) => {
+                            if response.status == 0 {
+                                if response.progress == pack::CompileProgress::Filetransfer as i32 {
+
+                                }
+                                else if response.progress == pack::CompileProgress::Compilestart as i32 {
+                                    log::debug!("precompiled sourcefile start response: {}", response.tips);
+                                }
+                                else if response.progress == pack::CompileProgress::Compiling as i32 {
+
+                                    log::trace!("compiling receive precompiled sourcefile response: {:?}", response.results.iter().map(|item| item.file.clone()).collect::<Vec<_>>());
+                                    
+                                    tx.send(response.results).await.unwrap_or_else(|err| {
+                                        log::error!("send precompiled sourcefile response to save failed: {:?}", err);
+                                    });
+                                }
+                                else if response.progress == pack::CompileProgress::Compiledone as i32 {
+            
+                                    log::debug!("precompiled sourcefile done response out: {:?}", String::from_utf8_lossy(&response.out));
+                                    recv.out = response.out;
+                                
+                                    log::debug!("precompiled sourcefile done response err: {:?}", String::from_utf8_lossy(&response.err));
+                                    recv.err = response.err;
+                                    
+                                    recv.status = response.status;
+                                    
+                                    let mut myself = self.clone();
+                                    self.runtime.clone().unwrap().spawn(async move {
+                                        let runtime = myself.runtime.clone().unwrap();
+                                        myself.save_compile_output(&response.results, &runtime).await;
+                                    });
+                                    
+                                }
+                                else {
+                                    
+                                }
+                            }
+                            else {
+                                log::warn!("send precompiled sourcefile reveice response failed. {}", response.tips);
+                                recv.status = response.status;
+                                recv.out = response.out;
+                                recv.err = response.err;
+                            }
+                        },
+                        Err(err) => {
+                            log::error!("send precompiled sourcefile receive response failed. {}", err);
+                            recv.status = 1;
+                            recv.err = err.to_string().into_bytes();
+                            break;
+                        },
                     }
+                }
+
+                drop(tx);
+                if let Some(handle) = save_compile_ouput_handle {
+                    let _ = handle.await;
+                }
+
+                log::info!("send precompiled sourcefile receive response done. {}", project);
+            }
+            Err(err) => {
+                log::warn!("send precompiled sourcefile failed: {:?} {}", err, project);
+                recv.status = 1;
+                recv.err = err.to_string().into_bytes();
+            }
+        }
+        return recv;
+    }
+
+    async fn save_compile_output(&mut self, results: &[crate::communicate::packager::pack::IntermediateResult], runtime: &std::sync::Arc<tokio::runtime::Handle>) {
+        let mut handles = Vec::new();
+        for result in results.to_owned() {
+
+            let handle = runtime.spawn(async move {
+                log::debug!("save compile result: {:?}", result.file);
+                match tokio::fs::OpenOptions::new().write(true).create(true).open(&result.file).await {
+                    Ok(mut file) => {
+                        file.write_all(&result.content).await.unwrap();
+
+                        //let mut writer = tokio::io::BufWriter::new(file);
+                        //writer.write_all(&result.content).await.unwrap();
+                        //writer.flush().await.unwrap();
+                    },
+                    Err(err) => {
+                        log::error!("create file failed: {}, path: {}", err, result.file);
+                    }
+                }
+            });
+            handles.push(handle);
+        }
+
+        for hande in handles {
+            match hande.await {
+                Ok(_) => {},
+                Err(err) => {
+                    log::error!("save compile output failed: {:?}", err);
                 }
             }
         }
+        log::info!("save compile output done. file count: {}", results.len());
     }
 
-    async fn send_package<'a>(name: &str, filename: &str, content: &std::borrow::Cow<'a, [u8]>, addr: &str) {
+    async fn save_compile_ouput_form_channel(&mut self, mut stream: tokio::sync::mpsc::Receiver<Vec<pack::IntermediateResult>>) {
+        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+        let mut handles = Vec::new();
+        while let Some(results) = stream.recv().await {
+            for result in results {
+                log::debug!("save compile result: {:?}", result.file);
+                let permit = semaphore.clone().acquire_owned().await;
 
-        let path = filename.to_owned() + ".zip";
+                self.runtime.as_ref().map(|runtime| {
 
-        let mut sender = crate::communicate::package::Sender::new(addr, None).await;
-        let args = crate::communicate::package::ArchiveArgs {
-            file_type: crate::communicate::package::FileType::ToolChain,
-            solution: String::new(),
-            project: String::new(),
-            name: name.to_owned(),
-            path: path,
-            content: content.to_owned(),
+                    let _handle = runtime.spawn(async move {
+                        let _permit = permit;
+                        match tokio::fs::OpenOptions::new().write(true).create(true).open(&result.file).await {
+                            Ok(mut file) => {
+                                file.write_all(&result.content).await.unwrap();
+                            },
+                            Err(err) => {
+                                log::error!("save compile output create file failed: {}, path: {}", err, result.file);
+                            }
+                        }
+                    });
+                    handles.push(_handle);
+                });
+
+            }
+        }
+
+        for handle in handles {
+            match handle.await {
+                Ok(_) => {},
+                Err(err) => {
+                    log::error!("save compile output from channel failed: {:?}", err);
+                }
+            }
+        }
+
+        log::info!("save compile output from channel done.");
+    }
+
+    async fn redirect_net_command(&mut self) {
+        
+        let (tx, rx) = tokio::sync::mpsc::channel(128);
+        let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+        log::debug!("transmit redirect net start addr: {}.", self.host);
+
+        match self.to_owned().client.transmit_syscall(request_stream).await {
+            Ok(response) => {
+                
+                let host = self.host.clone();
+
+                let mut response_stream = response.into_inner();
+                while let Some(stream) = response_stream.next().await {
+                    match stream {
+                        Ok(stream) => {
+                            log::debug!("transmit redirect net receive grpc message");
+
+                            let local = crate::procemirror::filesystem::route_file_system_operation(stream); //700 µs
+
+                            if let Err(err) = tx.send(local.clone()).await {
+                                log::error!("transmit redirect net error: {:?}", err);
+                            }
+                            else {
+                                log::trace!("transmit redirect net response: {:?} {:?}", local.cid, local.api);
+                            } 
+                        }
+                        Err(err) => {
+                            log::error!("transmit redirect net {} failed: {:?}", host, err);
+                            break;
+                        }
+                    }
+                };
+                drop(tx);
+                log::debug!("transmit firedirect netle {} completed.", host);
+                crate::communicate::distributor::CONNECTED_ADDRS.lock().await.retain(|item| item != &host);
+            },
+            Err(err) => {
+                log::error!("transmit redirect net {} failed: {:?}", self.host, err);
+            }
         };
-        let args: super::package::SenderType<'_> = crate::communicate::package::SenderType::Archive(args);
-        sender.dist(args).await;
-    }
-
-    //do not must
-    async fn windows_kits(&mut self, _kits: &str) {
-
-    }
-
-    pub async fn file<'a>(&self, path: &str, content: &std::borrow::Cow<'a, [u8]>, addr: &str) {
-
-        let mut sender = crate::communicate::package::Sender::new(addr, None).await;
-
-        let args = crate::communicate::package::ArchiveArgs {
-            file_type: crate::communicate::package::FileType::Unknown,
-            solution: String::new(),
-            project: String::new(),
-            name: "precompiledsourcefile".to_string(),
-            path: path.to_owned(),
-            content: content.to_owned(),
-        };
-
-        let args = crate::communicate::package::SenderType::Archive(args);
-        sender.dist(args).await;
-    }
-
-    pub async fn includes(&self, path: &str, addr: &str) {
-
-        //msvc and windows kit include dir
-
-        let content = Self::pack_dir(path, "");
-        log::info!("sync includes packager path: {}, size: {} KB", path, content.len() / 1024);
-        Self::send_package("include", path, &content, addr).await;
     }
 
 }
 
+
 #[cfg(test)]
 mod tests {
-    use super::*;
-    #[test]
-    //cargo test --package crew --tests pack_tool -- --show-output
-    fn pack_tool() {
-        println!("test pack msvc dir");
-        //14.39.33519
-        //14.37.32822
-        let env = crate::platform::windows::WindowsCompilerEnv::default();
-        let content = Packager::pack_compiler(env.compiler_path.to_str().unwrap(), "msvc");
-        
-        let cursor = std::io::Cursor::new(content);
-        let zip_archive = zip::ZipArchive::new(cursor).unwrap();
 
-        let path = tools::utils::access_working_path("").unwrap();
-        println!("unzip path: {:?}", path);
-        
-        let expect_packages = Vec::from(["Hostx64/x64/cl.exe", "Hostx64/x64/1033/clui.dll", "Hostx64/x86/cl.exe", "Hostx64/x86/1033/clui.dll"]);
-        let packages = zip_archive.file_names().collect::<Vec<&str>>();
+    #[tokio::test]
+    async fn send_grpc_message_test_test() {
 
-        assert!(expect_packages == packages);
-        
-        let mut zip_ = zip_archive.clone();
-        for name in packages {
-            
-            let file = zip_.by_name(name).unwrap();
-            let size = file.size();
-            println!("zip archive name: {}, size {}", name, size);
-            assert!(size > 10000);
-        }
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .unwrap();
 
-        //let path = common::utils::get_working_path("".to_string()).unwrap();
-        //let mut zip__ = zip_archive.clone();
-        //zip__.extract(path).unwrap();
-
-    }
-
-    #[test]
-    fn pack_includes() {
-        let content = Packager::pack_dir(r"C:\Program Files (x86)\Windows Kits\10\Include\10.0.26100.0\cppwinrt", "");
-        
+        let runtime_handle = std::sync::Arc::new(runtime.handle().clone());
+        let mut sender = crate::communicate::packager::Sender::new("127.0.0.1", Some(&runtime_handle)).await;
+        runtime.spawn(async move {
+            sender.dist(crate::communicate::packager::SenderType::Command(crate::communicate::packager::CommandArgs {})).await;
+        }).await.unwrap();
     }
 }
