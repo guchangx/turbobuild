@@ -93,9 +93,8 @@ impl Distributor {
 
         let mut sender = super::packager::Sender::new(addr, Some(runtime)).await;
         
-        let args = super::packager::SenderType::Compile(args);
+        let args = super::packager::SenderType::Compile(args, output_callback);
         let result = sender.dist(args).await;
-        
         return result;
     }
 

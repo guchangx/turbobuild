@@ -955,7 +955,7 @@ impl MSVC {
         while let Some(handle) = set.join_next().await {
             match handle {
                 Ok((addr, output)) => {
-                    log::debug!("dist compile with source and include file output: {:?}", addr);
+                    log::debug!("dist compile with source and include file output: {:?}", &addr);
 
                     if !sources.is_empty() {
                         let mut index = -1;

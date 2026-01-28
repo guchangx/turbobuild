@@ -69,7 +69,7 @@ pub enum SenderType<'a> {
     Command(CommandArgs),
     Archive(ArchiveArgs<'a>),
     ArchiveStream(ArchiveStreamArgs),
-    Compile(SourcesFile<'a>),
+    Compile(SourcesFile<'a>, crate::compiler::model::OutputCallback),
     CheckResource,
 } 
 
@@ -141,8 +141,8 @@ impl Sender {
                 let result= self.dist_archive_stream(args).await;
                 return ReceiverType::Archive(result);
             },
-            SenderType::Compile(args) => {
-                let result = self.dist_compile(args).await;
+            SenderType::Compile(args, callback) => {
+                let result = self.dist_compile(args, callback).await;
                 return ReceiverType::Compile(result);
             },
             _ => {
@@ -279,7 +279,7 @@ impl Sender {
     }
 
     //TODO should think split dist compiler command or ziped precompilre sourcefile.
-    async fn dist_compile(&mut self, compile: SourcesFile<'_>) -> CompileRecv {
+    async fn dist_compile(&mut self, compile: SourcesFile<'_>, output_callback: crate::compiler::model::OutputCallback) -> CompileRecv {
         let project = compile.project.clone();
         let request = tonic::Request::new(pack::CompileTrRequest {
             solution: compile.solution,
@@ -335,6 +335,17 @@ impl Sender {
                                     tx.send(response.results).await.unwrap_or_else(|err| {
                                         log::error!("send precompiled sourcefile response to save failed: {:?}", err);
                                     });
+
+                                    let output = crate::compiler::model::CompilerOutput {
+                                        status: 0,
+                                        out: std::sync::Arc::new(response.out),
+                                        err: std::sync::Arc::new(response.err),
+                                    };
+                                    
+                                    // send one compiled done file to buildassist
+                                    let callback = (output_callback)(output);
+                                    let callback = Box::into_pin(callback);
+                                    let _ = callback.await;
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
             
