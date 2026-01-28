@@ -1128,6 +1128,7 @@ pub unsafe fn nt_query_directory_file(
                 let mut current_offset = 0usize;
                 let mut islastone = false;
                 let last_file_attribute_archive = win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE + 1;
+                let last_file_attribute_normal = win::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL + 1;
                 let mut collectfiles: Vec<String> = Vec::new();
                 for (index, fileinfo) in filenames.iter().enumerate() {
 
@@ -1159,6 +1160,14 @@ pub unsafe fn nt_query_directory_file(
                     else if attr == last_file_attribute_archive {
                         islastone = true;
                         attr = win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE;
+                        collectfiles.push(fileinfo[0].to_lowercase());
+                    }
+                    else if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL {
+                        collectfiles.push(fileinfo[0].to_lowercase());
+                    }
+                    else if attr == last_file_attribute_normal {
+                        islastone = true;
+                        attr = win::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
                         collectfiles.push(fileinfo[0].to_lowercase());
                     }
 
@@ -1358,6 +1367,7 @@ pub unsafe fn nt_query_directory_file(
                     let mut collectfiles = Vec::new();
                     let mut islastone = false;
                     let last_file_attribute_archive = win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE + 1;
+                    let last_file_attribute_normal = win::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL + 1;
                     for (index, fileinfo) in filenames.iter().enumerate() {
                         let fileinfo = fileinfo.split('|').collect::<Vec<&str>>();
      
@@ -1377,7 +1387,7 @@ pub unsafe fn nt_query_directory_file(
                         let entry = entry_ptr as *mut windows_sys::Wdk::Storage::FileSystem::FILE_DIRECTORY_INFORMATION;
 
                         let mut attr = fileinfo[1].parse::<u32>().unwrap_or(win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE);
-                        if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE {
+                        if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE || attr == win::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL {
                             collectfiles.push(fileinfo[0].to_lowercase());
                         } 
                         else if attr == last_file_attribute_archive {
@@ -1385,6 +1395,12 @@ pub unsafe fn nt_query_directory_file(
                             attr = win::Storage::FileSystem::FILE_ATTRIBUTE_ARCHIVE;
                             collectfiles.push(fileinfo[0].to_lowercase());
                         }
+                        else if attr == last_file_attribute_normal {
+                            islastone = true;
+                            attr = win::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL;
+                            collectfiles.push(fileinfo[0].to_lowercase());
+                        }
+
                         entries_written = index + 1;
                         let next_offset = if entries_written == files_count || islastone || return_single_entry {
                             0
