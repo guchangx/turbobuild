@@ -360,7 +360,7 @@ impl Sender {
                                     let mut myself = self.clone();
                                     self.runtime.clone().unwrap().spawn(async move {
                                         let runtime = myself.runtime.clone().unwrap();
-                                        myself.save_compile_output(&response.results, &runtime).await;
+                                        myself.save_compile_output(response.results, &runtime).await;
                                     });
                                     
                                 }
@@ -400,9 +400,10 @@ impl Sender {
         return recv;
     }
 
-    async fn save_compile_output(&mut self, results: &[crate::communicate::packager::pack::IntermediateResult], runtime: &std::sync::Arc<tokio::runtime::Handle>) {
+    async fn save_compile_output(&mut self, results: Vec<pack::IntermediateResult>, runtime: &std::sync::Arc<tokio::runtime::Handle>) {
         let mut handles = Vec::new();
-        for result in results.to_owned() {
+        let len = results.len();
+        for result in results {
 
             let handle = runtime.spawn(async move {
                 log::debug!("save compile result: {:?}", result.file);
@@ -430,12 +431,11 @@ impl Sender {
                 }
             }
         }
-        log::info!("save compile output done. file count: {}", results.len());
+        log::info!("save compile output done. file count: {}", len);
     }
 
     async fn save_compile_ouput_form_channel(&mut self, mut stream: tokio::sync::mpsc::Receiver<Vec<pack::IntermediateResult>>) {
         let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
-        let mut handles = Vec::new();
         while let Some(results) = stream.recv().await {
             for result in results {
                 log::debug!("save compile result: {:?}", result.file);
@@ -454,21 +454,10 @@ impl Sender {
                             }
                         }
                     });
-                    handles.push(_handle);
                 });
 
             }
         }
-
-        for handle in handles {
-            match handle.await {
-                Ok(_) => {},
-                Err(err) => {
-                    log::error!("save compile output from channel failed: {:?}", err);
-                }
-            }
-        }
-
         log::info!("save compile output from channel done.");
     }
 
