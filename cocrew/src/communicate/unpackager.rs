@@ -502,7 +502,7 @@ impl Receiver {
 
         let sender_ = sender.clone();
 
-        let handle = tokio::spawn(async move {
+        let outputhandle = tokio::spawn(async move {
 
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compilestart.into(),
@@ -513,6 +513,8 @@ impl Receiver {
                 tips: "transmit do compile start.".to_string(),
             };
             sender_(reply).await;
+
+            let mut joins = tokio::task::JoinSet::new();
 
             while let Some(results) = out_receiver.recv().await {
                 for result in results {
@@ -558,9 +560,14 @@ impl Receiver {
                         tips: "transmit do compile success.".to_string(),
                     };
 
-                    sender_(reply).await;
+                    let sender_ = sender_.clone();
+                    joins.spawn(async move {
+                        sender_(reply).await;
+                    });
                 }
             }
+
+            joins.join_all().await;
             log::debug!("transmit compile handle out stream end.");
         });
 
@@ -580,6 +587,9 @@ impl Receiver {
         }).unwrap();
 
         let output = buildhandle.await.unwrap();
+        //wait compile output send back done.
+        outputhandle.await.unwrap();
+        
         if output.status == 0 {
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compiledone.into(),
@@ -602,8 +612,6 @@ impl Receiver {
             };
             sender(reply).await;
         }
-        handle.await.unwrap();
-
     }
 
     //create dir for .pdb and .obj, if parent dir not exist, .pdb and .obj file can not be generated.

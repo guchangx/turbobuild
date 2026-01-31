@@ -200,6 +200,9 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
 
             log::info!("{:?} stream stdout: {:?}", &project_name_, line);
 
+            //limited concurrency
+            let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(32));
+
             line.lines().for_each(|item| {
                 let item = item.to_string();
                 let generated_object_ = generated_object_.clone();
@@ -207,13 +210,16 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
                 let origin_working_dir_ = origin_working_dir_.clone();
                 let out_stream = out_stream.clone();
                 let unready_objfiles_ = unready_objfiles_.clone();
+                let semaphore_ = semaphore.clone();
 
                 rt_.spawn(async move {
                     if !item.is_empty() {
+                        let permit = semaphore_.clone().acquire_owned().await.unwrap();
                         let objfile = pre_return_local_compile_result_object_files(&std::borrow::Cow::from(item), &(*generated_object_), &solution_name_, &origin_working_dir_, &out_stream).await;
                         if let Some(objfile) = objfile {
                             unready_objfiles_.lock().unwrap().insert(objfile.0, objfile.1);
                         }
+                        drop(permit);
                     }
                 });
             });
@@ -262,7 +268,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
             drop(out_stream);
         }
         else {
-            return_local_compile_result_objfiles(unready_objfiles, &solution_name, &origin_working_dir, out_err_stream);
+            return_local_compile_result_object_files(unready_objfiles, &solution_name, &origin_working_dir, out_err_stream);
         }
         return_local_compile_result_pdbfiles((*program_database).clone(), &solution_name, &origin_working_dir, out_err_stream);
     }
@@ -290,14 +296,13 @@ async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_
     use tokio::io::AsyncReadExt;
     let mut unready_objfiles: std::option::Option<(std::string::String, std::path::PathBuf)> = None;
 
-    let line = line.replace(r#"""#, "").trim_end().to_string();
+    let line = line.replace(r#"""#, "");
+    let line = line.trim_end();
+    
     if line.starts_with("Generating Code...") { 
     
     }
     else if line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") || line.ends_with(".cxx") {
-
-        let mut compiled_results: CompiledResults = Vec::new();
-        let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
 
         let mut result = std::path::PathBuf::from("");
         let object = generated_object.clone();
@@ -326,33 +331,29 @@ async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_
 
                 let origin = repair_original_path(&solution_name, &origin_working_dir, &result);        
 
-                obj = Some((origin, contents));
+                let compiled_result = CompiledResult {
+                    source_file: std::ffi::OsString::from(&line),
+                    obj: Some((origin, contents)),
+                    pdb: None,
+                    idb: None,
+                };
+                let compiled_result = vec![compiled_result];
+
+                let _ = out_stream.try_send(compiled_result).unwrap_or_else(|err| {
+                    log::warn!("try send .obj results to out stream failed: {:?}", err);
+                });
             },
             Err(error) => {
-                unready_objfiles = Some((line.clone(), result.clone()));
+                unready_objfiles = Some((line.to_string(), result.clone()));
                 if error.kind() == std::io::ErrorKind::NotFound {
-                    log::trace!(".obj file path is not found. {:?}.", result);
+                    log::trace!(".obj file path is not found. {:?}.", unready_objfiles);
                 }
                 else {
-                    log::error!(".obj file read failed. {:?}, {:?}.", error, result);
+                    log::error!(".obj file read failed. {:?}, {:?}.", error, unready_objfiles);
                 }
             }
         };
-
         result.clear();
-
-        if obj.is_some() {
-            let compiled_result = CompiledResult {
-                source_file: std::ffi::OsString::from(&line),
-                obj: obj,
-                pdb: None,
-                idb: None,
-            };
-            compiled_results.push(compiled_result);
-            let _ = out_stream.try_send(compiled_results).unwrap_or_else(|err| {
-                log::warn!("try send .obj results to out stream failed: {:?}", err);
-            });
-        }
     }
     else {
         log::trace!("exclude source file, maybe warning and error. {:?}", line);
@@ -360,9 +361,10 @@ async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_
     return unready_objfiles;
 }
 
-fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<std::string::String, std::path::PathBuf>>>, solution_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
+fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<std::string::String, std::path::PathBuf>>>, solution_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
     
     log::trace!("unready obj files: {:?}", objfiles.lock().unwrap());
+    use tokio::io::AsyncReadExt;
     let objfiles: Vec<_> = objfiles.lock().unwrap().iter().map(|(k, v)|(k.clone(), v.clone())).collect();
     for (line, objfile) in objfiles {
 
@@ -372,20 +374,31 @@ fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mute
 
         let rt = {crate::common::COCREW_RUNTIME.lock().unwrap().handle().clone()};
         let _ = rt.spawn(async move {
-            let mut compiled_results: CompiledResults = Vec::new();
-            let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
-            
-            match std::fs::File::open(&objfile) {
+
+            match tokio::fs::File::open(&objfile).await {
                 Ok(file) => {
                     log::info!("unready obj file: {:?}", objfile);
 
                     let mut contents = Vec::new();
-                    let mut file = std::io::BufReader::new(file);
-                    let _ = file.read_to_end(&mut contents).unwrap();
+                    let mut file = tokio::io::BufReader::new(file);
+                    let _ = file.read_to_end(&mut contents).await.unwrap();
 
-                    let origin = repair_original_path(&solution_name_, &origin_working_dir_, &objfile);        
+                    let origin = repair_original_path(&solution_name_, &origin_working_dir_, &objfile);
 
-                    obj = Some((origin, contents));
+                    let compiled_result = CompiledResult {
+                        source_file: std::ffi::OsString::from(&line),
+                        obj: Some((origin, contents)),
+                        pdb: None,
+                        idb: None,
+                    };
+                    let compiled_results = vec![compiled_result];
+                    
+                    if !compiled_results.is_empty() {
+                        let _ = out_stream.send(compiled_results).await.unwrap_or_else(|err| {
+                            log::warn!("send unready .obj results to out stream failed: {:?}", err);
+                        });
+                        drop(out_stream);
+                    }
                 },
                 Err(error) => {
                     if error.kind() == std::io::ErrorKind::NotFound {
@@ -396,21 +409,6 @@ fn return_local_compile_result_objfiles(objfiles: std::sync::Arc<std::sync::Mute
                     }
                 }
             };
-
-            let compiled_result = CompiledResult {
-                source_file: std::ffi::OsString::from(&line),
-                obj: obj,
-                pdb: None,
-                idb: None,
-            };
-            compiled_results.push(compiled_result);
-            
-            if !compiled_results.is_empty() {
-                let _ = out_stream.send(compiled_results).await.unwrap_or_else(|err| {
-                    log::warn!("send unready .obj results to out stream failed: {:?}", err);
-                });
-                drop(out_stream);
-            }
         });
     }
     log::trace!("unready obj file end, send out stream end.");

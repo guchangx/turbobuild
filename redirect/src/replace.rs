@@ -79,9 +79,15 @@ pub fn replace(path: &mut String) -> ReplaceResult {
         if extension == "h" || extension == "hpp"  || extension == "inl" {
             return ReplaceResult::NoMatch;
         }
-        else if extension == "pdb" {
+        else if extension == "pdb"  || extension == "idb" {
             if let Some(replica_pdbpath) = crate::REPLICA_PDBPATH.get() {
-                *path = replica_pdbpath.to_string();
+                let mut pdb = replica_pdbpath.to_string();
+
+                if extension == "idb" {
+                    pdb = pdb.replace(".pdb", ".idb");
+                }
+
+                *path = pdb;
                 return ReplaceResult::Success;
             }
             else if let Some(solution) = crate::SOLUTIONNAME.get() {

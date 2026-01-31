@@ -1710,6 +1710,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
         }
         else {
             log::info!("precompiled sourcefile result content is empty. so just transmit command"); 
+            //TODO: path is empty when dist sourcefiles
             let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &std::borrow::Cow::from(Vec::new()), runtime, output_callback).await;
             match receiver {
                 crate::communicate::packager::ReceiverType::Compile(recv) => {
