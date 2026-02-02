@@ -141,7 +141,7 @@ impl TasksManager {
             return self.tasks.first().unwrap().addr.as_str();
         }
         else {
-            let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= 95.00).min_by(|x, y| x.running.cmp(&y.running));
+            let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= 95.00).min_by(|x, y| (x.running / x.core).cmp(&(y.running / y.core)));
             if let Some(item) = iter {
                 item.running += 1;    
                 return item.addr.as_str();
@@ -154,22 +154,22 @@ impl TasksManager {
 
     pub fn schedule_for_sources(&mut self, size: u32) ->(&str, i32, u32) {
         //features: limit by cpu usage
-        if self.tasks.len() == 1 as usize{
+        if self.tasks.len() == 1 as usize {
             let item = self.tasks.first_mut().unwrap();
             item.running += size;
             return (item.addr.as_str(), item.index, size);
         }
         else {
-            let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= item.max as f32).min_by(|x, y| x.running.cmp(&y.running));
+            let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= item.max as f32).min_by(|x, y| (x.running / x.core).cmp(&(y.running / y.core)));
             if let Some(item) = iter {
-                if size >= item.core {
-                    if size <= item.core * 2.5 as u32 {
+                if size >= item.core * 2 {
+                    if size <= item.core * 3 as u32 {
                         item.running += size;
                         return (item.addr.as_str(), item.index, size);
                     }
                     else {
-                        item.running += item.core;
-                        return (item.addr.as_str(), item.index, item.core);
+                        item.running += item.core * 2;
+                        return (item.addr.as_str(), item.index, item.core * 2 as u32);
                     }
                 }
                 else {
@@ -191,14 +191,14 @@ impl TasksManager {
         }
         else {
             if let Some(item) = self.tasks.iter_mut().find(|item| item.addr == addr) {
-                if size >= item.core {
-                    if size <= item.core * 2.5 as u32 {
+                if size >= item.core * 2 {
+                    if size <= item.core * 3 as u32 {
                         item.running += size;
                         return (item.index, size as u32);
                     }
                     else {
-                        item.running += item.core;
-                        return (item.index, item.core as u32);
+                        item.running += item.core * 2 as u32;
+                        return (item.index, item.core * 2 as u32);
                     }
                 }
                 else {

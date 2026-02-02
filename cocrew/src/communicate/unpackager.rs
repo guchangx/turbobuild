@@ -31,6 +31,7 @@ pub static NAMEDPIPE_TO_GRPC_CHANNEL: std::sync::LazyLock<CHANNEL> = std::sync::
 pub struct Receiver {
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
     crate_files_exist: std::sync::Arc<tokio::sync::Mutex<std::vec::Vec<String>>>,
+    file_write_locks: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>>,
 }
 
 impl Receiver {
@@ -40,6 +41,7 @@ impl Receiver {
         let receiver = Receiver {
             common,
             crate_files_exist: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            file_write_locks: std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         };
         return receiver;
     }
@@ -57,6 +59,7 @@ impl Receiver {
         let receiver = Receiver {
             common: self.common.clone(),
             crate_files_exist: self.crate_files_exist.clone(),
+            file_write_locks: self.file_write_locks.clone(),
         };
 
         let server = package::communicate_server::CommunicateServer::new(receiver);
@@ -238,6 +241,7 @@ impl Receiver {
                 if let Ok(real) = request {
 
                     let crate_files_exist = std::sync::Arc::clone(&self_.crate_files_exist);
+                    let file_write_locks = std::sync::Arc::clone(&self_.file_write_locks);
 
                     tokio::spawn(async move {
                         log::debug!("transmit redirect real result: id {:?} api: {:?} params: {:?}", real.cid, real.api, real.params);
@@ -246,10 +250,13 @@ impl Receiver {
                             //TODO: what time to remove file from crate_files_exist?
                             let exist = { crate_files_exist.lock().await.contains(&intermediate.file) };
                             if !exist {
-                                {crate_files_exist.lock().await.push(intermediate.file.clone());}
-    
+
+                                let mut file_write_locks = file_write_locks.lock().await;
+                                let file_write_lock = file_write_locks.entry(intermediate.file.clone())
+                                    .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(()))).clone();
+
                                 let file = tokio::fs::OpenOptions::new()
-                                    .create(true)
+                                    .create_new(true)
                                     .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
                                     .write(true)
                                     .open(format!("{}{}", &intermediate.file, ".tmp"))
@@ -257,13 +264,18 @@ impl Receiver {
     
                                 match file {
                                     Ok(mut file) => {
+                                        let guard = file_write_lock.lock().await;
+
                                         file.write_all(&intermediate.content).await.unwrap();
                                         file.flush().await.unwrap();
 
                                         drop(file);
-    
                                         match tokio::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).await {
-                                            Ok(_) => {},
+                                            Ok(_) => {
+                                                {crate_files_exist.lock().await.push(intermediate.file.clone());}
+                                                drop(guard);
+                                                file_write_locks.remove(&intermediate.file);
+                                            },
                                             Err(err) => {
                                                 if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32) {
                                                     std::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).unwrap_or_else(|err| {
@@ -296,6 +308,11 @@ impl Receiver {
                                             
                                             file.write_all(&intermediate.content).await.unwrap();
                                             file.flush().await.unwrap();
+                                        }
+                                        else if err.kind() == std::io::ErrorKind::AlreadyExists {
+                                            let guard = file_write_lock.lock().await;
+                                            drop(guard);
+                                            file_write_locks.remove(&intermediate.file);
                                         }
                                         else {
                                             panic!("create file failed: {:?}, {}", &intermediate.file, err);

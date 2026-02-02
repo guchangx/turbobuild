@@ -182,7 +182,7 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
             return ReplaceNtResult::NoMatch;
         }
         else if let Some(extension) = std::path::Path::new(path).extension() {
-            if extension == "h" || extension == "hpp" || extension == "hxx" || extension == "inl" {
+            if extension == "h" || extension == "hpp" || extension == "hxx" || extension == "inl" || extension == "inc" {
                 if path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
                     return ReplaceNtResult::FilePath;
                 }
@@ -325,22 +325,31 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
                 return ReplaceNtResult::FilePath;
             }
             else {
-                let index = path.find(":\\");
-                if let Some(i) = index 
-                {
-                    let dir = &path[i + 2..];
-                    let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
-                    let modified = format!(r"\??\{}", modified);
-                    let unmodified = path.to_string();
-                    *path = modified;
-                    return ReplaceNtResult::NeedObtain(unmodified);
+                if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
+                    Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::Success, |modified| {
+                        let unmodified = path.to_string();
+                        *path = modified;
+                        return ReplaceNtResult::NeedObtain(unmodified);
+                    })
                 }
                 else {
-                    let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&path).to_string_lossy().to_string();
-                    let modified = format!(r"\??\{}", modified);
-                    let unmodified = path.to_string();
-                    *path = modified;
-                    return ReplaceNtResult::NeedObtain(unmodified);
+                    let index = path.find(":\\");
+                    if let Some(i) = index 
+                    {
+                        let dir = &path[i + 2..];
+                        let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
+                        let modified = format!(r"\??\{}", modified);
+                        let unmodified = path.to_string();
+                        *path = modified;
+                        return ReplaceNtResult::NeedObtain(unmodified);
+                    }
+                    else {
+                        let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&path).to_string_lossy().to_string();
+                        let modified = format!(r"\??\{}", modified);
+                        let unmodified = path.to_string();
+                        *path = modified;
+                        return ReplaceNtResult::NeedObtain(unmodified);
+                    }
                 }
             }
         }

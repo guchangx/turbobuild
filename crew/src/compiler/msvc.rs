@@ -762,7 +762,7 @@ impl MSVC {
         let headers = std::sync::Arc::new(tokio::sync::Mutex::new(headers));
         let extracted_pdb = actions.pdb_file.clone();
 
-        for _ in 0..len {
+        for _ in 0..len * 2 {
             let mut addr = String::new();
             let mut index = -1;
             let mut left = Vec::new();
@@ -770,14 +770,14 @@ impl MSVC {
             // if addr is local, we can skip the dist compile
 
             if !left.is_empty() {
-                let mut is_split = false;
+                let mut is_split_sources = false;
                 if len == 1 {
                     let sources_split_index = check_instruction_length(&others, &left);    
                     if sources_split_index < left.len() {
                         log::info!("split sources at index: {} for instruction length more than processer max params length.", sources_split_index);
                         let split_off = left.split_off(sources_split_index);
                         sources = split_off;
-                        is_split = true;
+                        is_split_sources = true;
                     }
                 }
                  
