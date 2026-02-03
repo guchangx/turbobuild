@@ -148,7 +148,6 @@ pub fn compiler_redirect_syscall() {
 
                                     if let Some(sender) = crate::communicate::unpackager::NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_tx.as_ref() {
                                         sender.try_send(mirror_cmd.clone()).inspect(|_|{
-                                            log::trace!("send mirror syscall to grpc: {:?}", mirror_cmd);
                                         }).unwrap_or_else(|e| {
                                             log::error!("failed to try_send mirror syscall: {} {:?}", e, mirror_cmd);
                                         });

@@ -244,8 +244,6 @@ impl Receiver {
                     let file_write_locks = std::sync::Arc::clone(&self_.file_write_locks);
 
                     tokio::spawn(async move {
-                        log::debug!("transmit redirect real result: id {:?} api: {:?} params: {:?}", real.cid, real.api, real.params);
-    
                         for intermediate in real.files {
                             //TODO: what time to remove file from crate_files_exist?
                             let exist = { crate_files_exist.lock().await.contains(&intermediate.file) };

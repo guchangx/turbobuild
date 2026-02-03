@@ -139,7 +139,6 @@ pub unsafe fn create_file_w(
 ) -> win::Foundation::HANDLE {
     if h_template_file == *CALL_TEMPLATE as win::Foundation::HANDLE {
         let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-        crate::log!(trace, "create_file_w pipe path: {:?}", path);
         let create_file_w_inner: extern "system" fn (
             lp_file_name: windows_sys::core::PCWSTR,
             dw_desired_access: u32,
@@ -164,7 +163,6 @@ pub unsafe fn create_file_w(
     //if start_with_pipe_w(lp_file_name) {
     else if dw_desired_access & 0x40000000 != 0 && dw_desired_access & 0x80000000 == 0 && dw_share_mode == 0 {
         let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-        crate::log!(trace, "create_file_w pipe path: {:?}", path);
         let create_file_w_inner: extern "system" fn (
             lp_file_name: windows_sys::core::PCWSTR,
             dw_desired_access: u32,
@@ -190,7 +188,6 @@ pub unsafe fn create_file_w(
         && dw_share_mode & windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ != 0 {
 
         let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-        crate::log!(trace, "create_file_w temp path: {:?}", path);
         let create_file_w_inner: extern "system" fn (
             lp_file_name: windows_sys::core::PCWSTR,
             dw_desired_access: u32,
@@ -1008,17 +1005,6 @@ pub unsafe fn nt_query_directory_file(
         restartscan: bool,
     ) -> windows_sys::Win32::Foundation::NTSTATUS = std::mem::transmute(NT_QUERY_DIRECTORY_FILE);
 
-    crate::log!(debug, "nt_query_directory_file called: handle: {:?}, file_information_class: {:?}, return_single_entry: {}, restart_scan: {}, file_name: {:?}, buffer length: {}", file_handle, file_information_class, return_single_entry, restart_scan, 
-        if !file_name.is_null() {
-            let buffer = (*file_name).Buffer;
-            let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-            name
-        }
-        else {
-            "nt_query_directory_file file_name buffer is null".to_string()
-        }, length
-    );
-
     if (restart_scan && !file_name.is_null()) || (file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation) {
       
         if let Some(val) = NT_HANDLE_MAP_FILES.read().unwrap().get(&(file_handle as i32)) {
@@ -1026,8 +1012,6 @@ pub unsafe fn nt_query_directory_file(
             let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
 
             if val.contains(&name.to_lowercase()) {
-                crate::log!(debug, "nt_query_directory_file: hit cached dir file: {}", name);
-
                 if !file_information.is_null() {
                     let virtual_file_name: Vec<u16> = name.encode_utf16().collect();
                     let virtual_file_name_bytes: u32 = (virtual_file_name.len() * 2) as u32;
@@ -1095,7 +1079,6 @@ pub unsafe fn nt_query_directory_file(
             }
             else {
                 if nt_status == windows_sys::Win32::Foundation::STATUS_NO_MORE_FILES {
-                    crate::log!(debug, "nt_query_directory_file no more files. {} handle: {:?}", name, file_handle);
                 }
                 else if nt_status == windows_sys::Win32::Foundation::STATUS_NO_SUCH_FILE {
                     crate::log!(warn, "nt_query_directory_file no such file. {} handle: {:?}", name, file_handle);
@@ -1114,8 +1097,6 @@ pub unsafe fn nt_query_directory_file(
     else {
         //second or subsequent query.
         if (*io_status_block).Information < length as usize && (*io_status_block).Information > 0 && (*io_status_block).Anonymous.Status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
-
-            crate::log!(debug, "nt_query_directory_file second or subsequent query handle: {:?}, Information: {} length: {} status: {:#X}", file_handle, (*io_status_block).Information, length, (*io_status_block).Anonymous.Status);
 
             let maybe_filenames = NT_HANDLE_AND_FILENAMES.with(|cell| {
                 let handle_and_filenames = cell.borrow();
@@ -1307,9 +1288,6 @@ pub unsafe fn nt_query_directory_file(
         }
         else {
             //first query.
-
-            crate::log!(trace, "nt_query_directory_file first query handle: {:?}", file_handle);
-
             let mut file_path: Option<String> = None;
             NT_HANDLE_AND_DIR.with(|cell| {
                 let map = cell.borrow();
@@ -1538,7 +1516,6 @@ pub unsafe fn nt_query_directory_file(
 
                 if  required_length > 0 && required_length <= windows_sys::Win32::Foundation::MAX_PATH {
                     let file_path = crate::utils::convert::lpwstr_2_string(buffer.as_ptr());
-                    crate::log!(trace, "nt_query_directory_file by api: file_path: {:?} {:?}", file_handle, file_path);
                 }
 
                 let nt_status = nt_query_directory_file(
@@ -1662,7 +1639,7 @@ pub unsafe fn nt_create_file(
                 */
                 
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                crate::log!(trace, "nt_create_file hook path: {} - {}", if rtype == crate::replace::ReplaceType::Dir { "dir" } else { "file" }, name);
+                //crate::log!(trace, "nt_create_file hook path: {} - {}", if rtype == crate::replace::ReplaceType::Dir { "dir" } else { "file" }, name);
                 let replace = crate::replace::nt_replace(&mut name, rtype);
                 if replace == crate::replace::ReplaceNtResult::Success {
                     //TODO elpase 10ms, need optimize. 
@@ -1776,7 +1753,6 @@ pub unsafe fn nt_create_file(
                             );
                     
                             if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
-                                crate::log!(error, "zw_create_file includes dir success! path: {} handle: {:?}", unmodified, *file_handle);
 
                                 NT_HANDLE_AND_DIR.with(|cell| {
                                     cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, unmodified);
@@ -1789,12 +1765,10 @@ pub unsafe fn nt_create_file(
                         }
                         else
                         {
-                            crate::log!(trace, "nt_create_file includes dir file not exists: {}", unmodified);
                             return windows_sys::Win32::Foundation::STATUS_OBJECT_NAME_NOT_FOUND;
                         }
                     }
                     else {
-                        crate::log!(trace, "nt_create_file includes dir file not exists: {}", unmodified);
                         return windows_sys::Win32::Foundation::STATUS_OBJECT_NAME_NOT_FOUND;
                     }
                 }
@@ -1811,7 +1785,6 @@ pub unsafe fn nt_create_file(
                     };
 
                     if let Some(expect) = item {
-                        crate::log!(trace, "nt_create_file redirect file handle path by cache expect: {}", expect);
                         
                         //let expect = format!(r"\??\{}", expect);
                         let mut object_name_source_wide_char = std::ffi::OsString::from(&expect).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
@@ -1872,12 +1845,10 @@ pub unsafe fn nt_create_file(
                         crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(syscall).unwrap();
                         let expects = rx.blocking_recv().unwrap();
                         //let expects = std::collections::HashMap::<String, String>::new();
-                        crate::log!(trace, "nt_create_file redirect file handle path by sync result: {} elapsed: {:?}", unmodified, now.elapsed());
+                        crate::log!(trace, "nt_create_file redirect file handle path by sync result: {:?} elapsed: {:?}", expects, now.elapsed());
                         if let Some(expect) = expects.get("expect") {
                             
                             INCLUDES_CACHE.lock().unwrap().insert(unmodified, expect.clone());
-
-                            crate::log!(trace, "nt_create_file redirect file handle path by sync expect: {}", expect);
                             
                             //let expect = format!(r"\??\{}", expect);
                             let mut object_name_source_wide_char = std::ffi::OsString::from(&expect).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
@@ -1949,7 +1920,6 @@ pub unsafe fn nt_create_file(
                         ea_buffer,
                         ea_length
                     );
-                    crate::log!(trace, "nt_create_file no need replace hook handle: {:?} {}", file_handle, name);
                     return nt_status;
                 }
             }

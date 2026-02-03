@@ -305,7 +305,6 @@ unsafe fn redirect_syscall_2_cocrew() {
                             Some(mirror_call) => {
                             
                                 let formatted_call = format_mirror_syscall(&mirror_call);
-                                crate::log!(info, "send format virtual syscall to namedpipe: {} {}", mirror_call.api, formatted_call);
 
                                 let responder = mirror_call.responder;
                                 {

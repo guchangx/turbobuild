@@ -952,10 +952,24 @@ impl MSVC {
             }
         }
 
+        let compiler_output = std::sync::Arc::new(std::sync::Mutex::new(CompilerOutput::default()));
+
         while let Some(handle) = set.join_next().await {
             match handle {
                 Ok((addr, output)) => {
-                    log::debug!("dist compile with source and include file output: {:?}", &addr);
+                    log::debug!("dist compile with source and include file {:?} output: {:?} error: {:?}", &addr, String::from_utf8_lossy(&output.out), String::from_utf8_lossy(&output.err));
+
+                    {
+                        let mut coutput = compiler_output.lock().unwrap();
+                        coutput.status = output.status;
+                        let mut all_out = (*coutput.out).to_owned();
+                        let mut all_err = (*coutput.err).to_owned();
+
+                        all_out.extend(output.out.as_ref());
+                        all_err.extend(output.err.as_ref());
+                        coutput.out = std::sync::Arc::new(all_out);
+                        coutput.err = std::sync::Arc::new(all_err);
+                    }
 
                     if !sources.is_empty() {
                         let mut index = -1;
@@ -1030,7 +1044,7 @@ impl MSVC {
                             input.compiler_commands.extend(left.iter().cloned());
 
                             let output = self_.request_dist_compile(&addr_, &input, &requires).await;
-                            
+
                             return (addr_, output);
                         });
                     }
@@ -1041,7 +1055,7 @@ impl MSVC {
             }
         }
 
-        return CompilerOutput::default();
+        return compiler_output.lock().unwrap().to_owned();
     }
 
 }
