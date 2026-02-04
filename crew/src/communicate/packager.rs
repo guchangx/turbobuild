@@ -369,10 +369,12 @@ impl Sender {
                                 }
                             }
                             else {
-                                log::warn!("send precompiled sourcefile reveice response failed. {}", response.tips);
+                                log::debug!("precompiled sourcefile failed response out: {:?}", String::from_utf8_lossy(&response.out));
+                                log::debug!("precompiled sourcefile failed response err: {:?}", String::from_utf8_lossy(&response.err));
                                 recv.status = response.status;
                                 recv.out = response.out;
                                 recv.err = response.err;
+                                break;
                             }
                         },
                         Err(err) => {
