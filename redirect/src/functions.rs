@@ -1773,6 +1773,7 @@ pub unsafe fn nt_create_file(
                     }
                 }
                 else if let crate::replace::ReplaceNtResult::NeedObtain(unmodified) = replace {
+                    crate::log!(trace, "nt_create_file needobtain path: {} {}", name.clone(), unmodified);
                     let (tx, rx) = tokio::sync::oneshot::channel();
 
                     let mut args =  std::collections::HashMap::<String, String>::new();
