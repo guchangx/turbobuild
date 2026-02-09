@@ -137,8 +137,9 @@ pub unsafe fn create_file_w(
     dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
     h_template_file: win::Foundation::HANDLE,
 ) -> win::Foundation::HANDLE {
+    let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
+    log!(debug, "create_file_w hook path: {:?}", path);
     if h_template_file == *CALL_TEMPLATE as win::Foundation::HANDLE {
-        let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
         let create_file_w_inner: extern "system" fn (
             lp_file_name: windows_sys::core::PCWSTR,
             dw_desired_access: u32,
@@ -162,7 +163,6 @@ pub unsafe fn create_file_w(
     }
     //if start_with_pipe_w(lp_file_name) {
     else if dw_desired_access & 0x40000000 != 0 && dw_desired_access & 0x80000000 == 0 && dw_share_mode == 0 {
-        let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
         let create_file_w_inner: extern "system" fn (
             lp_file_name: windows_sys::core::PCWSTR,
             dw_desired_access: u32,
@@ -187,7 +187,6 @@ pub unsafe fn create_file_w(
     else if dw_desired_access & 0x40000000 == 0 && dw_desired_access & 0x80000000 != 0
         && dw_share_mode & windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ != 0 {
 
-        let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
         let create_file_w_inner: extern "system" fn (
             lp_file_name: windows_sys::core::PCWSTR,
             dw_desired_access: u32,
@@ -210,10 +209,10 @@ pub unsafe fn create_file_w(
         return handle;
     }
 
-    let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
+    //let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
     if let Some(mut path) = path {
 
-        crate::log!(trace, "create_file_w hook path: {}", path);
+        //crate::log!(trace, "create_file_w hook path: {}", path);
 
         let create_file_w: extern "system" fn (
             lp_file_name: windows_sys::core::PCWSTR,
@@ -242,9 +241,13 @@ pub unsafe fn create_file_w(
             );
 
             if handle == win::Foundation::INVALID_HANDLE_VALUE {
-                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = win::Foundation::GetLastError();
-                crate::log!(error, "create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
+                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
+                if dw_creation_disposition == win::Storage::FileSystem::OPEN_EXISTING && error_code == win::Foundation::ERROR_FILE_NOT_FOUND {
+                } 
+                else {
+                    crate::log!(error, "create_file_w failed! error_code: {} disposition: {} {:?}.", error_code, dw_creation_disposition, hook_path);
+                }
             }
 
             return handle;
@@ -262,9 +265,12 @@ pub unsafe fn create_file_w(
             );
 
             if handle == win::Foundation::INVALID_HANDLE_VALUE {
-                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = win::Foundation::GetLastError();
-                crate::log!(error, "create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
+                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
+                if dw_creation_disposition == win::Storage::FileSystem::OPEN_EXISTING && error_code == win::Foundation::ERROR_FILE_NOT_FOUND {
+                } else {
+                    crate::log!(error, "create_file_w failed! error_code: {} disposition: {} {:?}.", error_code, dw_creation_disposition, hook_path);
+                }
             }
 
             return handle;    
@@ -422,8 +428,8 @@ pub unsafe fn kernelbase_create_file_w(
             );
     
             if handle == win::Foundation::INVALID_HANDLE_VALUE {
-                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = win::Foundation::GetLastError();
+                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 crate::log!(error, "kernelbase create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
             }
     
@@ -439,8 +445,8 @@ pub unsafe fn kernelbase_create_file_w(
             );
     
             if handle == win::Foundation::INVALID_HANDLE_VALUE {
-                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = win::Foundation::GetLastError();
+                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
 
                 if error_code == win::Foundation::ERROR_FILE_NOT_FOUND {
                     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -490,8 +496,8 @@ pub unsafe fn kernelbase_create_file_w(
             );
     
             if handle ==  win::Foundation::INVALID_HANDLE_VALUE {
-                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 let error_code = win::Foundation::GetLastError();
+                let hook_path = crate::utils::convert::lpwstr_2_string(lp_file_name);
                 crate::log!(error, "kernelbase create_file_w failed! error_code: {} {:?}.", error_code, hook_path);
             }
             return handle;   
@@ -671,14 +677,12 @@ pub unsafe fn kernelbase_create_process_w(
 
     if let Some(application) = application {
         
-        crate::log!(info, "kernelbase_create_process_w hook path: {}", application);
         //crate::log!(info, "kernelbase_create_process_w hook commandline: {:?}", crate::utils::convert::lpwstr_2_string(lp_command_line));
 
-        let dllpath = crate::MODULE_PATH.get();
-
-        if (application.ends_with("cl.exe") || application.ends_with("mspdbsrv.exe")) && dllpath.is_some() && crate::IN_HOOK.get() == false {
-            
+        if crate::IN_HOOK.get() == false && (application.ends_with("cl.exe") || application.ends_with("mspdbsrv.exe")) {
             crate::IN_HOOK.set(true);
+
+            crate::log!(info, "kernelbase_create_process_w hook thread: {} path: {}", win::System::Threading::GetCurrentThreadId(), application);
             
             let mut stdin_write_handle: Option<win::Foundation::HANDLE> = None;
 
@@ -730,13 +734,18 @@ pub unsafe fn kernelbase_create_process_w(
                 }
                 b_inherit_handles = win::Foundation::TRUE;
 
-                win::Foundation::SetHandleInformation(h_stdin_write, win::Foundation::HANDLE_FLAG_INHERIT, 0);
+                let result = win::Foundation::SetHandleInformation(h_stdin_write, win::Foundation::HANDLE_FLAG_INHERIT, 0);
+                if result == win::Foundation::FALSE {
+                    let error_code = win::Foundation::GetLastError();
+                    crate::log!(error, "set stdin write handle information failed! error_code: {}.", error_code);
+                }
+
                 (*lp_startup_info).hStdInput = h_stdin_read;
                 (*lp_startup_info).dwFlags |= win::System::Threading::STARTF_USESTDHANDLES;
 
                 stdin_write_handle = Some(h_stdin_write);
             }
-
+            let dllpath = crate::MODULE_PATH.get();
             let ret = crate::detours::DetourCreateProcessWithDllExW(
                 lp_application_name,
                 lp_command_line,
@@ -753,12 +762,17 @@ pub unsafe fn kernelbase_create_process_w(
             );
             
             if ret == win::Foundation::TRUE {
-                
                 win::Foundation::CloseHandle(h_stdin_read);
 
                 if let Some(stdin_write) = stdin_write_handle {
-                    pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
+                    if application.ends_with("mspdbsrv.exe") {
+                        pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), "", crate::REPLICADIR.get().unwrap());
+                    }
+                    else {
+                        pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
+                    }
                 }
+                crate::log!(info, "detour create process withdllexw success! application: {}, process: {}.", application, lp_process_information.as_ref().unwrap().dwProcessId);
 
                 return ret;
             }
@@ -766,7 +780,7 @@ pub unsafe fn kernelbase_create_process_w(
                 win::Foundation::CloseHandle(h_stdin_read);
                 win::Foundation::CloseHandle(h_stdin_write);
                 let error_code = win::Foundation::GetLastError();
-                crate::log!(error, "detour create process withdllexw failed! error_code: {}.", error_code);
+                crate::log!(error, "detour create process withdllexw failed! application: {} error_code: {}.", application, error_code);
 
                 let create_process_w: extern "system" fn(
                     lp_application_name: windows_sys::core::PCWSTR,
@@ -795,7 +809,7 @@ pub unsafe fn kernelbase_create_process_w(
                 
                 if ret == win::Foundation::FALSE {
                     let error_code = win::Foundation::GetLastError();
-                    crate::log!(error, "kernelbase create_file_w failed! error_code: {}.", error_code);
+                    crate::log!(error, "kernelbase retry create_process_w failed! application: {} error_code: {}.", application, error_code);
                 }
                 return ret;
             }
@@ -828,7 +842,7 @@ pub unsafe fn kernelbase_create_process_w(
             
             if ret == win::Foundation::FALSE {
                 let error_code = win::Foundation::GetLastError();
-                crate::log!(error, "kernelbase create_file_w failed! error_code: {}.", error_code);
+                crate::log!(error, "kernelbase direct create_process_w failed! error_code: {}.", error_code);
             }
             return ret;
         }
@@ -990,6 +1004,12 @@ pub unsafe fn nt_query_directory_file(
     file_name: *const windows_sys::Win32::Foundation::UNICODE_STRING,
     restart_scan: bool
     ) -> windows_sys::Win32::Foundation::NTSTATUS {
+    
+    if !file_name.is_null() {
+        let buffer = (*file_name).Buffer;
+        let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+        crate::log!(debug, "nt_query_directory_file called: handle: {:?}, file_name: {:?} ", file_handle, name);
+    }
 
     let nt_query_directory_file: extern "system" fn(
         filehandle: windows_sys::Win32::Foundation::HANDLE,
@@ -1323,10 +1343,10 @@ pub unsafe fn nt_query_directory_file(
                 };
                 let cid = call.cid.clone();
 
-                crate::log!(trace, "nt_query_directory_file file handle cid: {} path: {}", cid.clone(), path);
+                crate::log!(trace, "nt_query_directory_file file handle cid: {} handle: {:?} path: {}", cid.clone(), &file_handle, path);
                 crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(call).unwrap();
                 let result = rx.blocking_recv().unwrap();
-                crate::log!(trace, "nt_query_directory_file file handle cid: {} path: {} results: {:?}", cid, path, result);
+                crate::log!(trace, "nt_query_directory_file file handle cid: {} handle: {:?} path: {}", cid, &file_handle, path);
 
                 if let Some(fileinfo) = result.get("fileinformation") {
                     if file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation {
@@ -1639,7 +1659,7 @@ pub unsafe fn nt_create_file(
                 */
                 
                 let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                //crate::log!(trace, "nt_create_file hook path: {} - {}", if rtype == crate::replace::ReplaceType::Dir { "dir" } else { "file" }, name);
+                crate::log!(trace, "nt_create_file hook path: {} - {}", if rtype == crate::replace::ReplaceType::Dir { "dir" } else { "file" }, name);
                 let replace = crate::replace::nt_replace(&mut name, rtype);
                 if replace == crate::replace::ReplaceNtResult::Success {
                     //TODO elpase 10ms, need optimize. 
@@ -1685,9 +1705,6 @@ pub unsafe fn nt_create_file(
                     );
 
                     if nt_status == win::Foundation::STATUS_SUCCESS {
-                        NT_HANDLE_AND_DIR.with(|cell| {
-                            cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, name);
-                        });
                     }
                     else {
                         if nt_status == win::Foundation::STATUS_OBJECT_NAME_NOT_FOUND {
@@ -1735,7 +1752,8 @@ pub unsafe fn nt_create_file(
                         *cid += 1;
                         syscall
                     };
-                        
+                    
+                    crate::log!(trace, "nt_create_file includes hook send syscall cid: {:?} args: {:?}", &syscall.cid, &syscall.args);
                     crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(syscall).unwrap();
                     let exists = rx.blocking_recv().unwrap();
                     if let Some(exists) = exists.get("exists") {
@@ -1944,7 +1962,7 @@ pub unsafe fn nt_create_file(
 }
 
 pub unsafe fn pass_project_and_replica_to_redriect(handle: win::Foundation::HANDLE, solution: &str, project: &str, replica: &str) {
-    if !project.is_empty() {
+    if !solution.is_empty() {
         let arg = format!("solution:{}\nproject:{}\nreplica:{}\n", solution, project, replica);
         let mut bytes: u32 = 0;
         let mut overlapped: win::System::IO::OVERLAPPED = std::mem::zeroed();

@@ -326,14 +326,14 @@ impl Sender {
 
                                 }
                                 else if response.progress == pack::CompileProgress::Compilestart as i32 {
-                                    log::debug!("precompiled sourcefile start response: {}", response.tips);
+                                    log::debug!("compiled sourcefile start response: {}", response.tips);
                                 }
                                 else if response.progress == pack::CompileProgress::Compiling as i32 {
 
-                                    log::trace!("compiling receive precompiled sourcefile response: {:?}", response.results.iter().map(|item| item.file.clone()).collect::<Vec<_>>());
+                                    log::trace!("compiling receive compiled sourcefile response: {:?}", response.results.iter().map(|item| item.file.clone()).collect::<Vec<_>>());
                                     
                                     tx.send(response.results).await.unwrap_or_else(|err| {
-                                        log::error!("send precompiled sourcefile response to save failed: {:?}", err);
+                                        log::error!("send compiled sourcefile response to save failed: {:?}", err);
                                     });
 
                                     let output = crate::compiler::model::CompilerOutput {
@@ -349,10 +349,10 @@ impl Sender {
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
             
-                                    log::debug!("precompiled sourcefile done response out: {:?}", String::from_utf8_lossy(&response.out));
+                                    log::debug!("compiled sourcefile done response out: {:?}", String::from_utf8_lossy(&response.out));
                                     recv.out = response.out;
                                 
-                                    log::debug!("precompiled sourcefile done response err: {:?}", String::from_utf8_lossy(&response.err));
+                                    log::debug!("compiled sourcefile done response err: {:?}", String::from_utf8_lossy(&response.err));
                                     recv.err = response.err;
                                     
                                     recv.status = response.status;
@@ -369,8 +369,8 @@ impl Sender {
                                 }
                             }
                             else {
-                                log::debug!("precompiled sourcefile failed response out: {:?}", String::from_utf8_lossy(&response.out));
-                                log::debug!("precompiled sourcefile failed response err: {:?}", String::from_utf8_lossy(&response.err));
+                                log::debug!("compiled sourcefile failed response out: {:?}", String::from_utf8_lossy(&response.out));
+                                log::debug!("compiled sourcefile failed response err: {:?}", String::from_utf8_lossy(&response.err));
                                 recv.status = response.status;
                                 recv.out = response.out;
                                 recv.err = response.err;
@@ -378,7 +378,7 @@ impl Sender {
                             }
                         },
                         Err(err) => {
-                            log::error!("send precompiled sourcefile receive response failed. {}", err);
+                            log::error!("send compiled sourcefile receive response failed. {}", err);
                             recv.status = 1;
                             recv.err = err.to_string().into_bytes();
                             break;
@@ -391,10 +391,10 @@ impl Sender {
                     let _ = handle.await;
                 }
 
-                log::info!("send precompiled sourcefile receive response done. {}", project);
+                log::info!("send compiled sourcefile receive response done. {}", project);
             }
             Err(err) => {
-                log::warn!("send precompiled sourcefile failed: {:?} {}", err, project);
+                log::warn!("send compiled sourcefile failed: {:?} {}", err, project);
                 recv.status = 1;
                 recv.err = err.to_string().into_bytes();
             }
@@ -478,15 +478,12 @@ impl Sender {
                 while let Some(stream) = response_stream.next().await {
                     match stream {
                         Ok(stream) => {
-                            log::debug!("transmit redirect net receive grpc message");
-
                             let local = crate::procemirror::filesystem::route_file_system_operation(stream); //700 µs
 
                             if let Err(err) = tx.send(local.clone()).await {
                                 log::error!("transmit redirect net error: {:?}", err);
                             }
                             else {
-                                log::trace!("transmit redirect net response: {:?} {:?}", local.cid, local.api);
                             } 
                         }
                         Err(err) => {

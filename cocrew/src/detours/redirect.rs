@@ -393,7 +393,7 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                 win::Foundation::CloseHandle(lpProcessInformation.hThread as _);
                 win::Foundation::CloseHandle(lpProcessInformation.hProcess as _);
 
-                log::info!("msvc detours: {} end with exit code: {:#x}. error message: {}.", project, code, tools::utils::get_winapi_error_message(code));
+                log::info!("msvc detours: {} end with exit code: {:#x}", project, code);
                 if !hStdOutputRead.is_null() {
                     win::Foundation::CloseHandle(hStdOutputRead);
                 }

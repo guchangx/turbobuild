@@ -281,15 +281,14 @@ impl Receiver {
                                                     });
                                                 }
                                                 else {
+                                                    //TODO: if rename failed, how to deal ?
                                                     log::error!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file, err);
                                                 }
                                             }
                                         }
                                     },
                                     Err(err) => {
-                                        log::debug!("transmit redirect real result save file failed: {:?}, {}", &intermediate.file, err);
                                         if err.kind() == std::io::ErrorKind::NotFound {
-    
                                             let filepath = std::path::PathBuf::from(&intermediate.file);
                                             if let Some(parent) = filepath.parent() {
                                                 if !parent.exists() {
@@ -345,8 +344,6 @@ impl Receiver {
                                 },
                             };
                         }
-                        
-                        log::debug!("transmit redirect real result save file done: id {:?} api: {:?} params: {:?}", real.cid, real.api, real.params);
 
                         let command_result = MirrorSysCall {
                             cid: real.cid,
@@ -382,10 +379,7 @@ impl Receiver {
 
             if let Some(mut rx) = channel {
                 while let Some(syscall) = rx.recv().await {
-                    log::debug!("transmit redirect handle received message: {:?}, remaining: {}", &syscall, rx.len());
-
                     if syscall.api == "NtCreateFile" {
-
                         if let Some((_, expect)) = syscall.args.get_key_value("expect") {
                             //file exist in replica dir, so do not obtain file from crew again. direct return success.
                             let exist = { self__.crate_files_exist.lock().await.contains(&expect) };
@@ -408,11 +402,13 @@ impl Receiver {
                         params: syscall.args.iter().map(|(k, v)| package::Params { key: k.clone(), value: v.clone() }).collect(),
                     };
                     
-                    if tx.send(Ok(reply)).await.is_ok() {
-                    }
-                    else {
-                        log::warn!("transmit redirect handle send syscall message to crew failed. id: {}", syscall.cid);
-                    }
+                    match tx.send(Ok(reply.clone())).await {
+                        Ok(_) => {
+                        },
+                        Err(err) => {
+                            log::warn!("transmit redirect handle send syscall message to crew failed. id: {} , {:?}", syscall.cid, err);
+                        }
+                    };
                 }
                 log::debug!("transmit redirect handle write task end.");
             }

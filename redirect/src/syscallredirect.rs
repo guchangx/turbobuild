@@ -197,6 +197,7 @@ unsafe fn redirect_syscall_2_cocrew() {
                                                 let output = String::from_utf8_lossy(&moredata);
 
                                                 let (id, command, args) = parse_mirror_command(&output);
+                                                crate::log!(debug, "receive pipe sysycall id: {} command: {}", id, command);
                                                 let option = { responders.lock().unwrap().remove(&id) };
                                                 if let Some(responder) = option {
                                                     if let Err(e) = responder.send(args) {
@@ -221,6 +222,7 @@ unsafe fn redirect_syscall_2_cocrew() {
                                             let output = String::from_utf8_lossy(&moredata);
 
                                             let (id, command, args) = parse_mirror_command(&output);
+                                            crate::log!(debug, "receive pipe sysycall id: {} command: {}", id, command);
                                             let option = { responders.lock().unwrap().remove(&id) };
                                             if let Some(responder) = option {
                                                 if let Err(e) = responder.send(args) {
@@ -252,6 +254,7 @@ unsafe fn redirect_syscall_2_cocrew() {
                                             let output = String::from_utf8_lossy(&moredata);
 
                                             let (id, command, args) = parse_mirror_command(&output);
+                                            crate::log!(debug, "receive pipe sysycall id: {} command: {}", id, command);
                                             let option = { responders.lock().unwrap().remove(&id) };
                                             if let Some(responder) = option {
                                                 if let Err(e) = responder.send(args) {
@@ -279,6 +282,7 @@ unsafe fn redirect_syscall_2_cocrew() {
                                     }
                                     else {
                                         let (id, command, args) = parse_mirror_command(&output);
+                                        crate::log!(debug, "receive pipe sysycall id: {} command: {}", id, command);
                                         let option = { responders.lock().unwrap().remove(&id) };
                                         if let Some(responder) = option {
                                             if let Err(e) = responder.send(args) {

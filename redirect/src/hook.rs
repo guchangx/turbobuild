@@ -1,7 +1,7 @@
 use windows_sys::Win32 as win;
 
 pub unsafe fn init_hook() {
-    crate::log!(info, "[{:?}] init compiler hk.", crate::PROJECTNAME.get());
+    crate::log!(info, "[{:?} {:?}] init compiler hk.", crate::SOLUTIONNAME.get(), crate::PROJECTNAME.get());
 
     crate::functions::CREATE_FILE_A = win::Storage::FileSystem::CreateFileA as *mut std::ffi::c_void;
     crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_A), crate::functions::create_file_a as _);

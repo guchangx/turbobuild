@@ -100,7 +100,7 @@ impl Receiver {
         loop {
             let (stream, _) = listener.accept().await.unwrap();
             let metrics = runtime.metrics(); 
-            log::debug!("new buildassist connection socket. runtime: {:#?} {:#?}", metrics.num_workers(), metrics.num_alive_tasks());
+            log::debug!("new buildassist connection socket. worker threads: {:#?} alive tasks {:#?}", metrics.num_workers(), metrics.num_alive_tasks());
             
             let distributor = self.distributor.clone();
             let runtime_ = runtime.clone();

@@ -241,6 +241,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         drop(err_stream);
     });
 
+    let project_name_ = project_name.clone();
     let (status, stdout, stderr) = start_local_compiler(&solution_name, &project_name, &compiler_path, &replica_working_dir, &compiler_commands, &envs, &stdout_err_stream);
 
     drop(stdout_err_stream);
@@ -248,7 +249,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     let compile_output = String::from_utf8_lossy(&stdout);
     let compile_error = String::from_utf8_lossy(&stderr);
     
-    log::info!("injectd compile status: {}, {:?} stdout: {:?} stderr: {:?}", status, now.elapsed(), compile_output, compile_error);
+    log::info!("{:?} injectd compile status: {}, {:?} stdout: {:?} stderr: {:?}", project_name_, status, now.elapsed(), compile_output, compile_error);
 
     if status == 0 {
         let lines: Vec<_> = compile_output.lines().collect();

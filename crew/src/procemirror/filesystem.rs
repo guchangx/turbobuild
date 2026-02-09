@@ -4,6 +4,8 @@ use std::fmt::Write;
 use windows_sys::Win32 as win;
 
 pub fn route_file_system_operation(redirect: crate::communicate::packager::pack::RemoteSyscall) -> crate::communicate::packager::pack::LocalSyscall {
+    log::debug!("Routing file system operation from remote redirect: {:?}", redirect);
+    
     let mut params = redirect.params.iter().map(|(param)| (param.key.clone(), param.value.clone())).collect::<std::collections::HashMap<String, String>>();
     match redirect.api.as_str() {
         "NtQueryDirectoryFile" => {
@@ -49,7 +51,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
                             files: vec![crate::communicate::packager::pack::IntermediateResult{file: expect.clone(), content: data.clone()}],
                         };
 
-                        log::debug!("redirect nt create file result: {:?} expect: {}", params, expect);
+                        log::debug!("redirect nt create file result: {:?}", params);
                         return local;
                     }   
                 },
@@ -248,7 +250,6 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
                 }
             }
         }
-        log::info!("successfully queried directory: {} entry count: {}", fileh, filenames.lines().count());
         win::Foundation::CloseHandle(filehandle);
         results.insert("fileinformation".to_string(), filenames.clone());
         return results;
