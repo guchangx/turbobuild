@@ -960,8 +960,9 @@ impl MSVC {
         while let Some(handle) = set.join_next().await {
             match handle {
                 Ok((addr, output)) => {
+                    self.sender.lock().unwrap().done(addr.as_str());
+                    
                     log::debug!("dist compile with source and include file {:?} output: {:?} error: {:?}", &addr, String::from_utf8_lossy(&output.out), String::from_utf8_lossy(&output.err));
-
                     {
                         let mut coutput = compiler_output.lock().unwrap();
                         coutput.status = output.status;

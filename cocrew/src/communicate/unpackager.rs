@@ -17,7 +17,7 @@ pub struct CHANNEL {
 
 pub static NAMEDPIPE_TO_GRPC_CHANNEL: std::sync::LazyLock<CHANNEL> = std::sync::LazyLock::new(|| {
 
-    let (tx, rx) = tokio::sync::mpsc::channel(128);
+    let (tx, rx) = tokio::sync::mpsc::channel(1024);
     let namedpipe_to_grpc_tx =  std::sync::Arc::new(Some(tx));
     let namedpipe_to_grpc_rx = std::sync::Arc::new(tokio::sync::Mutex::new(Some(rx)));
 
@@ -187,7 +187,7 @@ impl Receiver {
         if !compiler.is_empty() && !commands.is_empty() {
             
             let handle = Self::check_dir_exists(&solution, &request.working_dir, &commands).await;
-
+            
             let compiler_input = crew::compiler::model::CompilerInput {
                 solution: std::ffi::OsString::from(solution),
                 project: std::ffi::OsString::from(project.clone()),
@@ -199,11 +199,14 @@ impl Receiver {
             };
 
             let tx_ = tx.clone();
+            
+            let project_ = project.clone();
             let output_callback = move |reply: package::CompileTrResponse| {
                 let tx = tx_.clone();
+                let project_ = project_.clone();
                 async move {
                     for result in &reply.results {
-                        log::trace!("transmit compile handle return file: {}", result.file);
+                        log::trace!("transmit compile handle {} return file: {}", project_, result.file);
                     }
 
                     tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("tx send failed: {:?}", err));
@@ -211,7 +214,8 @@ impl Receiver {
             };
             handle.await.unwrap();
             Self::cocrew_execute(&compiler_input, output_callback).await;
-            log::debug!("transmit compile task handle execute done, {} return file: {}", &project.clone(), file);
+            //TODO: what is file used for?
+            log::debug!("transmit compile task handle execute done, {} return file: {}", &project, file);
         }
 
         if compiler_.is_empty() || commands.is_empty() {
@@ -317,6 +321,9 @@ impl Receiver {
                                     }
                                 }
                             }
+                            else {
+                                log::trace!("redirect handle file already exists in replica dir, skipping sync file: {} {}", real.cid, &intermediate.file);
+                            }
                         }
     
                         let mut dir_exists = false;
@@ -411,6 +418,9 @@ impl Receiver {
                     };
                 }
                 log::debug!("transmit redirect handle write task end.");
+            }
+            else {
+                panic!("transmit redirect handle obtain namedpipe to grpc channel failed.");
             }
         });
     }
@@ -512,7 +522,8 @@ impl Receiver {
         };
 
         let sender_ = sender.clone();
-
+        let project_ = input.project.to_string_lossy().into_owned();
+        let project__ = project_.clone();
         let outputhandle = tokio::spawn(async move {
 
             let reply = package::CompileTrResponse {
@@ -579,14 +590,14 @@ impl Receiver {
             }
 
             joins.join_all().await;
-            log::debug!("transmit compile handle out stream end.");
+            log::debug!("transmit compile handle {} out stream end.", project_);
         });
 
         tokio::spawn(async move {
             while let Some(results) = err_receiver.recv().await {
                 
             }
-            log::debug!("transmit compile handle err stream end.");
+            log::debug!("transmit compile handle {} err stream end.", project__);
         });
 
         let input_ = input.to_owned();

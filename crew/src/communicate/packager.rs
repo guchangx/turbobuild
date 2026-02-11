@@ -310,9 +310,10 @@ impl Sender {
 
                 let (tx, rx) = tokio::sync::mpsc::channel::<Vec<pack::IntermediateResult>>(128);
                 let mut myself = self.clone();
+                let project_ = project.clone();
                 let save_compile_ouput_handle = self.runtime.as_ref().map(|runtime| {
                     let handle = runtime.spawn(async move {
-                        myself.save_compile_ouput_form_channel(rx).await;
+                        myself.save_compile_ouput_form_channel(rx, &project_).await;
                     });
                     return handle;
                 });
@@ -358,9 +359,10 @@ impl Sender {
                                     recv.status = response.status;
                                     
                                     let mut myself = self.clone();
+                                    let project_ = project.clone();
                                     self.runtime.clone().unwrap().spawn(async move {
                                         let runtime = myself.runtime.clone().unwrap();
-                                        myself.save_compile_output(response.results, &runtime).await;
+                                        myself.save_compile_output(response.results, &runtime, &project_).await;
                                     });
                                     
                                 }
@@ -402,7 +404,7 @@ impl Sender {
         return recv;
     }
 
-    async fn save_compile_output(&mut self, results: Vec<pack::IntermediateResult>, runtime: &std::sync::Arc<tokio::runtime::Handle>) {
+    async fn save_compile_output(&mut self, results: Vec<pack::IntermediateResult>, runtime: &std::sync::Arc<tokio::runtime::Handle>, project: &str) {
         let mut handles = Vec::new();
         let len = results.len();
         for result in results {
@@ -433,10 +435,10 @@ impl Sender {
                 }
             }
         }
-        log::info!("save compile output done. file count: {}", len);
+        log::info!("{} save compile output done. file count: {}", project, len);
     }
 
-    async fn save_compile_ouput_form_channel(&mut self, mut stream: tokio::sync::mpsc::Receiver<Vec<pack::IntermediateResult>>) {
+    async fn save_compile_ouput_form_channel(&mut self, mut stream: tokio::sync::mpsc::Receiver<Vec<pack::IntermediateResult>>, project: &str) {
         let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
         while let Some(results) = stream.recv().await {
             for result in results {
@@ -460,7 +462,7 @@ impl Sender {
 
             }
         }
-        log::info!("save compile output from channel done.");
+        log::info!("{} save compile output from channel done.", project);
     }
 
     async fn redirect_net_command(&mut self) {

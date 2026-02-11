@@ -19,7 +19,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
                 }).collect(),
                 files: Vec::new(),
             };
-            log::debug!("redirect net query directory file result: {:?}", local);
+            log::debug!("redirect net query directory file result: {:?}", local.cid);
             return local;
         },
         "NtCreateFile" => {

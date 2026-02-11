@@ -214,7 +214,7 @@ impl TasksManager {
     
     pub fn done(&mut self, addr: &str) {
         if let Some(task) = self.tasks.iter_mut().find(|item| item.addr == addr) {
-            task.running -= 1;
+            task.running = 0;
         }
     }
 

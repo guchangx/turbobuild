@@ -153,7 +153,7 @@ impl Receiver {
                         let (stop_tx, mut stop_rx) = tokio::sync::oneshot::channel::<()>();
                         let _ = runtime.spawn(async move {
                             
-                            let mut timer = tokio::time::interval(tokio::time::Duration::from_secs(3 * 60));
+                            let mut timer = tokio::time::interval(tokio::time::Duration::from_secs(60));
                             timer.tick().await;
  
                             let mut stop_rx = std::pin::Pin::new(&mut stop_rx);
@@ -231,9 +231,8 @@ impl Receiver {
                             };
                         }
 
-                        log::info!("assistbuild request compile {} done. from: {:?}", project, stream.lock().await.peer_addr().unwrap());
-
                         let _ = stream.lock().await.shutdown().await;
+                        log::info!("assistbuild request compile \"{}\" done. from: {:?}", project, stream.lock().await.peer_addr().unwrap());
                         break;
                     }
                 },

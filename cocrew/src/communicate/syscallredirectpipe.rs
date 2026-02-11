@@ -20,7 +20,7 @@ pub struct CHANNEL {
 
 pub static GRPC_TO_NAMEDPIPE_CHANNEL: std::sync::LazyLock<CHANNEL> = std::sync::LazyLock::new(|| {
 
-    let (tx, rx) = tokio::sync::broadcast::channel(128);
+    let (tx, rx) = tokio::sync::broadcast::channel(1024);
     let grpc_to_namedpipe_tx =  std::sync::Arc::new(tx);
     let grpc_to_namedpipe_rx = std::sync::Arc::new(tokio::sync::Mutex::new(rx));
 
@@ -111,22 +111,28 @@ pub fn compiler_redirect_syscall() {
             rt_.spawn(async move {
                 let mut rx = { GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_rx.lock().await.resubscribe() };
                 while !closed.load(std::sync::atomic::Ordering::Relaxed) {
-                    if let Ok(response) = rx.recv().await {
-                        if response.cid / 10000 == pid {
-                            let response = format_mirror_syscall(&response);
-                            match writer.write(response.as_bytes()).await {
-                                Ok(_) => {
-                                },
-                                Err(err) => {
-                                    log::error!("failed to write mirror syscall response to namedpipe. {:?} err: {}", response, err);
-                                    break;
+                    match rx.recv().await {
+                        Ok(response) => {
+                            if response.cid / 10000 == pid {
+                                let response = format_mirror_syscall(&response);
+                                match writer.write_all(response.as_bytes()).await {
+                                    Ok(_) => {
+                                    },
+                                    Err(err) => {
+                                        log::error!("failed to write mirror syscall response to namedpipe. {:?} err: {}", response, err);
+                                        break;
+                                    }
                                 }
                             }
+                        },
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            log::warn!("cocrew namedpipe writer for pid {} lagged by {} messages, some syscall responses lost!", pid, n);
+                            continue;
+                        },
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            log::warn!("mirror syscall response broadcast channel closed for pid {}.", pid);
+                            break;
                         }
-                    }
-                    else {
-                        log::warn!("mirror syscall response channel closed, drop grpc to namedpipe receiver.");
-                        break;
                     }
                 }
                 writer.shutdown().await.unwrap();
