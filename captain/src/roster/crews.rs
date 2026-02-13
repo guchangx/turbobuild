@@ -25,6 +25,7 @@ pub struct CrewRegister {
     pub addr: String,
     pub passcode: String,
     pub core: u32,
+    pub frequency: Vec<u64>,
     pub memory: f32,
 }
 
@@ -34,6 +35,7 @@ pub struct Task {
     pub devicename: String,
     pub addr: String,
     pub core: u32,
+    pub frequency: Vec<u64>,
     pub memory: f32,
     pub running: u32,
     pub max: u32
@@ -69,6 +71,7 @@ impl TaskManager {
             devicename: crew.devicename.clone(),
             addr: crew.addr.clone(),
             core: crew.core,
+            frequency: crew.frequency.clone(),
             memory: crew.memory,
             running: 0,
             max: 1024,

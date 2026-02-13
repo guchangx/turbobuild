@@ -136,7 +136,7 @@ pub fn compiler_redirect_syscall() {
                     }
                 }
                 writer.shutdown().await.unwrap();
-                log::trace!("cocrew syscall namedpipe writer end {}", pid);
+                log::trace!("cocrew syscall namedpipe writer end. client pid {}", pid);
             });
 
             let _ = rt_.spawn(async move {

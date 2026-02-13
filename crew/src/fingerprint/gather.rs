@@ -155,6 +155,7 @@ pub struct RegisterInfo {
     pub addr: String,
     pub passcode: String,
     pub core: u16,
+    pub frequency: Vec<u64>,
     pub memory: f32,
 }
 
@@ -162,13 +163,14 @@ impl RegisterInfo {
     pub fn new() -> Self {
         let username = SystemInfo::fetch_username();
         let devicename = SystemInfo::fetch_devicename();
-        let (_, core, _) = SystemInfo::fetch_cpu_info();
+        let (_, core, frequency) = SystemInfo::fetch_cpu_info();
         let (memory, _) = SystemInfo::fetch_memory_info();
         return Self {
             username,
             devicename,
             addr: "".to_string(),
             core: core as u16,
+            frequency,
             memory,
             passcode: "".to_string()
         };

@@ -296,9 +296,13 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                     log::error!("ResumeThread failed! error code: {}.", error_code);
                 }
 
+                let hProcessBox = HandleBox::new(lpProcessInformation.hProcess as win::Foundation::HANDLE);
+                let hProcessForStdout = hProcessBox.clone();
+                let hProcessForStderr = hProcessBox.clone();
+
                 let hStdOutputReadBox = HandleBox::new(hStdOutputRead);
                 
-                let task = std::thread::Builder::new().name("build-stdout-reader".into()).spawn(move || {
+                let task_stdout = std::thread::Builder::new().name("build-stdout-reader".into()).spawn(move || {
 
                     let mut chTmpStdOutputReadBuffer = [0u8; 1024];
                     let mut bytesStdOuputRead: u32 = 0;
@@ -306,6 +310,32 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                     let mut line = Vec::new();
                     let mut stdout = Vec::new();
                     loop {
+                        let mut avail: u32 = 0;
+                        let peek = win::System::Pipes::PeekNamedPipe(
+                            *hStdOutputReadBox.get(),
+                            std::ptr::null_mut(),
+                            0,
+                            std::ptr::null_mut(),
+                            &mut avail,
+                            std::ptr::null_mut()
+                        );
+
+                        if peek == win::Foundation::FALSE {
+                            break;
+                        }
+
+                        if avail == 0 {
+                            let wait = win::System::Threading::WaitForSingleObject(
+                                *hProcessForStdout.get(), 0
+                            );
+                            if wait == 0 {  // WAIT_OBJECT_0: cl.exe has exited
+                                log::debug!("stdout reader: cl.exe exited and no more data, exiting");
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                            continue;
+                        }
+
                         chTmpStdOutputReadBuffer.fill(0);
                         let bStdOutputRead = win::Storage::FileSystem::ReadFile(
                             *hStdOutputReadBox.get(),
@@ -317,11 +347,8 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                         
                         if bStdOutputRead == win::Foundation::FALSE || bytesStdOuputRead == 0 {
                             let error = win::Foundation::GetLastError();
-                            if error == win::Foundation::ERROR_BROKEN_PIPE {
-                                
-                            }
-                            else {
-                                log::error!("can't read stdout pipe. error code: {}", win::Foundation::GetLastError());
+                            if error != win::Foundation::ERROR_BROKEN_PIPE && error != win::Foundation::ERROR_INVALID_HANDLE {
+                                log::error!("can't read stdout pipe. error code: {}", error);
                             }
                             break;
                         }
@@ -349,51 +376,80 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                     drop(stdoutstream);
                     return stdout;
                 }).unwrap();
-                
-                let mut chTmpStdErrorReadBuffer =  [0u8; 1024];
-                let mut bytesStdErrorRead: u32 = 0;
 
-                let mut stderr = Vec::new();
+                let hStdErrorReadBox = HandleBox::new(hStdErrorRead);
+                let task_stderr = std::thread::Builder::new().name("build-stderr-reader".into()).spawn(move || {
+                    let mut chTmpStdErrorReadBuffer =  [0u8; 1024];
+                    let mut bytesStdErrorRead: u32 = 0;
 
-                loop {
-                    chTmpStdErrorReadBuffer.fill(0);
-                    let bStdErrorRead = win::Storage::FileSystem::ReadFile(
-                        hStdErrorRead, 
-                        chTmpStdErrorReadBuffer.as_mut_ptr(), 
-                        chTmpStdErrorReadBuffer.len() as u32, 
-                        &mut bytesStdErrorRead, 
-                        std::ptr::null_mut()
-                    );
-                    
-                    if bStdErrorRead == win::Foundation::FALSE || bytesStdErrorRead == 0 {
-                        let error = win::Foundation::GetLastError();
-                        if error == win::Foundation::ERROR_BROKEN_PIPE {
+                    let mut stderr = Vec::new();
 
+                    loop {
+
+                        let mut avail: u32 = 0;
+                        let peek = win::System::Pipes::PeekNamedPipe(
+                            *hStdErrorReadBox.get(),
+                            std::ptr::null_mut(),
+                            0,
+                            std::ptr::null_mut(),
+                            &mut avail,
+                            std::ptr::null_mut()
+                        );
+
+                        if peek == win::Foundation::FALSE {
+                            break;
                         }
-                        else {
-                            log::error!("can't read stderr pipe. error code: {}", win::Foundation::GetLastError());
+
+                        if avail == 0 {
+                            let wait = win::System::Threading::WaitForSingleObject(
+                                *hProcessForStderr.get(), 0
+                            );
+                            if wait == 0 {  // WAIT_OBJECT_0: cl.exe has exited
+                                log::debug!("stderr reader: cl.exe exited and no more data, exiting");
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(10));
+                            continue;
                         }
-                        break;
+
+                        chTmpStdErrorReadBuffer.fill(0);
+                        let bStdErrorRead = win::Storage::FileSystem::ReadFile(
+                            *hStdErrorReadBox.get(), 
+                            chTmpStdErrorReadBuffer.as_mut_ptr(), 
+                            chTmpStdErrorReadBuffer.len() as u32, 
+                            &mut bytesStdErrorRead, 
+                            std::ptr::null_mut()
+                        );
+                        
+                        if bStdErrorRead == win::Foundation::FALSE || bytesStdErrorRead == 0 {
+                            let error = win::Foundation::GetLastError();
+                            if error != win::Foundation::ERROR_BROKEN_PIPE && error != win::Foundation::ERROR_INVALID_HANDLE {
+                                log::error!("can't read stderr pipe. error code: {}", error);
+                            }
+                            break;
+                        }
+                        
+                        let stderrstream_ = stderrstream.clone();
+                        stderrstream_.try_send(chTmpStdErrorReadBuffer[..bytesStdErrorRead as usize].to_vec()).unwrap_or_else(|_| {
+                            log::error!("try send stderr stream failed.");
+                        });
+
+                        stderr.extend_from_slice(&chTmpStdErrorReadBuffer[..bytesStdErrorRead as usize]);
                     }
-                    
-                    let stderrstream_ = stderrstream.clone();
-                    stderrstream_.try_send(chTmpStdErrorReadBuffer[..bytesStdErrorRead as usize].to_vec()).unwrap_or_else(|_| {
-                        log::error!("try send stderr stream failed.");
-                    });
-
-                    stderr.extend_from_slice(&chTmpStdErrorReadBuffer[..bytesStdErrorRead as usize]);
-                }
-                drop(stderrstream);
+                    drop(stderrstream);
+                    return stderr;
+                }).unwrap();
                 
-                win::System::Threading::WaitForSingleObject(lpProcessInformation.hProcess as win::Foundation::HANDLE, win::System::Threading::INFINITE);
+                let stdout = task_stdout.join().unwrap();
+                let stderr = task_stderr.join().unwrap();
                 
                 let mut code: u32 = 0;
-                win::System::Threading::GetExitCodeProcess(lpProcessInformation.hProcess as win::Foundation::HANDLE, &mut code as _);
+                win::System::Threading::GetExitCodeProcess(*hProcessBox.get(), &mut code as _);
+                log::info!("msvc detours: {} end with exit code: {:#x} pid: {:?}", project, code, lpProcessInformation.dwProcessId);
 
                 win::Foundation::CloseHandle(lpProcessInformation.hThread as _);
-                win::Foundation::CloseHandle(lpProcessInformation.hProcess as _);
+                win::Foundation::CloseHandle(*hProcessBox.get());
 
-                log::info!("msvc detours: {} end with exit code: {:#x}", project, code);
                 if !hStdOutputRead.is_null() {
                     win::Foundation::CloseHandle(hStdOutputRead);
                 }
@@ -401,8 +457,6 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                 if !hStdErrorRead.is_null() {
                     win::Foundation::CloseHandle(hStdErrorRead);
                 }
-
-                let stdout = task.join().unwrap();
 
                 return (code, std::sync::Arc::new(stdout), std::sync::Arc::new(stderr));
             }

@@ -743,7 +743,8 @@ impl MSVC {
                 sources_dir.insert(parent.to_owned());
             });
         }
-        log::trace!("source files size: {}, dir size: {}",  &actions.compile_source_file.len(), sources_dir.len());
+        let totals = actions.compile_source_file.len();
+        log::trace!("{:?} source files size: {}, dir size: {}", &input.project, totals, sources_dir.len());
         let mut headers = std::collections::HashSet::new();
         for dir in sources_dir {
             if let Ok(entries) = std::fs::read_dir(dir) {
@@ -809,6 +810,7 @@ impl MSVC {
 
                         let mut archive_stream_task = Vec::new();
 
+                        let now = std::time::Instant::now();
                         for file in left.clone() {
                             let solution_ = solution.clone();
                             let project_ = project.clone();
@@ -914,6 +916,8 @@ impl MSVC {
                         for task in archive_stream_task {
                             let _ = task.await; 
                         }
+
+                        log::debug!("sync source and header files for {:?} to: {} done. elapsed time: {:?}, send files size: {}/{} ", &input_.project, &addr, now.elapsed(), left.len(), &totals);
                     }
 
                     notify.notified().await;
@@ -940,6 +944,7 @@ impl MSVC {
 
                     let mut input = input_.clone();
                     input.compiler_commands = others_;
+                    input.compiler_commands.push(std::ffi::OsString::from("/MP"));
                     input.compiler_commands.extend(left.iter().cloned());
                     
                     let output = self_.request_dist_compile(&addr, &input, &requires).await;
@@ -974,7 +979,7 @@ impl MSVC {
                         coutput.out = std::sync::Arc::new(all_out);
                         coutput.err = std::sync::Arc::new(all_err);
                     }
-
+                    
                     if !sources.is_empty() {
                         let mut index = -1;
                         let addr_ = addr.clone();
@@ -990,6 +995,7 @@ impl MSVC {
                         let solution_ = solution_.clone();
                         let project_ = project_.clone();
 
+                        let now = std::time::Instant::now();
                         set.spawn(async move {
                             let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr_, &self_.runtime).await;
                             
@@ -1084,6 +1090,8 @@ impl MSVC {
                                 }
                             }
 
+                            log::debug!("sync source and header files for {:?} to: {} done. elapsed time: {:?}, send files size: {}/{}", &input_.project, &addr_, now.elapsed(), left.len(), totals);
+
                             notify.notified().await;
 
                             let requires = crate::compiler::model::PrecompiledSource {
@@ -1108,6 +1116,7 @@ impl MSVC {
 
                             let mut input = input_.clone();
                             input.compiler_commands = others_;
+                            input.compiler_commands.push(std::ffi::OsString::from("/MP"));
                             input.compiler_commands.extend(left.iter().cloned());
 
                             let output = self_.request_dist_compile(&addr_, &input, &requires).await;
@@ -1809,7 +1818,7 @@ async fn request_dist_compile_with_precompiled_source(addr: &str, input: &Compil
         log::warn!("compiler commands and context is all empty, so do nothing.")
     }
 
-    log::debug!("communicate distribute compile: {:?} elapsed:{:?}", input.project, now.elapsed());
+    log::debug!("communicate {} distribute compile: {:?} elapsed:{:?}", &addr, input.project, now.elapsed());
 
     return output;
 }

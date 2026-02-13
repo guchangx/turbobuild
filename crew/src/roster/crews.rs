@@ -95,6 +95,8 @@ pub struct Task {
     pub devicename: String,
     pub addr: String,
     pub core: u32,
+    #[serde(default)]
+    pub frequency: Vec<u64>,
     pub memory: f32,
     pub running: u32,
     pub max: u32,
@@ -162,14 +164,27 @@ impl TasksManager {
         else {
             let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= item.max as f32).min_by(|x, y| (x.running / x.core).cmp(&(y.running / y.core)));
             if let Some(item) = iter {
-                if size >= item.core * 2 {
-                    if size <= item.core * 3 as u32 {
+                let weight = if item.frequency[0] < 2000 {
+                    0.5
+                }
+                else if item.frequency[0] < 4000 {
+                    1.0
+                }
+                else if item.frequency[0] < 6000 {
+                    1.5
+                } 
+                else {
+                    2.0
+                };
+
+                if size >= item.core * weight as u32 {
+                    if size <= item.core * (weight + 0.5) as u32 {
                         item.running += size;
                         return (item.addr.as_str(), item.index, size);
                     }
                     else {
-                        item.running += item.core * 2;
-                        return (item.addr.as_str(), item.index, item.core * 2 as u32);
+                        item.running += item.core * weight as u32;
+                        return (item.addr.as_str(), item.index, item.core * weight as u32);
                     }
                 }
                 else {
@@ -191,14 +206,28 @@ impl TasksManager {
         }
         else {
             if let Some(item) = self.tasks.iter_mut().find(|item| item.addr == addr) {
-                if size >= item.core * 2 {
-                    if size <= item.core * 3 as u32 {
+                
+                let weight = if item.frequency[0] < 2000 {
+                    0.5
+                }
+                else if item.frequency[0] < 4000 {
+                    1.0
+                }
+                else if item.frequency[0] < 6000 {
+                    1.5
+                } 
+                else {
+                    2.0
+                };
+
+                if size >= item.core * weight as u32  {
+                    if size <= item.core * (weight + 0.5) as u32 {
                         item.running += size;
                         return (item.index, size as u32);
                     }
                     else {
-                        item.running += item.core * 2 as u32;
-                        return (item.index, item.core * 2 as u32);
+                        item.running += item.core * weight as u32;
+                        return (item.index, item.core * weight as u32);
                     }
                 }
                 else {
@@ -249,6 +278,7 @@ mod tests {
             devicename: "".to_string(),
             addr: "192.168.0.1".to_string(),
             core: 8,
+            frequency: vec![1000],
             memory: 16.0,
             running: 0,
             max:2,
@@ -265,6 +295,7 @@ mod tests {
             devicename: "".to_string(),
             addr: "192.168.0.2".to_string(),
             core: 8,
+            frequency: vec![1000],
             memory: 16.0,
             running: 0,
             max: 4,

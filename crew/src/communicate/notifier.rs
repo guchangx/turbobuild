@@ -262,6 +262,7 @@ impl NotificationSender {
             addr: "".to_string(),
             passcode: "".to_string(),
             core: 8,
+            frequency: vec![3000],
             memory: 31.7,
         };
         let register = serde_json::to_string(&register_info).unwrap();
