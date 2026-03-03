@@ -26,7 +26,7 @@ impl SocketClient {
         }
     }
 
-    //TODO: should send compile failed message to IDE
+    //should send compile failed message to IDE
     //The VS format of the output should be:
     //{ filename(line-number [, column-number]) | tool-name } : [ any-text ] {error | warning} code-type-and-number : localizable-string [ any-text ]
     //Where:

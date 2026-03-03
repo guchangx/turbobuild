@@ -744,7 +744,6 @@ fn start_local_compiler(solution: &std::ffi::OsString, project: &std::ffi::OsStr
     return (status, stdout, stderr);
 }
 
-//TODO: tokio::net::windows::named_pipe
 pub fn redirect_stdout_log() {
     log::info!("redirect stdout log loop thread start.");
 

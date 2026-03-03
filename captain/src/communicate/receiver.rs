@@ -236,7 +236,6 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 }
                             }
                         }
-                        //TODO: remove hyper error
                     }
                 }
             }

@@ -278,7 +278,6 @@ impl Sender {
         return result;
     }
 
-    //TODO should think split dist compiler command or ziped precompilre sourcefile.
     async fn dist_compile(&mut self, compile: SourcesFile<'_>, output_callback: crate::compiler::model::OutputCallback) -> CompileRecv {
         let project = compile.project.clone();
         let request = tonic::Request::new(pack::CompileTrRequest {

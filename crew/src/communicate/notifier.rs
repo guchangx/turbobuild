@@ -221,9 +221,6 @@ impl NotificationSender {
             let resources: Vec<crate::replica::toolchain::CrewsResource> = serde_json::from_str(message).expect("serde from json failed.");
             Self::update_crew_resource(roster, &resources).await;
             crate::replica::toolchain::Property::check_resource_and_judge_sync(resources, sender).await;
-            // func should do one thing at a time.
-            //TODO: time-consuming task, should be done in runtime.
-
         }
         else {
             log::warn!("check resource response is empty.");
