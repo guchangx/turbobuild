@@ -149,40 +149,82 @@ static PROCESS_ID: std::sync::LazyLock<u32> = std::sync::LazyLock::new(|| {
     std::process::id()
 });
 
-fn read_project_property_from_stdin() {
-    log!(trace, "read_project_property_from_stdin started.");
-    
-    use std::io::{BufRead, BufReader};
-    
-    let stdin = std::io::stdin();
-    let reader = BufReader::new(stdin.lock());
+fn read_project_property() {
+    if let Ok(path) = std::env::current_exe() {
+        if path.ends_with("mspdbsrv.exe") {
+            log!(trace, "read_project_property_from_shared_memory started.");
+            unsafe {
+                let name = "Local\\MspdbsrvRedirectSharedMem".encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+                let h_map = win::System::Memory::OpenFileMappingW(win::System::Memory::FILE_MAP_READ, 
+                    win::Foundation::FALSE, name.as_ptr());
+                if h_map.is_null() {
+                    log!(error, "OpenFileMappingW failed, error code: {}.", win::Foundation::GetLastError());
+                    return;
+                }
 
-    for line in reader.lines().take(6) {
-        match line {
-            Ok(line) if line.is_empty() => break,
-            Ok(line) => {
-                log!(trace, "read stdin: {:?}", line);
-                if line.starts_with("solution:") {
-                    let sln = &line["solution:".len()..].trim();
-                    let _ = SOLUTIONNAME.set(sln.to_string());
+                let buf = win::System::Memory::MapViewOfFile(h_map, win::System::Memory::FILE_MAP_READ, 0, 0, 0);
+                if buf.Value.is_null() {
+                    log!(error, "MapViewOfFile failed, error code: {}.", win::Foundation::GetLastError());
+                    win::Foundation::CloseHandle(h_map);
+                    return;
                 }
-                else if line.starts_with("project:") {
-                    let proj = &line["project:".len()..].trim();
-                    let _ = PROJECTNAME.set(proj.to_string());
+
+                let bytes = std::slice::from_raw_parts(buf.Value as *const u8, 256);
+                let s = String::from_utf8_lossy(&bytes[..256]).to_string();
+
+                log!(trace, "read shared memory: {:?}", s);
+                for line in s.lines() {
+                    if line.starts_with("solution:") {
+                        let sln = &line["solution:".len()..].trim();
+                        let _ = SOLUTIONNAME.set(sln.to_string());
+                    }
+                    else if line.starts_with("replica:") {
+                        let dir = &line["replica:".len()..].trim();
+                        let _ = REPLICADIR.set(dir.to_string());
+                    }
                 }
-                else if line.starts_with("replica:") {
-                    let dir = &line["replica:".len()..].trim();
-                    let _ = REPLICADIR.set(dir.to_string());
-                }
+                
+                win::System::Memory::UnmapViewOfFile(buf);
+                win::Foundation::CloseHandle(h_map);
             }
-            Err(e) => {
-                log!(error, "Error reading stdin: {:?}", e);
-                break;
+        }
+        else {
+            log!(trace, "read_project_property_from_stdin started.");
+    
+            use std::io::{BufRead, BufReader};
+            
+            let stdin = std::io::stdin();
+            let reader = BufReader::new(stdin.lock());
+
+            for line in reader.lines().take(6) {
+                match line {
+                    Ok(line) if line.is_empty() => break,
+                    Ok(line) => {
+                        log!(trace, "read stdin: {:?}", line);
+                        if line.starts_with("solution:") {
+                            let sln = &line["solution:".len()..].trim();
+                            let _ = SOLUTIONNAME.set(sln.to_string());
+                        }
+                        else if line.starts_with("project:") {
+                            let proj = &line["project:".len()..].trim();
+                            let _ = PROJECTNAME.set(proj.to_string());
+                        }
+                        else if line.starts_with("replica:") {
+                            let dir = &line["replica:".len()..].trim();
+                            let _ = REPLICADIR.set(dir.to_string());
+                        }
+                    }
+                    Err(e) => {
+                        log!(error, "Error reading stdin: {:?}", e);
+                        break;
+                    }
+                }
             }
         }
     }
+ 
     
-    log!(trace, "read_project_property_from_stdin completed.");
+    log!(trace, "read_project_property completed.");
 }
 
 static MODULE_PATH: std::sync::OnceLock<std::ffi::CString> = std::sync::OnceLock::new();
@@ -383,7 +425,7 @@ unsafe extern "system" fn DllMain(
             win::System::LibraryLoader::DisableThreadLibraryCalls(hinst);
 
             fetch_module_path(hinst); // 1ms
-            read_project_property_from_stdin(); // 100ns 
+            read_project_property(); // 100ns
 
             fetch_args_from_command(); // 300ns
             crate::logger::redirect_stdout_log_2_cocrew(); // 600ns

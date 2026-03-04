@@ -685,66 +685,67 @@ pub unsafe fn kernelbase_create_process_w(
             crate::log!(info, "kernelbase_create_process_w hook thread: {} path: {}", win::System::Threading::GetCurrentThreadId(), application);
             
             let mut stdin_write_handle: Option<win::Foundation::HANDLE> = None;
-
-            let mut pipe_attributes = win::Security::SECURITY_ATTRIBUTES {
-                nLength: std::mem::size_of::<win::Security::SECURITY_ATTRIBUTES>() as u32,
-                lpSecurityDescriptor: std::ptr::null_mut(),
-                bInheritHandle: win::Foundation::TRUE,
-            };
-
             let mut h_stdin_read: win::Foundation::HANDLE = std::ptr::null_mut();
             let mut h_stdin_write: win::Foundation::HANDLE = std::ptr::null_mut();
-
-            let ret = win::System::Pipes::CreatePipe(
-                &mut h_stdin_read, 
-                &mut h_stdin_write, 
-                &mut pipe_attributes, 
-                0
-            );
-
             let mut b_inherit_handles = b_inherit_handles;
-            if win::Foundation::FALSE == ret {
-                crate::log!(error, "create input pipe failed.")
+
+            if application.ends_with("mspdbsrv.exe") {
+                /* 
+                let current_stdout = win::System::Console::GetStdHandle(win::System::Console::STD_OUTPUT_HANDLE);
+                let current_stderr = win::System::Console::GetStdHandle(win::System::Console::STD_ERROR_HANDLE);
+                
+                if !current_stdout.is_null() {
+                    win::Foundation::SetHandleInformation(
+                        current_stdout,
+                        win::Foundation::HANDLE_FLAG_INHERIT,
+                        0
+                    );
+                }
+                
+                if !current_stderr.is_null() {
+                    win::Foundation::SetHandleInformation(
+                        current_stderr,
+                        win::Foundation::HANDLE_FLAG_INHERIT,
+                        0
+                    );
+                }
+                (*lp_startup_info).hStdOutput = std::ptr::null_mut();
+                (*lp_startup_info).hStdError = std::ptr::null_mut();
+                */
             }
             else {
+                let mut pipe_attributes = win::Security::SECURITY_ATTRIBUTES {
+                    nLength: std::mem::size_of::<win::Security::SECURITY_ATTRIBUTES>() as u32,
+                    lpSecurityDescriptor: std::ptr::null_mut(),
+                    bInheritHandle: win::Foundation::TRUE,
+                };
 
-                if application.ends_with("mspdbsrv.exe") {
+                let ret = win::System::Pipes::CreatePipe(
+                    &mut h_stdin_read, 
+                    &mut h_stdin_write, 
+                    &mut pipe_attributes, 
+                    0
+                );
 
-                    let current_stdout = win::System::Console::GetStdHandle(win::System::Console::STD_OUTPUT_HANDLE);
-                    let current_stderr = win::System::Console::GetStdHandle(win::System::Console::STD_ERROR_HANDLE);
-                    
-                    if !current_stdout.is_null() {
-                        win::Foundation::SetHandleInformation(
-                            current_stdout,
-                            win::Foundation::HANDLE_FLAG_INHERIT,
-                            0
-                        );
-                    }
-                    
-                    if !current_stderr.is_null() {
-                        win::Foundation::SetHandleInformation(
-                            current_stderr,
-                            win::Foundation::HANDLE_FLAG_INHERIT,
-                            0
-                        );
-                    }
-
-                    (*lp_startup_info).hStdOutput = std::ptr::null_mut();
-                    (*lp_startup_info).hStdError = std::ptr::null_mut();
+                if win::Foundation::FALSE == ret {
+                    crate::log!(error, "create input pipe failed.")
                 }
-                b_inherit_handles = win::Foundation::TRUE;
-
-                let result = win::Foundation::SetHandleInformation(h_stdin_write, win::Foundation::HANDLE_FLAG_INHERIT, 0);
-                if result == win::Foundation::FALSE {
-                    let error_code = win::Foundation::GetLastError();
-                    crate::log!(error, "set stdin write handle information failed! error_code: {}.", error_code);
+                else {
+                    b_inherit_handles = win::Foundation::TRUE;
+    
+                    let result = win::Foundation::SetHandleInformation(h_stdin_write, win::Foundation::HANDLE_FLAG_INHERIT, 0);
+                    if result == win::Foundation::FALSE {
+                        let error_code = win::Foundation::GetLastError();
+                        crate::log!(error, "set stdin write handle information failed! error_code: {}.", error_code);
+                    }
+    
+                    (*lp_startup_info).hStdInput = h_stdin_read;
+                    (*lp_startup_info).dwFlags |= win::System::Threading::STARTF_USESTDHANDLES;
+    
+                    stdin_write_handle = Some(h_stdin_write)
                 }
-
-                (*lp_startup_info).hStdInput = h_stdin_read;
-                (*lp_startup_info).dwFlags |= win::System::Threading::STARTF_USESTDHANDLES;
-
-                stdin_write_handle = Some(h_stdin_write);
             }
+
             let dllpath = crate::MODULE_PATH.get();
             let ret = crate::detours::DetourCreateProcessWithDllExW(
                 lp_application_name,
@@ -766,7 +767,6 @@ pub unsafe fn kernelbase_create_process_w(
 
                 if let Some(stdin_write) = stdin_write_handle {
                     if application.ends_with("mspdbsrv.exe") {
-                        pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), "", crate::REPLICADIR.get().unwrap());
                     }
                     else {
                         pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
