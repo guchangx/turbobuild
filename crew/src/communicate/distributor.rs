@@ -134,9 +134,9 @@ impl Distributor {
         }
     }
     
-    pub fn done(&self, addr: &str) {
+    pub fn done(&self, addr: &str, count: u32) {
         let mut manager  = self.tasker.lock().unwrap();
-        manager.done(addr);
+        manager.done(addr, count);
     }
 
     pub fn all(&self) -> Vec<String> {

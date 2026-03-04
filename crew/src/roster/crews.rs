@@ -137,13 +137,34 @@ impl TasksManager {
         }
     }
 
+    fn weight_for_frequency(frequency: u64) -> f64 {
+        if frequency < 2000 {
+            0.5
+        }
+        else if frequency < 4000 {
+            1.0
+        }
+        else if frequency < 6000 {
+            1.5
+        }
+        else {
+            2.0
+        }
+    }
+
     pub fn schedule(&mut self) -> &str {
         if self.tasks.len() == 1 {
             self.tasks.first_mut().unwrap().running += 1;
             return self.tasks.first().unwrap().addr.as_str();
         }
         else {
-            let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= 95.00).min_by(|x, y| (x.running / x.core).cmp(&(y.running / y.core)));
+            let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= 95.00).min_by(|x, y| {
+                let xw = Self::weight_for_frequency(x.frequency.first().copied().unwrap_or(3000));
+                let yw = Self::weight_for_frequency(y.frequency.first().copied().unwrap_or(3000));
+                let x_ratio = x.running as f64 / (x.core as f64 * xw);
+                let y_ratio = y.running as f64 / (y.core as f64 * yw);
+                x_ratio.partial_cmp(&y_ratio).unwrap_or(std::cmp::Ordering::Equal)
+            });
             if let Some(item) = iter {
                 item.running += 1;    
                 return item.addr.as_str();
@@ -162,29 +183,24 @@ impl TasksManager {
             return (item.addr.as_str(), item.index, size);
         }
         else {
-            let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= item.max as f32).min_by(|x, y| (x.running / x.core).cmp(&(y.running / y.core)));
+            let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= item.max as f32).min_by(|x, y| {
+                let xw = Self::weight_for_frequency(x.frequency.first().copied().unwrap_or(3000));
+                let yw = Self::weight_for_frequency(y.frequency.first().copied().unwrap_or(3000));
+                let x_ratio = x.running as f64 / (x.core as f64 * xw);
+                let y_ratio = y.running as f64 / (y.core as f64 * yw);
+                x_ratio.partial_cmp(&y_ratio).unwrap_or(std::cmp::Ordering::Equal)
+            });
             if let Some(item) = iter {
-                let weight = if item.frequency[0] < 2000 {
-                    0.5
-                }
-                else if item.frequency[0] < 4000 {
-                    1.0
-                }
-                else if item.frequency[0] < 6000 {
-                    1.5
-                } 
-                else {
-                    2.0
-                };
+                let weight = Self::weight_for_frequency(item.frequency.first().copied().unwrap_or(3000));
 
-                if size >= item.core * weight as u32 {
-                    if size <= item.core * (weight + 0.5) as u32 {
+                if size >= (item.core as f64 * weight) as u32 {
+                    if size <= (item.core as f64 * (weight + 0.5)) as u32 {
                         item.running += size;
                         return (item.addr.as_str(), item.index, size);
                     }
                     else {
-                        item.running += item.core * weight as u32;
-                        return (item.addr.as_str(), item.index, item.core * weight as u32);
+                        item.running += (item.core as f64 * weight) as u32;
+                        return (item.addr.as_str(), item.index, (item.core as f64 * weight) as u32);
                     }
                 }
                 else {
@@ -207,27 +223,16 @@ impl TasksManager {
         else {
             if let Some(item) = self.tasks.iter_mut().find(|item| item.addr == addr) {
                 
-                let weight = if item.frequency[0] < 2000 {
-                    0.5
-                }
-                else if item.frequency[0] < 4000 {
-                    1.0
-                }
-                else if item.frequency[0] < 6000 {
-                    1.5
-                } 
-                else {
-                    2.0
-                };
+                let weight = Self::weight_for_frequency(item.frequency.first().copied().unwrap_or(3000));
 
-                if size >= item.core * weight as u32  {
-                    if size <= item.core * (weight + 0.5) as u32 {
+                if size >= (item.core as f64 * weight) as u32  {
+                    if size <= (item.core as f64 * (weight + 0.5)) as u32 {
                         item.running += size;
                         return (item.index, size as u32);
                     }
                     else {
-                        item.running += item.core * weight as u32;
-                        return (item.index, item.core * weight as u32);
+                        item.running += (item.core as f64 * weight) as u32;
+                        return (item.index, (item.core as f64 * weight) as u32);
                     }
                 }
                 else {
@@ -241,9 +246,9 @@ impl TasksManager {
         }
     }
     
-    pub fn done(&mut self, addr: &str) {
+    pub fn done(&mut self, addr: &str, count: u32) {
         if let Some(task) = self.tasks.iter_mut().find(|item| item.addr == addr) {
-            task.running = 0;
+            task.running = task.running.saturating_sub(count);
         }
     }
 

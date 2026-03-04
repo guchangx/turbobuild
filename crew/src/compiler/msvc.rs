@@ -771,7 +771,7 @@ impl MSVC {
         let solution_ = std::sync::Arc::clone(&solution);
         let project_ = std::sync::Arc::clone(&project);
 
-        for _ in 0..len * 2 {
+        for _ in 0..len {
             let mut addr = String::new();
             let mut index = -1;
             let mut left = Vec::new();
@@ -947,8 +947,9 @@ impl MSVC {
                     input.compiler_commands.push(std::ffi::OsString::from("/MP"));
                     input.compiler_commands.extend(left.iter().cloned());
                     
+                    let dispatched = left.len() as u32;
                     let output = self_.request_dist_compile(&addr, &input, &requires).await;
-                    return (addr, output);
+                    return (addr, dispatched, output);
                 });
             }
             else  {
@@ -964,8 +965,8 @@ impl MSVC {
 
         while let Some(handle) = set.join_next().await {
             match handle {
-                Ok((addr, output)) => {
-                    self.sender.lock().unwrap().done(addr.as_str());
+                Ok((addr, dispatched, output)) => {
+                    self.sender.lock().unwrap().done(addr.as_str(), dispatched);
                     
                     log::debug!("dist compile with source and include file {:?} output: {:?} error: {:?}", &addr, String::from_utf8_lossy(&output.out), String::from_utf8_lossy(&output.err));
                     {
@@ -1119,9 +1120,10 @@ impl MSVC {
                             input.compiler_commands.push(std::ffi::OsString::from("/MP"));
                             input.compiler_commands.extend(left.iter().cloned());
 
+                            let dispatched = left.len() as u32;
                             let output = self_.request_dist_compile(&addr_, &input, &requires).await;
 
-                            return (addr_, output);
+                            return (addr_, dispatched, output);
                         });
                     }
                 },
