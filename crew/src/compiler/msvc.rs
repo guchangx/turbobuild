@@ -494,25 +494,65 @@ impl MSVC {
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
         log::debug!("{:?} in commands compiler version: {:?}, addr: {:?}", input.project, cversion, addr);
         if input.build_and_compiler_type.to_string_lossy().contains("clang_cl") {
-            let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled, &self.runtime, self.output_callback.clone()).await;
-            if output.status == 0 {
-            
+            let mut output = CompilerOutput::default();
+            if let Some(content) = precompiled.contents.clone() {
+                let content = std::borrow::Cow::from(content);
+                let receiver = crate::communicate::distributor::Distributor::compile(addr, precompiled.path.clone(), input, &content, &self.runtime, self.output_callback.clone()).await;
+                match receiver {
+                    crate::communicate::packager::ReceiverType::Archive(recv) => {
+                        output.status = recv.status as u32;
+                    },
+                    _ => {
+                        log::error!("communicate compile error.");
+                    }   
+                }
             }
             else {
-                //log::trace!("request remote compile and sync back failed: {:?} {:?}", output.out, output.err);
+                let receiver = crate::communicate::distributor::Distributor::compile(addr, std::ffi::OsString::new(), input, &std::borrow::Cow::from(Vec::new()), &self.runtime, self.output_callback.clone()).await;
+                match receiver {
+                    crate::communicate::packager::ReceiverType::Compile(recv) => {
+                        output.status = recv.status;
+                        output.out = std::sync::Arc::new(recv.out);
+                        output.err = std::sync::Arc::new(recv.err);
+                    }
+                    _ => {
+                        log::error!("communicate compile error.");
+                    }
+                }
             }
+
             return output;
         }
         else {
             if self.sender.lock().unwrap().check(addr, &cversion) {
             
-                let output = request_dist_compile_with_precompiled_source(addr, &input, &precompiled, &self.runtime, self.output_callback.clone()).await;
-                if output.status == 0 {
-                
+                let mut output = CompilerOutput::default();
+                if let Some(content) = precompiled.contents.clone() {
+                    let content = std::borrow::Cow::from(content);
+                    let receiver = crate::communicate::distributor::Distributor::compile(addr, precompiled.path.clone(), input, &content, &self.runtime, self.output_callback.clone()).await;
+                    match receiver {
+                        crate::communicate::packager::ReceiverType::Archive(recv) => {
+                            output.status = recv.status as u32;
+                        },
+                        _ => {
+                            log::error!("communicate compile error.");
+                        }   
+                    }
                 }
                 else {
-                    //log::trace!("request remote compile and sync back failed: {:?} {:?}", output.out, output.err);
+                    let receiver = crate::communicate::distributor::Distributor::compile(addr, std::ffi::OsString::new(), input, &std::borrow::Cow::from(Vec::new()), &self.runtime, self.output_callback.clone()).await;
+                    match receiver {
+                        crate::communicate::packager::ReceiverType::Compile(recv) => {
+                            output.status = recv.status;
+                            output.out = std::sync::Arc::new(recv.out);
+                            output.err = std::sync::Arc::new(recv.err);
+                        }
+                        _ => {
+                            log::error!("communicate compile error.");
+                        }
+                    }
                 }
+
                 return output;
             }
             else {
@@ -1776,53 +1816,6 @@ fn request_local_compile_by_preprocessed_source(msvc_compile_input: &CompilerInp
                     msvc_compile_input.build_and_compiler_type.clone(), true);
 
     return (output, results);
-}
-
-async fn request_dist_compile_with_precompiled_source(addr: &str, input: &CompilerInput, precompiled: 
-    &PrecompiledSource, runtime: &std::sync::Arc<tokio::runtime::Handle>, output_callback: crate::compiler::model::OutputCallback) 
-    -> CompilerOutput {
-
-    let mut output = CompilerOutput::default();
-
-    let now = std::time::Instant::now();
-    let path = precompiled.path.clone();
-    if !input.compiler_commands.is_empty() || !precompiled.contents.is_some() {
-        if let Some(content) = precompiled.contents.clone() {
-            log::info!("precompiled sourcefile result has content. so just transmit file");
-            let content = std::borrow::Cow::from(content);
-            let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &content, runtime, output_callback).await;
-            match receiver {
-                crate::communicate::packager::ReceiverType::Archive(recv) => {
-                    output.status = recv.status as u32;
-                },
-                _ => {
-                    log::error!("communicate compile error.");
-                }   
-            }
-        }
-        else {
-            log::info!("precompiled sourcefile result content is empty. so just transmit command"); 
-            //TODO: path is empty when dist sourcefiles
-            let receiver = crate::communicate::distributor::Distributor::compile(addr, path, input, &std::borrow::Cow::from(Vec::new()), runtime, output_callback).await;
-            match receiver {
-                crate::communicate::packager::ReceiverType::Compile(recv) => {
-                    output.status = recv.status;
-                    output.out = std::sync::Arc::new(recv.out);
-                    output.err = std::sync::Arc::new(recv.err);
-                }
-                _ => {
-                    log::error!("communicate compile error.");
-                }
-            }
-        }   
-    }
-    else {
-        log::warn!("compiler commands and context is all empty, so do nothing.")
-    }
-
-    log::debug!("communicate {} distribute compile: {:?} elapsed:{:?}", &addr, input.project, now.elapsed());
-
-    return output;
 }
 
 fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {

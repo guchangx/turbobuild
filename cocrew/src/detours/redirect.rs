@@ -70,6 +70,50 @@ pub unsafe fn pass_params_to_redirect(handle: win::Foundation::HANDLE, solution:
     win::Foundation::CloseHandle(handle);
 }
 
+const SHARED_MEM_NAME: &str = "Local\\MspdbsrvRedirectSharedMem";
+const SHARED_MEM_SIZE: usize = 256;
+
+pub unsafe fn pass_params_to_mspdbsrv(solution: &str) {
+    let name = SHARED_MEM_NAME.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
+
+    let h_map = win::System::Memory::CreateFileMappingW(
+        win::Foundation::INVALID_HANDLE_VALUE,
+        std::ptr::null_mut(),
+        win::System::Memory::PAGE_READWRITE,
+        0,
+        SHARED_MEM_SIZE as u32,
+        name.as_ptr()
+    );
+
+    if h_map.is_null() {
+        let error = win::Foundation::GetLastError();
+        log::error!("CreateFileMappingW failed! error code: {}.", error);
+        return;
+    }
+
+    let buf = win::System::Memory::MapViewOfFile(
+        h_map,
+        win::System::Memory::FILE_MAP_ALL_ACCESS,
+        0,
+        0,
+        SHARED_MEM_SIZE as usize
+    );
+
+    if buf.Value.is_null() {
+        let error = win::Foundation::GetLastError();
+        log::error!("MapViewOfFile failed! error code: {}.", error);
+        win::Foundation::CloseHandle(h_map);
+        return;
+    }
+
+    let data = format!("solution:{}\r\nreplica:{}\r\n", solution, tools::utils::access_replica_dir());
+    let bytes = data.as_bytes();
+    std::ptr::copy_nonoverlapping(bytes.as_ptr(), buf.Value as *mut u8, bytes.len());
+
+    let _ = windows_sys::Win32::System::Memory::FlushViewOfFile(buf.Value as *const std::ffi::c_void, data.len() as usize);
+    win::System::Memory::UnmapViewOfFile(buf);
+}
+
 fn replace_includes_path_by_replica(includes: &std::ffi::OsString) -> std::borrow::Cow<'_, std::ffi::OsString> {
     let replica_dir = tools::utils::access_replica_dir();
 
@@ -289,6 +333,7 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                 let stderrstream = std::sync::Arc::new(out_err_stream.stderr.to_owned());
 
                 pass_params_to_redirect(hStdInWrite, &solution, &project);
+                pass_params_to_mspdbsrv(&solution);
 
                 let ret = win::System::Threading::ResumeThread(lpProcessInformation.hThread as _);
                 if ret == win::Foundation::FALSE as u32 {

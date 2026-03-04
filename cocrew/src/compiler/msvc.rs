@@ -744,7 +744,6 @@ fn start_local_compiler(solution: &std::ffi::OsString, project: &std::ffi::OsStr
     return (status, stdout, stderr);
 }
 
-//TODO: tokio::net::windows::named_pipe
 pub fn redirect_stdout_log() {
     log::info!("redirect stdout log loop thread start.");
 
@@ -769,8 +768,6 @@ pub fn redirect_stdout_log() {
 
                 let handle = tools::ptr::HandleBox::new(pipe);
                 let _ = rt.spawn_blocking(move || {
-
-                    log::info!("redirect stdout log read named pipe message task start. count: {}", count);
                     let mut buffer = vec![0u8; 512];
                     let mut bytes: u32 = 0;
                     let mut moredata = String::new();
@@ -818,7 +815,6 @@ pub fn redirect_stdout_log() {
                     }
                     win::System::Pipes::DisconnectNamedPipe(handle.get().to_owned() as _);
                     win::Foundation::CloseHandle(handle.get().to_owned() as _);
-                    log::warn!("redirect stdout log read named pipe message task exit. count: {}", count);
                 });
             }
             else {

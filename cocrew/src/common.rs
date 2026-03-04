@@ -31,7 +31,6 @@ pub fn init_common() {
     let common = std::sync::Arc::new(std::sync::Mutex::new(common));
     let weak_common = std::sync::Arc::downgrade(&common);
 
-    //TODO unpackager should rename grpc. crate::communicate::grpc::Receiver::new(weak_common.clone());
     let receiver = crate::communicate::unpackager::Receiver::new(weak_common.clone());
     let receiver_ = receiver.clone();
     

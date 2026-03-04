@@ -136,7 +136,6 @@ pub fn compiler_redirect_syscall() {
                     }
                 }
                 writer.shutdown().await.unwrap();
-                log::trace!("cocrew syscall namedpipe writer end. client pid {}", pid);
             });
 
             let _ = rt_.spawn(async move {
@@ -161,7 +160,6 @@ pub fn compiler_redirect_syscall() {
                                 }
                             }
                             else {
-                                log::warn!("no data received from syscall namedpipe, disconnecting.");
                                 break;
                             }
                         },
@@ -172,7 +170,6 @@ pub fn compiler_redirect_syscall() {
                     }
                 }
                 closed_.store(true, std::sync::atomic::Ordering::Relaxed);
-                log::trace!("cocrew syscall namedpipe reader end. client pid: {}", pid);
             });
             
             counter += 1;
