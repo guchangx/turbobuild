@@ -96,8 +96,6 @@ impl Receiver {
                 let name = request.name;
                 let path = request.path;
                 let project = request.project;
-                
-                log::debug!("{} transmit file handle name: {}, path: {}", project, name, path);
         
                 let file_type = request.file_type;
                 let solution = request.solution;
@@ -466,7 +464,6 @@ impl Receiver {
                 if let Ok(mut file) = file {
                     match file.write_all(&content) {
                         Ok(_) => {
-                            log::trace!("transmit storage file done: {:?}", path);
                         },
                         Err(err) => {
                             log::error!("transmit storage file failed. {:?} {:?}", path, err)
@@ -475,8 +472,6 @@ impl Receiver {
                 }
             }
         }
-
-        log::info!("transmit storage file done. elapsed: {:?}", now.elapsed());
         return Ok(());   
     }
 

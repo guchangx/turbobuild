@@ -4,8 +4,6 @@ use std::fmt::Write;
 use windows_sys::Win32 as win;
 
 pub fn route_file_system_operation(redirect: crate::communicate::packager::pack::RemoteSyscall) -> crate::communicate::packager::pack::LocalSyscall {
-    log::debug!("Routing file system operation from remote redirect: {:?}", redirect);
-    
     let mut params = redirect.params.iter().map(|(param)| (param.key.clone(), param.value.clone())).collect::<std::collections::HashMap<String, String>>();
     match redirect.api.as_str() {
         "NtQueryDirectoryFile" => {
@@ -19,7 +17,6 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
                 }).collect(),
                 files: Vec::new(),
             };
-            log::debug!("redirect net query directory file result: {:?}", local.cid);
             return local;
         },
         "NtCreateFile" => {
@@ -36,8 +33,6 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
                             }).collect(),
                             files: Vec::new(),
                         };
-
-                        log::debug!("redirect nt create file result: {:?} exists {:?}", params, String::from_utf8(data));
                         return local;
                     }
                     else {
@@ -50,8 +45,6 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
                             }).collect(),
                             files: vec![crate::communicate::packager::pack::IntermediateResult{file: expect.clone(), content: data.clone()}],
                         };
-
-                        log::debug!("redirect nt create file result: {:?}", params);
                         return local;
                     }   
                 },
@@ -83,7 +76,6 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
                         }).collect(),
                         files: vec![crate::communicate::packager::pack::IntermediateResult{file: expect.clone(), content: data}],
                     };
-                    log::debug!("redirect create file w result: {:?} expect: {}", params, expect);
                     return local;
                 },
                 Err(err) => {

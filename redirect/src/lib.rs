@@ -172,7 +172,6 @@ fn read_project_property() {
                 let bytes = std::slice::from_raw_parts(buf.Value as *const u8, 256);
                 let s = String::from_utf8_lossy(&bytes[..256]).to_string();
 
-                log!(trace, "read shared memory: {:?}", s);
                 for line in s.lines() {
                     if line.starts_with("solution:") {
                         let sln = &line["solution:".len()..].trim();
@@ -240,7 +239,6 @@ fn fetch_module_path(hinst: win::Foundation::HINSTANCE) {
         buffer.truncate(length as usize);
         let path = std::ffi::OsString::from_wide(&buffer);
         let path = std::ffi::CString::new(path.to_string_lossy().to_string()).unwrap();
-        log!(debug, "current module path: {:?}", path);
         MODULE_PATH.set(path).unwrap();
     }
 }

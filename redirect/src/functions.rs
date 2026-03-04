@@ -138,7 +138,7 @@ pub unsafe fn create_file_w(
     h_template_file: win::Foundation::HANDLE,
 ) -> win::Foundation::HANDLE {
     let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-    log!(debug, "create_file_w hook path: {:?}", path);
+    log!(trace, "create_file_w hook path: {:?}", path);
     if h_template_file == *CALL_TEMPLATE as win::Foundation::HANDLE {
         let create_file_w_inner: extern "system" fn (
             lp_file_name: windows_sys::core::PCWSTR,
@@ -525,7 +525,7 @@ pub unsafe fn kernelbase_create_process_a(
   
     if let Ok(application) = application {
         
-        crate::log!(info, "kernelbase_create_process_a hook path: {}", application);
+        crate::log!(trace, "kernelbase_create_process_a hook path: {}", application);
         //crate::log!(info, "kernelbase_create_process_a hook commandline: {:?}", crate::utils::convert::lpstr_2_string(lp_command_line));
 
         let dllpath = crate::MODULE_PATH.get();
@@ -682,7 +682,7 @@ pub unsafe fn kernelbase_create_process_w(
         if crate::IN_HOOK.get() == false && (application.ends_with("cl.exe") || application.ends_with("mspdbsrv.exe")) {
             crate::IN_HOOK.set(true);
 
-            crate::log!(info, "kernelbase_create_process_w hook thread: {} path: {}", win::System::Threading::GetCurrentThreadId(), application);
+            crate::log!(trace, "kernelbase_create_process_w hook thread: {} path: {}", win::System::Threading::GetCurrentThreadId(), application);
             
             let mut stdin_write_handle: Option<win::Foundation::HANDLE> = None;
             let mut h_stdin_read: win::Foundation::HANDLE = std::ptr::null_mut();
@@ -1977,10 +1977,6 @@ pub unsafe fn pass_project_and_replica_to_redriect(handle: win::Foundation::HAND
         if ret == win::Foundation::FALSE || bytes == 0 {
             let error = win::Foundation::GetLastError();
             crate::log!(error, "write pipe error, failed code: {}", error);
-        }
-        else {
-            //FlushFileBuffers(handle);
-            crate::log!(trace, "childprocess send message by pipe {} {:?}", if bytes > 0 {"success."} else {"failed."}, arg);
         }
     }
     else {
