@@ -243,6 +243,7 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
             }
         }
         win::Foundation::CloseHandle(filehandle);
+        results.insert("filehandle".to_string(), params.get("filehandle").unwrap().to_string());
         results.insert("fileinformation".to_string(), filenames.clone());
         return results;
     }

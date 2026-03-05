@@ -30,8 +30,16 @@ pub static NAMEDPIPE_TO_GRPC_CHANNEL: std::sync::LazyLock<CHANNEL> = std::sync::
 #[derive(Default, Clone)] 
 pub struct Receiver {
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
-    crate_files_exist: std::sync::Arc<tokio::sync::Mutex<std::vec::Vec<String>>>,
+    create_files_exist: std::sync::Arc<tokio::sync::Mutex<std::vec::Vec<String>>>,
     file_write_locks: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>>,
+    redirect_create_file_exists: std::sync::Arc<std::sync::RwLock<std::collections::HashSet<String>>>,
+    redirect_query_directory_file_infos: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, QueryDirectoryFileInfos>>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct QueryDirectoryFileInfos {
+    pub cids: Vec<u32>,
+    pub fileinformation: String,
 }
 
 impl Receiver {
@@ -40,8 +48,10 @@ impl Receiver {
 
         let receiver = Receiver {
             common,
-            crate_files_exist: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            create_files_exist: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
             file_write_locks: std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
+            redirect_create_file_exists: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
+            redirect_query_directory_file_infos: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::<String, QueryDirectoryFileInfos>::new())),
         };
         return receiver;
     }
@@ -58,8 +68,10 @@ impl Receiver {
 
         let receiver = Receiver {
             common: self.common.clone(),
-            crate_files_exist: self.crate_files_exist.clone(),
+            create_files_exist: self.create_files_exist.clone(),
             file_write_locks: self.file_write_locks.clone(),
+            redirect_create_file_exists: self.redirect_create_file_exists.clone(),
+            redirect_query_directory_file_infos: self.redirect_query_directory_file_infos.clone(),
         };
 
         let server = package::communicate_server::CommunicateServer::new(receiver);
@@ -242,112 +254,164 @@ impl Receiver {
             while let Some(request) = stream.next().await {
                 if let Ok(real) = request {
 
-                    let crate_files_exist = std::sync::Arc::clone(&self_.crate_files_exist);
+                    let create_files_exist = std::sync::Arc::clone(&self_.create_files_exist);
                     let file_write_locks = std::sync::Arc::clone(&self_.file_write_locks);
+                    let redirect_create_file_exists = std::sync::Arc::clone(&self_.redirect_create_file_exists);
+                    let redirect_query_directory_file_infos = std::sync::Arc::clone(&self_.redirect_query_directory_file_infos);
 
                     tokio::spawn(async move {
-                        for intermediate in real.files {
-                            //TODO: what time to remove file from crate_files_exist?
-                            let exist = { crate_files_exist.lock().await.contains(&intermediate.file) };
-                            if !exist {
-
-                                let mut file_write_locks = file_write_locks.lock().await;
-                                let file_write_lock = file_write_locks.entry(intermediate.file.clone())
-                                    .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(()))).clone();
-
-                                let file = tokio::fs::OpenOptions::new()
-                                    .create_new(true)
-                                    .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
-                                    .write(true)
-                                    .open(format!("{}{}", &intermediate.file, ".tmp"))
-                                    .await;
+                        if real.api == "NtCreateFile" {
+                            for intermediate in real.files {
+                                //TODO: what time to remove file from crate_files_exist?
+                                let exist = { create_files_exist.lock().await.contains(&intermediate.file) };
+                                if !exist {
     
-                                match file {
-                                    Ok(mut file) => {
-                                        let guard = file_write_lock.lock().await;
-
-                                        file.write_all(&intermediate.content).await.unwrap();
-                                        file.flush().await.unwrap();
-
-                                        drop(file);
-                                        match tokio::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).await {
-                                            Ok(_) => {
-                                                {crate_files_exist.lock().await.push(intermediate.file.clone());}
-                                                drop(guard);
-                                                file_write_locks.remove(&intermediate.file);
-                                            },
-                                            Err(err) => {
-                                                if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32) {
-                                                    std::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).unwrap_or_else(|err| {
-                                                        panic!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file, err);
-                                                    });
-                                                }
-                                                else {
-                                                    //TODO: if rename failed, how to deal ?
-                                                    log::error!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file, err);
-                                                }
-                                            }
-                                        }
-                                    },
-                                    Err(err) => {
-                                        if err.kind() == std::io::ErrorKind::NotFound {
-                                            let filepath = std::path::PathBuf::from(&intermediate.file);
-                                            if let Some(parent) = filepath.parent() {
-                                                if !parent.exists() {
-                                                    tokio::fs::create_dir_all(parent).await.expect(&format!("create dir failed: {}", parent.display()));
-                                                }
-                                            }
+                                    let mut file_write_locks = file_write_locks.lock().await;
+                                    let file_write_lock = file_write_locks.entry(intermediate.file.clone())
+                                        .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(()))).clone();
     
-                                            let mut file = tokio::fs::OpenOptions::new()
-                                                .create(true)
-                                                .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
-                                                .write(true)
-                                                .open(&intermediate.file)
-                                                .await.expect(&format!("create file failed: {}", &intermediate.file));
-                                            
+                                    let file = tokio::fs::OpenOptions::new()
+                                        .create_new(true)
+                                        .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
+                                        .write(true)
+                                        .open(format!("{}{}", &intermediate.file, ".tmp"))
+                                        .await;
+        
+                                    match file {
+                                        Ok(mut file) => {
+                                            let guard = file_write_lock.lock().await;
+    
                                             file.write_all(&intermediate.content).await.unwrap();
                                             file.flush().await.unwrap();
-                                        }
-                                        else if err.kind() == std::io::ErrorKind::AlreadyExists {
-                                            let guard = file_write_lock.lock().await;
-                                            drop(guard);
-                                            file_write_locks.remove(&intermediate.file);
-                                        }
-                                        else {
-                                            panic!("create file failed: {:?}, {}", &intermediate.file, err);
+    
+                                            drop(file);
+                                            match tokio::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).await {
+                                                Ok(_) => {
+                                                    {create_files_exist.lock().await.push(intermediate.file.clone());}
+                                                    drop(guard);
+                                                    file_write_locks.remove(&intermediate.file);
+                                                },
+                                                Err(err) => {
+                                                    if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32) {
+                                                        std::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).unwrap_or_else(|err| {
+                                                            panic!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file, err);
+                                                        });
+                                                    }
+                                                    else {
+                                                        //TODO: if rename failed, how to deal ?
+                                                        log::error!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file, err);
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        Err(err) => {
+                                            if err.kind() == std::io::ErrorKind::NotFound {
+                                                let filepath = std::path::PathBuf::from(&intermediate.file);
+                                                if let Some(parent) = filepath.parent() {
+                                                    if !parent.exists() {
+                                                        tokio::fs::create_dir_all(parent).await.expect(&format!("create dir failed: {}", parent.display()));
+                                                    }
+                                                }
+        
+                                                let mut file = tokio::fs::OpenOptions::new()
+                                                    .create(true)
+                                                    .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
+                                                    .write(true)
+                                                    .open(&intermediate.file)
+                                                    .await.expect(&format!("create file failed: {}", &intermediate.file));
+                                                
+                                                file.write_all(&intermediate.content).await.unwrap();
+                                                file.flush().await.unwrap();
+                                            }
+                                            else if err.kind() == std::io::ErrorKind::AlreadyExists {
+                                                let guard = file_write_lock.lock().await;
+                                                drop(guard);
+                                                file_write_locks.remove(&intermediate.file);
+                                            }
+                                            else {
+                                                panic!("create file failed: {:?}, {}", &intermediate.file, err);
+                                            }
                                         }
                                     }
                                 }
+                                else {
+                                    log::trace!("redirect handle file already exists in replica dir, skipping sync file: {} {}", real.cid, &intermediate.file);
+                                }
                             }
-                            else {
-                                log::trace!("redirect handle file already exists in replica dir, skipping sync file: {} {}", real.cid, &intermediate.file);
+        
+                            let mut dir_exists = false;
+                            let mut replace = String::new();
+                            real.params.iter().for_each(|param| {
+                                if param.key == "exists" && param.value ==  "true" {
+                                    dir_exists = true;
+                                }
+                                if param.key == "replace" {
+                                    replace = param.value.clone();
+                                }
+                            });
+        
+                            if dir_exists && !replace.is_empty() {
+
+                                redirect_create_file_exists.write().unwrap().insert(replace.clone());
+
+                                if !std::path::Path::new(&replace).exists() {
+                                    match std::fs::create_dir_all(&replace) {
+                                        Ok(_) => {},
+                                        Err(err) => {
+                                            if err.kind() == std::io::ErrorKind::AlreadyExists {
+                                                log::error!("create replace dir failed: {} {}", replace, err)
+                                            }
+                                            else {
+                                                panic!("create replace dir failed: {} {}", replace, err);
+                                            }
+                                        },
+                                    };
+                                }
                             }
                         }
-    
-                        let mut dir_exists = false;
-                        let mut replace = String::new();
-                        real.params.iter().for_each(|param| {
-                            if param.key == "exists" && param.value ==  "true" {
-                                dir_exists = true;
-                            }
-                            if param.key == "replace" {
-                                replace = param.value.clone();
-                            }
-                        });
-    
-                        if dir_exists && !replace.is_empty() && !std::path::Path::new(&replace).exists() {
-                            log::info!("transmit redirect handle create replace dir: {}", replace);
-                            match std::fs::create_dir_all(&replace) {
-                                Ok(_) => {},
-                                Err(err) => {
-                                    if err.kind() == std::io::ErrorKind::AlreadyExists {
-                                        log::error!("create replace dir failed: {} {}", replace, err)
+                        else if real.api == "NtQueryDirectoryFile" {
+
+                            let mut path = String::new();
+                            let mut fileinformation = String::new();
+                            real.params.iter().for_each(|param| {
+                                if param.key == "filehandle" {
+                                    path = param.value.clone();
+                                }
+                                if param.key == "fileinformation" {
+                                    fileinformation = param.value.clone();
+                                }
+                            });
+
+                            let mut caches = redirect_query_directory_file_infos.write().unwrap();
+                            if let Some(c) = caches.get_mut(&path) {
+
+                                let cids = c.cids.clone();
+
+                                c.cids.clear();
+                                c.fileinformation = fileinformation.clone();
+
+                                drop(caches);
+                                for cid in cids {
+                                    if cid != real.cid {
+                                        let command_result = MirrorSysCall {
+                                           cid: cid,
+                                           api: real.api.clone(),
+                                           args: std::collections::HashMap::from([
+                                               ("fileinformation".to_string(), fileinformation.clone()),
+                                           ]),
+                                        };
+
+                                       match responder.send(command_result) {
+                                           Ok(_) => {
+                                               log::debug!("transmit redirect handle send query directory cache callback: {} {}", real.api, cid);
+                                           },
+                                           Err(err) => {
+                                               log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);
+                                           },
+                                       };
                                     }
-                                    else {
-                                        panic!("create replace dir failed: {} {}", replace, err);
-                                    }
-                                },
-                            };
+                                }
+                            }
                         }
 
                         let command_result = MirrorSysCall {
@@ -384,10 +448,11 @@ impl Receiver {
 
             if let Some(mut rx) = channel {
                 while let Some(syscall) = rx.recv().await {
+
                     if syscall.api == "NtCreateFile" {
                         if let Some((_, expect)) = syscall.args.get_key_value("expect") {
                             //file exist in replica dir, so do not obtain file from crew again. direct return success.
-                            let exist = { self__.crate_files_exist.lock().await.contains(&expect) };
+                            let exist = { self__.create_files_exist.lock().await.contains(&expect) };
                             if exist {
                                 log::error!("file already exists in replica dir, skipping obtain from crew, {}", expect);
                                 match responder.send(syscall) {
@@ -397,6 +462,74 @@ impl Receiver {
                                     },
                                 }
                                 continue;
+                            }
+                        }
+                        else if let Some((_, _)) = syscall.args.get_key_value("exists") {
+                            if let Some((_, path)) = syscall.args.get_key_value("objectname") {
+                                let exist = { self__.redirect_create_file_exists.read().unwrap().contains(path) };
+                                if exist {
+
+                                    let reply = MirrorSysCall {
+                                        cid: syscall.cid,
+                                        api: syscall.api,
+                                        args: syscall.args.iter().map(|item| 
+                                            if item.0 == "exists" {
+                                                (item.0.clone(), "true".to_string())
+                                            }
+                                            else {
+                                                (item.0.clone(), item.1.clone())
+                                            }   
+                                        ).collect(),
+                                    };
+
+                                    match responder.send(reply) {
+                                        Ok(_) => {},
+                                        Err(err) => {
+                                            log::error!("transmit redirect handle send callback failed: {:?}", err);
+                                        },
+                                    }
+                                    continue;   
+                                }
+                            }
+                        }
+                    }
+                    else if syscall.api == "NtQueryDirectoryFile" {
+                        if let Some((_, path)) = syscall.args.get_key_value("filehandle") {
+                            let mut caches = self__.redirect_query_directory_file_infos.write().unwrap();
+                            if let Some(c) = caches.get_mut(path) {
+                                if c.fileinformation.is_empty() {
+                                    c.cids.push(syscall.cid);
+                                    drop(caches);
+                                    continue;
+                                }
+                                else {
+                                    let reply = MirrorSysCall {
+                                        cid: syscall.cid,
+                                        api: syscall.api.clone(),
+                                        args: std::collections::HashMap::from([
+                                            ("fileinformation".to_string(), c.fileinformation.clone()),
+                                        ]),
+                                    };
+
+                                    drop(caches);
+
+                                    match responder.send(reply) {
+                                        Ok(_) => {
+                                            log::debug!("transmit redirect handle send query directory cache callback: {} {}", syscall.api, syscall.cid);
+                                        },
+                                        Err(err) => {
+                                            log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);
+                                        },
+                                    };
+                                    continue;
+                                }
+                            }
+                            else {
+                                caches.insert(path.clone(), QueryDirectoryFileInfos {
+                                    cids: vec![syscall.cid],
+                                    fileinformation: String::new(),
+                                });
+                                drop(caches);
                             }
                         }
                     }

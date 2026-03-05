@@ -1346,7 +1346,7 @@ pub unsafe fn nt_query_directory_file(
                 crate::log!(trace, "nt_query_directory_file file handle cid: {} handle: {:?} path: {}", cid.clone(), &file_handle, path);
                 crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(call).unwrap();
                 let result = rx.blocking_recv().unwrap();
-                crate::log!(trace, "nt_query_directory_file file handle cid: {} handle: {:?} path: {}", cid, &file_handle, path);
+                crate::log!(trace, "nt_query_directory_file file handle result cid: {} handle: {:?} path: {}", cid, &file_handle, path);
 
                 if let Some(fileinfo) = result.get("fileinformation") {
                     if file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation {
