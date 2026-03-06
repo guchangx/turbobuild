@@ -438,7 +438,7 @@ impl Sender {
     }
 
     async fn save_compile_ouput_form_channel(&mut self, mut stream: tokio::sync::mpsc::Receiver<Vec<pack::IntermediateResult>>, project: &str) {
-        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(64));
         while let Some(results) = stream.recv().await {
             for result in results {
                 log::debug!("save compile result: {:?}", result.file);
