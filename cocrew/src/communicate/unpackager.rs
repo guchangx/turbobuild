@@ -30,10 +30,10 @@ pub static NAMEDPIPE_TO_GRPC_CHANNEL: std::sync::LazyLock<CHANNEL> = std::sync::
 #[derive(Default, Clone)] 
 pub struct Receiver {
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
-    create_files_exist: std::sync::Arc<tokio::sync::Mutex<std::vec::Vec<String>>>,
-    file_write_locks: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>>,
-    redirect_create_file_exists: std::sync::Arc<std::sync::RwLock<std::collections::HashSet<String>>>,
-    redirect_query_directory_file_infos: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, QueryDirectoryFileInfos>>>,
+    
+    redirect_create_file_exists: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, Vec<u32>>>>,
+    redirect_create_file_write: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, Vec<u32>>>>,
+    redirect_query_directory_file_infos: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, QueryDirectoryFileInfos>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,10 +48,9 @@ impl Receiver {
 
         let receiver = Receiver {
             common,
-            create_files_exist: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
-            file_write_locks: std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
-            redirect_create_file_exists: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
-            redirect_query_directory_file_infos: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::<String, QueryDirectoryFileInfos>::new())),
+            redirect_create_file_exists: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::<String, Vec<u32>>::new())),
+            redirect_create_file_write: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::<String, Vec<u32>>::new())),
+            redirect_query_directory_file_infos: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::<String, QueryDirectoryFileInfos>::new())),
         };
         return receiver;
     }
@@ -68,9 +67,8 @@ impl Receiver {
 
         let receiver = Receiver {
             common: self.common.clone(),
-            create_files_exist: self.create_files_exist.clone(),
-            file_write_locks: self.file_write_locks.clone(),
             redirect_create_file_exists: self.redirect_create_file_exists.clone(),
+            redirect_create_file_write: self.redirect_create_file_write.clone(),
             redirect_query_directory_file_infos: self.redirect_query_directory_file_infos.clone(),
         };
 
@@ -250,26 +248,20 @@ impl Receiver {
             log::debug!("transmit redirect handle read task start.");
             let mut stream = request.into_inner();
             let responder = crate::communicate::syscallredirectpipe::GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_tx.as_ref();
+            
+            let redirect_create_file_exists = std::sync::Arc::clone(&self_.redirect_create_file_exists);
+            let redirect_query_directory_file_infos = std::sync::Arc::clone(&self_.redirect_query_directory_file_infos);
+            let redirect_create_file_write = std::sync::Arc::clone(&self_.redirect_create_file_write);
+
 
             while let Some(request) = stream.next().await {
                 if let Ok(real) = request {
 
-                    let create_files_exist = std::sync::Arc::clone(&self_.create_files_exist);
-                    let file_write_locks = std::sync::Arc::clone(&self_.file_write_locks);
-                    let redirect_create_file_exists = std::sync::Arc::clone(&self_.redirect_create_file_exists);
-                    let redirect_query_directory_file_infos = std::sync::Arc::clone(&self_.redirect_query_directory_file_infos);
-
-                    tokio::spawn(async move {
                         if real.api == "NtCreateFile" {
-                            for intermediate in real.files {
-                                //TODO: what time to remove file from crate_files_exist?
-                                let exist = { create_files_exist.lock().await.contains(&intermediate.file) };
-                                if !exist {
-    
-                                    let mut file_write_locks = file_write_locks.lock().await;
-                                    let file_write_lock = file_write_locks.entry(intermediate.file.clone())
-                                        .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(()))).clone();
-    
+                            tokio::spawn(async move {
+                                for intermediate in real.files {
+                                    //TODO: what time to remove file from crate_files_exist?
+
                                     let file = tokio::fs::OpenOptions::new()
                                         .create_new(true)
                                         .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
@@ -279,17 +271,12 @@ impl Receiver {
         
                                     match file {
                                         Ok(mut file) => {
-                                            let guard = file_write_lock.lock().await;
-    
                                             file.write_all(&intermediate.content).await.unwrap();
                                             file.flush().await.unwrap();
-    
+
                                             drop(file);
                                             match tokio::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).await {
                                                 Ok(_) => {
-                                                    {create_files_exist.lock().await.push(intermediate.file.clone());}
-                                                    drop(guard);
-                                                    file_write_locks.remove(&intermediate.file);
                                                 },
                                                 Err(err) => {
                                                     if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32) {
@@ -324,9 +311,7 @@ impl Receiver {
                                                 file.flush().await.unwrap();
                                             }
                                             else if err.kind() == std::io::ErrorKind::AlreadyExists {
-                                                let guard = file_write_lock.lock().await;
-                                                drop(guard);
-                                                file_write_locks.remove(&intermediate.file);
+
                                             }
                                             else {
                                                 panic!("create file failed: {:?}, {}", &intermediate.file, err);
@@ -334,38 +319,112 @@ impl Receiver {
                                         }
                                     }
                                 }
-                                else {
-                                    log::trace!("redirect handle file already exists in replica dir, skipping sync file: {} {}", real.cid, &intermediate.file);
-                                }
-                            }
-        
+                            });
+
+
                             let mut dir_exists = false;
                             let mut replace = String::new();
+                            let mut expect = String::new();
                             real.params.iter().for_each(|param| {
                                 if param.key == "exists" && param.value ==  "true" {
                                     dir_exists = true;
                                 }
-                                if param.key == "replace" {
+                                else if param.key == "replace" {
                                     replace = param.value.clone();
                                 }
+                                else if param.key == "expect" {
+                                    expect = param.value.clone();
+                                }
                             });
+
+                            if !replace.is_empty() {
+                                if dir_exists {
+                                    if !std::path::Path::new(&replace).exists() {
+                                        match std::fs::create_dir_all(&replace) {
+                                            Ok(_) => {},
+                                            Err(err) => {
+                                                if err.kind() == std::io::ErrorKind::AlreadyExists {
+                                                    log::error!("create replace dir failed: {} {}", replace, err)
+                                                }
+                                                else {
+                                                    panic!("create replace dir failed: {} {}", replace, err);
+                                                }
+                                            },
+                                        };
+                                    }
+                                    let mut exists= redirect_create_file_exists.write().await;
+                                    if let Some(cids) = exists.get_mut(&replace) {
+                                        let cids = std::mem::take(cids);
+                                        drop(exists);
         
-                            if dir_exists && !replace.is_empty() {
-
-                                redirect_create_file_exists.write().unwrap().insert(replace.clone());
-
-                                if !std::path::Path::new(&replace).exists() {
-                                    match std::fs::create_dir_all(&replace) {
-                                        Ok(_) => {},
-                                        Err(err) => {
-                                            if err.kind() == std::io::ErrorKind::AlreadyExists {
-                                                log::error!("create replace dir failed: {} {}", replace, err)
+                                        for cid in cids {
+                                            if cid != real.cid {
+                                                let command_result = MirrorSysCall {
+                                                    cid: cid,
+                                                    api: real.api.clone(),
+                                                    args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
+                                                };
+        
+                                                match responder.send(command_result) {
+                                                    Ok(_) => {
+                                                        log::debug!("transmit redirect handle send create file exists callback: cid {}, expect {}, replace {}", cid, expect, replace);
+                                                    },
+                                                    Err(err) => {
+                                                        log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);
+                                                    },
+                                                };
                                             }
-                                            else {
-                                                panic!("create replace dir failed: {} {}", replace, err);
+                                        }
+                                    }
+                                }
+                                else {
+                                    let mut exists= redirect_create_file_exists.write().await;
+                                    if let Some(cids) = exists.remove(&replace) {
+                                        drop(exists);
+                                        for cid in cids {
+                                            if cid != real.cid {
+                                                let command_result = MirrorSysCall {
+                                                    cid: cid,
+                                                    api: real.api.clone(),
+                                                    args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
+                                                };
+        
+                                                match responder.send(command_result) {
+                                                    Ok(_) => {
+                                                        log::debug!("transmit redirect handle send create file exists callback: cid {}, expect {}, replace {}", cid, expect, replace);
+                                                    },
+                                                    Err(err) => {
+                                                        log::error!("transmit redirect handle send create file exists callback failed: {:?}", err);
+                                                    },
+                                                };
                                             }
-                                        },
-                                    };
+                                        }
+                                    }
+                                }
+                            }
+                            else if !expect.is_empty() {
+                                let mut expects = redirect_create_file_write.write().await;
+                                if let Some(cids) = expects.get_mut(&expect) {
+                                    
+                                    let cids = std::mem::take(cids);
+                                    drop(expects);
+                                    for cid in cids {
+                                        if cid != real.cid {
+                                            let command_result = MirrorSysCall {
+                                                cid: cid,
+                                                api: real.api.clone(),
+                                                args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
+                                            };
+
+                                            match responder.send(command_result) {
+                                                Ok(_) => {
+                                                },
+                                                Err(err) => {
+                                                    log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);
+                                                },
+                                            };
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -382,32 +441,29 @@ impl Receiver {
                                 }
                             });
 
-                            let mut caches = redirect_query_directory_file_infos.write().unwrap();
+                            let mut caches = redirect_query_directory_file_infos.write().await;
                             if let Some(c) = caches.get_mut(&path) {
 
-                                let cids = c.cids.clone();
-
-                                c.cids.clear();
+                                let cids = std::mem::take(&mut c.cids);
                                 c.fileinformation = fileinformation.clone();
 
                                 drop(caches);
                                 for cid in cids {
                                     if cid != real.cid {
                                         let command_result = MirrorSysCall {
-                                           cid: cid,
-                                           api: real.api.clone(),
-                                           args: std::collections::HashMap::from([
-                                               ("fileinformation".to_string(), fileinformation.clone()),
-                                           ]),
+                                            cid: cid,
+                                            api: real.api.clone(),
+                                            args: std::collections::HashMap::from([
+                                                ("fileinformation".to_string(), fileinformation.clone()),
+                                            ]),
                                         };
 
                                        match responder.send(command_result) {
-                                           Ok(_) => {
-                                               log::debug!("transmit redirect handle send query directory cache callback: {} {}", real.api, cid);
-                                           },
-                                           Err(err) => {
-                                               log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);
-                                           },
+                                            Ok(_) => {
+                                            },
+                                            Err(err) => {
+                                                log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);
+                                            },
                                        };
                                     }
                                 }
@@ -422,13 +478,11 @@ impl Receiver {
 
                         match responder.send(command_result) {
                             Ok(_) => {
-                                //log::debug!("transmit redirect handle send callback: {:?} {}", real.api, real.cid);
                             },
                             Err(err) => {
                                 log::error!("transmit redirect handle send callback failed: {:?}", err);
                             },
                         };
-                    });
                 }
                 else if let Err(err) = request {
                     log::error!("transmit redirect handle inbound error: {:?}", err);
@@ -452,11 +506,34 @@ impl Receiver {
                     if syscall.api == "NtCreateFile" {
                         if let Some((_, expect)) = syscall.args.get_key_value("expect") {
                             //file exist in replica dir, so do not obtain file from crew again. direct return success.
-                            let exist = { self__.create_files_exist.lock().await.contains(&expect) };
-                            if exist {
-                                log::error!("file already exists in replica dir, skipping obtain from crew, {}", expect);
+                            let needs_write = {
+                                let expects = self__.redirect_create_file_write.read().await;
+                                if let Some((_, values)) = expects.get_key_value(expect) {
+                                    if values.is_empty() {
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    true
+                                }
+                            };
+
+                            if needs_write {
+                                let mut expects_write = self__.redirect_create_file_write.write().await;
+                                match expects_write.get_mut(expect) {
+                                    Some(values) => {
+                                        values.push(syscall.cid);
+                                    },
+                                    None => {
+                                        expects_write.insert(expect.to_string(), vec![syscall.cid]);
+                                    },
+                                }
+                            } 
+                            else {
                                 match responder.send(syscall) {
-                                    Ok(_) => {},
+                                    Ok(_) => {
+                                    },
                                     Err(err) => {
                                         log::error!("transmit redirect handle send callback failed: {:?}", err);
                                     },
@@ -465,37 +542,49 @@ impl Receiver {
                             }
                         }
                         else if let Some((_, _)) = syscall.args.get_key_value("exists") {
-                            if let Some((_, path)) = syscall.args.get_key_value("objectname") {
-                                let exist = { self__.redirect_create_file_exists.read().unwrap().contains(path) };
-                                if exist {
+                            if let Some((_, path)) = syscall.args.get_key_value("replace") {
+                                let mut exists = self__.redirect_create_file_exists.write().await ;
+                                if let Some(values) = exists.get_mut(path) {
+                                    if values.is_empty() {
+                                        drop(exists);
+                                        let reply = MirrorSysCall {
+                                            cid: syscall.cid,
+                                            api: syscall.api,
+                                            args: syscall.args.iter().map(|item| 
+                                                if item.0 == "exists" {
+                                                    (item.0.clone(), "true".to_string())
+                                                }
+                                                else {
+                                                    (item.0.clone(), item.1.clone())
+                                                }   
+                                            ).collect(),
+                                        };
 
-                                    let reply = MirrorSysCall {
-                                        cid: syscall.cid,
-                                        api: syscall.api,
-                                        args: syscall.args.iter().map(|item| 
-                                            if item.0 == "exists" {
-                                                (item.0.clone(), "true".to_string())
-                                            }
-                                            else {
-                                                (item.0.clone(), item.1.clone())
-                                            }   
-                                        ).collect(),
-                                    };
-
-                                    match responder.send(reply) {
-                                        Ok(_) => {},
-                                        Err(err) => {
-                                            log::error!("transmit redirect handle send callback failed: {:?}", err);
-                                        },
+                                        match responder.send(reply) {
+                                            Ok(_) => {
+                                            },
+                                            Err(err) => {
+                                                log::error!("transmit redirect handle send callback failed: {:?}", err);
+                                            },
+                                        }
+                                        continue;
                                     }
-                                    continue;   
+                                    else {
+                                        values.push(syscall.cid);
+                                        continue;
+                                    }
+                                }
+                                else {
+                                    exists.insert(path.to_string(), vec![syscall.cid]);
                                 }
                             }
                         }
                     }
                     else if syscall.api == "NtQueryDirectoryFile" {
+                        log::debug!("NtQueryDirectoryFile syscall data: {:?}", syscall);
                         if let Some((_, path)) = syscall.args.get_key_value("filehandle") {
-                            let mut caches = self__.redirect_query_directory_file_infos.write().unwrap();
+                            let mut caches = self__.redirect_query_directory_file_infos.write().await;
+                            log::debug!("NtQueryDirectoryFile syscall cache data: {:?}", caches);
                             if let Some(c) = caches.get_mut(path) {
                                 if c.fileinformation.is_empty() {
                                     c.cids.push(syscall.cid);
@@ -508,14 +597,12 @@ impl Receiver {
                                         api: syscall.api.clone(),
                                         args: std::collections::HashMap::from([
                                             ("fileinformation".to_string(), c.fileinformation.clone()),
-                                        ]),
+                                            ]),
                                     };
-
+                                    
                                     drop(caches);
-
                                     match responder.send(reply) {
                                         Ok(_) => {
-                                            log::debug!("transmit redirect handle send query directory cache callback: {} {}", syscall.api, syscall.cid);
                                         },
                                         Err(err) => {
                                             log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);

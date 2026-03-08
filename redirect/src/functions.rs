@@ -1753,7 +1753,7 @@ pub unsafe fn nt_create_file(
                         syscall
                     };
                     
-                    crate::log!(trace, "nt_create_file includes hook send syscall cid: {:?} args: {:?}", &syscall.cid, &syscall.args);
+                    crate::log!(trace, "nt_create_file includesdir hook send syscall cid: {:?} args: {:?}", &syscall.cid, &syscall.args);
                     crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(syscall).unwrap();
                     let exists = rx.blocking_recv().unwrap();
                     if let Some(exists) = exists.get("exists") {
