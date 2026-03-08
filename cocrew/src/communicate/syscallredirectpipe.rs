@@ -108,8 +108,9 @@ pub fn compiler_redirect_syscall() {
             let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let closed_ = closed.clone();
 
+            let mut rx = { GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_rx.lock().await.resubscribe() };
+            
             rt_.spawn(async move {
-                let mut rx = { GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_rx.lock().await.resubscribe() };
                 while !closed.load(std::sync::atomic::Ordering::Relaxed) {
                     match rx.recv().await {
                         Ok(response) => {

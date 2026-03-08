@@ -306,7 +306,7 @@ impl Sender {
 
         match response {
             Ok(response) => {
-
+                let now = std::time::Instant::now();
                 let (tx, rx) = tokio::sync::mpsc::channel::<Vec<pack::IntermediateResult>>(128);
                 let mut myself = self.clone();
                 let project_ = project.clone();
@@ -392,7 +392,7 @@ impl Sender {
                     let _ = handle.await;
                 }
 
-                log::info!("send compiled sourcefile receive response done. {}", project);
+                log::info!("send compiled sourcefile receive response done. {}. elapsed: {:?}", project, now.elapsed());
             }
             Err(err) => {
                 log::warn!("send compiled sourcefile failed: {:?} {}", err, project);

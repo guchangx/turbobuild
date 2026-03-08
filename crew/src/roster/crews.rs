@@ -139,16 +139,16 @@ impl TasksManager {
 
     fn weight_for_frequency(frequency: u64) -> f64 {
         if frequency < 2000 {
-            0.5
+            0.25
         }
         else if frequency < 4000 {
-            1.0
+            0.5
         }
         else if frequency < 6000 {
-            1.5
+            0.75
         }
         else {
-            2.0
+            1.5
         }
     }
 

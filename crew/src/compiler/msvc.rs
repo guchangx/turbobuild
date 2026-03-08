@@ -811,7 +811,7 @@ impl MSVC {
         let solution_ = std::sync::Arc::clone(&solution);
         let project_ = std::sync::Arc::clone(&project);
 
-        for _ in 0..len {
+        for _ in 0..len * 2 {
             let mut addr = String::new();
             let mut index = -1;
             let mut left = Vec::new();
@@ -984,6 +984,7 @@ impl MSVC {
 
                     let mut input = input_.clone();
                     input.compiler_commands = others_;
+                    input.compiler_commands.push(std::ffi::OsString::from("/FS"));
                     input.compiler_commands.push(std::ffi::OsString::from("/MP"));
                     input.compiler_commands.extend(left.iter().cloned());
                     
@@ -1157,6 +1158,7 @@ impl MSVC {
 
                             let mut input = input_.clone();
                             input.compiler_commands = others_;
+                            input.compiler_commands.push(std::ffi::OsString::from("/FS"));
                             input.compiler_commands.push(std::ffi::OsString::from("/MP"));
                             input.compiler_commands.extend(left.iter().cloned());
 
