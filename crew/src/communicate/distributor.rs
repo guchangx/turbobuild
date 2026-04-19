@@ -104,7 +104,7 @@ impl Distributor {
         return addr.to_owned();
     }
     
-    pub fn schedule_for_sources(&self, addr: Option<String>, sources: &Vec<std::ffi::OsString>) -> (String, i32, Vec<std::ffi::OsString>, Vec<std::ffi::OsString>) {
+    pub fn schedule_for_sources(&self, addr: Option<String>, sources: &Vec<std::ffi::OsString>, icore: Option<u32>) -> (String, i32, Vec<std::ffi::OsString>, Vec<std::ffi::OsString>) {
 
         if addr.is_none() {
             let mut manager  = self.tasker.lock().unwrap();
@@ -121,7 +121,7 @@ impl Distributor {
         }
         else {
             let mut manager  = self.tasker.lock().unwrap();
-            let (index, count) = manager.schedule_by_specific_host(addr.clone().unwrap().as_ref(), sources.len() as u32);
+            let (index, count) = manager.schedule_by_specific_host(addr.clone().unwrap().as_ref(), sources.len() as u32, icore);
             
             if count <= sources.len() as u32 {
                 let left = sources.iter().take(count as usize).cloned().collect::<Vec<_>>();
@@ -139,9 +139,9 @@ impl Distributor {
         manager.done(addr, count);
     }
 
-    pub fn all(&self) -> Vec<String> {
+    pub fn all(&self) -> Vec<(String, u32)> {
         let manager  = self.tasker.lock().unwrap();
-        return manager.all().into_iter().map(|item| item.addr).collect();
+        return manager.all().into_iter().map(|item| (item.addr, item.core)).collect();
     }
 
     pub fn check(&self, addr: &str, cversion: &crate::replica::toolchain::CompilerVersion) -> bool {

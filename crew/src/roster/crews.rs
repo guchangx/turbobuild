@@ -214,11 +214,20 @@ impl TasksManager {
         }
     }
 
-    pub fn schedule_by_specific_host(&mut self, addr: &str, size: u32) -> (i32, u32) {
-        if self.tasks.len() == 1 as usize{
+    pub fn schedule_by_specific_host(&mut self, addr: &str, size: u32, index: Option<u32>) -> (i32, u32) {
+        if self.tasks.len() == 1 as usize {
             let item = self.tasks.first_mut().unwrap();
             item.running += size;
             return (item.index, size);
+        }
+        else if index.is_some() {
+            if let Some(item) = self.tasks.iter_mut().find(|item| item.addr == addr) {
+                item.running += 1;
+                return (item.index, 1);
+            }
+            else {
+                return (-1, 0);
+            }
         }
         else {
             if let Some(item) = self.tasks.iter_mut().find(|item| item.addr == addr) {
