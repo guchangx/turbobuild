@@ -461,7 +461,6 @@ impl Sender {
 
             }
         }
-        log::info!("{} save compile output from channel done.", project);
     }
 
     async fn redirect_net_command(&mut self) {
