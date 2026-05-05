@@ -23,8 +23,16 @@ static COMPILER_VERSION_MAP_PATH_CACHE: std::sync::LazyLock<std::sync::Mutex<std
     std::sync::Mutex::new(map)
 });
 
-impl crate::compiler::interface::Compiler for MSVC {
+pub struct CompileTaskCount {
+    pub pdb: ProgramDataBase,
+    pub expected: usize,
+    pub done: usize,
+}
 
+pub static COMPILE_TASK_COUNT: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, CompileTaskCount>>>> =
+    std::sync::LazyLock::new(|| std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())));
+
+impl crate::compiler::interface::Compiler for MSVC {
     fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
         let output = request_local_compile_by_preprocessed_source(&compiler_input, &self.out_err_stream);
         return output;
@@ -271,7 +279,18 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         else {
             return_local_compile_result_object_files(unready_objfiles, &solution_name, &origin_working_dir, out_err_stream);
         }
-        return_local_compile_result_pdbfiles((*program_database).clone(), &solution_name, &origin_working_dir, out_err_stream);
+
+        let mut synced_tasks = COMPILE_TASK_COUNT.lock().unwrap();
+        let task = synced_tasks.get_mut(&project_name.to_string_lossy().to_string());
+        if let Some(task) = task {
+            task.pdb = (*program_database).clone();
+            task.done += 1;
+            if task.expected != 0 && task.done >= task.expected {
+                synced_tasks.remove(&project_name.to_string_lossy().to_string());
+                drop(synced_tasks);
+                return_local_compile_result_pdbfiles((*program_database).clone(), &solution_name, &origin_working_dir, out_err_stream);
+            }
+        }
     }
     else {
         let lines: Vec<&str> = compile_output.lines().collect();
@@ -323,6 +342,16 @@ async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_
         };
 
         log::trace!("compile result generated object path: {:?}", result);
+
+        let compiled_result = crew::compiler::model::CompiledResult {
+            source_file: std::ffi::OsString::from(&line),
+            obj: None,
+            pdb: None,
+            idb: None,
+        };
+        let _ = out_stream.try_send(vec![compiled_result]).unwrap_or_else(|err| {
+            log::warn!("try send .obj results to out stream failed: {:?}", err);
+        });
         
         match tokio::fs::File::open(&result).await {
             Ok(file) => {
@@ -332,16 +361,15 @@ async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_
 
                 let origin = repair_original_path(&solution_name, &origin_working_dir, &result);        
 
-                let compiled_result = CompiledResult {
+                let compiled_gen_result = crew::compiler::model::CompiledResult {
                     source_file: std::ffi::OsString::from(&line),
                     obj: Some((origin, contents)),
                     pdb: None,
                     idb: None,
                 };
-                let compiled_result = vec![compiled_result];
 
-                let _ = out_stream.try_send(compiled_result).unwrap_or_else(|err| {
-                    log::warn!("try send .obj results to out stream failed: {:?}", err);
+                crate::communicate::unpackager::TASK_TO_FILE_CHANNEL.task_to_file_tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                    log::warn!("send unready .obj file path to channel failed: {:?}", err);
                 });
             },
             Err(error) => {
@@ -373,6 +401,16 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
         let solution_name_ = solution_name.clone();
         let origin_working_dir_ = origin_working_dir.clone();
 
+        let compiled_result = CompiledResult {
+            source_file: std::ffi::OsString::from(&line),
+            obj: None,
+            pdb: None,
+            idb: None,
+        };
+        let _ = out_stream.try_send(vec![compiled_result]).unwrap_or_else(|err| {
+            log::warn!("send unready .obj results to out stream failed: {:?}", err);
+        });
+
         let rt = {crate::common::COCREW_RUNTIME.lock().unwrap().handle().clone()};
         let _ = rt.spawn(async move {
 
@@ -386,20 +424,16 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
 
                     let origin = repair_original_path(&solution_name_, &origin_working_dir_, &objfile);
 
-                    let compiled_result = CompiledResult {
+
+                    let compiled_gen_result = crew::compiler::model::CompiledResult {
                         source_file: std::ffi::OsString::from(&line),
-                        obj: Some((origin, contents)),
+                        obj: Some((origin,contents)),
                         pdb: None,
                         idb: None,
                     };
-                    let compiled_results = vec![compiled_result];
-                    
-                    if !compiled_results.is_empty() {
-                        let _ = out_stream.send(compiled_results).await.unwrap_or_else(|err| {
-                            log::warn!("send unready .obj results to out stream failed: {:?}", err);
-                        });
-                        drop(out_stream);
-                    }
+                    crate::communicate::unpackager::TASK_TO_FILE_CHANNEL.task_to_file_tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                        log::warn!("send unready .obj file path to channel failed: {:?}", err);
+                    });
                 },
                 Err(error) => {
                     if error.kind() == std::io::ErrorKind::NotFound {
@@ -580,7 +614,7 @@ fn exact_compiler_object_file(project: std::borrow::Cow<str>, mut arg: std::borr
 }
 
 #[derive(Debug, Clone, PartialEq)]
-enum ProgramDataBase {
+pub enum ProgramDataBase {
     NonePDBPath,
     PathWithPDBName(std::path::PathBuf),
     PathWithoutPDBName(std::path::PathBuf),
@@ -839,7 +873,7 @@ pub fn redirect_stdout_log() {
 
 }
 
-fn repair_original_path(solution: &std::ffi::OsString, working_dir: &std::ffi::OsString, path: &std::path::PathBuf) -> std::ffi::OsString {
+pub fn repair_original_path(solution: &std::ffi::OsString, working_dir: &std::ffi::OsString, path: &std::path::PathBuf) -> std::ffi::OsString {
 
     //get the original .obj/.pdb file path
     let components = path.components().collect::<Vec<_>>();

@@ -811,9 +811,14 @@ impl MSVC {
         let project_ = std::sync::Arc::clone(&project);
         
         let all = self.sender.lock().unwrap().all();
-        for (addr, core) in &all {
-            for i in 0 .. *core {
 
+        let addr_map_archive_stream = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, _>::new()));
+        let addr_map_task_count = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, usize>::new()));
+        for (addr, core) in &all {
+            let (stream, _notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
+            addr_map_archive_stream.lock().await.insert(addr.clone(), stream.clone());
+
+            for i in 0 .. *core {
                 let addr = addr.clone();
                 let mut index = -1;
                 let mut left = Vec::new();
@@ -842,11 +847,32 @@ impl MSVC {
                     let headers = headers.clone();
                     let solution = solution.clone();
                     let project = project.clone();
+                    let stream = stream.clone();
+
+                    addr_map_task_count.lock().await.insert(addr.clone(), left.len());
+
+                    //last task, sync task count to all remote dist addrs 
+                    if sources.is_empty() {
+                        for (addr, stream) in addr_map_archive_stream.lock().await.iter() {
+
+                            let count = addr_map_task_count.lock().await.get(addr).cloned().unwrap_or(0);
+
+                            if let Some(stream) = stream {
+                                let archive = crate::communicate::packager::ArchiveArgs {
+                                    file_type:  crate::communicate::packager::FileType::SyncTaskCount,
+                                    solution: solution_.as_ref().clone(),
+                                    project: project_.as_ref().clone(),
+                                    name: "".to_string(),
+                                    path: input.compiler_working_dir.to_string_lossy().to_string(),
+                                    content: std::borrow::Cow::Owned(count.to_string().into_bytes()),
+                                };
+                                let _ = stream.send(archive).await;
+                            }
+                        }
+                    }
 
                     set.spawn(async move {
                         
-                        let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self_.runtime).await;
-
                         //sync source files and same name header files.
                         if let Some(stream) = stream {
 
@@ -962,7 +988,7 @@ impl MSVC {
                             log::debug!("sync source and header files for {:?} to: {} done. elapsed time: {:?}, send files size: {}/{} ", &input_.project, &addr, now.elapsed(), left.len(), &totals);
                         }
 
-                        notify.notified().await;
+                        //notify.notified().await;
                         
                         let requires = crate::compiler::model::PrecompiledSource {
                             contents: None,
@@ -988,6 +1014,7 @@ impl MSVC {
                         input.compiler_commands = others_;
                         input.compiler_commands.push(std::ffi::OsString::from("/FS"));
                         input.compiler_commands.push(std::ffi::OsString::from("/MP"));
+                        input.compiler_commands.push(std::ffi::OsString::from("/Zf"));
                         input.compiler_commands.extend(left.iter().cloned());
                         
                         let dispatched = left.len() as u32;
@@ -1041,8 +1068,10 @@ impl MSVC {
                         let project_ = project_.clone();
 
                         let now = std::time::Instant::now();
+                        let addr_map_archive_stream = addr_map_archive_stream.clone();
                         set.spawn(async move {
-                            let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr_, &self_.runtime).await;
+                            let stream = addr_map_archive_stream.lock().await.get(&addr_).cloned().unwrap();
+                            //let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr_, &self_.runtime).await;
                             
                             if let Some(stream) = stream {
                                 let mut archive_stream_task = Vec::new();
@@ -1137,7 +1166,7 @@ impl MSVC {
 
                             log::debug!("sync source and header files for {:?} to: {} done. elapsed time: {:?}, send files size: {}/{}", &input_.project, &addr_, now.elapsed(), left.len(), totals);
 
-                            notify.notified().await;
+                            //notify.notified().await;
 
                             let requires = crate::compiler::model::PrecompiledSource {
                                 contents: None,
@@ -1163,6 +1192,7 @@ impl MSVC {
                             input.compiler_commands = others_;
                             input.compiler_commands.push(std::ffi::OsString::from("/FS"));
                             input.compiler_commands.push(std::ffi::OsString::from("/MP"));
+                            input.compiler_commands.push(std::ffi::OsString::from("/Zf"));
                             input.compiler_commands.extend(left.iter().cloned());
 
                             let dispatched = left.len() as u32;
@@ -1177,10 +1207,11 @@ impl MSVC {
                 }
             }
         }
+        
+        addr_map_archive_stream.lock().await.clear();
 
         return compiler_output.lock().unwrap().to_owned();
     }
-
 }
 
 fn check_instruction_length(base: &Vec<std::ffi::OsString>, source_files: &Vec<std::ffi::OsString>) -> usize {

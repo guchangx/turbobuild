@@ -80,6 +80,7 @@ impl Distributor {
         };
 
         {
+            //TODO: should check the connecting status, if the addr is in connected addrs.
             let mut addrs = CONNECTED_ADDRS.lock().await;
         
             if !addrs.iter().any(|item| item == addr) {

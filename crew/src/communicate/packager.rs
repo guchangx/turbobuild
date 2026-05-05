@@ -49,6 +49,7 @@ pub enum FileType {
     PrecompiledSrcFiles = 2,
     ToolChain = 3,
     Kits = 4,
+    SyncTaskCount = 5,
 }
 
 pub struct ArchiveArgs<'a> {
@@ -254,6 +255,21 @@ impl Sender {
                     match stream {
                         Ok(stream) => {
                             //log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
+                            
+                            let path = stream.path.clone();
+                            if !path.is_empty() && stream.content.len() > 0 {
+                                tokio::spawn(async move {
+                                    match tokio::fs::OpenOptions::new().write(true).create(true).open(&path).await {
+                                        Ok(mut file) => {
+                                            file.write_all(&stream.content).await.unwrap();
+                                            log::debug!("save file {} success.", path);
+                                        },
+                                        Err(err) => {
+                                            log::error!("save file {} failed: {:?}", path, err);
+                                        }
+                                    }
+                                });
+                            }
                         }
                         Err(err) => {
                             log::error!("transmit file {} failed: {:?}", host, err);
@@ -330,11 +346,13 @@ impl Sender {
                                 }
                                 else if response.progress == pack::CompileProgress::Compiling as i32 {
 
-                                    log::trace!("compiling receive compiled sourcefile response: {:?}", response.results.iter().map(|item| item.file.clone()).collect::<Vec<_>>());
-                                    
-                                    tx.send(response.results).await.unwrap_or_else(|err| {
-                                        log::error!("send compiled sourcefile response to save failed: {:?}", err);
-                                    });
+                                    if !response.results.is_empty() {
+                                        log::trace!("compiling receive compiled sourcefile response: {:?}", response.results.iter().map(|item| item.file.clone()).collect::<Vec<_>>());
+
+                                        tx.send(response.results).await.unwrap_or_else(|err| {
+                                            log::error!("send compiled sourcefile response to save failed: {:?}", err);
+                                        });                                        
+                                    }
 
                                     let output = crate::compiler::model::CompilerOutput {
                                         status: 0,

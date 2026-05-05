@@ -66,9 +66,13 @@ pub struct FileTrRequest {
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct FileTrResponse {
-    #[prost(int32, tag = "1")]
+    #[prost(string, tag = "1")]
+    pub path: ::prost::alloc::string::String,
+    #[prost(bytes = "vec", tag = "2")]
+    pub content: ::prost::alloc::vec::Vec<u8>,
+    #[prost(int32, tag = "3")]
     pub error_code: i32,
-    #[prost(string, tag = "2")]
+    #[prost(string, tag = "4")]
     pub error_message: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
@@ -147,6 +151,7 @@ pub enum FileType {
     Precompiledsrcfiles = 2,
     Toolchain = 3,
     Kits = 4,
+    Synctaskcount = 5,
 }
 impl FileType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -160,6 +165,7 @@ impl FileType {
             Self::Precompiledsrcfiles => "PRECOMPILEDSRCFILES",
             Self::Toolchain => "TOOLCHAIN",
             Self::Kits => "KITS",
+            Self::Synctaskcount => "SYNCTASKCOUNT",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -170,6 +176,7 @@ impl FileType {
             "PRECOMPILEDSRCFILES" => Some(Self::Precompiledsrcfiles),
             "TOOLCHAIN" => Some(Self::Toolchain),
             "KITS" => Some(Self::Kits),
+            "SYNCTASKCOUNT" => Some(Self::Synctaskcount),
             _ => None,
         }
     }

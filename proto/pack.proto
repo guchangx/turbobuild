@@ -48,7 +48,8 @@ enum FileType {
     SOURCEFILES = 1;
     PRECOMPILEDSRCFILES = 2;
     TOOLCHAIN = 3;
-    KITS= 4;
+    KITS = 4;
+    SYNCTASKCOUNT = 5;
 }
 
 message FileTrRequest {
@@ -61,8 +62,10 @@ message FileTrRequest {
 }
 
 message FileTrResponse {
-    int32 error_code = 1;
-    string error_message = 2;
+    string path = 1;
+    bytes content = 2;
+    int32 error_code = 3;
+    string error_message = 4;
 }
 
 message Params {

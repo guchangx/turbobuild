@@ -27,6 +27,21 @@ pub static NAMEDPIPE_TO_GRPC_CHANNEL: std::sync::LazyLock<CHANNEL> = std::sync::
     };
 });
 
+pub struct CompileResultSync {
+    pub task_to_file_tx: tokio::sync::mpsc::Sender<crew::compiler::model::CompiledResult>,
+    pub task_to_file_rx: tokio::sync::Mutex<tokio::sync::mpsc::Receiver<crew::compiler::model::CompiledResult>>,
+}
+
+pub static TASK_TO_FILE_CHANNEL: std::sync::LazyLock<CompileResultSync> = std::sync::LazyLock::new(|| {
+
+    let (task_to_file_tx, task_to_file_rx) = tokio::sync::mpsc::channel(1024);
+
+    return CompileResultSync {
+        task_to_file_tx: task_to_file_tx,
+        task_to_file_rx: tokio::sync::Mutex::new(task_to_file_rx),
+    };
+});
+
 #[derive(Default, Clone)] 
 pub struct Receiver {
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
@@ -96,11 +111,49 @@ impl Receiver {
     async fn transmit_file_handle(&self, request: tonic::Request<tonic::Streaming<package::FileTrRequest>>, tx: tokio::sync::mpsc::Sender<Result<package::FileTrResponse, tonic::Status>>) {
         use tokio_stream::StreamExt;
         let mut stream = request.into_inner();
+
+        let tx_ = tx.clone();
+        tokio::spawn(async move {
+            while let Some(result) = TASK_TO_FILE_CHANNEL.task_to_file_rx.lock().await.recv().await {
+
+                if let Some((file, context)) = result.obj {
+                    let reply = package::FileTrResponse {
+                        path: file.to_string_lossy().to_string(),
+                        content: context,
+                        error_code: 0,
+                        error_message: result.source_file.to_string_lossy().to_string(),
+                    };
+                    tx_.send(Ok(reply)).await.unwrap();
+                }
+
+                if let Some((file, context)) = result.pdb {
+                    let reply = package::FileTrResponse {
+                        path: file.to_string_lossy().to_string(),
+                        content: context,
+                        error_code: 0,
+                        error_message: result.source_file.to_string_lossy().to_string(),
+                    };
+                    tx_.send(Ok(reply)).await.unwrap();
+                }
+
+                if let Some((file, context)) = result.idb {
+                    let reply = package::FileTrResponse {
+                        path: file.to_string_lossy().to_string(),
+                        content: context,
+                        error_code: 0,
+                        error_message: result.source_file.to_string_lossy().to_string(),
+                    };
+                    tx_.send(Ok(reply)).await.unwrap();
+                }
+            }
+        });
             
         while let Some(request) = stream.next().await {
             if let Ok(request) = request {
 
                 let mut reply = package::FileTrResponse {
+                    path: "".to_string(),
+                    content: Vec::new(),
                     error_code: 0,
                     error_message: "sync file success.".to_string(),
                 };
@@ -143,6 +196,40 @@ impl Receiver {
                 }
                 else if file_type == package::FileType::Kits as i32 {
                         
+                }
+                else if file_type == package::FileType::Synctaskcount as i32 {
+                    let count_str = String::from_utf8_lossy(&content);
+                    if let Ok(count) = count_str.parse::<usize>() {
+                        let mut compile_task = crate::compiler::msvc::COMPILE_TASK_COUNT.lock().unwrap();
+                        let task = compile_task.get_mut(&project);
+                        if let Some(task) = task {
+                            if task.done >= count {
+                                let tx_ = tx.clone();
+                                let pdb = task.pdb.clone();
+                                tokio::spawn(async move {
+                                    Self::return_local_compile_result_pdbfiles(pdb,
+                                        &std::ffi::OsString::from(solution),
+                                        &std::ffi::OsString::from(path),
+                                        tx_
+                                    ).await;
+                                });
+                                compile_task.remove(&project);
+                            }
+                            else {
+                                task.expected = count;
+                            }
+                        }
+                        else {
+                            compile_task.insert(project.clone(), crate::compiler::msvc::CompileTaskCount {
+                                pdb: crate::compiler::msvc::ProgramDataBase::NonePDBPath,
+                                expected: count,
+                                done: 0,
+                            });
+                        }
+                    }
+                    else {
+                        log::error!("parse sync task count failed: {}", count_str);
+                    }
                 }
                 else {
                     log::debug!("unknown file type: {}", file_type);
@@ -738,7 +825,7 @@ impl Receiver {
 
         let output = buildhandle.await.unwrap();
         //wait compile output send back done.
-        outputhandle.await.unwrap();
+        //outputhandle.await.unwrap();
         
         if output.status == 0 {
             let reply = package::CompileTrResponse {
@@ -883,6 +970,95 @@ impl Receiver {
         return handel;
     }
     
+    async fn return_local_compile_result_pdbfiles(program_database: crate::compiler::msvc::ProgramDataBase, solution_name: &std::ffi::OsString, 
+        origin_working_dir: &std::ffi::OsString, tx: tokio::sync::mpsc::Sender<Result<package::FileTrResponse, tonic::Status>>) {
+        use tokio::io::AsyncReadExt;
+
+        let mut result = std::path::PathBuf::from("");
+        match &program_database {
+            crate::compiler::msvc::ProgramDataBase::PathWithPDBName(path) => {
+                result = path.clone();
+            },
+            crate::compiler::msvc::ProgramDataBase::PathWithoutPDBName(dir) => {
+                result = dir.join("vc143");
+                result.set_extension("pdb");
+            },
+            _ => {
+                log::warn!("fetch result pdb file path failed.");
+            }
+        };
+    
+        log::trace!("compile result program database path: {:?}", result);
+
+        if result.exists() {
+            let solution_name_ = solution_name.clone();
+            let origin_working_dir_ = origin_working_dir.clone();
+            let tx_ = tx.clone();
+            let mut result_ = result.clone();
+            tokio::spawn(async move {
+                match tokio::fs::File::open(&result).await {
+                    Ok(file) => {
+                        let mut contents = Vec::new();
+                        let mut file = tokio::io::BufReader::new(file);
+                        let _ = file.read_to_end(&mut contents).await.unwrap();
+                        let origin = crate::compiler::msvc::repair_original_path(&solution_name_, &origin_working_dir_, &result);
+
+                        let reply = package::FileTrResponse {
+                            path: origin.to_string_lossy().to_string(),
+                            content: contents,
+                            error_code: 0,
+                            error_message: "sync file success.".to_string(),
+                        };
+
+                        tx_.send(Ok(reply)).await.unwrap();
+                    },
+                    Err(error) => {
+                        if error.kind() == std::io::ErrorKind::NotFound {
+                            log::warn!(".pdb file path is not found. path: {:?}", result);
+                        }
+                        else {
+                            log::warn!(".pdb file read failed. {:?}, {:?}.", error, result);
+                        }
+                    }
+                }
+            });
+            
+            let solution_name_ = solution_name.clone();
+            let origin_working_dir_ = origin_working_dir.clone();
+            let tx_ = tx.clone();
+            tokio::spawn(async move {
+                result_.set_extension("idb");
+                match tokio::fs::File::open(&result_).await {
+                    Ok(file) => {
+                        let mut contents = Vec::new();
+                        let mut file = tokio::io::BufReader::new(file);
+                        let _ = file.read_to_end(&mut contents).await.unwrap();
+                        let origin = crate::compiler::msvc::repair_original_path(&solution_name_, &origin_working_dir_, &result_);     
+    
+                        let reply = package::FileTrResponse {
+                            path: origin.to_string_lossy().to_string(),
+                            content: contents,
+                            error_code: 0,
+                            error_message: "sync file success.".to_string(),
+                        };
+    
+                        tx_.send(Ok(reply)).await.unwrap();
+                    },
+                    Err(error) => {
+                        if error.kind() == std::io::ErrorKind::NotFound {
+                            //log::warn!(".idb file path is not found.");
+                        }
+                        else {
+                            log::warn!(".idb file read failed. {:?}", error);
+                        }
+                    },
+                }
+            });
+        }
+        else {
+            log::warn!("pdb file is not found, path: {:?}.", result);
+        }
+    }
 }
 
 type ResponseTaskStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::CompileTrResponse, tonic::Status>> + Send>>;
