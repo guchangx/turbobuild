@@ -57,7 +57,10 @@ pub fn run_cocrew() {
 pub async fn init() {
     log::debug!("init crew");
     
-    run_cocrew();
+    if *crate::ENFORCE_ACTIVATE_LOCAL_COCREW {
+        log::debug!("enforce activate local cocrew, will run cocrew default.");
+        run_cocrew();
+    }
     
     let common = Common::new();
     let common = std::sync::Arc::new(std::sync::Mutex::new(common));

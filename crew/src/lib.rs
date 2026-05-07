@@ -8,6 +8,14 @@ pub mod replica;
 pub mod roster;
 pub mod procemirror;
 
+
+static ENFORCE_ACTIVATE_LOCAL_COCREW: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
+    #[cfg(feature = "enforce_activate_local_cocrew")]
+        return true;
+    #[cfg(not(feature = "enforce_activate_local_cocrew"))]
+        return false;
+});
+
 pub fn run() {
     //console_subscriber::init();
     

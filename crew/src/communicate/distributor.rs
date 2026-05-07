@@ -1,4 +1,3 @@
-use serde::de::value::SeqDeserializer;
 
 pub static CONNECTED_ADDRS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Mutex<Vec<String>>>> = std::sync::LazyLock::new(|| {
     std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new()))
@@ -40,9 +39,13 @@ impl Distributor {
     pub async fn archive_stream<'a>(addr: &str, runtime: &std::sync::Arc<tokio::runtime::Handle>) 
         -> (Option<tokio::sync::mpsc::Sender<super::packager::ArchiveArgs<'static>>>, std::sync::Arc<tokio::sync::Notify>) {
         
+        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
+        if (addr == "127.0.0.1" || addr == "localhost") && !*crate::ENFORCE_ACTIVATE_LOCAL_COCREW {
+            return (None, notify);
+        }
+
         let (tx, rx) = tokio::sync::mpsc::channel::<super::packager::ArchiveArgs>(128);
 
-        let notify = std::sync::Arc::new(tokio::sync::Notify::new());
         let notify_ = notify.clone();
         let args = super::packager::ArchiveStreamArgs {
             rx: rx,

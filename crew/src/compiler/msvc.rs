@@ -493,6 +493,15 @@ impl MSVC {
     
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
         log::debug!("{:?} in commands compiler version: {:?}, addr: {:?}", input.project, cversion, addr);
+        if (addr == "127.0.0.1" || addr == "localhost") && !*crate::ENFORCE_ACTIVATE_LOCAL_COCREW {
+            let mut output = CompilerOutput::default();
+            let (code, out, err) = start_local_compiler(&input.compiler_path, &input.compiler_working_dir, &input.compiler_commands);
+            output.status = code as u32;
+            output.out = out;
+            output.err = err;
+            return output;
+        }
+
         if input.build_and_compiler_type.to_string_lossy().contains("clang_cl") {
             let mut output = CompilerOutput::default();
             if let Some(content) = precompiled.contents.clone() {
