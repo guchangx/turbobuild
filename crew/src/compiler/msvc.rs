@@ -495,7 +495,7 @@ impl MSVC {
         log::debug!("{:?} in commands compiler version: {:?}, addr: {:?}", input.project, cversion, addr);
         if (addr == "127.0.0.1" || addr == "localhost") && !*crate::ENFORCE_ACTIVATE_LOCAL_COCREW {
             let mut output = CompilerOutput::default();
-            let (code, out, err) = start_local_compiler(&input.compiler_path, &input.compiler_working_dir, &input.compiler_commands);
+            let (code, out, err) = start_local_compiler(&input.compiler_path, &input.compiler_working_dir, &input.compiler_commands, &input.envs);
             output.status = code as u32;
             output.out = out;
             output.err = err;
@@ -1642,7 +1642,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
                                 compiler_commands: &Vec<std::ffi::OsString>, build_and_compiler_type: std::ffi::OsString,
                             sync_compile_result: bool) -> (CompilerOutput, Option<CompiledResults>) {
     let now = std::time::Instant::now();
-    let (status, stdout, stderr) = start_local_compiler(&compiler_path, &compiler_working_dir, &compiler_commands);
+    let (status, stdout, stderr) = start_local_compiler(&compiler_path, &compiler_working_dir, &compiler_commands, &std::collections::HashMap::new());
     let compile_output = String::from_utf8_lossy(&stdout);
     let mut compiled_filename: Vec<std::ffi::OsString> = Vec::new();
     let mut compiled_results: CompiledResults = Vec::new();
@@ -1863,7 +1863,7 @@ fn request_local_compile_by_preprocessed_source(msvc_compile_input: &CompilerInp
     return (output, results);
 }
 
-fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
+fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, envs: &std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
     use std::process::Stdio;
 
     log::trace!("local compile working dir: {:?}", working_dir);
@@ -1873,6 +1873,7 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
     let start = std::time::Instant::now();
     let mut process = std::process::Command::new(compiler_path);
 
+    
     for item in compiler_commands {
         if item.to_string_lossy().contains(" ") {
             process.arg(item);    
@@ -1882,11 +1883,26 @@ fn start_local_compiler(compiler_path: &std::ffi::OsString, working_dir: &std::f
             process.raw_arg(item);
         }
     }
+
+    let mut envs_block= std::collections::HashMap::<String, String>::new();
+    if !envs.is_empty() {
+        for (key, value) in envs.iter() {
+            if  key.to_string_lossy().starts_with("VS_UNICODE_OUTPUT") {
+                continue;
+            }
+            else {
+                envs_block.insert(key.to_string_lossy().to_string(), value.to_string_lossy().to_string());
+            }
+        }
+    }
+    else {
+    }
     
     let child = process.current_dir(working_dir)    
                             //.args(compiler_commands)
                             .stdout(Stdio::piped())
                             .stderr(Stdio::piped())
+                            .envs(envs_block)
                             .spawn();
     
     match child {
