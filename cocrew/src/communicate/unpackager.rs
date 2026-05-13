@@ -372,7 +372,7 @@ impl Receiver {
                                             file.flush().await.unwrap();
     
                                             drop(file);
-                                            match tokio::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).await {
+                                            match tokio::fs::rename(format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..]).await {
                                                 Ok(_) => {
                                                     {create_files_exist.lock().await.push(intermediate.file.clone());}
                                                     drop(guard);
@@ -380,13 +380,13 @@ impl Receiver {
                                                 },
                                                 Err(err) => {
                                                     if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32) {
-                                                        std::fs::rename(format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file).unwrap_or_else(|err| {
-                                                            panic!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file, err);
+                                                        std::fs::rename(format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..]).unwrap_or_else(|err| {
+                                                            panic!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..], err);
                                                         });
                                                     }
                                                     else {
                                                         //TODO: if rename failed, how to deal ?
-                                                        log::error!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file, ".tmp"), &intermediate.file, err);
+                                                        log::error!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..], err);
                                                     }
                                                 }
                                             }
@@ -644,7 +644,6 @@ impl Receiver {
     }
 
     async fn storage(solution: &str, path: &str, content: &[u8]) -> Result<(), String> {
-        let now = std::time::Instant::now();
 
         if solution.is_empty() || path.is_empty() {
             log::error!("transmit storage project name or path is empty.");
@@ -684,6 +683,7 @@ impl Receiver {
                 if let Ok(mut file) = file {
                     match file.write_all(&content) {
                         Ok(_) => {
+                            log::trace!("transmit storage file success: {:?}", path);
                         },
                         Err(err) => {
                             log::error!("transmit storage file failed. {:?} {:?}", path, err)

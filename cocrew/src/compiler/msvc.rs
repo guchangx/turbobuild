@@ -285,6 +285,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         if let Some(task) = task {
             task.pdb = (*program_database).clone();
             task.done += 1;
+            log::trace!("compile task expected: {:?} done: {:?}, project: {:?}.", task.expected, task.done, &project_name);
             if task.expected != 0 && task.done >= task.expected {
                 synced_tasks.remove(&project_name.to_string_lossy().to_string());
                 drop(synced_tasks);
@@ -416,7 +417,7 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
 
             match tokio::fs::File::open(&objfile).await {
                 Ok(file) => {
-                    log::info!("unready obj file: {:?}", objfile);
+                    log::info!("sync unready obj file: {:?}", objfile);
 
                     let mut contents = Vec::new();
                     let mut file = tokio::io::BufReader::new(file);

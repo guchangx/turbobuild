@@ -342,12 +342,12 @@ impl Sender {
 
                                 }
                                 else if response.progress == pack::CompileProgress::Compilestart as i32 {
-                                    log::debug!("compiled sourcefile start response: {}", response.tips);
+                                    log::debug!("{:?} compiled sourcefile start response: {}", project, response.tips);
                                 }
                                 else if response.progress == pack::CompileProgress::Compiling as i32 {
 
                                     if !response.results.is_empty() {
-                                        log::trace!("compiling receive compiled sourcefile response: {:?}", response.results.iter().map(|item| item.file.clone()).collect::<Vec<_>>());
+                                        log::trace!("{:?} compiling receive compiled sourcefile response: {:?}", project, response.results.iter().map(|item| item.file.clone()).collect::<Vec<_>>());
 
                                         tx.send(response.results).await.unwrap_or_else(|err| {
                                             log::error!("send compiled sourcefile response to save failed: {:?}", err);
@@ -367,10 +367,10 @@ impl Sender {
                                 }
                                 else if response.progress == pack::CompileProgress::Compiledone as i32 {
             
-                                    log::debug!("compiled sourcefile done response out: {:?}", String::from_utf8_lossy(&response.out));
+                                    log::debug!("{:?} compiled sourcefile done response out: {:?}", project, String::from_utf8_lossy(&response.out));
                                     recv.out = response.out;
                                 
-                                    log::debug!("compiled sourcefile done response err: {:?}", String::from_utf8_lossy(&response.err));
+                                    log::debug!("{:?} compiled sourcefile done response err: {:?}", project, String::from_utf8_lossy(&response.err));
                                     recv.err = response.err;
                                     
                                     recv.status = response.status;
@@ -388,8 +388,8 @@ impl Sender {
                                 }
                             }
                             else {
-                                log::debug!("compiled sourcefile failed response out: {:?}", String::from_utf8_lossy(&response.out));
-                                log::debug!("compiled sourcefile failed response err: {:?}", String::from_utf8_lossy(&response.err));
+                                log::debug!("{:?} compiled sourcefile failed response out: {:?}", project, String::from_utf8_lossy(&response.out));
+                                log::debug!("{:?} compiled sourcefile failed response err: {:?}", project, String::from_utf8_lossy(&response.err));
                                 recv.status = response.status;
                                 recv.out = response.out;
                                 recv.err = response.err;
@@ -397,7 +397,7 @@ impl Sender {
                             }
                         },
                         Err(err) => {
-                            log::error!("send compiled sourcefile receive response failed. {}", err);
+                            log::error!("{:?} send compiled sourcefile receive response failed. {}", project, err);
                             recv.status = 1;
                             recv.err = err.to_string().into_bytes();
                             break;

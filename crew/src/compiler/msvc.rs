@@ -819,7 +819,7 @@ impl MSVC {
         let solution_ = std::sync::Arc::clone(&solution);
         let project_ = std::sync::Arc::clone(&project);
         
-        let all = self.sender.lock().unwrap().all();
+        let all = self.sender.lock().unwrap().all(); 
 
         let addr_map_archive_stream = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, _>::new()));
         let addr_map_task_count = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, usize>::new()));
@@ -858,7 +858,7 @@ impl MSVC {
                     let project = project.clone();
                     let stream = stream.clone();
 
-                    addr_map_task_count.lock().await.insert(addr.clone(), left.len());
+                    *addr_map_task_count.lock().await.entry(addr.clone()).or_insert(0) += left.len();
 
                     //last task, sync task count to all remote dist addrs 
                     if sources.is_empty() {
@@ -875,6 +875,7 @@ impl MSVC {
                                     path: input.compiler_working_dir.to_string_lossy().to_string(),
                                     content: std::borrow::Cow::Owned(count.to_string().into_bytes()),
                                 };
+                                log::trace!("{:?} sync task expected count: {} to addr: {}", project_, count, addr);
                                 let _ = stream.send(archive).await;
                             }
                         }
@@ -994,7 +995,7 @@ impl MSVC {
                                 let _ = task.await; 
                             }
 
-                            log::debug!("sync source and header files for {:?} to: {} done. elapsed time: {:?}, send files size: {}/{} ", &input_.project, &addr, now.elapsed(), left.len(), &totals);
+                            log::debug!("sync source and header files for {:?} to: {} done. elapsed time: {:?}, send files: {:?} size: {}/{} ", &input_.project, &addr, now.elapsed(), left, left.len(), &totals);
                         }
 
                         //notify.notified().await;
@@ -1078,6 +1079,30 @@ impl MSVC {
 
                         let now = std::time::Instant::now();
                         let addr_map_archive_stream = addr_map_archive_stream.clone();
+
+                        *addr_map_task_count.lock().await.entry(addr_.clone()).or_insert(0) += left.len();
+
+                        //last task, sync task count to all remote dist addrs 
+                        if sources.is_empty() {
+                            for (addr, stream) in addr_map_archive_stream.lock().await.iter() {
+
+                                let count = addr_map_task_count.lock().await.get(addr).cloned().unwrap_or(0);
+
+                                if let Some(stream) = stream {
+                                    let archive = crate::communicate::packager::ArchiveArgs {
+                                        file_type:  crate::communicate::packager::FileType::SyncTaskCount,
+                                        solution: solution_.as_ref().clone(),
+                                        project: project_.as_ref().clone(),
+                                        name: "".to_string(),
+                                        path: input.compiler_working_dir.to_string_lossy().to_string(),
+                                        content: std::borrow::Cow::Owned(count.to_string().into_bytes()),
+                                    };
+                                    log::trace!("{:?} sync task expected count: {} to addr: {}", project_, count, addr);
+                                    let _ = stream.send(archive).await;
+                                }
+                            }
+                        }
+
                         set.spawn(async move {
                             let stream = addr_map_archive_stream.lock().await.get(&addr_).cloned().unwrap();
                             //let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr_, &self_.runtime).await;
@@ -1202,7 +1227,7 @@ impl MSVC {
                             input.compiler_commands.push(std::ffi::OsString::from("/FS"));
                             input.compiler_commands.push(std::ffi::OsString::from("/MP"));
                             input.compiler_commands.push(std::ffi::OsString::from("/Zf"));
-                            input.compiler_commands.extend(left.iter().cloned());
+                            input.compiler_commands.extend(left.iter().cloned()); 
 
                             let dispatched = left.len() as u32;
                             let output = self_.request_dist_compile(&addr_, &input, &requires).await;
