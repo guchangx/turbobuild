@@ -145,7 +145,7 @@ impl Distributor {
 
     pub fn all(&self) -> Vec<(String, u32)> {
         let manager  = self.tasker.lock().unwrap();
-        return manager.all().into_iter().map(|item| (item.addr, item.core)).collect();
+        return manager.all().into_iter().map(|item| (item.addr, item.core + 2)).collect();
     }
 
     pub fn check(&self, addr: &str, cversion: &crate::replica::toolchain::CompilerVersion) -> bool {

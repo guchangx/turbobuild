@@ -77,6 +77,7 @@ pub async fn init() {
 
     weak_common.upgrade().unwrap().lock().unwrap().tasks = Some(arc_tasks);
     let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(32)
         .enable_all()
         .thread_name_fn(|| {
             static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);

@@ -832,8 +832,9 @@ impl MSVC {
                 let mut index = -1;
                 let mut left = Vec::new();
                 (_, index, left, sources) = self.sender.lock().unwrap().schedule_for_sources(Some(addr.clone()), &sources, Some(i));
+                log::trace!("schedule source files for {} addr: {}, core index: {}/{}, left: {:?}", project_, addr, i, core, left);
+                
                 // if addr is local, we can skip the dist compile
-
                 if !left.is_empty() {
                     let mut is_split_sources = false;
                     if all.len() == 1 {
@@ -881,6 +882,7 @@ impl MSVC {
                         }
                     }
 
+                    let order = totals - sources.len();
                     set.spawn(async move {
                         
                         //sync source files and same name header files.
@@ -966,6 +968,7 @@ impl MSVC {
                                 archive_stream_task.push(htask);
                             }
 
+                            log::debug!("sync source and header files for {:?} to: {} done. elapsed time: {:?}, send files: {:?}, size: {}/{}", &input_.project, &addr, now.elapsed(), left, order, &totals);
                             //cancel initiative sync other dep files and header files.
                             /*
                                 //sync other dep files and header files
@@ -994,8 +997,6 @@ impl MSVC {
                             for task in archive_stream_task {
                                 let _ = task.await; 
                             }
-
-                            log::debug!("sync source and header files for {:?} to: {} done. elapsed time: {:?}, send files: {:?} size: {}/{} ", &input_.project, &addr, now.elapsed(), left, left.len(), &totals);
                         }
 
                         //notify.notified().await;
@@ -1077,7 +1078,6 @@ impl MSVC {
                         let solution_ = solution_.clone();
                         let project_ = project_.clone();
 
-                        let now = std::time::Instant::now();
                         let addr_map_archive_stream = addr_map_archive_stream.clone();
 
                         *addr_map_task_count.lock().await.entry(addr_.clone()).or_insert(0) += left.len();
@@ -1103,7 +1103,12 @@ impl MSVC {
                             }
                         }
 
+                        let order = totals - sources.len();   
+                        log::trace!("schedule source files for {} addr: {}, order: {}/{}, left: {:?}", project_, &addr_, order, totals, left);
+
                         set.spawn(async move {
+                            let now = std::time::Instant::now();
+
                             let stream = addr_map_archive_stream.lock().await.get(&addr_).cloned().unwrap();
                             //let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr_, &self_.runtime).await;
                             
@@ -1191,14 +1196,14 @@ impl MSVC {
                                         }
                                     });
                                     archive_stream_task.push(htask);
-
                                 }
+
                                 for task in archive_stream_task {
                                     let _ = task.await; 
                                 }
                             }
 
-                            log::debug!("sync source and header files for {:?} to: {} done. elapsed time: {:?}, send files size: {}/{}", &input_.project, &addr_, now.elapsed(), left.len(), totals);
+                            log::debug!("sync source and header files for {:?} to: {} done. elapsed time: {:?}, send files: {:?}, size: {}/{}", &input_.project, &addr_, now.elapsed(), left, order, &totals);
 
                             //notify.notified().await;
 
