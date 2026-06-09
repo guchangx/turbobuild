@@ -424,13 +424,28 @@ fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collections::
     let mut condition_stack: Vec<Branch> = Vec::new();
     let mut inactive_depth: i32 = 0;
 
+    let mut comment_stack_depth = 0;
+
     let mut includes = std::collections::HashSet::new();
 
-    for line in content.split(|&b| b == b'\n').take(200) {
+    for line in content.split(|&b| b == b'\n').take(180) {
 
         if line.is_empty() { continue; }
         let trimmed = trim(line);
-        if trimmed[0] != b'#' { continue; }
+        if trimmed[0] != b'#' {
+            if trimmed.starts_with(b"/*") {
+                if trimmed.ends_with(b"*/") {
+                } 
+                else {
+                    comment_stack_depth += 1;
+                }
+            } else if trimmed.ends_with(b"*/") && comment_stack_depth > 0 {
+                comment_stack_depth -= 1;
+            }
+            continue; 
+        }
+
+        if(comment_stack_depth > 0) { continue; }
 
         let after = trim(&trimmed[1..]);
         let (dir, rest) = split_directive(after);
@@ -477,7 +492,6 @@ fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collections::
                 }
             }
             b"elif" => {
-                // outer_ok: are all items *except* the top of stack active?
                 let outer_ok = match condition_stack.last() {
                     None => true,
                     Some(Branch::Active) => inactive_depth == 0,
@@ -522,11 +536,6 @@ fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collections::
                     if old != Branch::Active { inactive_depth -= 1; }
                 }
             }
-                        b"endif" => {
-                if let Some(old) = condition_stack.pop() {
-                    if old != Branch::Active { inactive_depth -= 1; }
-                }
-            }
             b"pragma" if inactive_depth == 0 => {
 
             }
@@ -543,20 +552,20 @@ fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collections::
             b"include" if inactive_depth == 0 => {
                 if let Ok(s) = std::str::from_utf8(rest) {
                     let resolved = if s.starts_with('"') || s.starts_with('<') {
-                        let resolve_cache = dashmap::DashMap::new();
-                        resolve_include_cached(s, std::path::Path::new(""), &[], &[], &resolve_cache)
+                        let pos = s.rfind('"').unwrap_or(s.rfind('>').unwrap_or(s.len())) + 1;
+                        Some(std::path::PathBuf::from(&s[0..pos]))
                     } else {
                         let macro_name = s.split(|c: char| c.is_whitespace() || c == '/')
                             .next().unwrap_or("").trim();
                         if let Some(Some(expanded)) = defines.get(macro_name) {
-                            let expanded = expanded.clone();
-                            let resolve_cache = dashmap::DashMap::new();
-                            resolve_include_cached(&expanded, std::path::Path::new(""), &[], &[], &resolve_cache)
+                            Some(std::path::PathBuf::from(expanded))
                         } else {
                             None
                         }
                     };
+
                     if let Some(p) = resolved {
+                        includes.insert(normalize_path(&p));
                         //scan_file_inner(&p, false, &[], &[], defines, &[], &[], &[], &[], &[], &[]);
                     }
                 }
@@ -575,6 +584,9 @@ mod tests {
     fn test_parser_sourcefile_dependency() {
         let content = b"// This is a comment\n#include <stdio.h>\n#include \"myheader.h\"\nint main() { return 0; }";
         let dependencies = parser_sourcefile_dependency(content, &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.contains(&"<stdio.h>".to_string()), true);
+        assert_eq!(dependencies.contains(&"\"myheader.h\"".to_string()), true);
     }
 
     #[test]
@@ -590,5 +602,190 @@ mod tests {
             return 0; 
         }"#;
         let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 2);
+        assert_eq!(dependencies.contains(&"<stdio.h>".to_string()), true);
+        assert_eq!(dependencies.contains(&"\"myheader.h\"".to_string()), true);
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("YES".to_string(), Some("1".to_string()))]));
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 3);
+        assert_eq!(dependencies.contains(&"<stdio.h>".to_string()), true);
+        assert_eq!(dependencies.contains(&"\"myheader.h\"".to_string()), true);
+        assert_eq!(dependencies.contains(&"\"conditional.h\"".to_string()), true);
+
+        let content = r#"
+        // This is a comment
+        #define YES
+        #include <stdio.h>
+        #include "myheader.h"
+        #ifdef YES
+        #include "conditional.h"
+        #endif
+        int main() { 
+            return 0; 
+        }"#;
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 3);
+        assert_eq!(dependencies.contains(&"<stdio.h>".to_string()), true);
+        assert_eq!(dependencies.contains(&"\"myheader.h\"".to_string()), true);
+        assert_eq!(dependencies.contains(&"\"conditional.h\"".to_string()), true);
+    }
+
+    #[test]
+    fn test_parser_sourcefile_dependency_with_ifelse() {
+
+        let content = r#"
+        #if defined(Win) && !defined(Linux)
+        #  include "tps/dirent.h"
+        #  include "tps/dirent.c"
+        #else
+        #  include <sys/types.h>
+        #  include <dirent.h>
+        #  include <unistd.h>
+        #endif"#;        
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 3);
+        assert_eq!(dependencies.contains(&"<sys/types.h>".to_string()), true);
+        assert_eq!(dependencies.contains(&"<dirent.h>".to_string()), true);
+        assert_eq!(dependencies.contains(&"<unistd.h>".to_string()), true);
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("Win".to_string(), None)]));
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 2);
+        assert_eq!(dependencies.contains(&"\"tps/dirent.h\"".to_string()), true);
+        assert_eq!(dependencies.contains(&"\"tps/dirent.c\"".to_string()), true);
+    }
+
+    #[test]
+    fn test_parser_sourcefile_dependency_with_elif() {
+        let content = r#"
+        #if defined(HAVE_STDINT_H)
+        #  include <stdint.h>
+        #elif defined(HAVE_INTTYPES_H)
+        #  include <inttypes.h>
+        #elif defined(HAVE_SYS_TYPES_H)
+        #  include <sys/types.h>
+        #endif"#;
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 0);
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("HAVE_STDINT_H".to_string(), None)]));
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 1);
+        assert_eq!(dependencies.contains(&"<stdint.h>".to_string()), true);
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("HAVE_INTTYPES_H".to_string(), None)]));
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 1);
+        assert_eq!(dependencies.contains(&"<inttypes.h>".to_string()), true);
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("HAVE_SYS_TYPES_H".to_string(), None)]));
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 1);
+        assert_eq!(dependencies.contains(&"<sys/types.h>".to_string()), true);
+    }
+    #[test]
+    fn test_parser_sourcefile_dependency_with_multi_level_nesting() {
+
+        let content = r#"
+        #if defined(LINUX) || defined(ANDROID)
+        # if defined(__LP64__)
+        #  include <time.h>
+        # else
+        #  include <time64.h>
+        # endif
+        #endif"#;        
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 0);
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("LINUX".to_string(), None)]));
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 1);
+        assert_eq!(dependencies.contains(&"<time64.h>".to_string()), true);
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("LINUX".to_string(), None), ("__LP64__".to_string(), None)]));
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 1);
+        assert_eq!(dependencies.contains(&"<time.h>".to_string()), true);
+    }
+
+    #[test]
+    fn test_parser_sourcefile_dependency_with_comment() {
+
+        let content = r#"
+        #include <stdio.h> /*comment*/
+        #include "myheader.h" /*comment*/"#;
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 2);
+        assert_eq!(dependencies.contains(&"<stdio.h>".to_string()), true);
+
+        let content = r#"
+        #include <stdio.h> //comment
+        #include "myheader.h" //comment"#;
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 2);
+        assert_eq!(dependencies.contains(&"<stdio.h>".to_string()), true);
+
+        let content = r#"
+        //#include <stdio.h>
+        #include "myheader.h""#;
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 1);
+
+        let content = r#"
+        /*
+        #include <stdio.h>
+        */
+        #include "myheader.h""#;
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 1);
+
+        let content = r#"
+        /*#include <stdio.h>*/
+        #include "myheader.h""#;
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 1);
+
+        let content = r#"
+        /*
+        //#include <stdio.h>
+        */
+        #include "myheader.h""#;
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 1);
+
+        let content = r#"
+        /*
+            /*
+        #include <stdio.h>
+            */
+        */
+        #include "myheader.h""#;
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 1);
+
     }
 }
