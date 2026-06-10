@@ -265,8 +265,13 @@ fn parse_define(s: &str, defines: &mut std::collections::HashMap<String, Option<
     let s = s.trim();
     let (name, val) = if let Some(paren) = s.find('(') {
         let space = s.find(char::is_whitespace).unwrap_or(s.len());
-        if paren < space { (&s[..paren], None) }
-        else { let v = s[space..].trim(); (&s[..space], if v.is_empty() { None } else { Some(v) }) }
+        if paren < space { 
+            (&s[..paren], None) 
+        }
+        else { 
+            let v = s[space..].trim(); 
+            (&s[..space], if v.is_empty() { None } else { Some(v) }) 
+        }
     } else {
         let space = s.find(char::is_whitespace).unwrap_or(s.len());
         let v = s[space..].trim();
@@ -445,7 +450,7 @@ fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collections::
             continue; 
         }
 
-        if(comment_stack_depth > 0) { continue; }
+        if comment_stack_depth > 0 { continue; }
 
         let after = trim(&trimmed[1..]);
         let (dir, rest) = split_directive(after);
@@ -615,15 +620,22 @@ mod tests {
         assert_eq!(dependencies.contains(&"\"conditional.h\"".to_string()), true);
 
         let content = r#"
-        // This is a comment
-        #define YES
         #include <stdio.h>
         #include "myheader.h"
+        \n
+        #define YES
         #ifdef YES
         #include "conditional.h"
         #endif
-        int main() { 
-            return 0; 
+        \n
+        #undef YES
+        \n
+        #ifdef YES
+        #include "conditional_second.h"
+        #endif
+        \n
+        int main() {
+            return 0;
         }"#;
 
         let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
@@ -786,6 +798,45 @@ mod tests {
         let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 1);
-
     }
+
+    #[test]
+    fn test_parser_sourcefile_dependency_with_relative_path() {
+        
+        let content = r#"
+        #include "./types.h"
+        #include "myheader.h""#;
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 2);
+    }
+
+    #[test]
+    fn test_parser_sourcefile_dependency_with_define_value() {
+        let content = r#"
+        #include <stdio.h>
+        #include "myheader.h"
+        #define YES OKK
+        #if YES == OK
+            #include "conditional.h"
+        #elif YES == OKK
+            #include "conditional_second.h"
+        #else
+        \n
+        #endif
+
+        #endif
+        int main() {
+            return 0; 
+        }"#;
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 3);
+    }
+
+    //TODO: 
+    //#if __has_include(<version>)
+    //#  include <version>
+    //#endif
 }
