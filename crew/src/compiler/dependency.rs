@@ -424,6 +424,7 @@ fn scan_file_inner(
 
 fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collections::HashMap<String, Option<String>>) -> std::collections::HashSet<String> {
 
+    let mut includes: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
     #[derive(Clone, PartialEq)]
     enum Branch { Active, SkipToElse, SkipToEndif }
     let mut condition_stack: Vec<Branch> = Vec::new();
@@ -581,6 +582,24 @@ fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collections::
     return includes;
 }
 
+fn query_includes_dir(include_dirs: Vec<std::path::PathBuf>,) {
+    
+    let mut files = std::vec::Vec::new();
+
+    for dir in include_dirs {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    files.push(path);
+                }
+                else if path.is_dir() {
+                    files.push(path);
+                }
+            }
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
 

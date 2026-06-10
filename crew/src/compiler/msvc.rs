@@ -808,6 +808,7 @@ impl MSVC {
             }
         }
         
+        
         let headers = std::sync::Arc::new(tokio::sync::Mutex::new(headers));
         let extracted_pdb = actions.pdb_file.clone();
 
@@ -2338,6 +2339,8 @@ struct CompileAction {
     pub precompiled_result_file: PrecompiledResult,
     pub object_file: GeneratedObject,
     pub pdb_file: ProgramDataBase,
+    pub includes_dir: Vec<std::path::PathBuf>,
+    pub defines: std::collections::HashMap<std::string::String, Option<std::string::String>>,
 }
 
 fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, compiler_commands: &Vec<std::ffi::OsString>, working_dir: &std::ffi::OsString) -> CompileAction {
@@ -2349,6 +2352,8 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
     let mut precompiled_result_file = PrecompiledResult::NonePCResultPath;
     let mut object_file = GeneratedObject::NoneObjPath;
     let mut pdb_file = ProgramDataBase::NonePDBPath;
+    let mut includes_dir: Vec<std::path::PathBuf> = Vec::new();
+    let mut defines: std::collections::HashMap<std::string::String, Option<std::string::String>> = std::collections::HashMap::new();
 
     let mut compile_other_commands: Vec<std::ffi::OsString> = Vec::new();
 
@@ -2356,7 +2361,9 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
         || build_and_compiler_type.to_string_lossy().contains("cmake")
         || build_and_compiler_type.to_string_lossy().contains("dist") {
 
-        for command in compiler_commands {
+        for window in compiler_commands.windows(2) {
+            let command = &window[0];
+            let value = &window[1];
             let mut isother = false;
             let mut command = command.to_string_lossy();
             if command == "/P" {
@@ -2424,6 +2431,19 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
                     }
                 }
             }
+            else if command.starts_with("/I") || command.starts_with("/external:I") {
+               includes_dir.push(std::path::PathBuf::from(value.to_string_lossy().to_string()));
+            }
+            else if command.starts_with("/D") {
+                if let Some(index) = command.find("=") {
+                    let key = command[..index].to_string();
+                    let value = command[index + 1..].to_string();
+                    defines.insert(key, Some(value));
+                }
+                else {
+                    defines.insert(command.to_string(), None);
+                }
+            }
 
             if !isother {
                 compile_other_commands.push(std::ffi::OsString::from(command.into_owned()));
@@ -2454,6 +2474,8 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
         precompiled_result_file: precompiled_result_file,
         object_file: object_file,
         pdb_file: pdb_file,
+        includes_dir,
+        defines,
     }
 
 }
