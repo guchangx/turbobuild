@@ -582,24 +582,51 @@ fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collections::
     return includes;
 }
 
-fn query_includes_dir(include_dirs: Vec<std::path::PathBuf>,) {
-    
-    let mut files = std::vec::Vec::new();
+fn query_include_dir(include_dirs: Vec<std::path::PathBuf>) -> std::collections::HashMap::<String, String> { 
 
+    let mut map = std::collections::HashMap::<String, String>::new();
     for dir in include_dirs {
-        if let Ok(entries) = std::fs::read_dir(dir) {
+
+        if let Ok(entries) = std::fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() {
-                    files.push(path);
+                    if path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.to_ascii_lowercase()).filter(|ext| ext == "h" || ext == "hpp").is_some() {
+                        if let Ok(p) = dir.strip_prefix(&path) {
+                            map.insert(p.to_string_lossy().to_string(), dir.to_string_lossy().to_string());
+                        }
+                    }
                 }
                 else if path.is_dir() {
-                    files.push(path);
+                    map.extend(query_include_dir_recursive(path, &dir));
                 }
             }
         }
     }
+
+    return map;
 }
+
+fn query_include_dir_recursive(dir: std::path::PathBuf, start: &std::path::PathBuf) -> std::collections::HashMap::<String, String> {
+    let mut map = std::collections::HashMap::<String, String>::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.to_ascii_lowercase()).filter(|ext| ext == "h" || ext == "hpp").is_some() {
+                    if let Ok(p) = start.strip_prefix(&path) {
+                        map.insert(p.to_string_lossy().to_string(), start.to_string_lossy().to_string());
+                    }
+                }
+            }
+            else if path.is_dir() {
+                map.extend(query_include_dir_recursive(path, &start));
+            }
+        }
+    }
+    return map;
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -858,4 +885,9 @@ mod tests {
     //#if __has_include(<version>)
     //#  include <version>
     //#endif
+
+    #[test]
+    fn query_include_dir_test() {
+
+    }
 }
