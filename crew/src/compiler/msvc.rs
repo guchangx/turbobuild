@@ -2435,13 +2435,13 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
                includes_dir.push(std::path::PathBuf::from(value.to_string_lossy().to_string()));
             }
             else if command.starts_with("/D") {
-                if let Some(index) = command.find("=") {
-                    let key = command[..index].to_string();
-                    let value = command[index + 1..].to_string();
+                if let Some(index) = value.to_string_lossy().find("=") {
+                    let key = value.to_string_lossy()[..index].to_string();
+                    let value = value.to_string_lossy()[index + 1..].to_string();
                     defines.insert(key, Some(value));
                 }
                 else {
-                    defines.insert(command.to_string(), None);
+                    defines.insert(value.to_string_lossy().to_string(), None);
                 }
             }
 
@@ -3221,7 +3221,7 @@ mod tests {
     fn parse_action_from_commands_test() {
         let compiler_commands = ["/c", "/I", "G:\\OpenSource\\llvm-project\\build\\lib\\Target\\PowerPC", "/Zi", "/nologo", "/W4", "/WX-", "/diagnostics:column", "/MP", "/Od", "/Ob0", "/Oi", "/D", "_UNICODE", "/D", "UNICODE", "/D", "WIN32", "/D", "_WINDOWS", "/D", "_HAS_EXCEPTIONS=0", "/D", "GTEST_HAS_RTTI=0", "/D", "LLVM_BUILD_STATIC", "/D", "_CRT_SECURE_NO_DEPRECATE", "/D", "_CRT_SECURE_NO_WARNINGS", "/D", "_SCL_SECURE_NO_WARNINGS", "/D", "UNICODE", "/D", "_UNICODE", "/D", "__STDC_CONSTANT_MACROS", "/D", "__STDC_FORMAT_MACROS", "/D", "__STDC_LIMIT_MACROS", "/D", "CMAKE_INTDIR=\\\"Debug\\\"", "/Zc:preprocessor", "/Gm-", "/RTC1", "/MDd", "/GS", "/fp:precise", "/Zc:wchar_t", "/Zc:forScope", "/Zc:inline", "/GR-", "/std:c++17", "/permissive-", "/FoLLVMExegesisTests.dir\\Debug\\/X86/BenchmarkResultTest.cpp.obj", "/FdLLVMExegesisTests.dir\\Debug\\vc143.pdb", "/external:W4", "/Gd", "/TP", "/wd4141", "/wd4146",  "/wd4204", "/wd4577", "/wd4091", "/wd4592", "/wd4319", "/wd4709", "/errorReport:prompt", "/we4238", "/bigobj", "-w14062", "/Gw", "/EHs-c-", "G:\\OpenSource\\llvm-project\\llvm\\unittests\\tools\\llvm-exegesis\\X86\\BenchmarkResultTest.cpp"].iter().map(|item|std::ffi::OsString::from(item)).collect::<Vec<_>>();
         let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &compiler_commands, &std::ffi::OsString::from("G:\\OpenSource\\llvm-project\\build\\unittests\\tools\\llvm-exegesis"));
-        println!("[parsed actions: {:?}", actions);
+        println!("[parsed actions: {:#?}", actions);
     }
     #[test]
     fn start_local_clang_cl_test() {

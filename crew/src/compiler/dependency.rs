@@ -582,49 +582,52 @@ fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collections::
     return includes;
 }
 
-fn query_include_dir(include_dirs: Vec<std::path::PathBuf>) -> std::collections::HashMap::<String, String> { 
+fn query_include_dir(include_dirs: Vec<std::path::PathBuf>) -> std::vec::Vec::<(String, std::collections::HashSet<String>)> { 
 
-    let mut map = std::collections::HashMap::<String, String>::new();
+    let mut files = std::vec::Vec::<(String, std::collections::HashSet<String>)>::new();
     for dir in include_dirs {
-
+        let mut set = std::collections::HashSet::<String>::new();
         if let Ok(entries) = std::fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_file() {
-                    if path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.to_ascii_lowercase()).filter(|ext| ext == "h" || ext == "hpp").is_some() {
-                        if let Ok(p) = dir.strip_prefix(&path) {
-                            map.insert(p.to_string_lossy().to_string(), dir.to_string_lossy().to_string());
+                    if path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.to_ascii_lowercase()).filter(|ext| ext == "h" || ext == "hpp" 
+                        || ext == "hh" || ext == "hxx" || ext == "h++" || ext == "hm" || ext == "inl").is_some() {
+                        if let Ok(p) = path.strip_prefix(&dir) {
+                            set.insert(p.to_string_lossy().to_string());
                         }
                     }
                 }
                 else if path.is_dir() {
-                    map.extend(query_include_dir_recursive(path, &dir));
+                    set.extend(query_include_dir_recursive(path, &dir));
                 }
             }
         }
+        files.push((dir.to_string_lossy().to_string(), set));
     }
 
-    return map;
+    return files;
 }
 
-fn query_include_dir_recursive(dir: std::path::PathBuf, start: &std::path::PathBuf) -> std::collections::HashMap::<String, String> {
-    let mut map = std::collections::HashMap::<String, String>::new();
+fn query_include_dir_recursive(dir: std::path::PathBuf, start: &std::path::PathBuf) -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::<String>::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_file() {
-                if path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.to_ascii_lowercase()).filter(|ext| ext == "h" || ext == "hpp").is_some() {
-                    if let Ok(p) = start.strip_prefix(&path) {
-                        map.insert(p.to_string_lossy().to_string(), start.to_string_lossy().to_string());
+                if path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.to_ascii_lowercase()).filter(|ext| ext == "h" || ext == "hpp" 
+                    || ext == "hh" || ext == "hxx" || ext == "h++" || ext == "hm" || ext == "inl").is_some() {
+                    if let Ok(p) = path.strip_prefix(&start) {
+                        set.insert(p.to_string_lossy().to_string());
                     }
                 }
             }
             else if path.is_dir() {
-                map.extend(query_include_dir_recursive(path, &start));
+                set.extend(query_include_dir_recursive(path, &start));
             }
         }
     }
-    return map;
+    return set;
 }
 
 #[cfg(test)]
@@ -888,6 +891,7 @@ mod tests {
 
     #[test]
     fn query_include_dir_test() {
-
+        let files = query_include_dir(vec![std::path::PathBuf::from("D:\\WebexApp\\spark-client-framework\\AccessoriesEngine")]);
+        println!("{:#?}", &files);
     }
 }
