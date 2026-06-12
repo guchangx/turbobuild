@@ -229,7 +229,7 @@ impl Sender {
                     project: archive.project.clone(),
                     name: archive.name,
                     path: archive.path,
-                    content: archive.content.to_vec(),
+                    content: archive.content.into_owned(),
                 };
         
                 if let Err(err) = tx.send(request).await {

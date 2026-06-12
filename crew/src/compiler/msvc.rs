@@ -29,7 +29,7 @@ pub enum OutType {
 }
 
 use std::{io::Read, ops::Index};
-use crate::{compiler::model::{CompiledResults, CompilerInput, CompilerOutput, PrecompiledSource}, replica::project};
+use crate::{compiler::{dependency, model::{CompiledResults, CompilerInput, CompilerOutput, PrecompiledSource}}, replica::project};
 use std::io::BufRead;
 
 use windows_sys::Win32 as win;
@@ -784,35 +784,21 @@ impl MSVC {
         let others = actions.compile_instruction;
         
         let mut sources = Vec::new();
-        let mut sources_dir = std::collections::HashSet::new();
+
         for (_, path) in &actions.compile_source_file {
             sources.push(path.clone().into_os_string());
-            path.parent().map(|parent| {
-                sources_dir.insert(parent.to_owned());
-            });
         }
+
         let totals = actions.compile_source_file.len();
-        log::trace!("{:?} source files size: {}, dir size: {}", &input.project, totals, sources_dir.len());
-        let mut headers = std::collections::HashSet::new();
-        for dir in sources_dir {
-            if let Ok(entries) = std::fs::read_dir(dir) {
-                for entry in entries {
-                    if let Ok(entry) = entry {
-                        let path = entry.path();
-                        if path.is_file() && path.extension().map(|ext| ext == "h" || ext == "hpp"
-                            || ext == "hh" || ext == "hxx" || ext == "h++" || ext == "hm" || ext == "inl").unwrap_or(false) {
-                            headers.insert(path);
-                        }
-                    }
-                }
-            }
-        }
+        log::trace!("{:?} source files size: {}", &input.project, totals);
+
         
         
-        let headers = std::sync::Arc::new(tokio::sync::Mutex::new(headers));
+        let defines_ = std::sync::Arc::new(tokio::sync::Mutex::new(actions.defines));
+
         let extracted_pdb = actions.pdb_file.clone();
 
-        let headers_ = headers.clone();
+        let local_include_dir_and_files = std::sync::Arc::new(dependency::query_include_dir(&actions.include_dir));
 
         let solution = std::sync::Arc::new(input.solution.to_string_lossy().to_string());
         let project = std::sync::Arc::new(input.project.to_string_lossy().to_string());
@@ -820,7 +806,7 @@ impl MSVC {
         let solution_ = std::sync::Arc::clone(&solution);
         let project_ = std::sync::Arc::clone(&project);
         
-        let all = self.sender.lock().unwrap().all(); 
+        let all = self.sender.lock().unwrap().all();
 
         let addr_map_archive_stream = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, _>::new()));
         let addr_map_task_count = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, usize>::new()));
@@ -855,7 +841,6 @@ impl MSVC {
                     let mut others_ = others.clone();
                     let extracted_pdb_ = extracted_pdb.clone();
 
-                    let headers = headers.clone();
                     let solution = solution.clone();
                     let project = project.clone();
                     let stream = stream.clone();
@@ -882,8 +867,10 @@ impl MSVC {
                             }
                         }
                     }
-
+                    
                     let order = totals - sources.len();
+                    let defines_ = defines_.clone();
+                    let local_include_dir_and_files = local_include_dir_and_files.clone();
                     set.spawn(async move {
                         
                         //sync source files and same name header files.
@@ -897,10 +884,10 @@ impl MSVC {
                                 let project_ = project.clone();
 
                                 let stream_ = stream.clone();
-                                let stream__ = stream.clone();
-                                let headers = headers.clone();
 
-                                let file_ = file.clone();
+                                let defines_ = defines_.clone();
+                                let local_include_dir_and_files = local_include_dir_and_files.clone();
+                                let self__ = self_.clone();
                                 let stask = self_.runtime.spawn(async move {
                                     let path = std::path::PathBuf::from(&file);
                                     let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
@@ -909,64 +896,27 @@ impl MSVC {
                                     });
 
                                     let name = path.file_name().unwrap().to_string_lossy().to_string();
+                                    let mut defines = {
+                                        let guard = defines_.lock().await;
+                                        guard.clone()
+                                    };
+                                    
+                                    self__.parser_sourcefile_sync_dependency(&content, &mut defines, &local_include_dir_and_files, solution_.clone(),
+                                        project_.clone(), stream_.clone()).await;
 
                                     let archive = crate::communicate::packager::ArchiveArgs {
                                         file_type:  crate::communicate::packager::FileType::SourceFiles,
-                                        solution: solution_.as_ref().clone(),
-                                        project: project_.as_ref().clone(),
+                                        solution: (*solution_).clone(),
+                                        project: (*project_).clone(),
                                         name: name.clone(),
-                                        //path: intermediate_.join(&name).to_string_lossy().to_string(),
                                         path: path.to_string_lossy().to_string(),
                                         content: content.into(),
                                     };
-
+                                
                                     let _ = stream_.send(archive).await;
+
                                 });
                                 archive_stream_task.push(stask);
-
-                                let solution__ = solution.clone();
-                                let project__ = project.clone();
-                                let htask = self_.runtime.spawn(async move {
-                                    loop {
-                                        let path = std::path::PathBuf::from(&file_);
-                                        let relevant_file = {
-                                            let guard = headers.lock().await;
-                                            if let Some(found) = guard.iter().find(|&item| item.file_stem().map(|item| item == path.file_stem().unwrap()).unwrap_or(false)) {
-                                                Some(found.to_owned())
-                                            }
-                                            else {
-                                                None
-                                            }
-                                        };
-            
-                                        if let Some(found) = relevant_file {
-                                            { headers.lock().await.remove(&found) };
-                                            
-                                            let content = tokio::fs::read(&found).await.unwrap_or_else(|_| {
-                                                log::error!("failed to read file: {:?}", found);
-                                                Vec::new()
-                                            });
-        
-                                            let name = found.file_name().unwrap().to_string_lossy().to_string();
-        
-                                            let archive = crate::communicate::packager::ArchiveArgs {
-                                                file_type: crate::communicate::packager::FileType::SourceFiles,
-                                                solution: solution__.as_ref().clone(),
-                                                project: project__.as_ref().clone(),
-                                                name: name.clone(),
-                                                //path: intermediate_.join(name).to_string_lossy().to_string(),
-                                                path: found.to_string_lossy().to_string(),
-                                                content: content.into(),
-                                            };
-        
-                                            let _ = stream__.send(archive).await;
-                                        }
-                                        else {
-                                            break;
-                                        }
-                                    }
-                                });
-                                archive_stream_task.push(htask);
                             }
 
                             log::debug!("sync source and header files for {:?} to: {} done. elapsed time: {:?}, send files: {:?}, size: {}/{}", &input_.project, &addr, now.elapsed(), left, order, &totals);
@@ -1074,7 +1024,6 @@ impl MSVC {
                         let input_ = input.clone();
                         let extracted_pdb_ = extracted_pdb.clone();
                         let mut others_ = others.clone();
-                        let headers_ = headers_.clone();
 
                         let solution_ = solution_.clone();
                         let project_ = project_.clone();
@@ -1119,15 +1068,9 @@ impl MSVC {
                                 for file in left.clone() {
 
                                     let stream = stream.clone();
-                                    
-                                    let file_ = file.clone();
 
                                     let solution_ = solution_.clone();
                                     let project_ = project_.clone();
-
-                                    let solution__ = solution_.clone();
-                                    let project__ = project_.clone();
-                                    let stream_ = stream.clone();
 
                                     let task = self_.runtime.spawn(async move {
                                         let content = tokio::fs::read(std::path::PathBuf::from(&file)).await.unwrap_or_else(|_| {
@@ -1148,55 +1091,6 @@ impl MSVC {
                                     });
 
                                     archive_stream_task.push(task);
-
-                                    let headers_ = headers_.clone();
-
-                                    let htask = self_.runtime.spawn(async move {
-                                        //.inc;.rc;.resx;.idl;.rc2;.def
-                                        //.odl;.asm;.asmx;.xsd;.bin;.rgs;.html;.htm;.manifest
-                                        //.cpp;.cxx;.cc;.c;.c++;.cppm;.ixx;.inl;.ipp
-                                        //.h;.hh;.hpp;.hxx;.h++;.hm
-                                        loop {
-                                            let path = std::path::PathBuf::from(&file_);
-                                            let relevant_file = {
-                                                let guard = headers_.lock().await;
-                                                if let Some(found) = guard.iter().find(|&item| item.file_stem().map(|item| item == path.file_stem().unwrap()).unwrap_or(false)) {
-                                                    Some(found.to_owned())
-                                                }
-                                                else {
-                                                    None
-                                                }
-                                            };
-
-                                            if let Some(found) = relevant_file {
-                                                { headers_.lock().await.remove(&found) };
-
-                                                let content = tokio::fs::read(&found).await.unwrap_or_else(|_| {
-                                                    log::error!("failed to read file: {:?}", found);
-                                                    Vec::new()
-                                                });
-            
-                                                let name = found.file_name().unwrap().to_string_lossy().to_string();
-            
-                                                let archive = crate::communicate::packager::ArchiveArgs {
-                                                    file_type: crate::communicate::packager::FileType::SourceFiles,
-                                                    solution: solution__.as_ref().clone(),
-                                                    project: project__.as_ref().clone(),
-                                                    name: name.clone(),
-                                                    //path: intermediate_.join(name).to_string_lossy().to_string(),
-                                                    path: found.to_string_lossy().to_string(),
-                                                    content: content.into(),
-                                                };
-            
-                                                let _ = stream_.send(archive).await;
-                                                
-                                            }
-                                            else {
-                                                break;
-                                            }
-                                        }
-                                    });
-                                    archive_stream_task.push(htask);
                                 }
 
                                 for task in archive_stream_task {
@@ -1252,6 +1146,44 @@ impl MSVC {
 
         return compiler_output.lock().unwrap().to_owned();
     }
+
+    async fn parser_sourcefile_sync_dependency(&self, content: &[u8], defines: &mut std::collections::HashMap<String, Option<String>>, 
+        include_dir_files: &std::vec::Vec::<(String, std::collections::HashSet<String>)>,
+        solution: std::sync::Arc<String>,
+        project: std::sync::Arc<String>,
+        stream: tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs<'static>>) {
+
+        let dependency = dependency::parser_sourcefile_dependency(content, defines, include_dir_files);
+        for depend in dependency {
+            
+            let content = bytes::Bytes::from(tokio::fs::read(&depend).await.unwrap_or_else(|_| {
+                log::error!("failed to read file: {:?}", depend);
+                Vec::new()
+            }));
+
+            if !content.is_empty() {
+
+                let solution_ = solution.clone();
+                let project_ = project.clone();
+                Box::pin(async {
+                    self.parser_sourcefile_sync_dependency(&content, defines, include_dir_files, solution.clone(), project.clone(), stream.clone()).await;
+                }).await;
+
+                let name = std::path::PathBuf::from(&depend).file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_else(|| depend.clone());
+                let archive = crate::communicate::packager::ArchiveArgs {
+                    file_type:  crate::communicate::packager::FileType::SourceFiles,
+                    solution: solution_.as_ref().clone(),
+                    project: project_.as_ref().clone(),
+                    name: name.clone(),
+                    path: depend,
+                    content: content.to_vec().into(),
+                };
+                
+                let _ = stream.send(archive).await;
+            }
+        }
+    }
+
 }
 
 fn check_instruction_length(base: &Vec<std::ffi::OsString>, source_files: &Vec<std::ffi::OsString>) -> usize {
@@ -2339,7 +2271,7 @@ struct CompileAction {
     pub precompiled_result_file: PrecompiledResult,
     pub object_file: GeneratedObject,
     pub pdb_file: ProgramDataBase,
-    pub includes_dir: Vec<std::path::PathBuf>,
+    pub include_dir: Vec<std::path::PathBuf>,
     pub defines: std::collections::HashMap<std::string::String, Option<std::string::String>>,
 }
 
@@ -2352,7 +2284,7 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
     let mut precompiled_result_file = PrecompiledResult::NonePCResultPath;
     let mut object_file = GeneratedObject::NoneObjPath;
     let mut pdb_file = ProgramDataBase::NonePDBPath;
-    let mut includes_dir: Vec<std::path::PathBuf> = Vec::new();
+    let mut include_dir: Vec<std::path::PathBuf> = Vec::new();
     let mut defines: std::collections::HashMap<std::string::String, Option<std::string::String>> = std::collections::HashMap::new();
 
     let mut compile_other_commands: Vec<std::ffi::OsString> = Vec::new();
@@ -2432,7 +2364,7 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
                 }
             }
             else if command.starts_with("/I") || command.starts_with("/external:I") {
-               includes_dir.push(std::path::PathBuf::from(value.to_string_lossy().to_string()));
+               include_dir.push(std::path::PathBuf::from(value.to_string_lossy().to_string()));
             }
             else if command.starts_with("/D") {
                 if let Some(index) = value.to_string_lossy().find("=") {
@@ -2474,7 +2406,7 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
         precompiled_result_file: precompiled_result_file,
         object_file: object_file,
         pdb_file: pdb_file,
-        includes_dir,
+        include_dir,
         defines,
     }
 

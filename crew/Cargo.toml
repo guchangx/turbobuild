@@ -23,7 +23,7 @@ log = "0.4.17"
 dashmap = "6.2.1"
 zip = {version = "2.2.0", features = ["zstd"]}
 windows-sys = {version = "0.60.2", features = ["Win32_System_Registry", "Wdk_Foundation", "Win32_Security", "Wdk_Storage_FileSystem", "Win32_System_IO", "Win32_Storage_FileSystem", "Win32_System_Memory"]}
-
+bytes = "1.11.1"
 #tracing = "0.1.41"
 #console-subscriber = "0.4.1"
 
