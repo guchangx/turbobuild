@@ -1,7 +1,12 @@
 
 fn trim(b: &[u8]) -> &[u8] {
     let n = b.iter().position(|&c| c != b' ' && c != b'\t').unwrap_or(b.len());
-    &b[n..]
+    let m = b.iter().rposition(|&c| c != b' ' && c != b'\t' && c != b'\n' && c != b'\r');
+
+    match m {
+        Some(idx) if idx >= n => &b[n..=idx],
+        _ => &b[0..0],
+    }
 }
 
 fn split_directive(b: &[u8]) -> (&[u8], &[u8]) {
@@ -437,8 +442,9 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collectio
 
     for line in content.split(|&b| b == b'\n').take(180) {
 
-        if line.is_empty() { continue; }
+        if line.is_empty() || line[0] == b'\r' { continue; }
         let trimmed = trim(line);
+        if trimmed.is_empty() { continue; }
         if trimmed[0] != b'#' {
             if trimmed.starts_with(b"/*") {
                 if trimmed.ends_with(b"*/") {
@@ -583,6 +589,7 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collectio
     return includes;
 }
 
+//ToDo: if not find from dirfiles, should check it from file system.
 fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String, std::collections::HashSet<String>)>, dep: &str) -> Option<std::path::PathBuf> {
     for (dir, files) in include_dir_files {
         if files.contains(dep) {

@@ -785,20 +785,26 @@ impl MSVC {
         
         let mut sources = Vec::new();
 
+        let mut source_file_current_dir = Vec::new();
         for (_, path) in &actions.compile_source_file {
             sources.push(path.clone().into_os_string());
+            let dir = path.parent().unwrap_or_else(|| std::path::Path::new("")).to_path_buf();
+            if !source_file_current_dir.iter().rev().any(|d| d == &dir) {
+                source_file_current_dir.push(dir);
+            }
         }
 
         let totals = actions.compile_source_file.len();
         log::trace!("{:?} source files size: {}", &input.project, totals);
-
         
-        
-        let defines_ = std::sync::Arc::new(tokio::sync::Mutex::new(actions.defines));
+        let defines = std::sync::Arc::new(tokio::sync::Mutex::new(actions.defines));
 
         let extracted_pdb = actions.pdb_file.clone();
+        let mut source_file_current_dir_set = std::collections::HashSet::<std::path::PathBuf>::from_iter(source_file_current_dir.iter().cloned());
+        source_file_current_dir.extend(actions.include_dir.into_iter().filter(|item| source_file_current_dir_set.insert(item.clone())));
+        log::trace!("include dir list: {:#?}", &source_file_current_dir);
 
-        let local_include_dir_and_files = std::sync::Arc::new(dependency::query_include_dir(&actions.include_dir));
+        let local_include_dir_and_files = std::sync::Arc::new(dependency::query_include_dir(&source_file_current_dir));
 
         let solution = std::sync::Arc::new(input.solution.to_string_lossy().to_string());
         let project = std::sync::Arc::new(input.project.to_string_lossy().to_string());
@@ -869,11 +875,11 @@ impl MSVC {
                     }
                     
                     let order = totals - sources.len();
-                    let defines_ = defines_.clone();
-                    let local_include_dir_and_files = local_include_dir_and_files.clone();
+                    let defines_ = defines.clone();
+                    let local_include_dir_and_files_ = local_include_dir_and_files.clone();
                     set.spawn(async move {
                         
-                        //sync source files and same name header files.
+                        //sync source files and dependency header files.
                         if let Some(stream) = stream {
 
                             let mut archive_stream_task = Vec::new();
@@ -886,35 +892,17 @@ impl MSVC {
                                 let stream_ = stream.clone();
 
                                 let defines_ = defines_.clone();
-                                let local_include_dir_and_files = local_include_dir_and_files.clone();
+                                let local_include_dir_and_files_ = local_include_dir_and_files_.clone();
                                 let self__ = self_.clone();
+                                
                                 let stask = self_.runtime.spawn(async move {
-                                    let path = std::path::PathBuf::from(&file);
-                                    let content = tokio::fs::read(&path).await.unwrap_or_else(|_| {
-                                        log::error!("failed to read file: {:?}", file);
-                                        Vec::new()
-                                    });
-
-                                    let name = path.file_name().unwrap().to_string_lossy().to_string();
                                     let mut defines = {
                                         let guard = defines_.lock().await;
                                         guard.clone()
                                     };
-                                    
-                                    self__.parser_sourcefile_sync_dependency(&content, &mut defines, &local_include_dir_and_files, solution_.clone(),
+                                    log::trace!("sync source file {:?}", file);
+                                    self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), &mut defines, &local_include_dir_and_files_, solution_.clone(),
                                         project_.clone(), stream_.clone()).await;
-
-                                    let archive = crate::communicate::packager::ArchiveArgs {
-                                        file_type:  crate::communicate::packager::FileType::SourceFiles,
-                                        solution: (*solution_).clone(),
-                                        project: (*project_).clone(),
-                                        name: name.clone(),
-                                        path: path.to_string_lossy().to_string(),
-                                        content: content.into(),
-                                    };
-                                
-                                    let _ = stream_.send(archive).await;
-
                                 });
                                 archive_stream_task.push(stask);
                             }
@@ -1055,7 +1043,8 @@ impl MSVC {
 
                         let order = totals - sources.len();   
                         log::trace!("schedule source files for {} addr: {}, order: {}/{}, left: {:?}", project_, &addr_, order, totals, left);
-
+                        let defines_ = defines.clone();
+                        let local_include_dir_and_files_ = local_include_dir_and_files.clone();
                         set.spawn(async move {
                             let now = std::time::Instant::now();
 
@@ -1071,26 +1060,21 @@ impl MSVC {
 
                                     let solution_ = solution_.clone();
                                     let project_ = project_.clone();
+                                    let self__ = self_.clone();
+                                    let defines_ = defines_.clone();
+                                    let local_include_dir_and_files_ = local_include_dir_and_files_.clone();
 
-                                    let task = self_.runtime.spawn(async move {
-                                        let content = tokio::fs::read(std::path::PathBuf::from(&file)).await.unwrap_or_else(|_| {
-                                            log::error!("failed to read file: {:?}", file);
-                                            Vec::new()
-                                        });
-    
-                                        let archive = crate::communicate::packager::ArchiveArgs {
-                                            file_type: crate::communicate::packager::FileType::SourceFiles,
-                                            solution: solution_.as_ref().clone(),
-                                            project: project_.as_ref().clone(),
-                                            name: file.to_string_lossy().to_string(),
-                                            path: file.to_string_lossy().to_string(),
-                                            content: content.into(),
+                                    let stask = self_.runtime.spawn(async move {
+                                        let mut defines = {
+                                            let guard = defines_.lock().await;
+                                            guard.clone()
                                         };
-    
-                                        let _ = stream.send(archive).await;
+                                        log::trace!("sync source file {:?}", file);
+                                        self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), &mut defines, &local_include_dir_and_files_, solution_.clone(),
+                                            project_.clone(), stream.clone()).await;
                                     });
 
-                                    archive_stream_task.push(task);
+                                    archive_stream_task.push(stask);
                                 }
 
                                 for task in archive_stream_task {
@@ -1147,41 +1131,36 @@ impl MSVC {
         return compiler_output.lock().unwrap().to_owned();
     }
 
-    async fn parser_sourcefile_sync_dependency(&self, content: &[u8], defines: &mut std::collections::HashMap<String, Option<String>>, 
+    async fn parser_sourcefile_sync_dependency(&self, path: String, defines: &mut std::collections::HashMap<String, Option<String>>, 
         include_dir_files: &std::vec::Vec::<(String, std::collections::HashSet<String>)>,
         solution: std::sync::Arc<String>,
         project: std::sync::Arc<String>,
         stream: tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs<'static>>) {
-
-        let dependency = dependency::parser_sourcefile_dependency(content, defines, include_dir_files);
-        for depend in dependency {
             
-            let content = bytes::Bytes::from(tokio::fs::read(&depend).await.unwrap_or_else(|_| {
-                log::error!("failed to read file: {:?}", depend);
-                Vec::new()
-            }));
-
-            if !content.is_empty() {
-
-                let solution_ = solution.clone();
-                let project_ = project.clone();
-                Box::pin(async {
-                    self.parser_sourcefile_sync_dependency(&content, defines, include_dir_files, solution.clone(), project.clone(), stream.clone()).await;
-                }).await;
-
-                let name = std::path::PathBuf::from(&depend).file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_else(|| depend.clone());
-                let archive = crate::communicate::packager::ArchiveArgs {
-                    file_type:  crate::communicate::packager::FileType::SourceFiles,
-                    solution: solution_.as_ref().clone(),
-                    project: project_.as_ref().clone(),
-                    name: name.clone(),
-                    path: depend,
-                    content: content.to_vec().into(),
-                };
-                
-                let _ = stream.send(archive).await;
-            }
+        let content = bytes::Bytes::from(tokio::fs::read(&path).await.unwrap_or_else(|_| {
+            log::error!("failed to read file: {:?}", path);
+            Vec::new()
+        }));
+            
+        let dependency = dependency::parser_sourcefile_dependency(&content, defines, include_dir_files);
+        log::trace!("parsed source file dependency: {:#?}.", dependency);
+        for dep in dependency {
+            Box::pin(async {
+                self.parser_sourcefile_sync_dependency(dep, defines, include_dir_files, solution.clone(), project.clone(), stream.clone()).await;
+            }).await;
         }
+
+        let name = std::path::PathBuf::from(&path).file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
+        let archive = crate::communicate::packager::ArchiveArgs {
+            file_type:  crate::communicate::packager::FileType::SourceFiles,
+            solution: solution.as_ref().clone(),
+            project: project.as_ref().clone(),
+            name: name.clone(),
+            path: path,
+            content: content.to_vec().into(),
+        };
+        
+        let _ = stream.send(archive).await;
     }
 
 }
