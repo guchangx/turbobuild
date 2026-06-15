@@ -52,23 +52,23 @@ pub enum FileType {
     SyncTaskCount = 5,
 }
 
-pub struct ArchiveArgs<'a> {
+pub struct ArchiveArgs {
     pub file_type: FileType,
     pub solution: String,
     pub project: String,
     pub name: String,
     pub path: String,
-    pub content: std::borrow::Cow<'a, [u8]>,
+    pub content: bytes::Bytes,
 }
 
 pub struct ArchiveStreamArgs {
-    pub rx: tokio::sync::mpsc::Receiver<super::packager::ArchiveArgs<'static>>,
+    pub rx: tokio::sync::mpsc::Receiver<super::packager::ArchiveArgs>,
     pub callback: Box<dyn Fn() + Send + Sync>,
 }
 
 pub enum SenderType<'a> {
     Command(CommandArgs),
-    Archive(ArchiveArgs<'a>),
+    Archive(ArchiveArgs),
     ArchiveStream(ArchiveStreamArgs),
     Compile(SourcesFile<'a>, crate::compiler::model::OutputCallback),
     CheckResource,
@@ -152,7 +152,7 @@ impl Sender {
         }
     }
     
-    async fn dist_archive(&mut self, args: ArchiveArgs<'_>) -> ArchiveRecv {
+    async fn dist_archive(&mut self, args: ArchiveArgs) -> ArchiveRecv {
 
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
@@ -163,7 +163,7 @@ impl Sender {
             project: args.project.clone(),
             name: args.name,
             path:  args.path,
-            content: args.content.to_vec(),
+            content: args.content,
         };
 
         if let Err(err) = tx.send(request).await {
@@ -229,7 +229,7 @@ impl Sender {
                     project: archive.project.clone(),
                     name: archive.name,
                     path: archive.path,
-                    content: archive.content.into_owned(),
+                    content: archive.content,
                 };
         
                 if let Err(err) = tx.send(request).await {

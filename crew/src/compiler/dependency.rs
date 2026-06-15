@@ -266,7 +266,7 @@ mod expr_eval {
     }
 }
 
-fn parse_define(s: &str, defines: &mut std::collections::HashMap<String, Option<String>>) {
+fn parse_define(s: &str, defines: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>) {
     let s = s.trim();
     let (name, val) = if let Some(paren) = s.find('(') {
         let space = s.find(char::is_whitespace).unwrap_or(s.len());
@@ -282,7 +282,7 @@ fn parse_define(s: &str, defines: &mut std::collections::HashMap<String, Option<
         let v = s[space..].trim();
         (&s[..space], if v.is_empty() { None } else { Some(v) })
     };
-    defines.insert(name.to_string(), val.map(|s| s.to_string()));
+    defines.write().unwrap().insert(name.to_string(), val.map(|s| s.to_string()));
 }
 
 fn resolve_include(
@@ -427,9 +427,9 @@ fn scan_file_inner(
     // continue parse dependencies
 }
 
-pub fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collections::HashMap<String, Option<String>>,
+pub fn parser_sourcefile_dependency(content: &[u8], defines: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>,
         include_dir_files: &std::vec::Vec::<(String, std::collections::HashSet<String>)>
-    ) -> std::collections::HashSet<String> {
+    ) -> std::vec::Vec<String> {
 
     #[derive(Clone, PartialEq)]
     enum Branch { Active, SkipToElse, SkipToEndif }
@@ -438,7 +438,7 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collectio
 
     let mut comment_stack_depth = 0;
 
-    let mut includes = std::collections::HashSet::new();
+    let mut includes = std::vec::Vec::new();
 
     for line in content.split(|&b| b == b'\n').take(180) {
 
@@ -469,7 +469,7 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collectio
                 if inactive_depth > 0 {
                     condition_stack.push(Branch::SkipToEndif);
                     inactive_depth += 1;
-                } else if defines.contains_key(name) {
+                } else if defines.read().unwrap().contains_key(name) {
                     condition_stack.push(Branch::Active);
                 } else {
                     condition_stack.push(Branch::SkipToElse);
@@ -481,7 +481,7 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collectio
                 if inactive_depth > 0 {
                     condition_stack.push(Branch::SkipToEndif);
                     inactive_depth += 1;
-                } else if !defines.contains_key(name) {
+                } else if !defines.read().unwrap().contains_key(name) {
                     condition_stack.push(Branch::Active);
                 } else {
                     condition_stack.push(Branch::SkipToElse);
@@ -495,7 +495,7 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collectio
                 } else {
                     let expr = std::str::from_utf8(rest).unwrap_or("");
                     let expanded = expand_has_include(expr, std::path::Path::new(""), &[], &[]);
-                    let val = expr_eval::eval(&expanded, defines);
+                    let val = expr_eval::eval(&expanded, &defines.read().unwrap());
                     if val != 0 {
                         condition_stack.push(Branch::Active);
                     } else {
@@ -518,7 +518,7 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collectio
                     Some(b) if *b == Branch::SkipToElse && outer_ok => {
                         let expr = std::str::from_utf8(rest).unwrap_or("");
                         let expanded = expand_has_include(expr, std::path::Path::new(""), &[], &[]);
-                        if expr_eval::eval(&expanded, defines) != 0 {
+                        if expr_eval::eval(&expanded, &defines.read().unwrap()) != 0 {
                             *b = Branch::Active;
                             inactive_depth -= 1;
                         }
@@ -554,12 +554,12 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collectio
             }
             b"define" if inactive_depth == 0 => {
                 if let Ok(s) = std::str::from_utf8(rest) {
-                    parse_define(s, defines);
+                    parse_define(s, defines.clone());
                 }
             }
             b"undef" if inactive_depth == 0 => {
                 if let Ok(s) = std::str::from_utf8(rest) {
-                    defines.remove(s.split_whitespace().next().unwrap_or(""));
+                    defines.write().unwrap().remove(s.split_whitespace().next().unwrap_or(""));
                 }
             }
             b"include" if inactive_depth == 0 => {
@@ -570,7 +570,7 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collectio
                     } else {
                         let macro_name = s.split(|c: char| c.is_whitespace() || c == '/')
                             .next().unwrap_or("").trim();
-                        if let Some(Some(expanded)) = defines.get(macro_name) {
+                        if let Some(Some(expanded)) = defines.read().unwrap().get(macro_name) {
                             check_local_include_dir_and_files(include_dir_files, expanded)
                         } else {
                             None
@@ -578,8 +578,7 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collectio
                     };
 
                     if let Some(p) = resolved {
-                        includes.insert(p.to_string_lossy().to_string());
-                        //scan_file_inner(&p, false, &[], &[], defines, &[], &[], &[], &[], &[], &[]);
+                        includes.push(p.to_string_lossy().to_string());
                     }
                 }
             }
@@ -589,11 +588,18 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: &mut std::collectio
     return includes;
 }
 
-//ToDo: if not find from dirfiles, should check it from file system.
 fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String, std::collections::HashSet<String>)>, dep: &str) -> Option<std::path::PathBuf> {
     for (dir, files) in include_dir_files {
         if files.contains(dep) {
             return Some(std::path::PathBuf::from(dir).join(dep));
+        }
+        else {
+            if std::path::PathBuf::from(dep).extension() == Some(std::ffi::OsStr::new("cpp")) {
+                let path = std::path::PathBuf::from(dir).join(dep);
+                if std::fs::exists(&path).unwrap() {
+                    return Some(path);
+                }
+            }
         }
     }
     None
@@ -658,7 +664,7 @@ mod tests {
     #[test]
     fn test_parser_sourcefile_dependency() {
         let content = b"// This is a comment\n#include <stdio.h>\n#include \"myheader.h\"\nint main() { return 0; }";
-        let dependencies = parser_sourcefile_dependency(content, &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content, std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.contains(&"<stdio.h>".to_string()), true);
         assert_eq!(dependencies.contains(&"\"myheader.h\"".to_string()), true);
@@ -676,13 +682,13 @@ mod tests {
         int main() { 
             return 0; 
         }"#;
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 2);
         assert_eq!(dependencies.contains(&"<stdio.h>".to_string()), true);
         assert_eq!(dependencies.contains(&"\"myheader.h\"".to_string()), true);
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("YES".to_string(), Some("1".to_string()))]), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::from([("YES".to_string(), Some("1".to_string()))]))), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 3);
         assert_eq!(dependencies.contains(&"<stdio.h>".to_string()), true);
@@ -708,7 +714,7 @@ mod tests {
             return 0;
         }"#;
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 3);
         assert_eq!(dependencies.contains(&"<stdio.h>".to_string()), true);
@@ -729,14 +735,14 @@ mod tests {
         #  include <unistd.h>
         #endif"#;        
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 3);
         assert_eq!(dependencies.contains(&"<sys/types.h>".to_string()), true);
         assert_eq!(dependencies.contains(&"<dirent.h>".to_string()), true);
         assert_eq!(dependencies.contains(&"<unistd.h>".to_string()), true);
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("Win".to_string(), None)]), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::from([("Win".to_string(), None)]))), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 2);
         assert_eq!(dependencies.contains(&"\"tps/dirent.h\"".to_string()), true);
@@ -754,21 +760,21 @@ mod tests {
         #  include <sys/types.h>
         #endif"#;
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 0);
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("HAVE_STDINT_H".to_string(), None)]), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::from([("HAVE_STDINT_H".to_string(), None)]))), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 1);
         assert_eq!(dependencies.contains(&"<stdint.h>".to_string()), true);
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("HAVE_INTTYPES_H".to_string(), None)]), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::from([("HAVE_INTTYPES_H".to_string(), None)]))), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 1);
         assert_eq!(dependencies.contains(&"<inttypes.h>".to_string()), true);
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("HAVE_SYS_TYPES_H".to_string(), None)]), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::from([("HAVE_SYS_TYPES_H".to_string(), None)]))), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 1);
         assert_eq!(dependencies.contains(&"<sys/types.h>".to_string()), true);
@@ -785,16 +791,16 @@ mod tests {
         # endif
         #endif"#;        
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new()); 
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new()); 
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 0);
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("LINUX".to_string(), None)]), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::from([("LINUX".to_string(), None)]))), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 1);
         assert_eq!(dependencies.contains(&"<time64.h>".to_string()), true);
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::from([("LINUX".to_string(), None), ("__LP64__".to_string(), None)]), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::from([("LINUX".to_string(), None), ("__LP64__".to_string(), None)]))), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 1);
         assert_eq!(dependencies.contains(&"<time.h>".to_string()), true);
@@ -807,7 +813,7 @@ mod tests {
         #include <stdio.h> /*comment*/
         #include "myheader.h" /*comment*/"#;
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 2);
         assert_eq!(dependencies.contains(&"<stdio.h>".to_string()), true);
@@ -816,7 +822,7 @@ mod tests {
         #include <stdio.h> //comment
         #include "myheader.h" //comment"#;
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 2);
         assert_eq!(dependencies.contains(&"<stdio.h>".to_string()), true);
@@ -825,7 +831,7 @@ mod tests {
         //#include <stdio.h>
         #include "myheader.h""#;
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 1);
 
@@ -835,7 +841,7 @@ mod tests {
         */
         #include "myheader.h""#;
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 1);
 
@@ -843,7 +849,7 @@ mod tests {
         /*#include <stdio.h>*/
         #include "myheader.h""#;
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 1);
 
@@ -853,7 +859,7 @@ mod tests {
         */
         #include "myheader.h""#;
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 1);
 
@@ -865,7 +871,7 @@ mod tests {
         */
         #include "myheader.h""#;
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 1);
     }
@@ -877,7 +883,7 @@ mod tests {
         #include "./types.h"
         #include "myheader.h""#;
 
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 2);
     }
@@ -900,7 +906,7 @@ mod tests {
         int main() {
             return 0; 
         }"#;
-        let dependencies = parser_sourcefile_dependency(content.as_bytes(), &mut std::collections::HashMap::new(), &std::vec::Vec::new());
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 3);
     }
@@ -915,4 +921,24 @@ mod tests {
         let files = query_include_dir(&vec![std::path::PathBuf::from("D:\\WebexApp\\spark-client-framework\\AccessoriesEngine")]);
         println!("{:#?}", &files);
     }
+
+    /*
+    #ifndef KDEITEMMODELS_EXPORT_H
+    #define KDEITEMMODELS_EXPORT_H
+
+    #include <QtCore/qglobal.h>
+
+    #ifdef KITEMMODELS_STATICLIB
+    #  undef KITEMMMODELS_SHAREDLIB
+    #  define KITEMMODELS_EXPORT
+    #else
+    #  ifdef MAKE_KITEMMODELS_LIB
+    #    define KITEMMODELS_EXPORT Q_DECL_EXPORT
+    #  else
+    #    define KITEMMODELS_EXPORT Q_DECL_IMPORT
+    #  endif
+    #endif
+
+    #endif
+    */
 }

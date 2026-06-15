@@ -797,13 +797,15 @@ impl MSVC {
         let totals = actions.compile_source_file.len();
         log::trace!("{:?} source files size: {}", &input.project, totals);
         
-        let defines = std::sync::Arc::new(tokio::sync::Mutex::new(actions.defines));
+        let defines = std::sync::Arc::new(std::sync::RwLock::new(actions.defines));
+        let dependency_cache = std::sync::Arc::new(dashmap::DashSet::<String>::new());
 
         let extracted_pdb = actions.pdb_file.clone();
         let mut source_file_current_dir_set = std::collections::HashSet::<std::path::PathBuf>::from_iter(source_file_current_dir.iter().cloned());
         source_file_current_dir.extend(actions.include_dir.into_iter().filter(|item| source_file_current_dir_set.insert(item.clone())));
         log::trace!("include dir list: {:#?}", &source_file_current_dir);
 
+        //TODO: performance optimization
         let local_include_dir_and_files = std::sync::Arc::new(dependency::query_include_dir(&source_file_current_dir));
 
         let solution = std::sync::Arc::new(input.solution.to_string_lossy().to_string());
@@ -822,8 +824,8 @@ impl MSVC {
 
             for i in 0 .. *core {
                 let addr = addr.clone();
-                let mut index = -1;
-                let mut left = Vec::new();
+                let index;
+                let mut left;
                 (_, index, left, sources) = self.sender.lock().unwrap().schedule_for_sources(Some(addr.clone()), &sources, Some(i));
                 log::trace!("schedule source files for {} addr: {}, core index: {}/{}, left: {:?}", project_, addr, i, core, left);
                 
@@ -866,7 +868,7 @@ impl MSVC {
                                     project: project_.as_ref().clone(),
                                     name: "".to_string(),
                                     path: input.compiler_working_dir.to_string_lossy().to_string(),
-                                    content: std::borrow::Cow::Owned(count.to_string().into_bytes()),
+                                    content: bytes::Bytes::from(count.to_string()),
                                 };
                                 log::trace!("{:?} sync task expected count: {} to addr: {}", project_, count, addr);
                                 let _ = stream.send(archive).await;
@@ -876,6 +878,7 @@ impl MSVC {
                     
                     let order = totals - sources.len();
                     let defines_ = defines.clone();
+                    let dependency_cache_ = dependency_cache.clone();
                     let local_include_dir_and_files_ = local_include_dir_and_files.clone();
                     set.spawn(async move {
                         
@@ -892,17 +895,13 @@ impl MSVC {
                                 let stream_ = stream.clone();
 
                                 let defines_ = defines_.clone();
+                                let dependency_cache_ = dependency_cache_.clone();
                                 let local_include_dir_and_files_ = local_include_dir_and_files_.clone();
                                 let self__ = self_.clone();
                                 
                                 let stask = self_.runtime.spawn(async move {
-                                    let mut defines = {
-                                        let guard = defines_.lock().await;
-                                        guard.clone()
-                                    };
-                                    log::trace!("sync source file {:?}", file);
-                                    self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), &mut defines, &local_include_dir_and_files_, solution_.clone(),
-                                        project_.clone(), stream_.clone()).await;
+                                    self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), defines_.clone(), &local_include_dir_and_files_, solution_.clone(),
+                                        project_.clone(), dependency_cache_, stream_.clone()).await;
                                 });
                                 archive_stream_task.push(stask);
                             }
@@ -1033,7 +1032,7 @@ impl MSVC {
                                         project: project_.as_ref().clone(),
                                         name: "".to_string(),
                                         path: input.compiler_working_dir.to_string_lossy().to_string(),
-                                        content: std::borrow::Cow::Owned(count.to_string().into_bytes()),
+                                        content: bytes::Bytes::from(count.to_string()),
                                     };
                                     log::trace!("{:?} sync task expected count: {} to addr: {}", project_, count, addr);
                                     let _ = stream.send(archive).await;
@@ -1045,6 +1044,7 @@ impl MSVC {
                         log::trace!("schedule source files for {} addr: {}, order: {}/{}, left: {:?}", project_, &addr_, order, totals, left);
                         let defines_ = defines.clone();
                         let local_include_dir_and_files_ = local_include_dir_and_files.clone();
+                        let dependency_cache_ = dependency_cache.clone();
                         set.spawn(async move {
                             let now = std::time::Instant::now();
 
@@ -1063,15 +1063,11 @@ impl MSVC {
                                     let self__ = self_.clone();
                                     let defines_ = defines_.clone();
                                     let local_include_dir_and_files_ = local_include_dir_and_files_.clone();
+                                    let dependency_cache_ = dependency_cache_.clone();
 
                                     let stask = self_.runtime.spawn(async move {
-                                        let mut defines = {
-                                            let guard = defines_.lock().await;
-                                            guard.clone()
-                                        };
-                                        log::trace!("sync source file {:?}", file);
-                                        self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), &mut defines, &local_include_dir_and_files_, solution_.clone(),
-                                            project_.clone(), stream.clone()).await;
+                                        self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), defines_.clone(), &local_include_dir_and_files_, 
+                                            solution_.clone(), project_.clone(), dependency_cache_.clone(), stream.clone()).await;
                                     });
 
                                     archive_stream_task.push(stask);
@@ -1131,36 +1127,45 @@ impl MSVC {
         return compiler_output.lock().unwrap().to_owned();
     }
 
-    async fn parser_sourcefile_sync_dependency(&self, path: String, defines: &mut std::collections::HashMap<String, Option<String>>, 
+    async fn parser_sourcefile_sync_dependency(&self, path: String, 
+        defines: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>, 
         include_dir_files: &std::vec::Vec::<(String, std::collections::HashSet<String>)>,
         solution: std::sync::Arc<String>,
-        project: std::sync::Arc<String>,
-        stream: tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs<'static>>) {
-            
+        project: std::sync::Arc<String>, 
+        cache: std::sync::Arc<dashmap::DashSet::<String>>,
+        stream: tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs>) {
+        
+        if cache.contains(&path) {
+            return;
+        }
+        else {
+            cache.insert(path.clone());
+        }
+
         let content = bytes::Bytes::from(tokio::fs::read(&path).await.unwrap_or_else(|_| {
             log::error!("failed to read file: {:?}", path);
             Vec::new()
         }));
-            
-        let dependency = dependency::parser_sourcefile_dependency(&content, defines, include_dir_files);
-        log::trace!("parsed source file dependency: {:#?}.", dependency);
-        for dep in dependency {
-            Box::pin(async {
-                self.parser_sourcefile_sync_dependency(dep, defines, include_dir_files, solution.clone(), project.clone(), stream.clone()).await;
-            }).await;
-        }
-
+        
         let name = std::path::PathBuf::from(&path).file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
         let archive = crate::communicate::packager::ArchiveArgs {
             file_type:  crate::communicate::packager::FileType::SourceFiles,
             solution: solution.as_ref().clone(),
             project: project.as_ref().clone(),
-            name: name.clone(),
-            path: path,
-            content: content.to_vec().into(),
+            name: name,
+            path: path.clone(),
+            content: content.clone(),
         };
-        
+
         let _ = stream.send(archive).await;
+            
+        let dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), include_dir_files);
+        log::trace!("parsed source file {:?} dependency: {:#?}.", path, dependency);
+        for dep in dependency {
+            Box::pin(async {
+                self.parser_sourcefile_sync_dependency(dep, defines.clone(), include_dir_files, solution.clone(), project.clone(), cache.clone(), stream.clone()).await;
+            }).await;
+        }
     }
 
 }
@@ -1329,7 +1334,7 @@ async fn handle_compile_by_stdstream(mut stdout: StdOut) {
      */
 }   
 
-async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream: Option<tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs<'static>>>, precompiled_result: PrecompiledResult, source_files: &Vec<String>, runtime: &std::sync::Arc<tokio::runtime::Handle>)-> Vec<std::ffi::OsString> {
+async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream: Option<tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs>>, precompiled_result: PrecompiledResult, source_files: &Vec<String>, runtime: &std::sync::Arc<tokio::runtime::Handle>)-> Vec<std::ffi::OsString> {
 
     let now = std::time::Instant::now();
     let options = zip::write::SimpleFileOptions::default()
@@ -1374,8 +1379,7 @@ async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream
     log::debug!("zip precompiled file count {} {:?} elapsed time: {:?}", source_files.len(), intermediate, now.elapsed());
 
     let content = zip.finish().unwrap();
-    let file = content.to_owned().into_inner();
-    let content = std::borrow::Cow::from(file);
+    let content = bytes::Bytes::from(content.to_owned().into_inner());
 
     if intermediate.is_file() {
         intermediate = intermediate.parent().map_or_else(|| std::path::PathBuf::from(""), |parent| parent.to_path_buf());
@@ -1413,7 +1417,7 @@ async fn transmit_precompiled_source_file(compiler_input: &CompilerInput, stream
         project: compiler_input.project.to_string_lossy().to_string(),
         name: source_files.join(",").into(),
         path: intermediate.to_string_lossy().to_string(),    
-        content: content.clone(),
+        content: content,
     };
 
     if let Some(stream) = stream {

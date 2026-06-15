@@ -19,6 +19,7 @@ impl Distributor {
     }
     
     //should replace with archive_stream, after test.
+    //TODO: content should use bytes::Bytes, or remove this function and only use archive_stream.
     pub async fn archive<'a>(addr: &str, path: &str, content: &std::borrow::Cow<'a, [u8]>, runtime: &std::sync::Arc<tokio::runtime::Handle>) -> String {
         let mut sender = super::packager::Sender::new(addr, Some(runtime)).await;
         let file = super::packager::ArchiveArgs {
@@ -27,7 +28,7 @@ impl Distributor {
             project: "".to_string(),
             name: "".to_string(),
             path:  path.to_string(),    
-            content: content.clone(),
+            content: bytes::Bytes::copy_from_slice(content.as_ref()),
         };
         
         let file = super::packager::SenderType::Archive(file);
@@ -37,7 +38,7 @@ impl Distributor {
     }
 
     pub async fn archive_stream<'a>(addr: &str, runtime: &std::sync::Arc<tokio::runtime::Handle>) 
-        -> (Option<tokio::sync::mpsc::Sender<super::packager::ArchiveArgs<'static>>>, std::sync::Arc<tokio::sync::Notify>) {
+        -> (Option<tokio::sync::mpsc::Sender<super::packager::ArchiveArgs>>, std::sync::Arc<tokio::sync::Notify>) {
         
         let notify = std::sync::Arc::new(tokio::sync::Notify::new());
         if (addr == "127.0.0.1" || addr == "localhost") && !*crate::ENFORCE_ACTIVATE_LOCAL_COCREW {

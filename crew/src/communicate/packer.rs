@@ -256,13 +256,14 @@ impl Packer {
         let path = filename.to_owned() + ".zip";
 
         let mut sender = crate::communicate::packager::Sender::new(addr, None).await;
+
         let args = crate::communicate::packager::ArchiveArgs {
             file_type: crate::communicate::packager::FileType::ToolChain,
             solution: String::new(),
             project: String::new(),
             name: name.to_owned(),
             path: path,
-            content: content.to_owned(),
+            content: bytes::Bytes::copy_from_slice(content.as_ref()),
         };
         let args: super::packager::SenderType<'_> = crate::communicate::packager::SenderType::Archive(args);
         sender.dist(args).await;
@@ -283,7 +284,7 @@ impl Packer {
             project: String::new(),
             name: "precompiledsourcefile".to_string(),
             path: path.to_owned(),
-            content: content.to_owned(),
+            content: bytes::Bytes::copy_from_slice(content.as_ref()),
         };
 
         let args = crate::communicate::packager::SenderType::Archive(args);
