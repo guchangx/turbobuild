@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 
 fn trim(b: &[u8]) -> &[u8] {
     let n = b.iter().position(|&c| c != b' ' && c != b'\t').unwrap_or(b.len());
@@ -610,9 +611,7 @@ fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String
 //.h;.hh;.hpp;.hxx;.h++;.hm
 
 pub fn query_include_dir(include_dirs: &Vec<std::path::PathBuf>) -> std::vec::Vec::<(String, std::collections::HashSet<String>)> { 
-
-    let mut files = std::vec::Vec::<(String, std::collections::HashSet<String>)>::new();
-    for dir in include_dirs {
+    include_dirs.par_iter().map(|dir| {
         let mut set = std::collections::HashSet::<String>::new();
         if let Ok(entries) = std::fs::read_dir(&dir) {
             for entry in entries.flatten() {
@@ -630,10 +629,8 @@ pub fn query_include_dir(include_dirs: &Vec<std::path::PathBuf>) -> std::vec::Ve
                 }
             }
         }
-        files.push((dir.to_string_lossy().to_string(), set));
-    }
-
-    return files;
+        (dir.to_string_lossy().to_string(), set)
+    }).collect()
 }
 
 fn query_include_dir_recursive(dir: std::path::PathBuf, start: &std::path::PathBuf) -> std::collections::HashSet<String> {

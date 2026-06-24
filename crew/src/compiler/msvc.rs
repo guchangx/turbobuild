@@ -805,9 +805,10 @@ impl MSVC {
         source_file_current_dir.extend(actions.include_dir.into_iter().filter(|item| source_file_current_dir_set.insert(item.clone())));
         log::trace!("include dir list: {:#?}", &source_file_current_dir);
 
-        //TODO: performance optimization
+        let now = std::time::Instant::now();
         let local_include_dir_and_files = std::sync::Arc::new(dependency::query_include_dir(&source_file_current_dir));
-
+        log::debug!("query include dir and files done. elapsed time: {:?}", now.elapsed());
+        
         let solution = std::sync::Arc::new(input.solution.to_string_lossy().to_string());
         let project = std::sync::Arc::new(input.project.to_string_lossy().to_string());
         
