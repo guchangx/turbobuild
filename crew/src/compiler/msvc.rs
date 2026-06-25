@@ -798,7 +798,8 @@ impl MSVC {
         log::trace!("{:?} source files size: {}", &input.project, totals);
         
         let defines = std::sync::Arc::new(std::sync::RwLock::new(actions.defines));
-        let dependency_cache = std::sync::Arc::new(dashmap::DashSet::<String>::new());
+        let dependency_cache_by_addr = std::sync::Arc::new(dashmap::DashMap::<String, std::sync::Arc<dashmap::DashSet<String>>>::new());
+        let resolve_dependency_includes = std::sync::Arc::new(dashmap::DashMap::<String, std::sync::Arc<dashmap::DashSet<String>>>::new());
 
         let extracted_pdb = actions.pdb_file.clone();
         let mut source_file_current_dir_set = std::collections::HashSet::<std::path::PathBuf>::from_iter(source_file_current_dir.iter().cloned());
@@ -822,6 +823,10 @@ impl MSVC {
         for (addr, core) in &all {
             let (stream, _notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
             addr_map_archive_stream.lock().await.insert(addr.clone(), stream.clone());
+
+            dependency_cache_by_addr.insert(addr.clone(), std::sync::Arc::new(dashmap::DashSet::new()));
+            
+            let dependency_cache = dependency_cache_by_addr.get(addr).unwrap().value().clone();
 
             for i in 0 .. *core {
                 let addr = addr.clone();
@@ -880,6 +885,8 @@ impl MSVC {
                     let order = totals - sources.len();
                     let defines_ = defines.clone();
                     let dependency_cache_ = dependency_cache.clone();
+                    let resolve_dependency_includes_ = resolve_dependency_includes.clone();
+
                     let local_include_dir_and_files_ = local_include_dir_and_files.clone();
                     set.spawn(async move {
                         
@@ -896,13 +903,15 @@ impl MSVC {
                                 let stream_ = stream.clone();
 
                                 let defines_ = defines_.clone();
-                                let dependency_cache_ = dependency_cache_.clone();
+
                                 let local_include_dir_and_files_ = local_include_dir_and_files_.clone();
                                 let self__ = self_.clone();
-                                
+                                let dependency_cache_ = dependency_cache_.clone();
+                                let resolve_dependency_includes_ = resolve_dependency_includes_.clone();
+
                                 let stask = self_.runtime.spawn(async move {
-                                    self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), defines_.clone(), &local_include_dir_and_files_, solution_.clone(),
-                                        project_.clone(), dependency_cache_, stream_.clone()).await;
+                                    self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), defines_, &local_include_dir_and_files_, solution_,
+                                        project_.clone(), dependency_cache_, resolve_dependency_includes_, stream_).await;
                                 });
                                 archive_stream_task.push(stask);
                             }
@@ -1045,7 +1054,9 @@ impl MSVC {
                         log::trace!("schedule source files for {} addr: {}, order: {}/{}, left: {:?}", project_, &addr_, order, totals, left);
                         let defines_ = defines.clone();
                         let local_include_dir_and_files_ = local_include_dir_and_files.clone();
-                        let dependency_cache_ = dependency_cache.clone();
+                
+                        let dependency_cache_ = dependency_cache_by_addr.get(&addr_).unwrap().value().clone();
+                        let  resolve_dependency_includes_ = resolve_dependency_includes.clone();
                         set.spawn(async move {
                             let now = std::time::Instant::now();
 
@@ -1065,10 +1076,11 @@ impl MSVC {
                                     let defines_ = defines_.clone();
                                     let local_include_dir_and_files_ = local_include_dir_and_files_.clone();
                                     let dependency_cache_ = dependency_cache_.clone();
+                                    let resolve_dependency_includes_ = resolve_dependency_includes_.clone();
 
                                     let stask = self_.runtime.spawn(async move {
-                                        self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), defines_.clone(), &local_include_dir_and_files_, 
-                                            solution_.clone(), project_.clone(), dependency_cache_.clone(), stream.clone()).await;
+                                        self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), defines_, &local_include_dir_and_files_, 
+                                            solution_, project_, dependency_cache_, resolve_dependency_includes_, stream.clone()).await;
                                     });
 
                                     archive_stream_task.push(stask);
@@ -1134,6 +1146,7 @@ impl MSVC {
         solution: std::sync::Arc<String>,
         project: std::sync::Arc<String>, 
         cache: std::sync::Arc<dashmap::DashSet::<String>>,
+        resolve_dependency_includes: std::sync::Arc<dashmap::DashMap::<String, std::sync::Arc<dashmap::DashSet<String>>>>,
         stream: tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs>) {
         
         if cache.contains(&path) {
@@ -1159,13 +1172,26 @@ impl MSVC {
         };
 
         let _ = stream.send(archive).await;
-            
-        let dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), include_dir_files);
-        log::trace!("parsed source file {:?} dependency: {:#?}.", path, dependency);
-        for dep in dependency {
-            Box::pin(async {
-                self.parser_sourcefile_sync_dependency(dep, defines.clone(), include_dir_files, solution.clone(), project.clone(), cache.clone(), stream.clone()).await;
-            }).await;
+        
+        if let Some(resolve) = resolve_dependency_includes.get(&path) {
+            for dep in resolve.iter() {
+                Box::pin(async {
+                    self.parser_sourcefile_sync_dependency(dep.to_string(), defines.clone(), include_dir_files, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
+                }).await;
+            }            
+        }
+        else {
+            let dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), include_dir_files);
+    
+            log::trace!("parsed source file {:?} dependency: {:#?}.", path, &dependency);
+    
+            for dep in dependency.clone() {
+                Box::pin(async {
+                    self.parser_sourcefile_sync_dependency(dep, defines.clone(), include_dir_files, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
+                }).await;
+            }
+    
+            resolve_dependency_includes.insert(path.clone(), std::sync::Arc::new(dependency.into_iter().collect::<dashmap::DashSet<String>>()));
         }
     }
 
