@@ -86,10 +86,16 @@ impl Packer {
         //Tracker.exe
 
         let clui = path.clone();
-
-        let _ = zip.start_file(format!("Hostx64/x64/1033/clui.dll"), options.clone());
-        let mut file = std::fs::File::open(clui.join("Hostx64/x64/1033/clui.dll")).expect("can't find x64 clui.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
+        if clui.join("Hostx64/x64/1033/clui.dll").exists() {
+            let _ = zip.start_file(format!("Hostx64/x64/1033/clui.dll"), options.clone());
+            let mut file = std::fs::File::open(clui.join("Hostx64/x64/1033/clui.dll")).expect("can't find x64 clui.dll");
+            let _ = std::io::copy(&mut file, &mut zip);
+        }
+        else if clui.join("Hostx64/x64/2052/clui.dll").exists() {
+            let _ = zip.start_file(format!("Hostx64/x64/2052/clui.dll"), options.clone());
+            let mut file = std::fs::File::open(clui.join("Hostx64/x64/2052/clui.dll")).expect("can't find x64 clui.dll");
+            let _ = std::io::copy(&mut file, &mut zip);
+        }
 
         let _ = zip.start_file(format!("Hostx64/x86/cl.exe"), options.clone()).unwrap();
         let mut file = std::fs::File::open(cl.join("Hostx64/x86/cl.exe")).expect("can't find x86 cl.exe");
@@ -143,9 +149,16 @@ impl Packer {
         let mut file = std::fs::File::open(cl.join("Hostx64/x86/MSVCP140_ATOMIC_WAIT.dll")).expect("can't find x86 MSVCP140_ATOMIC_WAIT.dll");
         let _ = std::io::copy(&mut file, &mut zip);
 
-        let _ = zip.start_file(format!("Hostx64/x86/1033/clui.dll"), options.clone());
-        let mut file = std::fs::File::open(clui.join("Hostx64/x86/1033/clui.dll")).expect("can't find x86 clui.dll");
-        let _ = std::io::copy(&mut file, &mut zip);
+        if clui.join("Hostx64/x86/1033/clui.dll").exists() {
+            let _ = zip.start_file(format!("Hostx64/x86/1033/clui.dll"), options.clone());
+            let mut file = std::fs::File::open(clui.join("Hostx64/x86/1033/clui.dll")).expect("can't find x86 clui.dll");
+            let _ = std::io::copy(&mut file, &mut zip);
+        }
+        else if clui.join("Hostx64/x86/2052/clui.dll").exists() {
+            let _ = zip.start_file(format!("Hostx64/x86/2052/clui.dll"), options.clone());
+            let mut file = std::fs::File::open(clui.join("Hostx64/x86/2052/clui.dll")).expect("can't find x86 clui.dll");
+            let _ = std::io::copy(&mut file, &mut zip);
+        }
         
         //Tracker.exe
 
@@ -294,7 +307,7 @@ impl Packer {
     pub async fn includes(&self, path: &str, addr: &str) {
 
         //msvc and windows kit include dir
-
+        log::info!("prepare sync includes path: {} to addr: {}", path, addr);
         let content = Self::pack_dir(path, "");
         log::info!("sync includes packager path: {}, size: {} KB", path, content.len() / 1024);
         Self::send_package("include", path, &content, addr).await;

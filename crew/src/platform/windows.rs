@@ -77,7 +77,7 @@ fn get_winsdk_includes_path() -> Option<Vec<std::ffi::OsString>> {
             else {
                 println!("get regedit sdks version failed . error code: {:?}", query_version_status);
             }
-
+            log::info!("Found Windows SDK installation folder: {}, version: {}", winkits_path, winkits_version);
             if !winkits_path.is_empty() && !winkits_version.is_empty()
             {
                 let include_path = std::path::Path::new(winkits_path.as_str()).join("Include").join(winkits_version.as_str());
@@ -88,20 +88,32 @@ fn get_winsdk_includes_path() -> Option<Vec<std::ffi::OsString>> {
                 if cppwinrt_include.exists() {
                     includes_path.push(cppwinrt_include.into_os_string());
                 }
+                else {
+                    log::warn!("cppwinrt include path not exists: {:?}", cppwinrt_include);
+                }
 
                 let shared_include = include_path.join("shared");
                 if shared_include.exists() {
                     includes_path.push(shared_include.into_os_string());
                 }
-
+                else {
+                    log::warn!("shared include path not exists: {:?}", shared_include);
+                }
+                
                 let ucrt_include = include_path.join("ucrt");
                 if ucrt_include.exists() {
                     includes_path.push(ucrt_include.into_os_string());
+                }
+                else {
+                    log::warn!("ucrt include path not exists: {:?}", ucrt_include);
                 }
 
                 let um_include = include_path.join("um");
                 if um_include.exists() {
                     includes_path.push(um_include.clone().into_os_string());
+                }
+                else {
+                    log::warn!("um include path not exists: {:?}", um_include);
                 }
 
                 if um_include.join("winsdkver.h").exists() || um_include.join("windows.h").exists() {
@@ -111,6 +123,9 @@ fn get_winsdk_includes_path() -> Option<Vec<std::ffi::OsString>> {
                 let winrt_include = include_path.join("winrt");
                 if winrt_include.exists() {
                     includes_path.push(winrt_include.into_os_string());
+                }
+                else {
+                    log::warn!("winrt include path not exists: {:?}", winrt_include);
                 }
                 return Some(includes_path)
             }
