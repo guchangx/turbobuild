@@ -50,6 +50,7 @@ enum FileType {
     TOOLCHAIN = 3;
     KITS = 4;
     SYNCTASKCOUNT = 5;
+    FINISH = 6;
 }
 
 message FileTrRequest {

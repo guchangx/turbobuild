@@ -1,5 +1,6 @@
 use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
+use windows_sys::Wdk::Storage::FileSystem::RtlAppendStringToString;
 
 pub mod pack {
     include!("../../proto/pack.rs");
@@ -50,6 +51,7 @@ pub enum FileType {
     ToolChain = 3,
     Kits = 4,
     SyncTaskCount = 5,
+    Finish = 6,
 }
 
 pub struct ArchiveArgs {
@@ -168,6 +170,24 @@ impl Sender {
 
         if let Err(err) = tx.send(request).await {
             log::error!("transmit file error: {:?}", err);
+            let result = ArchiveRecv {
+                status: false,
+                message: "".to_string(),
+            };
+            return result;
+        };
+
+        let request = pack::FileTrRequest {
+            file_type: pack::FileType::Finish as i32,
+            solution: String::new(),
+            project: String::new(),
+            name: String::new(),
+            path: String::new(),
+            content: bytes::Bytes::new(),
+        };
+
+        if let Err(err) = tx.send(request).await {
+            log::error!("transmit file finish error: {:?}", err);
             let result = ArchiveRecv {
                 status: false,
                 message: "".to_string(),

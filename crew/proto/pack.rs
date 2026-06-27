@@ -152,6 +152,7 @@ pub enum FileType {
     Toolchain = 3,
     Kits = 4,
     Synctaskcount = 5,
+    Finish = 6,
 }
 impl FileType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -166,6 +167,7 @@ impl FileType {
             Self::Toolchain => "TOOLCHAIN",
             Self::Kits => "KITS",
             Self::Synctaskcount => "SYNCTASKCOUNT",
+            Self::Finish => "FINISH",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -177,6 +179,7 @@ impl FileType {
             "TOOLCHAIN" => Some(Self::Toolchain),
             "KITS" => Some(Self::Kits),
             "SYNCTASKCOUNT" => Some(Self::Synctaskcount),
+            "FINISH" => Some(Self::Finish),
             _ => None,
         }
     }

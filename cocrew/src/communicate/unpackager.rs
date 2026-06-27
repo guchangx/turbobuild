@@ -111,39 +111,52 @@ impl Receiver {
     async fn transmit_file_handle(&self, request: tonic::Request<tonic::Streaming<package::FileTrRequest>>, tx: tokio::sync::mpsc::Sender<Result<package::FileTrResponse, tonic::Status>>) {
         use tokio_stream::StreamExt;
         let mut stream = request.into_inner();
+        let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        let mut cancel_tx = Some(cancel_tx);
 
         let tx_ = tx.clone();
         tokio::spawn(async move {
-            while let Some(result) = TASK_TO_FILE_CHANNEL.task_to_file_rx.lock().await.recv().await {
+            let mut rx_guard = TASK_TO_FILE_CHANNEL.task_to_file_rx.lock().await;
+            tokio::pin!(cancel_rx);
+            loop {
+                tokio::select! {
+                    result = rx_guard.recv() => {
+                        match result {
+                            Some(result) => {
+                                if let Some((file, context)) = result.obj {
+                                    let reply = package::FileTrResponse {
+                                        path: file.to_string_lossy().to_string(),
+                                        content: context,
+                                        error_code: 0,
+                                        error_message: result.source_file.to_string_lossy().to_string(),
+                                    };
+                                    tx_.send(Ok(reply)).await.unwrap();
+                                }
 
-                if let Some((file, context)) = result.obj {
-                    let reply = package::FileTrResponse {
-                        path: file.to_string_lossy().to_string(),
-                        content: context,
-                        error_code: 0,
-                        error_message: result.source_file.to_string_lossy().to_string(),
-                    };
-                    tx_.send(Ok(reply)).await.unwrap();
-                }
+                                if let Some((file, context)) = result.pdb {
+                                    let reply = package::FileTrResponse {
+                                        path: file.to_string_lossy().to_string(),
+                                        content: context,
+                                        error_code: 0,
+                                        error_message: result.source_file.to_string_lossy().to_string(),
+                                    };
+                                    tx_.send(Ok(reply)).await.unwrap();
+                                }
 
-                if let Some((file, context)) = result.pdb {
-                    let reply = package::FileTrResponse {
-                        path: file.to_string_lossy().to_string(),
-                        content: context,
-                        error_code: 0,
-                        error_message: result.source_file.to_string_lossy().to_string(),
-                    };
-                    tx_.send(Ok(reply)).await.unwrap();
-                }
-
-                if let Some((file, context)) = result.idb {
-                    let reply = package::FileTrResponse {
-                        path: file.to_string_lossy().to_string(),
-                        content: context,
-                        error_code: 0,
-                        error_message: result.source_file.to_string_lossy().to_string(),
-                    };
-                    tx_.send(Ok(reply)).await.unwrap();
+                                if let Some((file, context)) = result.idb {
+                                    let reply = package::FileTrResponse {
+                                        path: file.to_string_lossy().to_string(),
+                                        content: context,
+                                        error_code: 0,
+                                        error_message: result.source_file.to_string_lossy().to_string(),
+                                    };
+                                    tx_.send(Ok(reply)).await.unwrap();
+                                }
+                            }
+                            None => break,
+                        }
+                    }
+                    _ = &mut cancel_rx => break,
                 }
             }
         });
@@ -195,7 +208,7 @@ impl Receiver {
                     };
                 }
                 else if file_type == package::FileType::Kits as i32 {
-                        
+                
                 }
                 else if file_type == package::FileType::Synctaskcount as i32 {
                     let count_str = String::from_utf8_lossy(&content);
@@ -229,6 +242,11 @@ impl Receiver {
                     }
                     else {
                         log::error!("parse sync task count failed: {}", count_str);
+                    }
+                }
+                else if file_type == package::FileType::Finish as i32 {
+                    if let Some(cancel_tx) = cancel_tx.take() {
+                        let _ = cancel_tx.send(());
                     }
                 }
                 else {
