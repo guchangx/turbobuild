@@ -2302,10 +2302,11 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
     if build_and_compiler_type.to_string_lossy().contains("msbuild")
         || build_and_compiler_type.to_string_lossy().contains("cmake")
         || build_and_compiler_type.to_string_lossy().contains("dist") {
+        
+        let empty = std::ffi::OsString::new();
+        let next = compiler_commands.iter().skip(1).chain(std::iter::once(&empty));
+        for (command, value) in compiler_commands.iter().zip(next) {
 
-        for window in compiler_commands.windows(2) {
-            let command = &window[0];
-            let value = &window[1];
             let mut isother = false;
             let mut command = command.to_string_lossy();
             if command == "/P" {
@@ -2374,7 +2375,8 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
                 }
             }
             else if command.starts_with("/I") || command.starts_with("/external:I") {
-               include_dir.push(std::path::PathBuf::from(value.to_string_lossy().to_string()));
+                let path = tools::utils::normalize_lexical(&value);
+                include_dir.push(path);
             }
             else if command.starts_with("/D") {
                 if let Some(index) = value.to_string_lossy().find("=") {
@@ -2407,6 +2409,21 @@ fn parse_action_from_commands(build_and_compiler_type: &std::ffi::OsString, comp
             }
             _ => {},
         }
+    }
+
+    let compiler_predefined: &[(&str, Option<&str>)] = &[
+        ("_WIN32", None), ("_WIN64", None),
+        ("_M_X64", Some("100")), ("_M_AMD64", Some("100")),
+        ("_MSC_VER", Some("1944")), ("_MSC_FULL_VER", Some("194435219")),
+        ("_MSC_BUILD", None), ("_MSVC_LANG", Some("201402L")),
+        ("__cplusplus", Some("201402L")), ("_MT", None), ("_DEBUG", None),
+        ("_INTEGRAL_MAX_BITS", Some("64")),
+        ("__STDC_HOSTED__", None), ("__STDC_VERSION__", Some("201710L")),
+        ("_WCHAR_T_DEFINED", None), ("_NATIVE_WCHAR_T_DEFINED", None),
+    ];
+    
+    for &(k, v) in compiler_predefined {
+        defines.insert(k.to_string(), v.map(|s| s.to_string()));
     }
 
     return CompileAction {
@@ -3164,7 +3181,17 @@ mod tests {
         let compiler_commands = ["/c", "/I", "G:\\OpenSource\\llvm-project\\build\\lib\\Target\\PowerPC", "/Zi", "/nologo", "/W4", "/WX-", "/diagnostics:column", "/MP", "/Od", "/Ob0", "/Oi", "/D", "_UNICODE", "/D", "UNICODE", "/D", "WIN32", "/D", "_WINDOWS", "/D", "_HAS_EXCEPTIONS=0", "/D", "GTEST_HAS_RTTI=0", "/D", "LLVM_BUILD_STATIC", "/D", "_CRT_SECURE_NO_DEPRECATE", "/D", "_CRT_SECURE_NO_WARNINGS", "/D", "_SCL_SECURE_NO_WARNINGS", "/D", "UNICODE", "/D", "_UNICODE", "/D", "__STDC_CONSTANT_MACROS", "/D", "__STDC_FORMAT_MACROS", "/D", "__STDC_LIMIT_MACROS", "/D", "CMAKE_INTDIR=\\\"Debug\\\"", "/Zc:preprocessor", "/Gm-", "/RTC1", "/MDd", "/GS", "/fp:precise", "/Zc:wchar_t", "/Zc:forScope", "/Zc:inline", "/GR-", "/std:c++17", "/permissive-", "/FoLLVMExegesisTests.dir\\Debug\\/X86/BenchmarkResultTest.cpp.obj", "/FdLLVMExegesisTests.dir\\Debug\\vc143.pdb", "/external:W4", "/Gd", "/TP", "/wd4141", "/wd4146",  "/wd4204", "/wd4577", "/wd4091", "/wd4592", "/wd4319", "/wd4709", "/errorReport:prompt", "/we4238", "/bigobj", "-w14062", "/Gw", "/EHs-c-", "G:\\OpenSource\\llvm-project\\llvm\\unittests\\tools\\llvm-exegesis\\X86\\BenchmarkResultTest.cpp"].iter().map(|item|std::ffi::OsString::from(item)).collect::<Vec<_>>();
         let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &compiler_commands, &std::ffi::OsString::from("G:\\OpenSource\\llvm-project\\build\\unittests\\tools\\llvm-exegesis"));
         println!("[parsed actions: {:#?}", actions);
+
+        let compiler_commands = ["/c", "/I", "G:\\OpenSource\\llvm-project\\build\\lib\\Target\\PowerPC", "/Zi", "/nologo", "/W4", "/WX-", "/diagnostics:column", "/MP", "/Od", "/Ob0", "/Oi", "/D", "_UNICODE", "/D", "UNICODE", "/D", "WIN32", "/D", "_WINDOWS", "/D", "_HAS_EXCEPTIONS=0", "/D", "GTEST_HAS_RTTI=0", "/D", "LLVM_BUILD_STATIC", "/D", "_CRT_SECURE_NO_DEPRECATE", "/D", "_CRT_SECURE_NO_WARNINGS", "/D", "_SCL_SECURE_NO_WARNINGS", "/D", "UNICODE", "/D", "_UNICODE", "/D", "__STDC_CONSTANT_MACROS", "/D", "__STDC_FORMAT_MACROS", "/D", "__STDC_LIMIT_MACROS", "/D", "CMAKE_INTDIR=\\\"Debug\\\"", "/Zc:preprocessor", "/Gm-", "/RTC1", "/MDd", "/GS", "/fp:precise", "/Zc:wchar_t", "/Zc:forScope", "/Zc:inline", "/GR-", "/std:c++17", "/permissive-", "/FoLLVMExegesisTests.dir\\Debug\\/X86/BenchmarkResultTest.cpp.obj", "/FdLLVMExegesisTests.dir\\Debug\\vc143.pdb", "/external:W4", "/Gd", "/TP", "/wd4141", "/wd4146",  "/wd4204", "/wd4577", "/wd4091", "/wd4592", "/wd4319", "/wd4709", "/errorReport:prompt", "/we4238", "/bigobj", "-w14062", "/Gw", "/EHs-c-", 
+            "E:\\TestFuture\\GammaRay\\GammaRayTool\\build_x64\\3rdparty\\kde\\gammaray_kitemmodels_autogen\\mocs_compilation_Debug.cpp", 
+            "E:\\TestFuture\\GammaRay\\GammaRayTool\\3rdparty\\kde\\klinkitemselectionmodel.cpp", 
+            "E:\\TestFuture\\GammaRay\\GammaRayTool\\3rdparty\\kde\\kmodelindexproxymapper.cpp", 
+            "E:\\TestFuture\\GammaRay\\GammaRayTool\\3rdparty\\kde\\kdescendantsproxymodel.cpp", 
+            "E:\\TestFuture\\GammaRay\\GammaRayTool\\3rdparty\\kde\\kitemmodels_debug.cpp"].iter().map(|item|std::ffi::OsString::from(item)).collect::<Vec<_>>();
+        let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &compiler_commands, &std::ffi::OsString::from("G:\\OpenSource\\llvm-project\\build\\unittests\\tools\\llvm-exegesis"));
+        println!("[parsed actions: {:#?}", actions);
     }
+
     #[test]
     fn start_local_clang_cl_test() {
         

@@ -1,4 +1,81 @@
+
 use rayon::prelude::*;
+
+pub struct ProcessorDefines {
+    macros: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>,
+}
+
+impl ProcessorDefines {
+    pub fn new() -> Self {
+        ProcessorDefines {
+            macros: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+        }
+    }
+
+    pub fn msvc_c() -> Self {
+        let buildin_macros = std::collections::HashMap::from([
+            ("_WIN32".to_string(), None),
+            ("_WIN64".to_string(), None),
+            ("_MSC_VER".to_string(), Some("1944".to_string())),
+            ("_MSC_FULL_VER".to_string(), Some("194435219".to_string())),
+            ("_MSC_BUILD".to_string(), None),
+            ("_MSC_EXTENSIONS".to_string(), None),
+            ("_MSVC_CONSTEXPR_ATTRIBUTE".to_string(), None),
+            ("_MSVC_EXECUTION_CHARACTER_SET".to_string(), Some("65001".to_string())),
+
+            ("_M_AMD64".to_string(), Some("100".to_string())),
+            ("_M_X64".to_string(), Some("100".to_string())),
+            ("__amd64".to_string(), None),
+            ("__amd64__".to_string(), None),
+            ("__x86_64".to_string(), None),
+
+            ("_MT".to_string(), None),
+            ("_M_FP_CONTRACT".to_string(), None),
+            ("_M_FP_PRECISE".to_string(), None),
+            ("_CRT_USE_BUILTIN_OFFSETOF".to_string(), None),
+            ("_INTEGRAL_MAX_BITS".to_string(), Some("64".to_string())),
+
+            ("__STDC_VERSION__".to_string(), Some("201710L".to_string())),
+            ("__STDC_HOSTED__".to_string(), None),
+            ("__STDC_UTF_16__".to_string(), None),
+            ("__STDC_UTF_32__".to_string(), None),
+        ]);
+        return ProcessorDefines {
+            macros: std::sync::Arc::new(std::sync::RwLock::new(buildin_macros)),
+        };
+    }
+
+    pub fn msvc_cpp() -> Self {
+        let buildin_macros = std::collections::HashMap::from([
+            ("_WIN32".to_string(), None),
+            ("_WIN64".to_string(), None),
+            ("_MSC_VER".to_string(), Some("1944".to_string())),
+            ("_MSC_FULL_VER".to_string(), Some("194435219".to_string())),
+            ("_MSC_BUILD".to_string(), None),
+            ("_MSC_EXTENSIONS".to_string(), None),
+            ("_MSVC_CONSTEXPR_ATTRIBUTE".to_string(), None),
+            ("_MSVC_EXECUTION_CHARACTER_SET".to_string(), Some("65001".to_string())),
+
+            ("_M_AMD64".to_string(), Some("100".to_string())),
+            ("_M_X64".to_string(), Some("100".to_string())),
+            ("__amd64".to_string(), None),
+            ("__amd64__".to_string(), None),
+            ("__x86_64".to_string(), None),
+
+            ("_MT".to_string(), None),
+            ("_M_FP_CONTRACT".to_string(), None),
+            ("_M_FP_PRECISE".to_string(), None),
+            ("_CRT_USE_BUILTIN_OFFSETOF".to_string(), None),
+            ("_INTEGRAL_MAX_BITS".to_string(), Some("64".to_string())),
+
+            ("_MSVC_LANG".to_string(), Some("201402L".to_string())),
+            ("__cplusplus".to_string(), Some("201402L".to_string())),
+        ]);
+        return ProcessorDefines {
+            macros: std::sync::Arc::new(std::sync::RwLock::new(buildin_macros)),
+        };
+    }
+}
 
 fn trim(b: &[u8]) -> &[u8] {
     let n = b.iter().position(|&c| c != b' ' && c != b'\t').unwrap_or(b.len());
@@ -448,8 +525,13 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: std::sync::Arc<std:
 }
 
 fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String, std::collections::HashSet<String>)>, dep: &str) -> Option<std::path::PathBuf> {
+
+    if include_dir_files.is_empty() {
+        return Some(std::path::PathBuf::from(dep));
+    }
+
     for (dir, files) in include_dir_files {
-        if files.contains(dep) {
+        if files.contains(&dep.replace("/", "\\")) {
             return Some(std::path::PathBuf::from(dir).join(dep));
         }
         else {
@@ -764,6 +846,43 @@ mod tests {
         let dependencies = parser_sourcefile_dependency(content.as_bytes(), std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())), &std::vec::Vec::new());
         println!("{:?}", &dependencies);
         assert_eq!(dependencies.len(), 3);
+
+        let content = r#"
+            #ifdef __STDC_VERSION__
+            #  ifndef STDC
+            #    define STDC
+            #  endif
+            #  if __STDC_VERSION__ >= 199901L
+            #    ifndef STDC99
+            #      define STDC99
+            #    endif
+            #  endif
+            #endif
+
+            #if defined(GEN) || !defined(STDC)
+            #else
+            #  include "trees.h"
+            #endif
+        "#;
+
+        let compiler_predefined: &[(&str, Option<&str>)] = &[
+            ("_WIN32", None), ("_WIN64", None),
+            ("_M_X64", Some("100")), ("_M_AMD64", Some("100")),
+            ("_MSC_VER", Some("1944")), ("_MSC_FULL_VER", Some("194435219")),
+            ("_MSC_BUILD", None), ("_MSVC_LANG", Some("201402L")),
+            ("__cplusplus", Some("201402L")), ("_MT", None), ("_DEBUG", None),
+            ("_INTEGRAL_MAX_BITS", Some("64")),
+            ("__STDC_HOSTED__", None), ("__STDC_VERSION__", Some("201710L")),
+            ("_WCHAR_T_DEFINED", None), ("_NATIVE_WCHAR_T_DEFINED", None),
+        ];
+        let defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+
+        for &(k, v) in compiler_predefined {
+            defines.write().unwrap().insert(k.to_string(), v.map(|s| s.to_string()));
+        }
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), defines, &std::vec::Vec::new());
+        println!("{:?}", &dependencies);
+        assert_eq!(dependencies.len(), 1);
     }
 
     //TODO: 
