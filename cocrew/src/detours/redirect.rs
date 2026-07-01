@@ -2,7 +2,7 @@
 use tokio::sync::mpsc::error;
 use windows_sys::Win32 as win;
 
-use crate::detours::detours::DetourCreateProcessWithDllExW;
+use crate::{communicate::unpackager::ReceivedCompileResources, detours::detours::DetourCreateProcessWithDllExW};
 use std::os::windows::{ffi::OsStrExt, io::FromRawHandle};
 
 struct HandleBox {
@@ -44,7 +44,12 @@ static VERSION_MAP_ENV: std::sync::LazyLock<std::sync::Mutex<std::collections::H
 
 pub unsafe fn pass_params_to_redirect(handle: win::Foundation::HANDLE, solution: &str, project: &str) {
     if !solution.is_empty() {
-        let arg = format!("solution:{}\r\nproject:{}\r\nreplica:{}\r\n", solution, project, tools::utils::access_replica_dir());
+        let includes = crate::communicate::unpackager::RECEIVED_COMPILE_RESOURCES.files.get(project).map(|entry| {
+            let includes = entry.value().iter().map(|item| item.key().to_string() + ":" + item.value()).collect::<Vec<String>>().join(";");
+            includes
+        }).unwrap_or_else(|| "".to_string());
+
+        let arg = format!("solution:{}\r\nproject:{}\r\nreplica:{}\r\ndependency:{}", solution, project, tools::utils::access_replica_dir(), includes);
         let mut bytes: u32 = 0;
         let mut overlapped: win::System::IO::OVERLAPPED = std::mem::zeroed();
         let ret = win::Storage::FileSystem::WriteFile(

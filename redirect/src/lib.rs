@@ -136,6 +136,7 @@ static GENERATEDDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static REPLICA_PDBPATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static INCLUDES: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sync::OnceLock::new();
 static SOURCES: std::sync::OnceLock<std::collections::HashSet<std::ffi::OsString>> = std::sync::OnceLock::new();
+static DEPENDENCYS: std::sync::OnceLock<std::collections::HashMap<String, String>> = std::sync::OnceLock::new();
 
 static WORKINGDIR: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
     if let Ok(path) = std::env::current_dir() {
@@ -211,6 +212,17 @@ fn read_project_property() {
                         else if line.starts_with("replica:") {
                             let dir = &line["replica:".len()..].trim();
                             let _ = REPLICADIR.set(dir.to_string());
+                        }
+                        else if line.starts_with("dependency:") {
+                            let deps = &line["dependency:".len()..].trim();
+                            let dependency = deps.split(';')
+                                .map(|item| item.split(':'))
+                                .filter_map(|mut parts| {
+                                    let key = parts.next()?.to_string();
+                                    let value = parts.next()?.to_string();
+                                    Some((key, value))
+                                }).collect::<std::collections::HashMap<_, _>>();
+                            let _ = DEPENDENCYS.set(dependency);
                         }
                     }
                     Err(e) => {
@@ -372,6 +384,7 @@ fn fetch_args_from_command() {
     }
     INCLUDES.set(includes).unwrap();
     log!(debug, "INCLUDES: {:?}", INCLUDES.get());
+    log!(debug, "DEPENDENCYS: {:?}", DEPENDENCYS.get());
 
 }   
 

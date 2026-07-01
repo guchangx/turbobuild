@@ -1,3 +1,5 @@
+use crate::DEPENDENCYS;
+
 
 const PROJECT: &str = "Project";
 pub struct Model {} 
@@ -189,64 +191,45 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
                 if path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
                     return ReplaceNtResult::FilePath;
                 }
+                else if DEPENDENCYS.get().map_or(false, |deps| {
+                    deps.iter().any(|(key, value)| {
+                        if path.contains(key) {
+                            let modified = format!(r"\??\{}", value);
+                            *path = modified;
+                            return true;
+                        }
+                        return false;
+                    })
+                }) {
+                    return ReplaceNtResult::Success;
+                }
                 else if path[4..].starts_with(crate::REPLICADIR.get().unwrap_or(&"*".to_string())) {
                     return ReplaceNtResult::FilePath;
                 }
                 else {
-                    let stempath = std::path::Path::new(&path[4..]);
-                    let stempathbuf = stempath.with_extension("");
-                    let sources = crate::SOURCES.get().unwrap();
-                    if sources.contains(stempathbuf.as_os_str()) {
-                        if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-                            Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::Success, |modified| {
-                                *path = modified;
-                                return ReplaceNtResult::Success;
-                            })
-                        }
-                        else {
-                            let index = path.find(":\\");
-                            if let Some(i) = index {
-                                let dir = &path[i + 2..];
-                                let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
-
-                                let modified = format!(r"\??\{}", modified);                 
-                                *path = modified;
-                                return ReplaceNtResult::Success;
-                            }
-                            else {
-                                let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&path).to_string_lossy().to_string();
-                                let modified = format!(r"\??\{}", modified);
-                                let unmodified = path.to_string();
-                                *path = modified;
-                                return ReplaceNtResult::NeedObtain(unmodified);
-                            }
-                        }
+                    if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
+                        Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::Success, |modified| {
+                            let unmodified = path.to_string();
+                            *path = modified;
+                            return ReplaceNtResult::NeedObtain(unmodified);
+                        })
                     }
                     else {
-                        //TODO: i do not know how to handle this case now, .h file should in generated dir or in self project dir.
-                        //TODO: if a .h file in sources dir, but name is source file name, should not obtain again.
-                        
-                        if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
-                            Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::Success, |modified| {
-                                let unmodified = path.to_string();
-                                *path = modified;
-                                return ReplaceNtResult::NeedObtain(unmodified);
-                            })
+                        let index = path.find(":\\");
+                        if let Some(i) = index {
+                            let dir = &path[i + 2..];
+                            let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
+
+                            let modified = format!(r"\??\{}", modified);                 
+                            *path = modified;
+                            return ReplaceNtResult::Success;
                         }
                         else {
-                            let index = path.find(":\\");
-                            if let Some(i) = index 
-                            {
-                                let dir = &path[i + 2..];
-                                let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
-                                let modified = format!(r"\??\{}", modified);
-                                let unmodified = path.to_string();
-                                *path = modified;
-                                return ReplaceNtResult::NeedObtain(unmodified);
-                            }
-                            else {
-                                return ReplaceNtResult::FilePath;
-                            }
+                            let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&path).to_string_lossy().to_string();
+                            let modified = format!(r"\??\{}", modified);
+                            let unmodified = path.to_string();
+                            *path = modified;
+                            return ReplaceNtResult::NeedObtain(unmodified);
                         }
                     }
                 }

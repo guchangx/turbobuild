@@ -2,7 +2,7 @@
 use std::io::Write;
 use tokio::io::AsyncWriteExt;
 
-use crate::communicate::syscallredirectpipe::MirrorSysCall;
+use crate::{communicate::syscallredirectpipe::MirrorSysCall, detours::detours::DetourUpdateProcessWithDll};
 use windows_sys::Win32 as win;
 
 #[allow(non_camel_case_types)]
@@ -56,6 +56,18 @@ pub struct QueryDirectoryFileInfos {
     pub cids: Vec<u32>,
     pub fileinformation: String,
 }
+
+#[derive(Debug, Clone)]
+pub struct ReceivedCompileResources {
+    pub files: dashmap::DashMap<String, dashmap::DashMap<String, String>>,
+}
+
+pub static RECEIVED_COMPILE_RESOURCES: std::sync::LazyLock<std::sync::Arc<ReceivedCompileResources>> = std::sync::LazyLock::new(|| {
+    let received_files = ReceivedCompileResources {
+        files: dashmap::DashMap::new(),
+    };
+    std::sync::Arc::new(received_files)
+});
 
 impl Receiver {
     
@@ -160,7 +172,9 @@ impl Receiver {
                 }
             }
         });
-            
+        
+        let mut gproject = std::sync::Arc::new(String::new());
+
         while let Some(request) = stream.next().await {
             if let Ok(request) = request {
 
@@ -192,11 +206,23 @@ impl Receiver {
                     }
                 }
                 else if file_type == package::FileType::Sourcefiles as i32 {
+
                     let ret = Self::storage(&solution, &path, &content).await;
-                    if let Err(err) = ret {
-                        log::error!("transmit file handle save source files failed: {}", err);
-                        reply.error_code = 1;
-                        reply.error_message = err;
+                    match ret {
+                        Ok(repath) => {
+                            if gproject.is_empty() {
+                                gproject = std::sync::Arc::new(project.clone());
+                            }
+
+                            RECEIVED_COMPILE_RESOURCES.files.entry(project.clone())
+                            .or_default() 
+                            .insert(path.clone(), repath.clone());
+                        },
+                        Err(err) => {
+                            log::error!("transmit file handle save source files failed: {}", err);
+                            reply.error_code = 1;
+                            reply.error_message = err;
+                        }
                     };
                 }
                 else if file_type == package::FileType::Precompiledsrcfiles as i32 {
@@ -262,6 +288,11 @@ impl Receiver {
                 log::error!("transmit file handle request error");
                 break;
             }
+        }
+
+        log::debug!("transmit file handle end. project: {} {:?}", gproject, RECEIVED_COMPILE_RESOURCES);
+        if !gproject.is_empty() {
+            RECEIVED_COMPILE_RESOURCES.files.remove(&gproject.to_string());
         }
     }
     
@@ -661,7 +692,7 @@ impl Receiver {
         });
     }
 
-    async fn storage(solution: &str, path: &str, content: &[u8]) -> Result<(), String> {
+    async fn storage(solution: &str, path: &str, content: &[u8]) -> Result<String, String> {
 
         if solution.is_empty() || path.is_empty() {
             log::error!("transmit storage project name or path is empty.");
@@ -709,8 +740,8 @@ impl Receiver {
                     }
                 }
             }
+            return Ok(path.to_string_lossy().to_string());   
         }
-        return Ok(());   
     }
 
     async fn extract(path: &str, content: &[u8]) {

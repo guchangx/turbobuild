@@ -1080,9 +1080,9 @@ impl MSVC {
 
                                     let stask = self_.runtime.spawn(async move {
                                         self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), defines_, &local_include_dir_and_files_, 
-                                            solution_, project_, dependency_cache_, resolve_dependency_includes_, stream.clone()).await;
+                                            solution_, project_, dependency_cache_, resolve_dependency_includes_, stream.clone()
+                                        ).await;
                                     });
-
                                     archive_stream_task.push(stask);
                                 }
 

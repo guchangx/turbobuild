@@ -38,4 +38,4 @@ windows-sys = {version = "0.60.2", features = ["Wdk_Storage_FileSystem", "Win32_
 [features]
 enforce_activate_local_cocrew = []
 fake = []
-default = []
+default = ["enforce_activate_local_cocrew"]
