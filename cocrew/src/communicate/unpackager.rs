@@ -206,17 +206,12 @@ impl Receiver {
                     }
                 }
                 else if file_type == package::FileType::Sourcefiles as i32 {
-
-                    let ret = Self::storage(&solution, &path, &content).await;
+                    let ret = Self::storage(&solution, &project, &path, &content).await;
                     match ret {
                         Ok(repath) => {
                             if gproject.is_empty() {
                                 gproject = std::sync::Arc::new(project.clone());
                             }
-
-                            RECEIVED_COMPILE_RESOURCES.files.entry(project.clone())
-                            .or_default() 
-                            .insert(path.clone(), repath.clone());
                         },
                         Err(err) => {
                             log::error!("transmit file handle save source files failed: {}", err);
@@ -226,7 +221,7 @@ impl Receiver {
                     };
                 }
                 else if file_type == package::FileType::Precompiledsrcfiles as i32 {
-                    let ret = Self::storage(&solution, &path, &content).await;
+                    let ret = Self::storage(&solution, &project, &path, &content).await;
                     if let Err(err) = ret {
                         log::error!("transmit file handle save precompiled src files failed: {}", err);
                         reply.error_code = 1;
@@ -311,7 +306,7 @@ impl Receiver {
         log::trace!("transmit compile handle project: {}, file: {}, compiler: {}, commands size: {}, content size: {}KB.", &project, file, compiler, commands.len(), &content.len() / 1024 );
 
         if !content.is_empty() && !file.is_empty() {
-            let ret = Self::storage(&solution_, &file, &content).await;
+            let ret = Self::storage(&solution_, &project, &file, &content).await;
 
             let mut reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Filetransfer.into(),
@@ -692,37 +687,41 @@ impl Receiver {
         });
     }
 
-    async fn storage(solution: &str, path: &str, content: &[u8]) -> Result<String, String> {
+    async fn storage(solution: &str, project: &str, path: &str, content: &[u8]) -> Result<String, String> {
+        use tokio::io::AsyncWriteExt;
 
         if solution.is_empty() || path.is_empty() {
             log::error!("transmit storage project name or path is empty.");
             return Err("project or path param is empty, so do nothing".to_string());
         }
         else {
-            let project: crew::replica::project::Property = crew::replica::project::Property::new(solution, path);
-            let path = project.fetch_local_replica_project_path();
+            let p: crew::replica::project::Property = crew::replica::project::Property::new(solution, path);
+            let repath = p.fetch_local_replica_project_path();
     
-            if path.extension() == Some(&std::ffi::OsStr::new("zip")) {
-                Self::extract(&path.to_str().unwrap(), &content).await;
+            if repath.extension() == Some(&std::ffi::OsStr::new("zip")) {
+                Self::extract(&repath.to_str().unwrap(), &content).await;
             }
             else {
-                let file = match std::fs::File::create(&path) {
+                RECEIVED_COMPILE_RESOURCES.files.entry(project.to_string())
+                    .or_default() 
+                    .insert(path.to_string(), repath.to_string_lossy().to_string());
+                log::debug!("transmit received storage save file: {} to {}", path, repath.to_string_lossy());
+
+                let file = match tokio::fs::File::create(&repath).await {
                     Ok(file) => Ok(file),
                     Err(err) => {
                         if err.kind() == std::io::ErrorKind::NotFound {
-                            let parent = path.parent().unwrap();
-                            if !parent.exists() {
-                                log::debug!("transmit storage create parent dir: {:?}", parent);
-                                std::fs::create_dir_all(parent).unwrap();
-                                let file = std::fs::File::create(&path);
-                                file
+                            let parent = repath.parent().unwrap();
+                            if let Err(err) = tokio::fs::create_dir_all(parent).await {
+                                log::debug!("transmit storage create parent dir: {:?} err: {:?}", parent, err);
+                                Err(err)
                             }
                             else {
-                                Err(err)
+                                tokio::fs::File::create(&repath).await
                             }
                         }
                         else {
-                            log::error!("transmit storage file create failed: {:?}, {}", path, err);
+                            log::error!("transmit storage file create failed: {:?}, {}", repath, err);
                             Err(err)
                         }
                     }
@@ -730,7 +729,7 @@ impl Receiver {
                 
                 //same source file may being used by another process. compiler open and current write at same time.
                 if let Ok(mut file) = file {
-                    match file.write_all(&content) {
+                    match file.write_all(&content).await {
                         Ok(_) => {
                             log::trace!("transmit storage file success: {:?}", path);
                         },
@@ -740,7 +739,7 @@ impl Receiver {
                     }
                 }
             }
-            return Ok(path.to_string_lossy().to_string());   
+            return Ok(repath.to_string_lossy().to_string());   
         }
     }
 

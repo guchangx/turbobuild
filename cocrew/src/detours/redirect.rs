@@ -45,11 +45,11 @@ static VERSION_MAP_ENV: std::sync::LazyLock<std::sync::Mutex<std::collections::H
 pub unsafe fn pass_params_to_redirect(handle: win::Foundation::HANDLE, solution: &str, project: &str) {
     if !solution.is_empty() {
         let includes = crate::communicate::unpackager::RECEIVED_COMPILE_RESOURCES.files.get(project).map(|entry| {
-            let includes = entry.value().iter().map(|item| item.key().to_string() + ":" + item.value()).collect::<Vec<String>>().join(";");
+            let includes = entry.value().iter().map(|item| item.key().to_string() + "|" + item.value()).collect::<Vec<String>>().join(";");
             includes
         }).unwrap_or_else(|| "".to_string());
-
-        let arg = format!("solution:{}\r\nproject:{}\r\nreplica:{}\r\ndependency:{}", solution, project, tools::utils::access_replica_dir(), includes);
+        log::debug!("pass_params_to_redirect: solution: {}, project: {}, includes: {}", solution, project, includes);
+        let arg = format!("solution:{}\r\nproject:{}\r\nreplica:{}\r\ndependencys:{}\r\n", solution, project, tools::utils::access_replica_dir(), includes);
         let mut bytes: u32 = 0;
         let mut overlapped: win::System::IO::OVERLAPPED = std::mem::zeroed();
         let ret = win::Storage::FileSystem::WriteFile(
@@ -169,6 +169,8 @@ fn extract_version_from_path(app: &String) -> Option<String> {
 pub fn msvc_detours(solution: String, project: String, app: String, command: String, workding_dir: String,
     envs: std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
 
+    log::debug!("msvc detours: {}.", project);
+
     unsafe {
         let lpApplicationName = app.as_str();
 
@@ -275,7 +277,7 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
 
             let mut hStdInRead: win::Foundation::HANDLE = std::ptr::null_mut();
             let mut hStdInWrite: win::Foundation::HANDLE = std::ptr::null_mut();
-            let ret = win::System::Pipes::CreatePipe(&mut hStdInRead, &mut hStdInWrite, &mut pipeAttributes, 0);
+            let ret = win::System::Pipes::CreatePipe(&mut hStdInRead, &mut hStdInWrite, &mut pipeAttributes, 1 * 1024 * 1024);
             if win::Foundation::FALSE == ret {
                 log::error!("create input pipe failed.")
             }
@@ -285,7 +287,7 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
             
             let mut hStdOutputRead: win::Foundation::HANDLE = std::ptr::null_mut();
             let mut hStdOutputWrite: win::Foundation::HANDLE = std::ptr::null_mut();
-            let ret = win::System::Pipes::CreatePipe( &mut hStdOutputRead, &mut hStdOutputWrite, &mut pipeAttributes, 0);
+            let ret = win::System::Pipes::CreatePipe( &mut hStdOutputRead, &mut hStdOutputWrite, &mut pipeAttributes, 1 * 1024 * 1024);
             if win::Foundation::FALSE == ret {
                 log::error!("create output pipe failed.")
             }
@@ -344,6 +346,9 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                 if ret == win::Foundation::FALSE as u32 {
                     let error_code = win::Foundation::GetLastError();
                     log::error!("ResumeThread failed! error code: {}.", error_code);
+                }
+                else {
+                    log::debug!("ResumeThread success.");
                 }
 
                 let hProcessBox = HandleBox::new(lpProcessInformation.hProcess as win::Foundation::HANDLE);
@@ -426,7 +431,7 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                     drop(stdoutstream);
                     return stdout;
                 }).unwrap();
-
+                log::debug!("spawn stdout reader thread success.");
                 let hStdErrorReadBox = HandleBox::new(hStdErrorRead);
                 let task_stderr = std::thread::Builder::new().name("build-stderr-reader".into()).spawn(move || {
                     let mut chTmpStdErrorReadBuffer =  [0u8; 1024];
@@ -490,9 +495,11 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                     return stderr;
                 }).unwrap();
                 
+                log::debug!("spawn stderr reader thread success.");
                 let stdout = task_stdout.join().unwrap();
                 let stderr = task_stderr.join().unwrap();
                 
+                log::debug!("stdout and stderr done.");
                 let mut code: u32 = 0;
                 win::System::Threading::GetExitCodeProcess(*hProcessBox.get(), &mut code as _);
                 log::info!("msvc detours: {} end with exit code: {:#x} pid: {:?}", project, code, lpProcessInformation.dwProcessId);

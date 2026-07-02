@@ -213,10 +213,11 @@ fn read_project_property() {
                             let dir = &line["replica:".len()..].trim();
                             let _ = REPLICADIR.set(dir.to_string());
                         }
-                        else if line.starts_with("dependency:") {
-                            let deps = &line["dependency:".len()..].trim();
+                        else if line.starts_with("dependencys:") {
+                            let deps = &line["dependencys:".len()..].trim();
+                            log!(trace, "read dependencys: {:?}", deps);
                             let dependency = deps.split(';')
-                                .map(|item| item.split(':'))
+                                .map(|item| item.split('|'))
                                 .filter_map(|mut parts| {
                                     let key = parts.next()?.to_string();
                                     let value = parts.next()?.to_string();

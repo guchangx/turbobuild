@@ -579,7 +579,7 @@ pub unsafe fn kernelbase_create_process_a(
             
             if ret == win::Foundation::TRUE {
                 if let Some(stdin_write) = stdin_write_handle {
-                    pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
+                    pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap(), crate::DEPENDENCYS.get().unwrap());
                 }
 
                 return ret;
@@ -769,7 +769,7 @@ pub unsafe fn kernelbase_create_process_w(
                     if application.ends_with("mspdbsrv.exe") {
                     }
                     else {
-                        pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap());
+                        pass_project_and_replica_to_redriect(stdin_write, crate::SOLUTIONNAME.get().unwrap(), crate::PROJECTNAME.get().unwrap(), crate::REPLICADIR.get().unwrap(), crate::DEPENDENCYS.get().unwrap());
                     }
                 }
                 crate::log!(info, "detour create process withdllexw success! application: {}, process: {}.", application, lp_process_information.as_ref().unwrap().dwProcessId);
@@ -1961,9 +1961,9 @@ pub unsafe fn nt_create_file(
     return nt_status;
 }
 
-pub unsafe fn pass_project_and_replica_to_redriect(handle: win::Foundation::HANDLE, solution: &str, project: &str, replica: &str) {
+pub unsafe fn pass_project_and_replica_to_redriect(handle: win::Foundation::HANDLE, solution: &str, project: &str, replica: &str, dependencys: &std::collections::HashMap<String, String>) {
     if !solution.is_empty() {
-        let arg = format!("solution:{}\nproject:{}\nreplica:{}\n", solution, project, replica);
+        let arg = format!("solution:{}\nproject:{}\nreplica:{}\ndependencys:{}\n", solution, project, replica, dependencys.iter().map(|(k, v)| format!("{}|{}", k, v)).collect::<Vec<String>>().join(";"));
         let mut bytes: u32 = 0;
         let mut overlapped: win::System::IO::OVERLAPPED = std::mem::zeroed();
         let ret = win::Storage::FileSystem::WriteFile(

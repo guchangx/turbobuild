@@ -1149,6 +1149,7 @@ impl MSVC {
         resolve_dependency_includes: std::sync::Arc<dashmap::DashMap::<String, std::sync::Arc<dashmap::DashSet<String>>>>,
         stream: tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs>) {
         
+        let path = path.replace('/', "\\");
         if cache.contains(&path) {
             return;
         }

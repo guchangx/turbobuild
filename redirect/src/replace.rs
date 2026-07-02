@@ -235,8 +235,21 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
                 }
             }
             else if extension == "cpp" || extension == "cxx" || extension == "cc" || extension == "c" || extension == "c++" {
+                
                 if path[4..].starts_with(crate::REPLICADIR.get().unwrap_or(&"*".to_string())) {
                     return ReplaceNtResult::FilePath;
+                }
+                else if DEPENDENCYS.get().map_or(false, |deps| {
+                    deps.iter().any(|(key, value)| {
+                        if path.contains(key) {
+                            let modified = format!(r"\??\{}", value);
+                            *path = modified;
+                            return true;
+                        }
+                        return false;
+                    })
+                }) {
+                    return ReplaceNtResult::Success;
                 }
                 else if path.contains("moc_") || path.contains("mocs_") || path.contains("qrc_") {
                     if path.contains(crate::SOLUTIONNAME.get().unwrap()) {
