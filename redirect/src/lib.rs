@@ -200,7 +200,6 @@ fn read_project_property() {
                 match line {
                     Ok(line) if line.is_empty() => break,
                     Ok(line) => {
-                        log!(trace, "read stdin: {:?}", line);
                         if line.starts_with("solution:") {
                             let sln = &line["solution:".len()..].trim();
                             let _ = SOLUTIONNAME.set(sln.to_string());
@@ -215,7 +214,6 @@ fn read_project_property() {
                         }
                         else if line.starts_with("dependencys:") {
                             let deps = &line["dependencys:".len()..].trim();
-                            log!(trace, "read dependencys: {:?}", deps);
                             let dependency = deps.split(';')
                                 .map(|item| item.split('|'))
                                 .filter_map(|mut parts| {
@@ -348,8 +346,7 @@ fn fetch_args_from_command() {
             if let Some(dir) = path.parent() {
                 sources_dir.insert(dir.to_path_buf());
             };
-            let newpath = path.with_extension("");
-            sources.insert(newpath.as_os_str().to_owned());
+            sources.insert(path.as_os_str().to_owned());
         }
     }
     if !sources.is_empty() {

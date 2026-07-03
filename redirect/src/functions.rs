@@ -137,8 +137,6 @@ pub unsafe fn create_file_w(
     dw_flags_and_attributes: win::Storage::FileSystem::FILE_FLAGS_AND_ATTRIBUTES,
     h_template_file: win::Foundation::HANDLE,
 ) -> win::Foundation::HANDLE {
-    let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
-    log!(trace, "create_file_w hook path: {:?}", path);
     if h_template_file == *CALL_TEMPLATE as win::Foundation::HANDLE {
         let create_file_w_inner: extern "system" fn (
             lp_file_name: windows_sys::core::PCWSTR,
@@ -209,7 +207,9 @@ pub unsafe fn create_file_w(
         return handle;
     }
 
-    //let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
+    let path = crate::utils::convert::lpwstr_2_string(lp_file_name);
+    log!(trace, "create_file_w hook path: {:?}", path);
+
     if let Some(mut path) = path {
 
         //crate::log!(trace, "create_file_w hook path: {}", path);
@@ -1005,10 +1005,14 @@ pub unsafe fn nt_query_directory_file(
     restart_scan: bool
     ) -> windows_sys::Win32::Foundation::NTSTATUS {
     
+    let name;
     if !file_name.is_null() {
         let buffer = (*file_name).Buffer;
-        let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+        name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
         crate::log!(debug, "nt_query_directory_file called: handle: {:?}, file_name: {:?} ", file_handle, name);
+    } 
+    else {
+        name = String::new();
     }
 
     let nt_query_directory_file: extern "system" fn(
@@ -1028,8 +1032,6 @@ pub unsafe fn nt_query_directory_file(
     if (restart_scan && !file_name.is_null()) || (file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation) {
       
         if let Some(val) = NT_HANDLE_MAP_FILES.read().unwrap().get(&(file_handle as i32)) {
-            let buffer = (*file_name).Buffer;
-            let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
 
             if val.contains(&name.to_lowercase()) {
                 if !file_information.is_null() {
@@ -1087,8 +1089,6 @@ pub unsafe fn nt_query_directory_file(
             }
         }
         else {
-            let buffer = (*file_name).Buffer;
-            let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
 
             let nt_status = nt_query_directory_file(file_handle, event, apc_routine, apc_context, io_status_block,
                 file_information, length, file_information_class, return_single_entry, file_name, restart_scan

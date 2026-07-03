@@ -27,15 +27,15 @@ unsafe impl Send for HandleBox {}
 unsafe impl Sync for HandleBox {}
 
 static REDIRECT_DLL_PATH: std::sync::LazyLock<Option<std::ffi::CString>> = std::sync::LazyLock::new(|| {
-        if let Some(path) = tools::utils::access_working_path("redirect64.dll") {
-            log::debug!("access redirect64 path successful. {:?}", path);
-            return Some(std::ffi::CString::new(path).unwrap());
-        }
-        else {
-            log::error!("access redirect64 path failed.");
-            return None;
-        }
-    });
+    if let Some(path) = tools::utils::access_working_path("redirect64.dll") {
+        log::debug!("access redirect64 path successful. {:?}", path);
+        return Some(std::ffi::CString::new(path).unwrap());
+    }
+    else {
+        log::error!("access redirect64 path failed.");
+        return None;
+    }
+});
 
 static VERSION_MAP_ENV: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<String, Vec<u16>>>> = std::sync::LazyLock::new(|| {
     let mut map = std::collections::HashMap::new();
@@ -48,7 +48,6 @@ pub unsafe fn pass_params_to_redirect(handle: win::Foundation::HANDLE, solution:
             let includes = entry.value().iter().map(|item| item.key().to_string() + "|" + item.value()).collect::<Vec<String>>().join(";");
             includes
         }).unwrap_or_else(|| "".to_string());
-        log::debug!("pass_params_to_redirect: solution: {}, project: {}, includes: {}", solution, project, includes);
         let arg = format!("solution:{}\r\nproject:{}\r\nreplica:{}\r\ndependencys:{}\r\n", solution, project, tools::utils::access_replica_dir(), includes);
         let mut bytes: u32 = 0;
         let mut overlapped: win::System::IO::OVERLAPPED = std::mem::zeroed();
@@ -168,8 +167,6 @@ fn extract_version_from_path(app: &String) -> Option<String> {
 
 pub fn msvc_detours(solution: String, project: String, app: String, command: String, workding_dir: String,
     envs: std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>, out_err_stream: &crate::compiler::msvc::OutAndErrStream) -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
-
-    log::debug!("msvc detours: {}.", project);
 
     unsafe {
         let lpApplicationName = app.as_str();
@@ -347,9 +344,6 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                     let error_code = win::Foundation::GetLastError();
                     log::error!("ResumeThread failed! error code: {}.", error_code);
                 }
-                else {
-                    log::debug!("ResumeThread success.");
-                }
 
                 let hProcessBox = HandleBox::new(lpProcessInformation.hProcess as win::Foundation::HANDLE);
                 let hProcessForStdout = hProcessBox.clone();
@@ -431,7 +425,7 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                     drop(stdoutstream);
                     return stdout;
                 }).unwrap();
-                log::debug!("spawn stdout reader thread success.");
+      
                 let hStdErrorReadBox = HandleBox::new(hStdErrorRead);
                 let task_stderr = std::thread::Builder::new().name("build-stderr-reader".into()).spawn(move || {
                     let mut chTmpStdErrorReadBuffer =  [0u8; 1024];
@@ -495,11 +489,9 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                     return stderr;
                 }).unwrap();
                 
-                log::debug!("spawn stderr reader thread success.");
                 let stdout = task_stdout.join().unwrap();
                 let stderr = task_stderr.join().unwrap();
                 
-                log::debug!("stdout and stderr done.");
                 let mut code: u32 = 0;
                 win::System::Threading::GetExitCodeProcess(*hProcessBox.get(), &mut code as _);
                 log::info!("msvc detours: {} end with exit code: {:#x} pid: {:?}", project, code, lpProcessInformation.dwProcessId);
