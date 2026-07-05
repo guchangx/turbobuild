@@ -90,7 +90,8 @@ pub fn get_winapi_error_message(error: u32) -> String {
     }
 }
 
-pub fn normalize_lexical<P: AsRef<std::path::Path>>(p: P) -> std::path::PathBuf {
+#[deprecated(note = "use `normalize_lexical`")]
+pub fn _normalize_lexical<P: AsRef<std::path::Path>>(p: P) -> std::path::PathBuf {
 
     let mut parts: Vec<std::ffi::OsString> = Vec::new();
     let mut out = std::path::PathBuf::new();
@@ -113,6 +114,37 @@ pub fn normalize_lexical<P: AsRef<std::path::Path>>(p: P) -> std::path::PathBuf 
        let mut out_os_string = out.into_os_string();
        out_os_string.push(std::path::MAIN_SEPARATOR.to_string());
        out = std::path::PathBuf::from(out_os_string);
+    }
+    out
+}
+
+pub fn normalize_lexical<P: AsRef<std::path::Path>>(p: P) -> std::path::PathBuf {
+
+    let path = p.as_ref();
+    let bytes = path.as_os_str().as_encoded_bytes();
+    let mut out = std::path::PathBuf::with_capacity(bytes.len() + 1);
+
+    for c in path.components() {
+        match c {
+            std::path::Component::Prefix(_) 
+            | std::path::Component::RootDir 
+            | std::path::Component::Normal(_) => {
+                out.push(c);
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+        }
+    }
+
+    let has_trailing_slash = bytes.ends_with(&[std::path::MAIN_SEPARATOR as u8])
+        || (cfg!(windows) && bytes.ends_with(&[b'/']));
+
+    if has_trailing_slash {
+        let mut os_string = out.into_os_string();
+        os_string.push(std::path::MAIN_SEPARATOR_STR);
+        out = std::path::PathBuf::from(os_string);
     }
     out
 }

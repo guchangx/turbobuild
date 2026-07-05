@@ -106,6 +106,10 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
     }
 }
 
+fn check_cache_in_memory(dir: &String) -> bool {
+    crate::compiler::model::WALK_DIRS_FILES.exists(&dir)
+}
+
 unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<String, String>) -> std::collections::HashMap<String, String> {
 
     let mut fileh = params.get("filehandle").unwrap().to_owned();
@@ -271,14 +275,20 @@ unsafe fn redirect_nt_create_file(params: &mut std::collections::HashMap<String,
         }
     }
     else if let Some(value) = params.get_mut("exists") {
-        let path = std::path::Path::new(&objectname);
-        if path.exists() {
+        if check_cache_in_memory(&objectname) {
             *value = "true".to_string();
             return Ok(("exists".to_string(), "true".as_bytes().to_vec()));
         }
         else {
-            *value = "false".to_string();
-            return Ok(("exists".to_string(), "false".as_bytes().to_vec()));
+            let path = std::path::Path::new(&objectname);
+            if path.exists() {
+                *value = "true".to_string();
+                return Ok(("exists".to_string(), "true".as_bytes().to_vec()));
+            }
+            else {
+                *value = "false".to_string();
+                return Ok(("exists".to_string(), "false".as_bytes().to_vec()));
+            }
         }
     }
     else {

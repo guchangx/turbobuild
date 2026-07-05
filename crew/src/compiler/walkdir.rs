@@ -29,15 +29,16 @@ impl WalkDir {
 
             let files = crate::compiler::dependency::query_include_dir(&std::vec![dir.to_owned()]);
             for (key, value) in files {
-                let value = std::sync::Arc::new(value);
-                self.dirfiles.insert(key.clone(), std::sync::Arc::clone(&value));
+                self.dirfiles.insert(key.clone(), value.clone());
                 result.push((key, value));
             }
         }
-
         result
     }
 
+    pub fn exists(&self, dir: &str) -> bool {
+        self.dirfiles.contains_key(dir)
+    }
 
     pub fn clear(&self) {
         self.dirfiles.clear();

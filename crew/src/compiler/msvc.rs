@@ -807,7 +807,7 @@ impl MSVC {
         log::trace!("include dir list: {:#?}", &source_file_current_dir);
 
         let now = std::time::Instant::now();
-        let local_include_dir_and_files = std::sync::Arc::new(dependency::query_include_dir(&source_file_current_dir));
+        let local_include_dir_and_files = std::sync::Arc::new(crate::compiler::model::WALK_DIRS_FILES.add(&source_file_current_dir));
         log::debug!("query include dir and files done. elapsed time: {:?}", now.elapsed());
         
         let solution = std::sync::Arc::new(input.solution.to_string_lossy().to_string());
@@ -1142,7 +1142,7 @@ impl MSVC {
 
     async fn parser_sourcefile_sync_dependency(&self, path: String, 
         defines: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>, 
-        include_dir_files: &std::vec::Vec::<(String, std::collections::HashSet<String>)>,
+        include_dir_files: &std::vec::Vec::<(String, std::sync::Arc<std::collections::HashSet<String>>)>,
         solution: std::sync::Arc<String>,
         project: std::sync::Arc<String>, 
         cache: std::sync::Arc<dashmap::DashSet::<String>>,

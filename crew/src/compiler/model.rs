@@ -1,3 +1,4 @@
+
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct SyncData {
     pub sync_kind: std::ffi::OsString,
@@ -69,3 +70,7 @@ pub type CompiledResults = Vec<CompiledResult>;
 pub type OutputCallback = std::sync::Arc<dyn Fn(crate::compiler::model::CompilerOutput) 
             -> Box<dyn std::future::Future<Output = ()> + Send> 
             + Send + Sync>;
+
+pub static WALK_DIRS_FILES: std::sync::LazyLock<crate::compiler::walkdir::WalkDir> = std::sync::LazyLock::new(|| {
+    crate::compiler::walkdir::WalkDir::new()
+});

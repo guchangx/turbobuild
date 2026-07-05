@@ -330,8 +330,7 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
                 }
                 else {
                     let index = path.find(":\\");
-                    if let Some(i) = index 
-                    {
+                    if let Some(i) = index {
                         let dir = &path[i + 2..];
                         let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
                         let modified = format!(r"\??\{}", modified);
@@ -356,8 +355,8 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
         }
         else if crate::SOLUTIONNAME.get().is_some() && path.contains(crate::SOLUTIONNAME.get().unwrap()) {
 
-            let target = std::path::PathBuf::from(&path[4..path.len() - 1]);
-            if crate::INCLUDES.get().unwrap().iter().any(|item| item == &target || target.starts_with(item)) {
+            let target = &path[4..path.len() - 1];
+            if crate::INCLUDES.get().unwrap().iter().any(|item| item == target || target.starts_with(item)) {
                 return Model::fetch_local_replica_project_path(&path).map_or(ReplaceNtResult::VirtualIncludesDir(path.to_string()), |modified| {
                     let unmodified = path.to_string();
                     *path = modified;
@@ -396,8 +395,8 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
             }
         }
         else {
-            let target = std::path::PathBuf::from(&path[4..path.len() - 1]);
-            if crate::INCLUDES.get().unwrap().iter().any(|item| item == &target || target.starts_with(item)) {
+            let target = &path[4..path.len() - 1];
+            if crate::INCLUDES.get().unwrap().iter().any(|item| item == target || target.starts_with(item)) {
 
                 let index = path.find(":\\");
                 if let Some(i) = index {

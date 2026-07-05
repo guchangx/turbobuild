@@ -364,7 +364,7 @@ fn parse_define(s: &str, defines: std::sync::Arc<std::sync::RwLock<std::collecti
 }
 
 pub fn parser_sourcefile_dependency(content: &[u8], defines: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>,
-        include_dir_files: &std::vec::Vec::<(String, std::collections::HashSet<String>)>
+        include_dir_files: &std::vec::Vec::<(String, std::sync::Arc<std::collections::HashSet<String>>)>
     ) -> std::vec::Vec<String> {
 
     #[derive(Clone, PartialEq)]
@@ -524,14 +524,18 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: std::sync::Arc<std:
     return includes;
 }
 
-fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String, std::collections::HashSet<String>)>, dep: &str) -> Option<std::path::PathBuf> {
+fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String, std::sync::Arc<std::collections::HashSet<String>>)>, dep: &str) -> Option<std::path::PathBuf> {
 
-    if include_dir_files.is_empty() {
-        return Some(std::path::PathBuf::from(dep));
-    }
-
-    for (dir, files) in include_dir_files {
-        if files.contains(&dep.replace("/", "\\")) {
+    for (dir, files) in include_dir_files.iter() {
+        if dep.starts_with("..") {
+            let p = tools::utils::normalize_lexical(dir.to_owned() + "\\" + dep).to_string_lossy().to_string();
+            for file in files.iter() {
+                if dir.to_owned() + "\\" + file == p {
+                    return Some(std::path::PathBuf::from(p));
+                }
+            }
+        }
+        else if files.contains(&dep.replace("/", "\\")) {
             return Some(std::path::PathBuf::from(dir).join(dep));
         }
         else {
@@ -543,20 +547,27 @@ fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String
             }
         }
     }
-    None
+
+    if include_dir_files.is_empty() {
+        return Some(std::path::PathBuf::from(dep));
+    }
+    else {
+        return None;
+    }
 }
 //.inc;.rc;.resx;.idl;.rc2;.def
 //.odl;.asm;.asmx;.xsd;.bin;.rgs;.html;.htm;.manifest
 //.cpp;.cxx;.cc;.c;.c++;.cppm;.ixx;.inl;.ipp
 //.h;.hh;.hpp;.hxx;.h++;.hm
 
-pub fn query_include_dir(include_dirs: &Vec<std::path::PathBuf>) -> std::vec::Vec::<(String, std::collections::HashSet<String>)> { 
+pub fn query_include_dir(include_dirs: &Vec<std::path::PathBuf>) -> std::vec::Vec::<(String, std::sync::Arc<std::collections::HashSet<String>>)> { 
     include_dirs.par_iter().map(|dir| {
         let mut set = std::collections::HashSet::<String>::new();
         if let Ok(entries) = std::fs::read_dir(&dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_file() {
+                
+                if entry.file_type().unwrap().is_file() {
                     if path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.to_ascii_lowercase()).filter(|ext| ext == "h" || ext == "hpp" 
                         || ext == "hh" || ext == "hxx" || ext == "h++" || ext == "hm" || ext == "inl").is_some() {
                         if let Ok(p) = path.strip_prefix(&dir) {
@@ -564,17 +575,21 @@ pub fn query_include_dir(include_dirs: &Vec<std::path::PathBuf>) -> std::vec::Ve
                         }
                     }
                 }
-                else if path.is_dir() {
-                    set.extend(query_include_dir_recursive(path, &dir));
+                else if entry.file_type().unwrap().is_dir() {
+                    let name = entry.file_name();
+                    if name.to_str().unwrap().starts_with('.') {
+                        continue;
+                    }
+                    query_include_dir_recursive(path, &dir, &mut set);
                 }
             }
         }
-        (dir.to_string_lossy().to_string(), set)
+        (dir.to_string_lossy().to_string(), std::sync::Arc::new(set))
     }).collect()
 }
 
-fn query_include_dir_recursive(dir: std::path::PathBuf, start: &std::path::PathBuf) -> std::collections::HashSet<String> {
-    let mut set = std::collections::HashSet::<String>::new();
+fn query_include_dir_recursive(dir: std::path::PathBuf, start: &std::path::PathBuf, set: &mut std::collections::HashSet<String>) {
+
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -587,11 +602,10 @@ fn query_include_dir_recursive(dir: std::path::PathBuf, start: &std::path::PathB
                 }
             }
             else if path.is_dir() {
-                set.extend(query_include_dir_recursive(path, &start));
+                query_include_dir_recursive(path, &start, set);
             }
         }
     }
-    return set;
 }
 
 #[cfg(test)]
@@ -892,8 +906,9 @@ mod tests {
 
     #[test]
     fn query_include_dir_test() {
-        let files = query_include_dir(&vec![std::path::PathBuf::from("D:\\WebexApp\\spark-client-framework\\AccessoriesEngine")]);
-        println!("{:#?}", &files);
+        let now = std::time::Instant::now();
+        let _ = query_include_dir(&vec![std::path::PathBuf::from("D:\\Webex")]);
+        println!("query_include_dir_test: {:?}", now.elapsed());
     }
 
     /*

@@ -134,7 +134,7 @@ static  REPLICADIR: std::sync::LazyLock<std::sync::Mutex<Option<String>>> = std:
 static REPLICADIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static GENERATEDDIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 static REPLICA_PDBPATH: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-static INCLUDES: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sync::OnceLock::new();
+static INCLUDES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 static SOURCES: std::sync::OnceLock<std::collections::HashSet<std::ffi::OsString>> = std::sync::OnceLock::new();
 static DEPENDENCYS: std::sync::OnceLock<std::collections::HashMap<String, String>> = std::sync::OnceLock::new();
 
@@ -276,13 +276,13 @@ fn fetch_args_from_command() {
             if index + 1 < commands.len() {
                 let include = commands[index + 1].to_string_lossy().to_string();
                 let new = tools::utils::normalize_lexical(&include);
-                includes.push(new);
+                includes.push(new.into_os_string().into_string().unwrap());
             }
         }
         else if item.starts_with("/Fo") {
             if item.ends_with(".obj") {
                 std::path::Path::new(&item[3..]).parent().map(|parent| {
-                    let path = parent.to_string_lossy().to_string();
+                    let path = parent.to_string_lossy();
                     if let Some(project) = crate::SOLUTIONNAME.get() {
                         if let Some(index) = path.find(project) {
                             if index + project.len() + 1 < path.len() {
@@ -291,11 +291,11 @@ fn fetch_args_from_command() {
                             }
                         }
                         else {
-                            GENERATEDDIR.set(path).unwrap();    
+                            GENERATEDDIR.set(path.to_string()).unwrap();    
                         }
                     }
                     else {
-                        GENERATEDDIR.set(path).unwrap();
+                        GENERATEDDIR.set(path.to_string()).unwrap();
                     }
                 });
             }
@@ -344,7 +344,7 @@ fn fetch_args_from_command() {
         else if item.ends_with(".c") || item.ends_with(".cpp") || item.ends_with(".cc") || item.ends_with(".cxx") {
             let path = std::path::Path::new(item.as_ref());
             if let Some(dir) = path.parent() {
-                sources_dir.insert(dir.to_path_buf());
+                sources_dir.insert(dir.to_string_lossy().to_string());
             };
             sources.insert(path.as_os_str().to_owned());
         }
@@ -375,7 +375,7 @@ fn fetch_args_from_command() {
             let paths: Vec<&str> = value.split(';').collect();
             for path in paths {
                 if !path.is_empty() {
-                    includes.push(std::path::PathBuf::from(path));
+                    includes.push(path.to_string());
                 }
             }
         }

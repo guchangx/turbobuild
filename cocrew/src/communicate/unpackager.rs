@@ -705,7 +705,6 @@ impl Receiver {
                 RECEIVED_COMPILE_RESOURCES.files.entry(project.to_string())
                     .or_default() 
                     .insert(path.to_string(), repath.to_string_lossy().to_string());
-                log::debug!("transmit received storage save file: {} to {}", path, repath.to_string_lossy());
 
                 let file = match tokio::fs::File::create(&repath).await {
                     Ok(file) => Ok(file),
