@@ -588,6 +588,42 @@ pub fn query_include_dir(include_dirs: &Vec<std::path::PathBuf>) -> std::vec::Ve
     }).collect()
 }
 
+pub fn query_include_dir_ignore(path: &std::path::PathBuf) {
+
+    let walker =ignore::WalkBuilder::new(path)
+            .hidden(true) 
+            .git_ignore(false)
+            .build_parallel();
+
+    let (tx, rx) = std::sync::mpsc::channel::<std::path::PathBuf>();
+    let walk_thread = std::thread::spawn(move || {
+        walker.run(|| {
+
+            let tx_ = tx.clone();
+
+            Box::new(move |result| {
+                if let Ok(entry) = result {
+
+                    if entry.file_type().map_or(false, |ft| ft.is_file()) {
+                        let _ = tx_.send(entry.into_path());
+                    }
+                }
+                
+                ignore::WalkState::Continue
+            })
+        });
+    });
+
+
+    let mut file_paths: Vec<std::path::PathBuf> = Vec::new();
+    
+    for path in rx {
+        file_paths.push(path);
+    }
+
+    walk_thread.join().unwrap();
+}
+
 fn query_include_dir_recursive(dir: std::path::PathBuf, start: &std::path::PathBuf, set: &mut std::collections::HashSet<String>) {
 
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -911,6 +947,12 @@ mod tests {
         println!("query_include_dir_test: {:?}", now.elapsed());
     }
 
+    #[test]
+    fn query_include_dir_ignore_test() {
+        let now = std::time::Instant::now();
+        query_include_dir_ignore(&std::path::PathBuf::from("D:\\WorkSpace\\OpenSource"));
+        println!("query_include_dir_ignore_test: {:?}", now.elapsed());
+    }
     /*
     #ifndef KDEITEMMODELS_EXPORT_H
     #define KDEITEMMODELS_EXPORT_H
