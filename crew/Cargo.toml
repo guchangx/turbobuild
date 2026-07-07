@@ -26,6 +26,7 @@ windows-sys = {version = "0.60.2", features = ["Win32_System_Registry", "Wdk_Fou
 bytes = "1.11.1"
 rayon = "1.12.0"
 ignore = "0.4.27"
+rustc-hash = "2.1.3"
 #tracing = "0.1.41"
 #console-subscriber = "0.4.1"
 

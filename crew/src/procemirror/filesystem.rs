@@ -329,7 +329,11 @@ mod tests {
         let mut params = std::collections::HashMap::new();
         params.insert("filehandle".to_string(), dir);
 
-        unsafe { redirect_nt_query_directory_file(params) };
+        unsafe { 
+            let now = std::time::Instant::now();
+            redirect_nt_query_directory_file(params);
+            println!("redirect_nt_query_directory_file took: {:?}", now.elapsed());
+        };
     }
 
     #[test]
