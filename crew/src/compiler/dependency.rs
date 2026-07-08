@@ -1,5 +1,6 @@
 
 use rayon::prelude::*;
+use tonic::service::LayerExt;
 
 pub struct ProcessorDefines {
     macros: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>,
@@ -588,24 +589,29 @@ pub fn query_include_dir(include_dirs: &Vec<std::path::PathBuf>) -> std::vec::Ve
     }).collect()
 }
 
-pub fn query_include_dir_ignore(path: &std::path::PathBuf) {
+pub fn query_include_dir_ignore(dir: &std::path::PathBuf) {
 
-    let walker =ignore::WalkBuilder::new(path)
+    let walker =ignore::WalkBuilder::new(dir)
             .hidden(true) 
             .git_ignore(false)
             .build_parallel();
 
     let (tx, rx) = std::sync::mpsc::channel::<std::path::PathBuf>();
+    let dir_ = dir.clone();
     let walk_thread = std::thread::spawn(move || {
         walker.run(|| {
 
             let tx_ = tx.clone();
 
+            let dir_ = dir_.clone();
             Box::new(move |result| {
                 if let Ok(entry) = result {
 
                     if entry.file_type().map_or(false, |ft| ft.is_file()) {
-                        let _ = tx_.send(entry.into_path());
+                        if let Ok(p) = entry.path().strip_prefix(&dir_) {
+                            println!("Found file: {} at depth {}", p.display(), entry.depth());
+                            let _ = tx_.send(p.to_path_buf());                           
+                        }
                     }
                 }
                 
@@ -615,10 +621,10 @@ pub fn query_include_dir_ignore(path: &std::path::PathBuf) {
     });
 
 
-    let mut file_paths: Vec<std::path::PathBuf> = Vec::new();
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
     
     for path in rx {
-        file_paths.push(path);
+        files.push(path);
     }
 
     walk_thread.join().unwrap();
@@ -950,7 +956,7 @@ mod tests {
     #[test]
     fn query_include_dir_ignore_test() {
         let now = std::time::Instant::now();
-        query_include_dir_ignore(&std::path::PathBuf::from("D:\\WorkSpace\\OpenSource"));
+        query_include_dir_ignore(&std::path::PathBuf::from("D:\\WorkSpace\\OpenSource\\ZLMediaKit"));
         println!("query_include_dir_ignore_test: {:?}", now.elapsed());
     }
     /*

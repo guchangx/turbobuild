@@ -4,7 +4,7 @@
 //msvc.rs
 //mod.rs
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct FsNode {
     pub dir: rustc_hash::FxHashMap<std::ffi::OsString, std::sync::Arc<FsNode>>,
     pub files: rustc_hash::FxHashSet<std::ffi::OsString>,
@@ -18,7 +18,7 @@ impl FsNode {
         }
     }
 
-    fn insfile(&mut self, path: &std::path::Path) {
+    fn insfile(&mut self, path: &std::path::Path, is_dir: bool) {
         let mut current = self;
         let mut components = path.components().filter_map(|component| match component {
             std::path::Component::Normal(osstr) => Some(osstr.to_owned()),
@@ -32,31 +32,55 @@ impl FsNode {
                     .entry(component)
                     .or_insert_with(|| std::sync::Arc::new(FsNode::new()));
                 current = std::sync::Arc::make_mut(child);
-            } else {
-                current.files.insert(component);
+            }
+            else {
+                if is_dir {
+                    let child = current
+                        .dir
+                        .entry(component)
+                        .or_insert_with(|| std::sync::Arc::new(FsNode::new()));
+                    current = std::sync::Arc::make_mut(child);
+                } else {
+                    current.files.insert(component);
+                }
             }
         }
     }
 
-    pub fn add(&mut self, path: &std::ffi::OsString) {
-        let mut root = FsNode::new();
+    pub fn add(&mut self, dir: &std::ffi::OsString) {
+        self.dir.insert(dir.to_owned(), std::sync::Arc::new(FsNode::new()));
 
-        let walker =ignore::WalkBuilder::new(path)
+        let walker = ignore::WalkBuilder::new(dir)
         .hidden(true) 
         .git_ignore(false)
         .build_parallel();
 
-        let (tx, rx) = std::sync::mpsc::channel::<std::path::PathBuf>();
+        let dir_ = dir.clone();
+        let (tx, rx) = std::sync::mpsc::channel::<(std::path::PathBuf, bool)>();
         let walk_thread = std::thread::spawn(move || {
             walker.run(|| {
 
                 let tx_ = tx.clone();
+                let dir_ = dir_.clone();
 
                 Box::new(move |result| {
                     if let Ok(entry) = result {
 
-                        if entry.file_type().map_or(false, |ft| ft.is_file()) {
-                            let _ = tx_.send(entry.into_path());
+                        if entry.file_type().map_or(false, |ft| ft.is_dir()) {
+                            if let Ok(p) = entry.path().strip_prefix(&dir_) {
+                                println!("Found dir: {} at depth {}", p.display(), entry.depth());
+                                let _ = tx_.send((p.to_path_buf(), true));
+                            }
+                        }
+                        else {
+                            if let Ok(p) = entry.path().strip_prefix(&dir_) {
+                                p.extension().map(|ext| ext.to_string_lossy()).map(|ext| {
+                                    if ext == "h" || ext == "hpp" || ext == "c" || ext == "cpp" || ext == "cc" {
+                                        println!("Found file: {} at depth {}", p.display(), entry.depth());
+                                        let _ = tx_.send((p.to_path_buf(), false));
+                                    }
+                                });
+                            }
                         }
                     }
                     
@@ -65,12 +89,14 @@ impl FsNode {
             });
         });
         
-        for path in rx {
-            root.insfile(&path);
+        for (path, is_dir) in rx {
+            self.insfile(&path, is_dir);
         }
 
+        println!("Finished walking directory: {:#?}", self.dir);
+        println!("Finished walking directory: {:#?}", self.files);
+
         walk_thread.join().unwrap();
-        self.dir.insert(path.to_owned(), std::sync::Arc::new(root));
     
     }
 
@@ -137,4 +163,11 @@ impl WalkDir {
     pub fn clear(&self) {
         self.dirfiles.clear();
     }
+}
+
+#[test]
+fn query_include_dir_ignore_test() {
+    let now = std::time::Instant::now();
+    FsNode::new().add(&std::ffi::OsString::from("D:\\WorkSpace\\OpenSource\\ZLMediaKit\\3rdpart\\media-server\\libmov"));
+    println!("query_include_dir_ignore_test: {:?}", now.elapsed());
 }
