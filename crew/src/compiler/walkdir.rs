@@ -18,31 +18,30 @@ impl FsNode {
         }
     }
 
-    fn insfile(&mut self, path: &std::path::Path, is_dir: bool) {
-        let mut current = self;
+    fn insfile(&mut self, root: &std::ffi::OsString, path: &std::path::Path, is_dir: bool) {
+        let mut current = std::sync::Arc::make_mut(
+            self
+            .dir
+            .entry(root.clone())
+            .or_insert_with(|| std::sync::Arc::new(FsNode::new())),
+        );
+
         let mut components = path.components().filter_map(|component| match component {
-            std::path::Component::Normal(osstr) => Some(osstr.to_owned()),
+            std::path::Component::Normal(osstr) => Some(osstr),
             _ => None,
         }).peekable();
 
         while let Some(component) = components.next() {
-            if components.peek().is_some() {
+            let should_descend = components.peek().is_some() || is_dir;
+
+            if should_descend {
                 let child = current
                     .dir
-                    .entry(component)
+                    .entry(component.to_owned())
                     .or_insert_with(|| std::sync::Arc::new(FsNode::new()));
                 current = std::sync::Arc::make_mut(child);
-            }
-            else {
-                if is_dir {
-                    let child = current
-                        .dir
-                        .entry(component)
-                        .or_insert_with(|| std::sync::Arc::new(FsNode::new()));
-                    current = std::sync::Arc::make_mut(child);
-                } else {
-                    current.files.insert(component);
-                }
+            } else {
+                current.files.insert(component.to_owned());
             }
         }
     }
@@ -90,11 +89,11 @@ impl FsNode {
         });
         
         for (path, is_dir) in rx {
-            self.insfile(&path, is_dir);
+            self.insfile(dir, &path, is_dir);
         }
 
         println!("Finished walking directory: {:#?}", self.dir);
-        println!("Finished walking directory: {:#?}", self.files);
+        println!("Finished walking files: {:#?}", self.files);
 
         walk_thread.join().unwrap();
     
@@ -168,6 +167,6 @@ impl WalkDir {
 #[test]
 fn query_include_dir_ignore_test() {
     let now = std::time::Instant::now();
-    FsNode::new().add(&std::ffi::OsString::from("D:\\WorkSpace\\OpenSource\\ZLMediaKit\\3rdpart\\media-server\\libmov"));
+    FsNode::new().add(&std::ffi::OsString::from("G:\\MyWorkSpace\\Test"));
     println!("query_include_dir_ignore_test: {:?}", now.elapsed());
 }
