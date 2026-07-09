@@ -18,13 +18,26 @@ impl FsNode {
         }
     }
 
-    fn insfile(&mut self, root: &std::ffi::OsString, path: &std::path::Path, is_dir: bool) {
-        let mut current = std::sync::Arc::make_mut(
-            self
-            .dir
-            .entry(root.clone())
-            .or_insert_with(|| std::sync::Arc::new(FsNode::new())),
-        );
+    pub fn roots(&self, dirs: &mut Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
+        dirs.sort();
+
+        let mut result = Vec::new();
+
+        for path in dirs {
+            match result.last() {
+                Some(parent) if path.starts_with(parent) => {
+                   
+                }
+                _ => result.push(path.to_owned()),
+            }
+        }
+
+        result
+    }
+
+    fn insnode(&mut self, path: &std::path::Path, is_dir: bool) {
+        let v = self.dir.iter_mut().next().unwrap().1;
+        let mut current = std::sync::Arc::make_mut(v);
 
         let mut components = path.components().filter_map(|component| match component {
             std::path::Component::Normal(osstr) => Some(osstr),
@@ -50,15 +63,14 @@ impl FsNode {
         self.dir.insert(dir.to_owned(), std::sync::Arc::new(FsNode::new()));
 
         let walker = ignore::WalkBuilder::new(dir)
-        .hidden(true) 
-        .git_ignore(false)
-        .build_parallel();
+            .hidden(true) 
+            .git_ignore(false)
+            .build_parallel();
 
         let dir_ = dir.clone();
         let (tx, rx) = std::sync::mpsc::channel::<(std::path::PathBuf, bool)>();
         let walk_thread = std::thread::spawn(move || {
             walker.run(|| {
-
                 let tx_ = tx.clone();
                 let dir_ = dir_.clone();
 
@@ -73,12 +85,12 @@ impl FsNode {
                         }
                         else {
                             if let Ok(p) = entry.path().strip_prefix(&dir_) {
-                                p.extension().map(|ext| ext.to_string_lossy()).map(|ext| {
+                                p.extension().map(|ext| 
                                     if ext == "h" || ext == "hpp" || ext == "c" || ext == "cpp" || ext == "cc" {
                                         println!("Found file: {} at depth {}", p.display(), entry.depth());
                                         let _ = tx_.send((p.to_path_buf(), false));
                                     }
-                                });
+                                );
                             }
                         }
                     }
@@ -89,35 +101,71 @@ impl FsNode {
         });
         
         for (path, is_dir) in rx {
-            self.insfile(dir, &path, is_dir);
+            self.insnode(&path, is_dir);
         }
-
-        println!("Finished walking directory: {:#?}", self.dir);
-        println!("Finished walking files: {:#?}", self.files);
 
         walk_thread.join().unwrap();
     
     }
 
-    pub fn query(&self, dir: &std::path::Path) -> Option<std::sync::Arc<FsNode>> {
-        let mut current_node = None;
-        let mut current_ref = self;
-        for component in dir.components() {
-            match component {
-                std::path::Component::Normal(os_str) => {
-                    if let Some(next) = current_ref.dir.get(os_str) {
-                        current_ref = next.as_ref();
-                        current_node = Some(next.clone());
-                    } else if current_ref.files.contains(os_str) {
-                        return None;
-                    } else {
+    pub fn query(&self, dir: &std::path::Path) -> Option<(std::collections::HashSet<std::ffi::OsString>, std::collections::HashSet<std::ffi::OsString>)> {
+
+        let (k ,v) = self.dir.iter().next().unwrap();
+        
+        if let Ok(dir) = dir.strip_prefix(k) {
+
+            let mut current_ref = v.as_ref();
+            for component in dir.components() {
+                match component {
+                    std::path::Component::Normal(osstr) => {
+                        if let Some(next) = current_ref.dir.get(osstr) {
+                            current_ref = next.as_ref();
+                        }
+                        else {
+                            return None;
+                        }
+                    }
+                    _ => {
                         return None;
                     }
                 }
-                _ => {}
             }
+            return Some((current_ref.dir.keys().cloned().collect(), current_ref.files.iter().cloned().collect()));
         }
-        current_node
+        else {
+            return None;
+        }
+    }
+
+    pub fn exists(&self, dir: &std::path::Path) -> bool {
+        let (k ,v) = self.dir.iter().next().unwrap();
+        
+        if let Ok(dir) = dir.strip_prefix(k) {
+
+            let mut current_ref = v.as_ref();
+            for component in dir.components() {
+                match component {
+                    std::path::Component::Normal(osstr) => {
+                        if let Some(next) = current_ref.dir.get(osstr) {
+                            current_ref = next.as_ref();
+                        }
+                        else if current_ref.files.contains(osstr) {
+                            return true;
+                        }
+                        else {
+                            return false;
+                        }
+                    }
+                    _ => {
+                        return false;
+                    }
+                }
+            }
+            return false;
+        }
+        else {
+            return false;
+        }
     }
 }
 
@@ -167,6 +215,35 @@ impl WalkDir {
 #[test]
 fn query_include_dir_ignore_test() {
     let now = std::time::Instant::now();
-    FsNode::new().add(&std::ffi::OsString::from("G:\\MyWorkSpace\\Test"));
-    println!("query_include_dir_ignore_test: {:?}", now.elapsed());
+    let path = std::env::current_dir().unwrap();
+    println!("Current path: {:?}", path);
+    FsNode::new().add(&path.into_os_string());
+    println!("query_fs_node_test: {:?}", now.elapsed());
+}
+
+#[test]
+fn strip_prefix_test() {
+    let path = std::path::Path::new("C:\\Users\\user\\Documents\\project\\src");
+    let prefix = std::path::Path::new("C:\\Users\\Documents");
+    if let Ok(stripped) = path.strip_prefix(prefix) {
+        println!("Stripped path: {:?}", stripped);
+    } else {
+        println!("Failed to strip prefix");
+    }
+
+    let path = std::path::Path::new("C:\\Users\\user\\Documents\\project\\src");
+    let prefix = std::path::Path::new("C:\\Users\\Documents");
+    if let Ok(stripped) = path.strip_prefix(prefix) {
+        println!("Stripped path: {:?}", stripped);
+    } else {
+        println!("Failed to strip prefix");
+    }
+
+    let path = std::path::Path::new("C:\\Users\\user\\Documents\\project\\src");
+    let prefix = std::path::Path::new("C:\\Users\\project");
+    if let Ok(stripped) = path.strip_prefix(prefix) {
+        println!("Stripped path: {:?}", stripped);
+    } else {
+        println!("Failed to strip prefix");
+    }
 }

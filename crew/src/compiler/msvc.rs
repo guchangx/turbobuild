@@ -804,10 +804,14 @@ impl MSVC {
         let extracted_pdb = actions.pdb_file.clone();
         let mut source_file_current_dir_set = std::collections::HashSet::<std::path::PathBuf>::from_iter(source_file_current_dir.iter().cloned());
         source_file_current_dir.extend(actions.include_dir.into_iter().filter(|item| source_file_current_dir_set.insert(item.clone())));
-        log::trace!("include dir list: {:#?}", &source_file_current_dir);
 
+        log::trace!("include dir list: {:#?}", &source_file_current_dir);
+        
         let now = std::time::Instant::now();
-        let local_include_dir_and_files = std::sync::Arc::new(crate::compiler::model::WALK_DIRS_FILES.add(&source_file_current_dir));
+        
+        crate::compiler::model::WALK_FS_NODE.roots(&mut source_file_current_dir);
+        let local_include_dirs = std::sync::Arc::new(source_file_current_dir);
+        
         log::debug!("query include dir and files done. elapsed time: {:?}", now.elapsed());
         
         let solution = std::sync::Arc::new(input.solution.to_string_lossy().to_string());
@@ -887,7 +891,7 @@ impl MSVC {
                     let dependency_cache_ = dependency_cache.clone();
                     let resolve_dependency_includes_ = resolve_dependency_includes.clone();
 
-                    let local_include_dir_and_files_ = local_include_dir_and_files.clone();
+                    let local_include_dirs_ = local_include_dirs.clone();
                     set.spawn(async move {
                         
                         //sync source files and dependency header files.
@@ -904,13 +908,13 @@ impl MSVC {
 
                                 let defines_ = defines_.clone();
 
-                                let local_include_dir_and_files_ = local_include_dir_and_files_.clone();
+                                let local_include_dirs_ = local_include_dirs_.clone();
                                 let self__ = self_.clone();
                                 let dependency_cache_ = dependency_cache_.clone();
                                 let resolve_dependency_includes_ = resolve_dependency_includes_.clone();
 
                                 let stask = self_.runtime.spawn(async move {
-                                    self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), defines_, &local_include_dir_and_files_, solution_,
+                                    self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), defines_, &local_include_dirs_, solution_,
                                         project_.clone(), dependency_cache_, resolve_dependency_includes_, stream_).await;
                                 });
                                 archive_stream_task.push(stask);
@@ -1053,7 +1057,7 @@ impl MSVC {
                         let order = totals - sources.len();   
                         log::trace!("schedule source files for {} addr: {}, order: {}/{}, left: {:?}", project_, &addr_, order, totals, left);
                         let defines_ = defines.clone();
-                        let local_include_dir_and_files_ = local_include_dir_and_files.clone();
+                        let local_include_dirs_ = local_include_dirs.clone();
                 
                         let dependency_cache_ = dependency_cache_by_addr.get(&addr_).unwrap().value().clone();
                         let  resolve_dependency_includes_ = resolve_dependency_includes.clone();
@@ -1074,12 +1078,12 @@ impl MSVC {
                                     let project_ = project_.clone();
                                     let self__ = self_.clone();
                                     let defines_ = defines_.clone();
-                                    let local_include_dir_and_files_ = local_include_dir_and_files_.clone();
+                                    let local_include_dirs_ = local_include_dirs_.clone();
                                     let dependency_cache_ = dependency_cache_.clone();
                                     let resolve_dependency_includes_ = resolve_dependency_includes_.clone();
 
                                     let stask = self_.runtime.spawn(async move {
-                                        self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), defines_, &local_include_dir_and_files_, 
+                                        self__.parser_sourcefile_sync_dependency(file.to_string_lossy().to_string(), defines_, &local_include_dirs_,
                                             solution_, project_, dependency_cache_, resolve_dependency_includes_, stream.clone()
                                         ).await;
                                     });
@@ -1142,7 +1146,7 @@ impl MSVC {
 
     async fn parser_sourcefile_sync_dependency(&self, path: String, 
         defines: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>, 
-        include_dir_files: &std::vec::Vec::<(String, std::sync::Arc<std::collections::HashSet<String>>)>,
+        include_dirs: &std::vec::Vec::<std::path::PathBuf>,
         solution: std::sync::Arc<String>,
         project: std::sync::Arc<String>, 
         cache: std::sync::Arc<dashmap::DashSet::<String>>,
@@ -1177,18 +1181,18 @@ impl MSVC {
         if let Some(resolve) = resolve_dependency_includes.get(&path) {
             for dep in resolve.iter() {
                 Box::pin(async {
-                    self.parser_sourcefile_sync_dependency(dep.to_string(), defines.clone(), include_dir_files, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
+                    self.parser_sourcefile_sync_dependency(dep.to_string(), defines.clone(), include_dirs, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
                 }).await;
             }            
         }
         else {
-            let dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), include_dir_files);
+            let dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), include_dirs);
     
             log::trace!("parsed source file {:?} dependency: {:#?}.", path, &dependency);
     
             for dep in dependency.clone() {
                 Box::pin(async {
-                    self.parser_sourcefile_sync_dependency(dep, defines.clone(), include_dir_files, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
+                    self.parser_sourcefile_sync_dependency(dep, defines.clone(), include_dirs, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
                 }).await;
             }
     

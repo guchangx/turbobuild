@@ -365,7 +365,7 @@ fn parse_define(s: &str, defines: std::sync::Arc<std::sync::RwLock<std::collecti
 }
 
 pub fn parser_sourcefile_dependency(content: &[u8], defines: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>,
-        include_dir_files: &std::vec::Vec::<(String, std::sync::Arc<std::collections::HashSet<String>>)>
+        include_dirs: &std::vec::Vec::<std::path::PathBuf>
     ) -> std::vec::Vec<String> {
 
     #[derive(Clone, PartialEq)]
@@ -503,12 +503,12 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: std::sync::Arc<std:
                 if let Ok(s) = std::str::from_utf8(rest) {
                     let resolved = if s.starts_with('"') || s.starts_with('<') {
                         let pos = s.rfind('"').unwrap_or(s.rfind('>').unwrap_or(s.len())) + 1;
-                        check_local_include_dir_and_files(include_dir_files, &s[1..pos-1])
+                        check_local_include_dir_and_files_2(include_dirs, &s[1..pos-1])
                     } else {
                         let macro_name = s.split(|c: char| c.is_whitespace() || c == '/')
                             .next().unwrap_or("").trim();
                         if let Some(Some(expanded)) = defines.read().unwrap().get(macro_name) {
-                            check_local_include_dir_and_files(include_dir_files, expanded)
+                            check_local_include_dir_and_files_2(include_dirs, expanded)
                         } else {
                             None
                         }
@@ -556,6 +556,40 @@ fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String
         return None;
     }
 }
+
+fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path::PathBuf>, dep: &str) -> Option<std::path::PathBuf> {
+    for dir in include_dirs {
+        if dep.starts_with("..") {
+            let p = tools::utils::normalize_lexical(dir.to_owned().into_os_string().into_string().unwrap() + "\\" + dep);
+
+            if crate::compiler::model::WALK_FS_NODE.exists(&p) {
+                return Some(p);
+            }
+            else {
+                if p.exists() {
+                    return Some(p);
+                }
+            }
+
+            if std::path::PathBuf::from(&p).exists() {
+                return Some(std::path::PathBuf::from(p));
+            }
+        }
+        else {
+            let p = dir.join(dep);
+            if crate::compiler::model::WALK_FS_NODE.exists(&p) {
+                return Some(p);
+            }
+            else {
+                if p.exists() {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    return None;
+}
+
 //.inc;.rc;.resx;.idl;.rc2;.def
 //.odl;.asm;.asmx;.xsd;.bin;.rgs;.html;.htm;.manifest
 //.cpp;.cxx;.cc;.c;.c++;.cppm;.ixx;.inl;.ipp
