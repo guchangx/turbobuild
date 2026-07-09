@@ -809,7 +809,12 @@ impl MSVC {
         
         let now = std::time::Instant::now();
         
-        crate::compiler::model::WALK_FS_NODE.roots(&mut source_file_current_dir);
+        let roots = crate::compiler::model::WALK_FS_NODE.roots(&mut source_file_current_dir);
+        
+        for dir in roots {
+            crate::compiler::model::WALK_FS_NODE.add(&dir.into_os_string());
+        }
+        
         let local_include_dirs = std::sync::Arc::new(source_file_current_dir);
         
         log::debug!("query include dir and files done. elapsed time: {:?}", now.elapsed());

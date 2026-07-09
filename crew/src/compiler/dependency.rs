@@ -558,8 +558,9 @@ fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String
 }
 
 fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path::PathBuf>, dep: &str) -> Option<std::path::PathBuf> {
-    for dir in include_dirs {
-        if dep.starts_with("..") {
+    
+    if dep.starts_with("..") {
+        for dir in include_dirs {
             let p = tools::utils::normalize_lexical(dir.to_owned().into_os_string().into_string().unwrap() + "\\" + dep);
 
             if crate::compiler::model::WALK_FS_NODE.exists(&p) {
@@ -575,7 +576,9 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
                 return Some(std::path::PathBuf::from(p));
             }
         }
-        else {
+    }
+    else {
+        for dir in include_dirs {
             let p = dir.join(dep);
             if crate::compiler::model::WALK_FS_NODE.exists(&p) {
                 return Some(p);

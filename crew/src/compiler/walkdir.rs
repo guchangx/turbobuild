@@ -18,7 +18,7 @@ impl FsNode {
         }
     }
 
-    pub fn roots(&self, dirs: &mut Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
+    pub fn roots(&mut self, dirs: &mut Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
         dirs.sort();
 
         let mut result = Vec::new();
@@ -28,7 +28,12 @@ impl FsNode {
                 Some(parent) if path.starts_with(parent) => {
                    
                 }
-                _ => result.push(path.to_owned()),
+                _ => {
+                    if !self.dir.contains_key(&path.clone().into_os_string()) {
+                        self.dir.insert(path.clone().into_os_string(), std::sync::Arc::new(FsNode::new()));
+                        result.push(path.to_owned());
+                    }
+                }
             }
         }
 
@@ -108,11 +113,15 @@ impl FsNode {
     
     }
 
-    pub fn query(&self, dir: &std::path::Path) -> Option<(std::collections::HashSet<std::ffi::OsString>, std::collections::HashSet<std::ffi::OsString>)> {
+    pub fn query<P: AsRef<std::path::Path>>(&self, dir: &P) -> Option<(std::collections::HashSet<std::ffi::OsString>, std::collections::HashSet<std::ffi::OsString>)> {
+
+        if self.dir.is_empty() {
+            return None;
+        }
 
         let (k ,v) = self.dir.iter().next().unwrap();
         
-        if let Ok(dir) = dir.strip_prefix(k) {
+        if let Ok(dir) = dir.as_ref().strip_prefix(k) {
 
             let mut current_ref = v.as_ref();
             for component in dir.components() {
@@ -137,10 +146,15 @@ impl FsNode {
         }
     }
 
-    pub fn exists(&self, dir: &std::path::Path) -> bool {
+    pub fn exists<P: AsRef<std::path::Path>>(&self, dir: &P) -> bool {
+
+        if self.dir.is_empty() {
+            return false;
+        }
+
         let (k ,v) = self.dir.iter().next().unwrap();
-        
-        if let Ok(dir) = dir.strip_prefix(k) {
+
+        if let Ok(dir) = dir.as_ref().strip_prefix(k) {
 
             let mut current_ref = v.as_ref();
             for component in dir.components() {
@@ -217,8 +231,13 @@ fn query_include_dir_ignore_test() {
     let now = std::time::Instant::now();
     let path = std::env::current_dir().unwrap();
     println!("Current path: {:?}", path);
-    FsNode::new().add(&path.into_os_string());
-    println!("query_fs_node_test: {:?}", now.elapsed());
+    let mut fs = FsNode::new();
+    fs.add(&path.into_os_string());
+    println!("query_fs_node_test_elapsed: {:?}", now.elapsed());
+    println!("query_fs_node_test_node: {:#?}", fs);
+
+    let files = fs.query(&std::path::Path::new("G:\\turbobuild\\crew\\src"));
+    println!("query fs node dirs and files: {:?}", files);
 }
 
 #[test]

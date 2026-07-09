@@ -3,6 +3,8 @@ use std::fmt::Write;
 
 use windows_sys::Win32 as win;
 
+use crate::compiler::model::WALK_FS_NODE;
+
 pub fn route_file_system_operation(redirect: crate::communicate::packager::pack::RemoteSyscall) -> crate::communicate::packager::pack::LocalSyscall {
     let mut params = redirect.params.iter().map(|(param)| (param.key.clone(), param.value.clone())).collect::<std::collections::HashMap<String, String>>();
     match redirect.api.as_str() {
@@ -107,7 +109,37 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
 }
 
 fn check_cache_in_memory(dir: &String) -> bool {
-    crate::compiler::model::WALK_DIRS_FILES.exists(&dir)
+    return WALK_FS_NODE.exists(dir);
+}
+
+fn query_cache_in_memory(dir: &String) -> Option<String> {
+    let dirfiles = WALK_FS_NODE.query(dir);
+    if let Some((dirs, files)) = dirfiles {
+        let mut result = String::new();
+        let filesize = files.len();
+        let dirsize = dirs.len();
+        for (i, dir) in dirs.iter().enumerate() {
+            if filesize == 0 && i == dirsize - 1 {
+                writeln!(&mut result, "{}|17\n", dir.to_string_lossy()).unwrap();
+            }
+            else {
+                writeln!(&mut result, "{}|16\n", dir.to_string_lossy()).unwrap();
+            }
+        }
+
+        for (i, file) in files.iter().enumerate() {
+            if i == filesize - 1 {
+                writeln!(&mut result, "{}|33\n", file.to_string_lossy()).unwrap();
+            }
+            else {
+                writeln!(&mut result, "{}|32\n", file.to_string_lossy()).unwrap();
+            }
+        }
+        return Some(result);
+    }
+    else {
+        return None;
+    }
 }
 
 unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<String, String>) -> std::collections::HashMap<String, String> {
@@ -123,6 +155,13 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
     else if !fileh.starts_with("\\??\\") {
         fileh = format!("\\??\\{}", fileh);
     }
+
+    if let Some(fileinfo) = query_cache_in_memory(&fileh) {
+        let mut results = std::collections::HashMap::new();
+        results.insert("filehandle".to_string(), params.get("filehandle").unwrap().to_string());
+        results.insert("fileinformation".to_string(), fileinfo);
+        return results;
+    } 
 
     let mut object_name: win::Foundation::UNICODE_STRING = std::mem::zeroed();
     let object_name_source_wide_char = std::ffi::OsString::from(&fileh).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
@@ -331,8 +370,9 @@ mod tests {
 
         unsafe { 
             let now = std::time::Instant::now();
-            redirect_nt_query_directory_file(params);
+            let fileinfo = redirect_nt_query_directory_file(params);
             println!("redirect_nt_query_directory_file took: {:?}", now.elapsed());
+            println!("redirect_nt_query_directory_file fileinfo: {:?}", fileinfo);
         };
     }
 

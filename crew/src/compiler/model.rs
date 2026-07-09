@@ -71,10 +71,6 @@ pub type OutputCallback = std::sync::Arc<dyn Fn(crate::compiler::model::Compiler
             -> Box<dyn std::future::Future<Output = ()> + Send> 
             + Send + Sync>;
 
-pub static WALK_DIRS_FILES: std::sync::LazyLock<crate::compiler::walkdir::WalkDir> = std::sync::LazyLock::new(|| {
-    crate::compiler::walkdir::WalkDir::new()
-});
-
 pub static WALK_FS_NODE: std::sync::LazyLock<std::sync::Arc<crate::compiler::walkdir::FsNode>> = std::sync::LazyLock::new(|| {
     std::sync::Arc::new(crate::compiler::walkdir::FsNode::new())
 });
