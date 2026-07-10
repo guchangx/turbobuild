@@ -3,8 +3,6 @@ use std::fmt::Write;
 
 use windows_sys::Win32 as win;
 
-use crate::compiler::model::WALK_FS_NODE;
-
 pub fn route_file_system_operation(redirect: crate::communicate::packager::pack::RemoteSyscall) -> crate::communicate::packager::pack::LocalSyscall {
     let mut params = redirect.params.iter().map(|(param)| (param.key.clone(), param.value.clone())).collect::<std::collections::HashMap<String, String>>();
     match redirect.api.as_str() {
@@ -109,30 +107,53 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
 }
 
 fn check_cache_in_memory(dir: &String) -> bool {
-    return WALK_FS_NODE.exists(dir);
+    unsafe {
+        if crate::compiler::model::WALK_FS_NODE.is_none() {
+            return false;
+        }
+        else {
+            if dir.starts_with("\\??\\") {
+                return crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().exists(&dir["\\??\\".len()..]);
+            }
+            else if dir.starts_with("\\\\?\\") {
+                return crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().exists(&dir["\\\\?\\".len()..]);
+            }
+            else {
+                return crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().exists(&dir);
+            }
+        }
+    }
 }
 
 fn query_cache_in_memory(dir: &String) -> Option<String> {
-    let dirfiles = WALK_FS_NODE.query(dir);
+    let stripped = if dir.starts_with("\\??\\") {
+        &dir["\\??\\".len()..]
+    }
+    else {
+        dir.as_str()
+    };
+
+    let dirfiles = unsafe { if crate::compiler::model::WALK_FS_NODE.is_none() { None } else { crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().query(stripped) } };
     if let Some((dirs, files)) = dirfiles {
         let mut result = String::new();
         let filesize = files.len();
         let dirsize = dirs.len();
+        write!(&mut result, ".|16\n..|16\n").unwrap(); //must have . and .. entries for directory
         for (i, dir) in dirs.iter().enumerate() {
             if filesize == 0 && i == dirsize - 1 {
-                writeln!(&mut result, "{}|17\n", dir.to_string_lossy()).unwrap();
+                writeln!(&mut result, "{}|17", dir.to_string_lossy()).unwrap();
             }
             else {
-                writeln!(&mut result, "{}|16\n", dir.to_string_lossy()).unwrap();
+                writeln!(&mut result, "{}|16", dir.to_string_lossy()).unwrap();
             }
         }
 
         for (i, file) in files.iter().enumerate() {
             if i == filesize - 1 {
-                writeln!(&mut result, "{}|33\n", file.to_string_lossy()).unwrap();
+                writeln!(&mut result, "{}|33", file.to_string_lossy()).unwrap();
             }
             else {
-                writeln!(&mut result, "{}|32\n", file.to_string_lossy()).unwrap();
+                writeln!(&mut result, "{}|32", file.to_string_lossy()).unwrap();
             }
         }
         return Some(result);
@@ -160,6 +181,7 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
         let mut results = std::collections::HashMap::new();
         results.insert("filehandle".to_string(), params.get("filehandle").unwrap().to_string());
         results.insert("fileinformation".to_string(), fileinfo);
+        log::debug!("redirect_nt_query_directory_file: dir: {}, result: {:?}", fileh, &results);
         return results;
     } 
 
@@ -299,9 +321,6 @@ unsafe fn redirect_nt_create_file(params: &mut std::collections::HashMap<String,
         log::error!("objectname parameter is empty");
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "objectname parameter is empty"));
     }
-    else if objectname.starts_with("\\\\?\\") {
-        objectname = objectname.replace("\\\\?\\", "");
-    }
 
     if let Some(expect) = params.get("expect") {
         match std::fs::read(&objectname) {
@@ -314,6 +333,7 @@ unsafe fn redirect_nt_create_file(params: &mut std::collections::HashMap<String,
         }
     }
     else if let Some(value) = params.get_mut("exists") {
+        //TODO: called multiple times with same params
         if check_cache_in_memory(&objectname) {
             *value = "true".to_string();
             return Ok(("exists".to_string(), "true".as_bytes().to_vec()));
@@ -374,6 +394,21 @@ mod tests {
             println!("redirect_nt_query_directory_file took: {:?}", now.elapsed());
             println!("redirect_nt_query_directory_file fileinfo: {:?}", fileinfo);
         };
+    }
+
+    #[test]
+    fn winos_path_test() {
+        let mut dir = "\\\\?\\D:\\WorkSpace\\turbobuild\\crew\\build.rs".to_string();
+        println!("exists: {}", std::path::Path::new(&dir).exists());
+        println!("ok to read: {}", std::fs::read(&dir).is_ok());
+
+        dir = "\\??\\D:\\WorkSpace\\turbobuild\\crew\\build.rs".into();
+        println!("exists: {}", std::path::Path::new(&dir).exists());
+        println!("ok to read: {}", std::fs::read(&dir).is_ok());
+        
+        dir = "D:\\WorkSpace\\turbobuild\\crew\\build.rs".into();
+        println!("exists: {}", std::path::Path::new(&dir).exists());
+        println!("ok to read: {}", std::fs::read(&dir).is_ok());
     }
 
     #[test]

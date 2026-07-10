@@ -808,16 +808,23 @@ impl MSVC {
         log::trace!("include dir list: {:#?}", &source_file_current_dir);
         
         let now = std::time::Instant::now();
-        
-        let roots = crate::compiler::model::WALK_FS_NODE.roots(&mut source_file_current_dir);
-        
-        for dir in roots {
-            crate::compiler::model::WALK_FS_NODE.add(&dir.into_os_string());
+        unsafe {
+            crate::compiler::model::WALK_FS_NODE.is_none().then(|| {
+                crate::compiler::model::WALK_FS_NODE = Some(crate::compiler::walkdir::FsNode::new());
+            });
+            
+            let roots = crate::compiler::model::WALK_FS_NODE.as_mut().unwrap().roots(&mut source_file_current_dir);
+
+            log::trace!("filter and sort include dir list: {:#?}", &roots);
+
+            for dir in roots {
+                crate::compiler::model::WALK_FS_NODE.as_mut().unwrap().add(&dir.into_os_string());
+            }
         }
+        log::debug!("query include dir and files done. elapsed time: {:?}", now.elapsed());
         
         let local_include_dirs = std::sync::Arc::new(source_file_current_dir);
         
-        log::debug!("query include dir and files done. elapsed time: {:?}", now.elapsed());
         
         let solution = std::sync::Arc::new(input.solution.to_string_lossy().to_string());
         let project = std::sync::Arc::new(input.project.to_string_lossy().to_string());

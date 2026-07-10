@@ -29,7 +29,7 @@ impl FsNode {
                    
                 }
                 _ => {
-                    if !self.dir.contains_key(&path.clone().into_os_string()) {
+                    if !self.dir.keys().any(|key| path.starts_with(key)) {
                         self.dir.insert(path.clone().into_os_string(), std::sync::Arc::new(FsNode::new()));
                         result.push(path.to_owned());
                     }
@@ -41,8 +41,8 @@ impl FsNode {
     }
 
     fn insnode(&mut self, path: &std::path::Path, is_dir: bool) {
-        let v = self.dir.iter_mut().next().unwrap().1;
-        let mut current = std::sync::Arc::make_mut(v);
+
+        let mut current = self;
 
         let mut components = path.components().filter_map(|component| match component {
             std::path::Component::Normal(osstr) => Some(osstr),
@@ -65,7 +65,10 @@ impl FsNode {
     }
 
     pub fn add(&mut self, dir: &std::ffi::OsString) {
-        self.dir.insert(dir.to_owned(), std::sync::Arc::new(FsNode::new()));
+        let nodea = self.dir
+            .entry(dir.to_owned())
+            .or_insert_with(|| std::sync::Arc::new(FsNode::new()));
+        let nodem = std::sync::Arc::make_mut(nodea);
 
         let walker = ignore::WalkBuilder::new(dir)
             .hidden(true) 
@@ -84,7 +87,6 @@ impl FsNode {
 
                         if entry.file_type().map_or(false, |ft| ft.is_dir()) {
                             if let Ok(p) = entry.path().strip_prefix(&dir_) {
-                                println!("Found dir: {} at depth {}", p.display(), entry.depth());
                                 let _ = tx_.send((p.to_path_buf(), true));
                             }
                         }
@@ -92,7 +94,6 @@ impl FsNode {
                             if let Ok(p) = entry.path().strip_prefix(&dir_) {
                                 p.extension().map(|ext| 
                                     if ext == "h" || ext == "hpp" || ext == "c" || ext == "cpp" || ext == "cc" {
-                                        println!("Found file: {} at depth {}", p.display(), entry.depth());
                                         let _ = tx_.send((p.to_path_buf(), false));
                                     }
                                 );
@@ -106,80 +107,98 @@ impl FsNode {
         });
         
         for (path, is_dir) in rx {
-            self.insnode(&path, is_dir);
+            nodem.insnode(&path, is_dir);
         }
 
         walk_thread.join().unwrap();
     
     }
 
-    pub fn query<P: AsRef<std::path::Path>>(&self, dir: &P) -> Option<(std::collections::HashSet<std::ffi::OsString>, std::collections::HashSet<std::ffi::OsString>)> {
+    pub fn query<P: AsRef<std::path::Path> + ?Sized>(&self, dir: &P) -> Option<(std::collections::HashSet<std::ffi::OsString>, std::collections::HashSet<std::ffi::OsString>)> {
 
         if self.dir.is_empty() {
             return None;
         }
 
-        let (k ,v) = self.dir.iter().next().unwrap();
-        
-        if let Ok(dir) = dir.as_ref().strip_prefix(k) {
+        let target = dir.as_ref();
+
+        for (k, v) in self.dir.iter() {
+            let Ok(rest) = target.strip_prefix(k) else {
+                continue;
+            };
 
             let mut current_ref = v.as_ref();
-            for component in dir.components() {
+            let mut matched = true;
+
+            for component in rest.components() {
                 match component {
                     std::path::Component::Normal(osstr) => {
                         if let Some(next) = current_ref.dir.get(osstr) {
                             current_ref = next.as_ref();
                         }
                         else {
-                            return None;
+                            matched = false;
+                            break;
                         }
                     }
                     _ => {
-                        return None;
+                        matched = false;
+                        break;
                     }
                 }
             }
-            return Some((current_ref.dir.keys().cloned().collect(), current_ref.files.iter().cloned().collect()));
+
+            if matched {
+                return Some((current_ref.dir.keys().cloned().collect(), current_ref.files.iter().cloned().collect()));
+            }
         }
-        else {
-            return None;
-        }
+
+        return None;
     }
 
-    pub fn exists<P: AsRef<std::path::Path>>(&self, dir: &P) -> bool {
+    pub fn exists<P: AsRef<std::path::Path> + ?Sized>(&self, dir: &P) -> bool {
 
         if self.dir.is_empty() {
             return false;
         }
 
-        let (k ,v) = self.dir.iter().next().unwrap();
+        let target = dir.as_ref();
 
-        if let Ok(dir) = dir.as_ref().strip_prefix(k) {
+        for (k ,v)  in self.dir.iter() {
+            if let Ok(rest) = target.strip_prefix(k) {
 
-            let mut current_ref = v.as_ref();
-            for component in dir.components() {
-                match component {
-                    std::path::Component::Normal(osstr) => {
-                        if let Some(next) = current_ref.dir.get(osstr) {
-                            current_ref = next.as_ref();
+                let mut components = rest.components();
+
+                let Some(mut component) = components.next() else {
+                    return true;
+                };
+
+                let mut current_ref = v.as_ref();
+
+                loop {
+                    let osstr = match component {
+                        std::path::Component::Normal(c) => c,
+                        _ => break,
+                    };
+
+                    match components.next() {
+                        Some(next_component) => {
+                            match current_ref.dir.get(osstr) {
+                                Some(next) => {
+                                    current_ref = next.as_ref();
+                                    component = next_component;
+                                }
+                                None => break,
+                            }
                         }
-                        else if current_ref.files.contains(osstr) {
-                            return true;
+                        None => {
+                            return current_ref.dir.contains_key(osstr) || current_ref.files.contains(osstr);
                         }
-                        else {
-                            return false;
-                        }
-                    }
-                    _ => {
-                        return false;
                     }
                 }
             }
-            return false;
         }
-        else {
-            return false;
-        }
+        return false;
     }
 }
 
