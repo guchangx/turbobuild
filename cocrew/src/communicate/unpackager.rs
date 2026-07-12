@@ -1,9 +1,8 @@
 
-use std::io::Write;
 use tokio::io::AsyncWriteExt;
 
-use crate::{communicate::syscallredirectpipe::MirrorSysCall, detours::detours::DetourUpdateProcessWithDll};
-use windows_sys::Win32 as win;
+use crate::{communicate::syscallredirectpipe::MirrorSysCall};
+use windows_sys::Win32::{self as win, UI::WindowsAndMessaging::STATE_SYSTEM_EXPANDED};
 
 #[allow(non_camel_case_types)]
 pub mod package {
@@ -45,9 +44,8 @@ pub static TASK_TO_FILE_CHANNEL: std::sync::LazyLock<CompileResultSync> = std::s
 #[derive(Default, Clone)] 
 pub struct Receiver {
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
-    create_files_exist: std::sync::Arc<tokio::sync::Mutex<std::vec::Vec<String>>>,
-    file_write_locks: std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>>,
-    redirect_create_file_exists: std::sync::Arc<std::sync::RwLock<std::collections::HashSet<String>>>,
+    redirect_create_file_expect: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, CreateFileExpect>>>,
+    redirect_create_file_exists: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, CreateFileExists>>>,
     redirect_query_directory_file_infos: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, QueryDirectoryFileInfos>>>,
 }
 
@@ -55,6 +53,17 @@ pub struct Receiver {
 pub struct QueryDirectoryFileInfos {
     pub cids: Vec<u32>,
     pub fileinformation: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateFileExists {
+    pub cids: Vec<u32>,
+    pub exists: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateFileExpect {
+    pub cids: Vec<u32>
 }
 
 #[derive(Debug, Clone)]
@@ -75,9 +84,8 @@ impl Receiver {
 
         let receiver = Receiver {
             common,
-            create_files_exist: std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new())),
-            file_write_locks: std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
-            redirect_create_file_exists: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashSet::new())),
+            redirect_create_file_expect: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::<String, CreateFileExpect>::new())),
+            redirect_create_file_exists: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::<String, CreateFileExists>::new())),
             redirect_query_directory_file_infos: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::<String, QueryDirectoryFileInfos>::new())),
         };
         return receiver;
@@ -95,8 +103,7 @@ impl Receiver {
 
         let receiver = Receiver {
             common: self.common.clone(),
-            create_files_exist: self.create_files_exist.clone(),
-            file_write_locks: self.file_write_locks.clone(),
+            redirect_create_file_expect: self.redirect_create_file_expect.clone(),
             redirect_create_file_exists: self.redirect_create_file_exists.clone(),
             redirect_query_directory_file_infos: self.redirect_query_directory_file_infos.clone(),
         };
@@ -385,8 +392,7 @@ impl Receiver {
             while let Some(request) = stream.next().await {
                 if let Ok(real) = request {
 
-                    let create_files_exist = std::sync::Arc::clone(&self_.create_files_exist);
-                    let file_write_locks = std::sync::Arc::clone(&self_.file_write_locks);
+                    let redirect_create_file_expect = std::sync::Arc::clone(&self_.redirect_create_file_expect);
                     let redirect_create_file_exists = std::sync::Arc::clone(&self_.redirect_create_file_exists);
                     let redirect_query_directory_file_infos = std::sync::Arc::clone(&self_.redirect_query_directory_file_infos);
 
@@ -394,13 +400,7 @@ impl Receiver {
                         if real.api == "NtCreateFile" {
                             for intermediate in real.files {
                                 //TODO: what time to remove file from crate_files_exist?
-                                let exist = { create_files_exist.lock().await.contains(&intermediate.file) };
-                                if !exist {
-    
-                                    let mut file_write_locks = file_write_locks.lock().await;
-                                    let file_write_lock = file_write_locks.entry(intermediate.file.clone())
-                                        .or_insert_with(|| std::sync::Arc::new(tokio::sync::Mutex::new(()))).clone();
-    
+
                                     let file = tokio::fs::OpenOptions::new()
                                         .create_new(true)
                                         .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
@@ -409,94 +409,139 @@ impl Receiver {
                                         .await;
         
                                     match file {
-                                        Ok(mut file) => {
-                                            let guard = file_write_lock.lock().await;
+                                    Ok(mut file) => {
+
+                                        file.write_all(&intermediate.content).await.unwrap();
+                                        file.flush().await.unwrap();
+
+                                        drop(file);
+                                        match tokio::fs::rename(format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..]).await {
+                                            Ok(_) => {
+                                            },
+                                            Err(err) => {
+                                                if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32) {
+                                                    std::fs::rename(format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..]).unwrap_or_else(|err| {
+                                                        panic!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..], err);
+                                                    });
+                                                }
+                                                else {
+                                                    //TODO: if rename failed, how to deal ?
+                                                    log::error!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..], err);
+                                                }
+                                            }
+                                        }
+                                    },
+                                    Err(err) => {
+                                        if err.kind() == std::io::ErrorKind::NotFound {
+                                            let filepath = std::path::PathBuf::from(&intermediate.file);
+                                            if let Some(parent) = filepath.parent() {
+                                                if !parent.exists() {
+                                                    tokio::fs::create_dir_all(parent).await.expect(&format!("create dir failed: {}", parent.display()));
+                                                }
+                                            }
     
+                                            let mut file = tokio::fs::OpenOptions::new()
+                                                .create(true)
+                                                .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
+                                                .write(true)
+                                                .open(&intermediate.file)
+                                                .await.expect(&format!("create file failed: {}", &intermediate.file));
+                                            
                                             file.write_all(&intermediate.content).await.unwrap();
                                             file.flush().await.unwrap();
-    
-                                            drop(file);
-                                            match tokio::fs::rename(format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..]).await {
-                                                Ok(_) => {
-                                                    {create_files_exist.lock().await.push(intermediate.file.clone());}
-                                                    drop(guard);
-                                                    file_write_locks.remove(&intermediate.file);
-                                                },
-                                                Err(err) => {
-                                                    if err.raw_os_error() == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32) {
-                                                        std::fs::rename(format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..]).unwrap_or_else(|err| {
-                                                            panic!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..], err);
-                                                        });
-                                                    }
-                                                    else {
-                                                        //TODO: if rename failed, how to deal ?
-                                                        log::error!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..], err);
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        Err(err) => {
-                                            if err.kind() == std::io::ErrorKind::NotFound {
-                                                let filepath = std::path::PathBuf::from(&intermediate.file);
-                                                if let Some(parent) = filepath.parent() {
-                                                    if !parent.exists() {
-                                                        tokio::fs::create_dir_all(parent).await.expect(&format!("create dir failed: {}", parent.display()));
-                                                    }
-                                                }
-        
-                                                let mut file = tokio::fs::OpenOptions::new()
-                                                    .create(true)
-                                                    .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
-                                                    .write(true)
-                                                    .open(&intermediate.file)
-                                                    .await.expect(&format!("create file failed: {}", &intermediate.file));
-                                                
-                                                file.write_all(&intermediate.content).await.unwrap();
-                                                file.flush().await.unwrap();
-                                            }
-                                            else if err.kind() == std::io::ErrorKind::AlreadyExists {
-                                                let guard = file_write_lock.lock().await;
-                                                drop(guard);
-                                                file_write_locks.remove(&intermediate.file);
-                                            }
-                                            else {
-                                                panic!("create file failed: {:?}, {}", &intermediate.file, err);
-                                            }
+                                        }
+                                        else if err.kind() == std::io::ErrorKind::AlreadyExists {
+                                        }
+                                        else {
+                                            panic!("create file failed: {:?}, {}", &intermediate.file, err);
                                         }
                                     }
                                 }
-                                else {
-                                    log::trace!("redirect handle file already exists in replica dir, skipping sync file: {} {}", real.cid, &intermediate.file);
-                                }
                             }
         
-                            let mut dir_exists = false;
-                            let mut replace = String::new();
-                            real.params.iter().for_each(|param| {
-                                if param.key == "exists" && param.value ==  "true" {
-                                    dir_exists = true;
-                                }
-                                if param.key == "replace" {
-                                    replace = param.value.clone();
-                                }
-                            });
-        
-                            if dir_exists && !replace.is_empty() {
+                            let objectname = real.params.iter()
+                                .find(|param| param.key == "objectname")
+                                .map(|param| param.value.clone());
 
-                                redirect_create_file_exists.write().unwrap().insert(replace.clone());
+                            let exists = real.params.iter()
+                                .find(|param| param.key == "exists")
+                                .and_then(|param| match param.value.as_str() {
+                                    "true" => Some(true),
+                                    "false" => Some(false),
+                                    _ => None,
+                                });
+                            
+                            let expect = real.params.iter()
+                                .find(|param| param.key == "expect")
+                                .map(|param| param.value.clone());
 
-                                if !std::path::Path::new(&replace).exists() {
-                                    match std::fs::create_dir_all(&replace) {
-                                        Ok(_) => {},
-                                        Err(err) => {
-                                            if err.kind() == std::io::ErrorKind::AlreadyExists {
-                                                log::error!("create replace dir failed: {} {}", replace, err)
-                                            }
-                                            else {
-                                                panic!("create replace dir failed: {} {}", replace, err);
-                                            }
-                                        },
-                                    };
+                            if let (Some(objectname), Some(exists)) = (&objectname, exists) {
+                                let cids = {
+                                    let mut caches = redirect_create_file_exists.write().unwrap();
+                                    let cache = caches.entry(objectname.clone()).or_insert_with(|| CreateFileExists {
+                                        cids: Vec::new(),
+                                        exists: Some(exists),
+                                    });
+                                    cache.exists = Some(exists);
+
+                                    std::mem::take(&mut cache.cids)
+                                };
+
+                                for cid in cids {
+                                    if cid != real.cid {
+                                        let command_result = MirrorSysCall {
+                                            cid,
+                                            api: real.api.clone(),
+                                            args: real.params.iter().map(|param| {
+                                                if param.key == "exists" {
+                                                    (param.key.clone(), exists.to_string())
+                                                }
+                                                else {
+                                                    (param.key.clone(), param.value.clone())
+                                                }
+                                            }).collect(),
+                                        };
+
+                                        match responder.send(command_result) {
+                                            Ok(_) => {
+                                                log::debug!("transmit redirect handle send create file exists cache callback: {} {}", real.api, cid);
+                                            },
+                                            Err(err) => {
+                                                log::error!("transmit redirect handle send create file exists cache callback failed: {:?}", err);
+                                            },
+                                        };
+                                    }
+                                }
+                            }
+
+                            if let (Some(objectname), Some(_)) = (objectname, expect)  {
+                                let cids = {
+                                    let mut caches = redirect_create_file_expect.write().unwrap();
+                                    let cache = caches.entry(objectname.clone()).or_insert_with(|| CreateFileExpect {
+                                        cids: Vec::new(),
+                                    });
+                                    std::mem::take(&mut cache.cids)
+                                };
+
+                                for cid in cids {
+                                    if cid != real.cid {
+                                        let command_result = MirrorSysCall {
+                                            cid,
+                                            api: real.api.clone(),
+                                            args: real.params.iter().map(|param| {
+                                                (param.key.clone(), param.value.clone())
+                                            }).collect(),
+                                        };
+
+                                        match responder.send(command_result) {
+                                            Ok(_) => {
+                                                log::debug!("transmit redirect handle send create file expect cache callback: {} {}", real.api, cid);
+                                            },
+                                            Err(err) => {
+                                                log::error!("transmit redirect handle send create file expect cache callback failed: {:?}", err);
+                                            },
+                                        };
+                                    }
                                 }
                             }
                         }
@@ -581,45 +626,95 @@ impl Receiver {
                 while let Some(syscall) = rx.recv().await {
 
                     if syscall.api == "NtCreateFile" {
-                        if let Some((_, expect)) = syscall.args.get_key_value("expect") {
+                        if let Some((_, _)) = syscall.args.get_key_value("expect") {
                             //file exist in replica dir, so do not obtain file from crew again. direct return success.
-                            let exist = { self__.create_files_exist.lock().await.contains(&expect) };
-                            if exist {
-                                log::error!("file already exists in replica dir, skipping obtain from crew, {}", expect);
-                                match responder.send(syscall) {
-                                    Ok(_) => {},
-                                    Err(err) => {
-                                        log::error!("transmit redirect handle send callback failed: {:?}", err);
-                                    },
+                            if let Some((_, path)) = syscall.args.get_key_value("objectname") {
+                                let state = {
+                                    let mut caches = self__.redirect_create_file_expect.write().unwrap();
+                                    match caches.get_mut(path) {
+                                        Some(cache) => {
+                                            if cache.cids.is_empty() {
+                                                Some(true)
+                                            }
+                                            else {
+                                                cache.cids.push(syscall.cid);
+                                                Some(false)
+                                            }
+                                        }
+                                        None => {
+                                            caches.insert(path.clone(), CreateFileExpect {
+                                                cids: vec![syscall.cid],
+                                            });
+                                            None
+                                        }
+                                    }
+                                };
+
+                                if let Some(completed) = state {
+                                    if completed {
+                                        let reply = MirrorSysCall {
+                                            cid: syscall.cid,
+                                            api: syscall.api,
+                                            args: syscall.args.iter().map(|item|
+                                                (item.0.clone(), item.1.clone())
+                                            ).collect(),
+                                        };
+
+                                        match responder.send(reply) {
+                                            Ok(_) => {},
+                                            Err(err) => {
+                                                log::error!("transmit redirect handle send callback failed: {:?}", err);
+                                            },
+                                        }
+                                    }
+                                    continue;
                                 }
-                                continue;
+
                             }
                         }
                         else if let Some((_, _)) = syscall.args.get_key_value("exists") {
                             if let Some((_, path)) = syscall.args.get_key_value("objectname") {
-                                let exist = { self__.redirect_create_file_exists.read().unwrap().contains(path) };
-                                if exist {
-
-                                    let reply = MirrorSysCall {
-                                        cid: syscall.cid,
-                                        api: syscall.api,
-                                        args: syscall.args.iter().map(|item| 
-                                            if item.0 == "exists" {
-                                                (item.0.clone(), "true".to_string())
-                                            }
-                                            else {
-                                                (item.0.clone(), item.1.clone())
-                                            }   
-                                        ).collect(),
-                                    };
-
-                                    match responder.send(reply) {
-                                        Ok(_) => {},
-                                        Err(err) => {
-                                            log::error!("transmit redirect handle send callback failed: {:?}", err);
-                                        },
+                                let state = {
+                                    let mut caches = self__.redirect_create_file_exists.write().unwrap();
+                                    match caches.get_mut(path) {
+                                        Some(cache) if cache.cids.is_empty() && cache.exists.is_some() => Some((true, cache.exists)),
+                                        Some(cache) => {
+                                            cache.cids.push(syscall.cid);
+                                            Some((false, None))
+                                        }
+                                        None => {
+                                            caches.insert(path.clone(), CreateFileExists {
+                                                cids: vec![syscall.cid],
+                                                exists: None,
+                                            });
+                                            None
+                                        }
                                     }
-                                    continue;   
+                                };
+
+                                if let Some((completed, exists)) = state {
+                                    if completed {
+                                        let reply = MirrorSysCall {
+                                            cid: syscall.cid,
+                                            api: syscall.api,
+                                            args: syscall.args.iter().map(|item|
+                                                if item.0 == "exists" {
+                                                    (item.0.clone(), exists.map_or("false".to_string(), |e| e.to_string()))
+                                                }
+                                                else {
+                                                    (item.0.clone(), item.1.clone())
+                                                }
+                                            ).collect(),
+                                        };
+
+                                        match responder.send(reply) {
+                                            Ok(_) => {},
+                                            Err(err) => {
+                                                log::error!("transmit redirect handle send callback failed: {:?}", err);
+                                            },
+                                        }
+                                    }
+                                    continue;
                                 }
                             }
                         }
