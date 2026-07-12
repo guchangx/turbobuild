@@ -809,6 +809,7 @@ impl MSVC {
         
         let now = std::time::Instant::now();
         unsafe {
+            #![allow(static_mut_refs)]
             crate::compiler::model::WALK_FS_NODE.is_none().then(|| {
                 crate::compiler::model::WALK_FS_NODE = Some(crate::compiler::walkdir::FsNode::new());
             });

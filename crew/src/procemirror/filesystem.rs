@@ -5,6 +5,7 @@ use windows_sys::Win32 as win;
 
 pub fn route_file_system_operation(redirect: crate::communicate::packager::pack::RemoteSyscall) -> crate::communicate::packager::pack::LocalSyscall {
     let mut params = redirect.params.iter().map(|(param)| (param.key.clone(), param.value.clone())).collect::<std::collections::HashMap<String, String>>();
+    
     match redirect.api.as_str() {
         "NtQueryDirectoryFile" => {
             let results = unsafe { redirect_nt_query_directory_file(params) };
@@ -106,8 +107,9 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
     }
 }
 
-fn check_cache_in_memory(dir: &String) -> bool {
+fn check_path_in_cache(dir: &String) -> bool {
     unsafe {
+        #[allow(static_mut_refs)]
         if crate::compiler::model::WALK_FS_NODE.is_none() {
             return false;
         }
@@ -125,7 +127,7 @@ fn check_cache_in_memory(dir: &String) -> bool {
     }
 }
 
-fn query_cache_in_memory(dir: &String) -> Option<String> {
+fn query_dir_in_cache(dir: &String) -> Option<String> {
     let stripped = if dir.starts_with("\\??\\") {
         &dir["\\??\\".len()..]
     }
@@ -177,11 +179,10 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
         fileh = format!("\\??\\{}", fileh);
     }
 
-    if let Some(fileinfo) = query_cache_in_memory(&fileh) {
+    if let Some(fileinfo) = query_dir_in_cache(&fileh) {
         let mut results = std::collections::HashMap::new();
         results.insert("filehandle".to_string(), params.get("filehandle").unwrap().to_string());
         results.insert("fileinformation".to_string(), fileinfo);
-        log::debug!("redirect_nt_query_directory_file: dir: {}, result: {:?}", fileh, &results);
         return results;
     } 
 
@@ -316,7 +317,7 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
 
 unsafe fn redirect_nt_create_file(params: &mut std::collections::HashMap<String, String>) -> std::io::Result<(String, Vec<u8>)> {
 
-    let mut objectname = params.get("objectname").unwrap().to_owned();
+    let objectname = params.get("objectname").unwrap().to_owned();
     if objectname.is_empty() {
         log::error!("objectname parameter is empty");
         return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "objectname parameter is empty"));
@@ -334,7 +335,7 @@ unsafe fn redirect_nt_create_file(params: &mut std::collections::HashMap<String,
     }
     else if let Some(value) = params.get_mut("exists") {
         //TODO: called multiple times with same params
-        if check_cache_in_memory(&objectname) {
+        if check_path_in_cache(&objectname) {
             *value = "true".to_string();
             return Ok(("exists".to_string(), "true".as_bytes().to_vec()));
         }

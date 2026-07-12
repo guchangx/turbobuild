@@ -559,6 +559,7 @@ fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String
 
 fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path::PathBuf>, dep: &str) -> Option<std::path::PathBuf> {
     
+    #[allow(static_mut_refs)]
     if dep.starts_with("..") {
         let reader = unsafe { crate::compiler::model::WALK_FS_NODE.as_ref().unwrap() };
         for dir in include_dirs {

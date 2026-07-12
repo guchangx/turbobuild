@@ -92,11 +92,9 @@ impl FsNode {
                         }
                         else {
                             if let Ok(p) = entry.path().strip_prefix(&dir_) {
-                                p.extension().map(|ext| 
-                                    if ext == "h" || ext == "hpp" || ext == "c" || ext == "cpp" || ext == "cc" {
-                                        let _ = tx_.send((p.to_path_buf(), false));
-                                    }
-                                );
+                                if p.extension().map_or(false, is_tracked_file_extension) {
+                                    let _ = tx_.send((p.to_path_buf(), false));
+                                }
                             }
                         }
                     }
@@ -202,7 +200,15 @@ impl FsNode {
     }
 }
 
-
+fn is_tracked_file_extension(ext: &std::ffi::OsStr) -> bool {
+    matches!(
+        ext.as_encoded_bytes(),
+        b"h" | b"hh" | b"hpp" | b"hxx"
+            | b"c" | b"cpp" | b"cxx" | b"cc"
+            | b"dat" | b"inl" | b"ipp"
+            | b"cppm" | b"ixx" | b"h++"
+    )
+}
 
 pub struct WalkDir {
     pub dirfiles: dashmap::DashMap<String, std::sync::Arc<std::collections::HashSet<String>>>,
