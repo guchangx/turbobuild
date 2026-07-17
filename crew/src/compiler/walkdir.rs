@@ -40,7 +40,7 @@ impl FsNode {
         result
     }
 
-    fn insnode(&mut self, path: &std::path::Path, is_dir: bool) {
+    pub fn insnode(&mut self, path: &std::path::Path, is_dir: bool) {
 
         let mut current = self;
 
@@ -70,9 +70,14 @@ impl FsNode {
             .or_insert_with(|| std::sync::Arc::new(FsNode::new()));
         let nodem = std::sync::Arc::make_mut(nodea);
 
+        let mut overrides = ignore::overrides::OverrideBuilder::new(dir);
+        overrides.add("**/*.{h,hh,hpp,hxx,c,cpp,cxx,cc,dat,inl,ipp,cppm,ixx,h++,inc}").unwrap();
+        let overrides = overrides.build().unwrap();
+
         let walker = ignore::WalkBuilder::new(dir)
             .hidden(true) 
-            .git_ignore(false)
+            .git_ignore(true)
+            .overrides(overrides)
             .build_parallel();
 
         let dir_ = dir.clone();
@@ -92,8 +97,16 @@ impl FsNode {
                         }
                         else {
                             if let Ok(p) = entry.path().strip_prefix(&dir_) {
-                                if p.extension().map_or(false, is_tracked_file_extension) {
-                                    let _ = tx_.send((p.to_path_buf(), false));
+                                match p.extension() {
+                                    Some(ext) => {
+                                        if is_tracked_file_extension(ext) {
+                                            let _ = tx_.send((p.to_path_buf(), false));
+                                        }
+                                    }
+                                    None => {
+                                        log::debug!("File without extension: {:?}", p);
+                                        let _ = tx_.send((p.to_path_buf(), false));
+                                    }
                                 }
                             }
                         }
@@ -206,7 +219,7 @@ fn is_tracked_file_extension(ext: &std::ffi::OsStr) -> bool {
         b"h" | b"hh" | b"hpp" | b"hxx"
             | b"c" | b"cpp" | b"cxx" | b"cc"
             | b"dat" | b"inl" | b"ipp"
-            | b"cppm" | b"ixx" | b"h++"
+            | b"cppm" | b"ixx" | b"h++" | b"inc"
     )
 }
 

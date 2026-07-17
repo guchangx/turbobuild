@@ -401,14 +401,14 @@ impl Receiver {
                             for intermediate in real.files {
                                 //TODO: what time to remove file from crate_files_exist?
 
-                                    let file = tokio::fs::OpenOptions::new()
-                                        .create_new(true)
-                                        .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
-                                        .write(true)
-                                        .open(format!("{}{}", &intermediate.file, ".tmp"))
-                                        .await;
+                                let file = tokio::fs::OpenOptions::new()
+                                    .create_new(true)
+                                    .share_mode(win::Storage::FileSystem::FILE_SHARE_READ | win::Storage::FileSystem::FILE_SHARE_WRITE | win::Storage::FileSystem::FILE_SHARE_DELETE)
+                                    .write(true)
+                                    .open(format!("{}{}", &intermediate.file, ".tmp"))
+                                    .await;
         
-                                    match file {
+                                match file {
                                     Ok(mut file) => {
 
                                         file.write_all(&intermediate.content).await.unwrap();
@@ -470,6 +470,11 @@ impl Receiver {
                                     "false" => Some(false),
                                     _ => None,
                                 });
+
+                            let replace = real.params.iter()
+                                .find(|param| param.key == "replace")
+                                .map(|param| param.value.clone())
+                                .unwrap_or_else(|| "".to_string());
                             
                             let expect = real.params.iter()
                                 .find(|param| param.key == "expect")
@@ -482,8 +487,24 @@ impl Receiver {
                                         cids: Vec::new(),
                                         exists: Some(exists),
                                     });
+                                    
+                                    if exists {
+                                        if !replace.is_empty() && !std::path::Path::new(&replace).exists() {
+                                            match std::fs::create_dir_all(&replace) {
+                                                Ok(_) => {},
+                                                Err(err) => {
+                                                    if err.kind() == std::io::ErrorKind::AlreadyExists {
+                                                        log::error!("create replace dir failed: {} {}", replace, err)
+                                                    }
+                                                    else {
+                                                        panic!("create replace dir failed: {} {}", replace, err);
+                                                    }
+                                                },
+                                            };
+                                        }
+                                    }
+                                    
                                     cache.exists = Some(exists);
-
                                     std::mem::take(&mut cache.cids)
                                 };
 

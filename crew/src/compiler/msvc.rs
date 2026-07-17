@@ -1179,7 +1179,13 @@ impl MSVC {
             Vec::new()
         }));
         
-        let name = std::path::PathBuf::from(&path).file_name().map(|name| name.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
+        
+        let p = std::path::Path::new(&path);
+        let name = p .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .map(str::to_owned)
+            .unwrap_or_else(|| path.clone());
+
         let archive = crate::communicate::packager::ArchiveArgs {
             file_type:  crate::communicate::packager::FileType::SourceFiles,
             solution: solution.as_ref().clone(),
@@ -1199,8 +1205,20 @@ impl MSVC {
             }            
         }
         else {
-            let dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), include_dirs);
     
+            let parent = p.parent().unwrap_or_else(|| std::path::Path::new("")).to_path_buf();
+
+            let dependency;
+            if include_dirs.contains(&parent) {
+                let mut source_include_dirs_exten = Vec::with_capacity(include_dirs.len() + 1);
+                source_include_dirs_exten.push(parent.clone());
+                source_include_dirs_exten.extend_from_slice(include_dirs);
+                dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), &source_include_dirs_exten);
+            }
+            else {
+                dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), include_dirs);
+            }
+
             log::trace!("parsed source file {:?} dependency: {:#?}.", path, &dependency);
     
             for dep in dependency.clone() {

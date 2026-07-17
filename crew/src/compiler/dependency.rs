@@ -561,26 +561,27 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
     
     #[allow(static_mut_refs)]
     if dep.starts_with("..") {
-        let reader = unsafe { crate::compiler::model::WALK_FS_NODE.as_ref().unwrap() };
+        let reader = unsafe { crate::compiler::model::WALK_FS_NODE.as_mut().unwrap() };
         for dir in include_dirs {
-            let p = tools::utils::normalize_lexical(dir.to_owned().into_os_string().into_string().unwrap() + "\\" + dep);
+            let dir = dir.to_owned().into_os_string();
+            let p = tools::utils::normalize_lexical(dir.clone().into_string().unwrap() + "\\" + dep);
 
             if reader.exists(&p) {
                 return Some(p);
             }
             else {
                 if p.exists() {
+                    if let Some(nodem) = reader.dir.get_mut(&dir) {
+                        let nodem = std::sync::Arc::make_mut(nodem);
+                        nodem.insnode(std::path::Path::new(dep), false);
+                    }
                     return Some(p);
                 }
-            }
-
-            if std::path::PathBuf::from(&p).exists() {
-                return Some(std::path::PathBuf::from(p));
             }
         }
     }
     else {
-        let reader = unsafe { crate::compiler::model::WALK_FS_NODE.as_ref().unwrap() };
+        let reader = unsafe { crate::compiler::model::WALK_FS_NODE.as_mut().unwrap() };
         for dir in include_dirs {
             let p = dir.join(dep);
             if reader.exists(&p) {
@@ -588,6 +589,12 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
             }
             else {
                 if p.exists() {
+
+                    if let Some(nodem) = reader.dir.get_mut(&dir.to_owned().into_os_string()) {
+                        let nodem = std::sync::Arc::make_mut(nodem);
+                        nodem.insnode(std::path::Path::new(dep), false);
+                    }
+
                     return Some(p);
                 }
             }
