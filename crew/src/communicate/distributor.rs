@@ -45,7 +45,7 @@ impl Distributor {
             return (None, notify);
         }
 
-        let (tx, rx) = tokio::sync::mpsc::channel::<super::packager::ArchiveArgs>(128);
+        let (tx, rx) = tokio::sync::mpsc::channel::<super::packager::ArchiveArgs>(256);
 
         let notify_ = notify.clone();
         let args = super::packager::ArchiveStreamArgs {
@@ -66,13 +66,13 @@ impl Distributor {
         return (Some(tx), notify_);
     }
     
-    pub async fn compile<'a>(addr: &str, file: std::ffi::OsString, input: &crate::compiler::model::CompilerInput, content: &std::borrow::Cow<'a, [u8]>,
+    pub async fn compile<'a>(addr: &str, presyncedfiles: Vec<String>, input: &crate::compiler::model::CompilerInput, file: String, content: &std::borrow::Cow<'a, [u8]>,
         runtime: &std::sync::Arc<tokio::runtime::Handle>, output_callback: crate::compiler::model::OutputCallback) -> crate::communicate::packager::ReceiverType {
 
         let args = super::packager::SourcesFile {
             solution: input.solution.to_string_lossy().to_string(),
             project: input.project.to_string_lossy().to_string(),
-            file: file.to_string_lossy().to_string(),
+            file: file,
             compiler: input.compiler_path.to_string_lossy().to_string(),
             working_dir: input.compiler_working_dir.to_string_lossy().to_string(),
             variety: input.build_and_compiler_type.to_string_lossy().to_string(),
@@ -81,6 +81,7 @@ impl Distributor {
             envs: input.envs.iter()
                 .map(|(k, v)| (k.to_string_lossy().to_string(), v.to_string_lossy().to_string()))
                 .collect::<std::collections::HashMap<String, String>>(),
+            presyncfiles: presyncedfiles,
         };
 
         {

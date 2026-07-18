@@ -26,6 +26,8 @@ pub struct CompileTrRequest {
     pub envs: ::prost::alloc::vec::Vec<Envs>,
     #[prost(bytes = "vec", tag = "9")]
     pub content: ::prost::alloc::vec::Vec<u8>,
+    #[prost(string, repeated, tag = "10")]
+    pub presyncfiles: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct IntermediateResult {

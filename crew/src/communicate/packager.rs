@@ -42,6 +42,7 @@ pub struct SourcesFile<'a> {
     pub commands: Vec<String>,
     pub content: std::borrow::Cow<'a, [u8]>,
     pub envs: std::collections::HashMap<String, String>,
+    pub presyncfiles: Vec<String>,
 }
 
 pub enum FileType {
@@ -330,6 +331,7 @@ impl Sender {
             }).collect(),
             
             content: compile.content.to_vec(),
+            presyncfiles: compile.presyncfiles,
         });
 
         let response = self.to_owned().client.transmit_task(request).await;

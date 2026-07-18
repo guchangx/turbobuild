@@ -36,9 +36,8 @@ pub struct CompilerInput {
 }
 
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
-pub struct PrecompiledSource {
-    pub contents: Option<Vec<u8>>,
-    pub path: std::ffi::OsString, 
+pub struct PreSyncedDependency {
+    pub paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]

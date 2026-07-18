@@ -29,7 +29,7 @@ pub enum OutType {
 }
 
 use std::{io::Read, ops::Index};
-use crate::{compiler::{dependency, model::{CompiledResults, CompilerInput, CompilerOutput, PrecompiledSource}}, replica::project};
+use crate::{compiler::{dependency, model::{CompiledResults, CompilerInput, CompilerOutput}}, replica::project};
 use std::io::BufRead;
 
 use windows_sys::Win32 as win;
@@ -482,14 +482,14 @@ impl MSVC {
         }
     }
     
-    async fn request_dist_compile_with_command(&self, addr: &str, compiler_input: CompilerInput, requires: &crate::compiler::model::PrecompiledSource)
+    async fn request_dist_compile_with_command(&self, addr: &str, compiler_input: CompilerInput, requires: &crate::compiler::model::PreSyncedDependency)
         -> CompilerOutput {
 
         let output = self.request_dist_compile(&addr, &compiler_input, &requires).await;
         return output;
     }
 
-    async fn request_dist_compile(&self, addr: &str, input: &CompilerInput, precompiled: &PrecompiledSource) -> CompilerOutput {
+    async fn request_dist_compile(&self, addr: &str, input: &CompilerInput, presynced: &crate::compiler::model::PreSyncedDependency) -> CompilerOutput {
     
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
         log::debug!("{:?} in commands compiler version: {:?}, addr: {:?}", input.project, cversion, addr);
@@ -504,20 +504,27 @@ impl MSVC {
 
         if input.build_and_compiler_type.to_string_lossy().contains("clang_cl") {
             let mut output = CompilerOutput::default();
-            if let Some(content) = precompiled.contents.clone() {
-                let content = std::borrow::Cow::from(content);
-                let receiver = crate::communicate::distributor::Distributor::compile(addr, precompiled.path.clone(), input, &content, &self.runtime, self.output_callback.clone()).await;
-                match receiver {
-                    crate::communicate::packager::ReceiverType::Archive(recv) => {
-                        output.status = recv.status as u32;
-                    },
-                    _ => {
-                        log::error!("communicate compile error.");
-                    }   
+
+            let receiver = crate::communicate::distributor::Distributor::compile(addr, Vec::new(), input,String::new(), &std::borrow::Cow::from(Vec::new()), &self.runtime, self.output_callback.clone()).await;
+            match receiver {
+                crate::communicate::packager::ReceiverType::Compile(recv) => {
+                    output.status = recv.status;
+                    output.out = std::sync::Arc::new(recv.out);
+                    output.err = std::sync::Arc::new(recv.err);
+                }
+                _ => {
+                    log::error!("communicate compile error.");
                 }
             }
-            else {
-                let receiver = crate::communicate::distributor::Distributor::compile(addr, std::ffi::OsString::new(), input, &std::borrow::Cow::from(Vec::new()), &self.runtime, self.output_callback.clone()).await;
+
+            return output;
+        }
+        else {
+            if self.sender.lock().unwrap().check(addr, &cversion) {
+            
+                let mut output = CompilerOutput::default();
+
+                let receiver = crate::communicate::distributor::Distributor::compile(addr, presynced.paths.clone(), input, String::new(), &std::borrow::Cow::from(Vec::new()), &self.runtime, self.output_callback.clone()).await;
                 match receiver {
                     crate::communicate::packager::ReceiverType::Compile(recv) => {
                         output.status = recv.status;
@@ -528,40 +535,7 @@ impl MSVC {
                         log::error!("communicate compile error.");
                     }
                 }
-            }
-
-            return output;
-        }
-        else {
-            if self.sender.lock().unwrap().check(addr, &cversion) {
-            
-                let mut output = CompilerOutput::default();
-                if let Some(content) = precompiled.contents.clone() {
-                    let content = std::borrow::Cow::from(content);
-                    let receiver = crate::communicate::distributor::Distributor::compile(addr, precompiled.path.clone(), input, &content, &self.runtime, self.output_callback.clone()).await;
-                    match receiver {
-                        crate::communicate::packager::ReceiverType::Archive(recv) => {
-                            output.status = recv.status as u32;
-                        },
-                        _ => {
-                            log::error!("communicate compile error.");
-                        }   
-                    }
-                }
-                else {
-                    let receiver = crate::communicate::distributor::Distributor::compile(addr, std::ffi::OsString::new(), input, &std::borrow::Cow::from(Vec::new()), &self.runtime, self.output_callback.clone()).await;
-                    match receiver {
-                        crate::communicate::packager::ReceiverType::Compile(recv) => {
-                            output.status = recv.status;
-                            output.out = std::sync::Arc::new(recv.out);
-                            output.err = std::sync::Arc::new(recv.err);
-                        }
-                        _ => {
-                            log::error!("communicate compile error.");
-                        }
-                    }
-                }
-
+                
                 return output;
             }
             else {
@@ -702,18 +676,16 @@ impl MSVC {
     
                 notify.notified().await;
 
-                let mut requires = crate::compiler::model::PrecompiledSource {
-                    contents: None,
-                    path: std::ffi::OsString::new(),
+                let mut requires = crate::compiler::model::PreSyncedDependency {
+                    paths: Vec::new(),
                 };
 
                 let requires_params = commands_dist_parameters_requires(&compiler_input);
                 if !requires_params.is_empty() {
                     let (contents, path) = crate::communicate::packer::Packer::pack_separate_file(&requires_params.to_str().unwrap());
                 
-                    requires = crate::compiler::model::PrecompiledSource {
-                        contents: Some(contents.to_vec()),
-                        path: path,
+                    requires = crate::compiler::model::PreSyncedDependency {
+                        paths: vec![path.into_string().unwrap()],
                     };
                 }
     
@@ -746,9 +718,8 @@ impl MSVC {
             commands.append(&mut files);
             compiler_input.compiler_commands = commands;
             
-            let mut requires = crate::compiler::model::PrecompiledSource {
-                contents: None,
-                path: std::ffi::OsString::new(),
+            let mut requires = crate::compiler::model::PreSyncedDependency {
+                paths: Vec::new(),
             };
             if compiler_input.build_and_compiler_type.to_string_lossy().contains("msvc") {
                 if compiler_input.compiler_path.to_string_lossy().contains("~1") {
@@ -760,9 +731,8 @@ impl MSVC {
                 if !requires_params.is_empty() {
                     let (contents, path) = crate::communicate::packer::Packer::pack_separate_file(&requires_params.to_str().unwrap());
                 
-                    requires = crate::compiler::model::PrecompiledSource {
-                        contents: Some(contents.to_vec()),
-                        path: path,
+                    requires = crate::compiler::model::PreSyncedDependency {
+                        paths: vec![path.into_string().unwrap()],
                     };
                 }
             }
@@ -958,7 +928,7 @@ impl MSVC {
                                     let _ = stream.send(archive).await;
                                 }                        
                             */
-
+                        
                             for task in archive_stream_task {
                                 let _ = task.await; 
                             }
@@ -966,9 +936,8 @@ impl MSVC {
 
                         //notify.notified().await;
                         
-                        let requires = crate::compiler::model::PrecompiledSource {
-                            contents: None,
-                            path: std::ffi::OsString::new(),
+                        let requires = crate::compiler::model::PreSyncedDependency {
+                            paths: dependency_cache_.iter().map(|item| item.clone()).collect(),
                         };
 
                         match &extracted_pdb_ {
@@ -1112,9 +1081,8 @@ impl MSVC {
 
                             //notify.notified().await;
 
-                            let requires = crate::compiler::model::PrecompiledSource {
-                                contents: None,
-                                path: std::ffi::OsString::new(),
+                            let requires = crate::compiler::model::PreSyncedDependency {
+                                paths: dependency_cache_.iter().map(|item| item.clone()).collect(),
                             };
 
                             match &extracted_pdb_ {
@@ -1209,7 +1177,7 @@ impl MSVC {
             let parent = p.parent().unwrap_or_else(|| std::path::Path::new("")).to_path_buf();
 
             let dependency;
-            if include_dirs.contains(&parent) {
+            if !include_dirs.contains(&parent) {
                 let mut source_include_dirs_exten = Vec::with_capacity(include_dirs.len() + 1);
                 source_include_dirs_exten.push(parent.clone());
                 source_include_dirs_exten.extend_from_slice(include_dirs);
@@ -1219,7 +1187,7 @@ impl MSVC {
                 dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), include_dirs);
             }
 
-            log::trace!("parsed source file {:?} dependency: {:#?}.", path, &dependency);
+            log::trace!("parsed source file {:?} {:?} dependency: {:#?}.", project, path, &dependency);
     
             for dep in dependency.clone() {
                 Box::pin(async {

@@ -17,6 +17,7 @@ message CompileTrRequest {
     repeated string commands = 7;
     repeated Envs envs = 8; 
     bytes content = 9;
+    repeated string presyncfiles = 10;
 }
 
 enum CompileProgress {

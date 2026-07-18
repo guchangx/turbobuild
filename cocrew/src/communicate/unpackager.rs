@@ -291,11 +291,6 @@ impl Receiver {
                 break;
             }
         }
-
-        log::debug!("transmit file handle end. project: {} {:?}", gproject, RECEIVED_COMPILE_RESOURCES);
-        if !gproject.is_empty() {
-            RECEIVED_COMPILE_RESOURCES.files.remove(&gproject.to_string());
-        }
     }
     
     async fn transmit_task_handle(&self, request: package::CompileTrRequest, tx: tokio::sync::mpsc::Sender<Result<package::CompileTrResponse, tonic::Status>>) {
@@ -309,7 +304,16 @@ impl Receiver {
     
         let commands = request.commands;
         let content = request.content;
+        let presynced = request.presyncfiles;
         
+        RECEIVED_COMPILE_RESOURCES.files.entry(project.to_string())
+            .or_default() 
+            .extend(presynced.iter().map(|item| {
+                let p: crew::replica::project::Property = crew::replica::project::Property::new(&solution_, item);
+                let repath = p.fetch_local_replica_project_path();
+                (item.to_string(), repath.to_string_lossy().to_string())
+            }).collect::<std::collections::HashMap<String, String>>());
+
         log::trace!("transmit compile handle project: {}, file: {}, compiler: {}, commands size: {}, content size: {}KB.", &project, file, compiler, commands.len(), &content.len() / 1024 );
 
         if !content.is_empty() && !file.is_empty() {
@@ -818,10 +822,6 @@ impl Receiver {
                 Self::extract(&repath.to_str().unwrap(), &content).await;
             }
             else {
-                RECEIVED_COMPILE_RESOURCES.files.entry(project.to_string())
-                    .or_default() 
-                    .insert(path.to_string(), repath.to_string_lossy().to_string());
-
                 let file = match tokio::fs::File::create(&repath).await {
                     Ok(file) => Ok(file),
                     Err(err) => {
@@ -846,10 +846,10 @@ impl Receiver {
                 if let Ok(mut file) = file {
                     match file.write_all(&content).await {
                         Ok(_) => {
-                            log::trace!("transmit storage file success: {:?}", path);
+                            log::trace!("transmit storage file success: {:?} {:?}", project, path);
                         },
                         Err(err) => {
-                            log::error!("transmit storage file failed. {:?} {:?}", path, err)
+                            log::error!("transmit storage file failed. {:?} {:?} {:?}", project, path, err)
                         }
                     }
                 }

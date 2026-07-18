@@ -38,6 +38,6 @@ tonic-prost-build = "0.14.2"
 windows-sys = {version = "0.60.2", features = ["Wdk_Storage_FileSystem", "Win32_System_IO", "Win32_Storage_FileSystem"]}
 
 [features]
-enforce_activate_local_cocrew = []
+enforce_activate_local_cocrew = [] #enforce activate local cocrew, all resources files will push into one compiler.
 fake = []
-default = ["enforce_activate_local_cocrew"]
+default = []

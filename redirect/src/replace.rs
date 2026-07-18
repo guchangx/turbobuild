@@ -24,8 +24,7 @@ impl Model {
                         return Some(path);
                     }
                 }
-                else
-                {
+                else {
                     let path = origin_file_path.to_owned();
                     return Some(path);
                 }
@@ -217,9 +216,10 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
                             let dir = &path[i + 2..];
                             let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&dir).to_string_lossy().to_string();
 
-                            let modified = format!(r"\??\{}", modified);                 
+                            let modified = format!(r"\??\{}", modified);
+                            let unmodified = path.to_string();
                             *path = modified;
-                            return ReplaceNtResult::Success;
+                            return ReplaceNtResult::NeedObtain(unmodified);
                         }
                         else {
                             let modified = std::path::Path::new(crate::REPLICADIR.get().unwrap()).join(&path).to_string_lossy().to_string();

@@ -38,10 +38,24 @@ impl Property {
             }
             else
             {
-                log::warn!("can not find project name {:?} in real project path {}.", self.solution_name, self.real_project_path);
-                return std::path::PathBuf::from(self.replica_project_dir).join("Project");
+                let index = self.real_project_path.find(":\\");
+                if let Some(i) = index {
+                    let reset = &self.real_project_path[i + 2..];
+                    return std::path::PathBuf::from(self.replica_project_dir).join(reset);
+                }
+                else {
+                    return std::path::PathBuf::from(self.replica_project_dir).join(self.real_project_path);
+                }
             }
         }
     }
+}
 
+#[test]
+fn redirect_path_or_dir_test() {
+    let solution = "MediaKit";
+    let path = "D:\\Software\\ffmpeg-master-latest-win64-gpl-shared\\include\\libswscale\\swscale.h";
+    let p: Property = Property::new(solution, path);
+    let repath = p.fetch_local_replica_project_path();
+    println!("redirect_path_or_dir_test: {:?}", repath);
 }
