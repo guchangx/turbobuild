@@ -179,8 +179,6 @@ impl Receiver {
                 }
             }
         });
-        
-        let mut gproject = std::sync::Arc::new(String::new());
 
         while let Some(request) = stream.next().await {
             if let Ok(request) = request {
@@ -215,10 +213,7 @@ impl Receiver {
                 else if file_type == package::FileType::Sourcefiles as i32 {
                     let ret = Self::storage(&solution, &project, &path, &content).await;
                     match ret {
-                        Ok(repath) => {
-                            if gproject.is_empty() {
-                                gproject = std::sync::Arc::new(project.clone());
-                            }
+                        Ok(_) => {
                         },
                         Err(err) => {
                             log::error!("transmit file handle save source files failed: {}", err);

@@ -769,7 +769,7 @@ impl MSVC {
         
         let defines = std::sync::Arc::new(std::sync::RwLock::new(actions.defines));
         let dependency_cache_by_addr = std::sync::Arc::new(dashmap::DashMap::<String, std::sync::Arc<dashmap::DashSet<String>>>::new());
-        let resolve_dependency_includes = std::sync::Arc::new(dashmap::DashMap::<String, std::sync::Arc<dashmap::DashSet<String>>>::new());
+        let resolve_dependency_includes = std::sync::Arc::new(dashmap::DashMap::<String, std::sync::Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>>::new());
 
         let extracted_pdb = actions.pdb_file.clone();
         let mut source_file_current_dir_set = std::collections::HashSet::<std::path::PathBuf>::from_iter(source_file_current_dir.iter().cloned());
@@ -1125,55 +1125,44 @@ impl MSVC {
         return compiler_output.lock().unwrap().to_owned();
     }
 
+
     async fn parser_sourcefile_sync_dependency(&self, path: String, 
         defines: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>, 
         include_dirs: &std::vec::Vec::<std::path::PathBuf>,
         solution: std::sync::Arc<String>,
         project: std::sync::Arc<String>, 
         cache: std::sync::Arc<dashmap::DashSet::<String>>,
-        resolve_dependency_includes: std::sync::Arc<dashmap::DashMap::<String, std::sync::Arc<dashmap::DashSet<String>>>>,
+        resolve_dependency_includes: std::sync::Arc<dashmap::DashMap::<String, std::sync::Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>>>,
         stream: tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs>) {
         
         let path = path.replace('/', "\\");
-        if cache.contains(&path) {
-            return;
-        }
-        else {
-            cache.insert(path.clone());
-        }
 
-        let content = bytes::Bytes::from(tokio::fs::read(&path).await.unwrap_or_else(|_| {
-            log::error!("failed to read file: {:?}", path);
-            Vec::new()
-        }));
-        
-        
-        let p = std::path::Path::new(&path);
-        let name = p .file_name()
-            .and_then(std::ffi::OsStr::to_str)
-            .map(str::to_owned)
-            .unwrap_or_else(|| path.clone());
-
-        let archive = crate::communicate::packager::ArchiveArgs {
-            file_type:  crate::communicate::packager::FileType::SourceFiles,
-            solution: solution.as_ref().clone(),
-            project: project.as_ref().clone(),
-            name: name,
-            path: path.clone(),
-            content: content.clone(),
+        let (rwlock, write) = match resolve_dependency_includes.entry(path.clone()) {
+            dashmap::mapref::entry::Entry::Occupied(entry) => {
+                // Handle the case where the entry already exists
+                (entry.get().clone(), false)
+            },
+            dashmap::mapref::entry::Entry::Vacant(entry) => {
+                // Handle the case where the entry does not exist
+                let rwlock = std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new()));
+                entry.insert(rwlock.clone());
+                (rwlock, true)
+            },
         };
 
-        let _ = stream.send(archive).await;
-        
-        if let Some(resolve) = resolve_dependency_includes.get(&path) {
-            for dep in resolve.iter() {
-                Box::pin(async {
-                    self.parser_sourcefile_sync_dependency(dep.to_string(), defines.clone(), include_dirs, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
-                }).await;
-            }            
-        }
-        else {
-    
+        if write {
+            if !cache.insert(path.clone()) {
+                return;
+            }
+
+            let mut _write_guard = rwlock.write().await;
+
+            let content = bytes::Bytes::from(tokio::fs::read(&path).await.unwrap_or_else(|_| {
+                log::error!("failed to read file: {:?}", path);
+                Vec::new()
+            }));
+            
+            let p = std::path::Path::new(&path);
             let parent = p.parent().unwrap_or_else(|| std::path::Path::new("")).to_path_buf();
 
             let dependency;
@@ -1187,6 +1176,26 @@ impl MSVC {
                 dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), include_dirs);
             }
 
+            *_write_guard = dependency.clone().into_iter().collect::<std::collections::HashSet<String>>();
+            drop(_write_guard);
+
+            let name = p.file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| path.clone());
+    
+            let archive = crate::communicate::packager::ArchiveArgs {
+                file_type:  crate::communicate::packager::FileType::SourceFiles,
+                solution: solution.as_ref().clone(),
+                project: project.as_ref().clone(),
+                name: name,
+                path: path.clone(),
+                content: content.clone(),
+            };
+    
+            let _ = stream.send(archive).await;
+            
+            
             log::trace!("parsed source file {:?} {:?} dependency: {:#?}.", project, path, &dependency);
     
             for dep in dependency.clone() {
@@ -1194,8 +1203,45 @@ impl MSVC {
                     self.parser_sourcefile_sync_dependency(dep, defines.clone(), include_dirs, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
                 }).await;
             }
-    
-            resolve_dependency_includes.insert(path.clone(), std::sync::Arc::new(dependency.into_iter().collect::<dashmap::DashSet<String>>()));
+        }
+        else {
+            if !cache.insert(path.clone()) {
+                return;
+            }
+            else {
+                let content = bytes::Bytes::from(tokio::fs::read(&path).await.unwrap_or_else(|_| {
+                    log::error!("failed to read file: {:?}", path);
+                    Vec::new()
+                }));
+                
+                let p = std::path::Path::new(&path);
+                let name = p.file_name()
+                    .and_then(std::ffi::OsStr::to_str)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| path.clone());
+        
+                let archive = crate::communicate::packager::ArchiveArgs {
+                    file_type:  crate::communicate::packager::FileType::SourceFiles,
+                    solution: solution.as_ref().clone(),
+                    project: project.as_ref().clone(),
+                    name: name,
+                    path: path.clone(),
+                    content: content.clone(),
+                };
+                
+                let _ = stream.send(archive).await;
+                log::trace!("additional send dependency archive: {:?}", path);
+            }
+
+            let reader = {
+                let r = rwlock.read().await;
+                r.clone()
+            };
+            for dep in reader.iter() {
+                Box::pin(async {
+                    self.parser_sourcefile_sync_dependency(dep.to_string(), defines.clone(), include_dirs, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
+                }).await;
+            }
         }
     }
 
