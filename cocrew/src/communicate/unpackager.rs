@@ -42,11 +42,21 @@ pub static TASK_TO_FILE_CHANNEL: std::sync::LazyLock<CompileResultSync> = std::s
 });
 
 #[derive(Default, Clone)] 
+pub struct TransmitFile {
+    pub sln: String,
+    pub project: String,
+    pub path: String,
+    pub content: Vec<u8>,
+}
+
+#[derive(Clone)] 
 pub struct Receiver {
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
     redirect_create_file_expect: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, CreateFileExpect>>>,
     redirect_create_file_exists: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, CreateFileExists>>>,
     redirect_query_directory_file_infos: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, QueryDirectoryFileInfos>>>,
+    transmmit_file_tx: std::sync::Arc<tokio::sync::mpsc::Sender<TransmitFile>>,
+    transmmit_file_rx: std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<TransmitFile>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -81,12 +91,15 @@ pub static RECEIVED_COMPILE_RESOURCES: std::sync::LazyLock<std::sync::Arc<Receiv
 impl Receiver {
     
     pub fn new(common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>) -> Self {
+        let (transmmit_file_tx, transmmit_file_rx) = tokio::sync::mpsc::channel(512);
 
         let receiver = Receiver {
             common,
             redirect_create_file_expect: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::<String, CreateFileExpect>::new())),
             redirect_create_file_exists: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::<String, CreateFileExists>::new())),
             redirect_query_directory_file_infos: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::<String, QueryDirectoryFileInfos>::new())),
+            transmmit_file_tx: std::sync::Arc::new(transmmit_file_tx),
+            transmmit_file_rx: std::sync::Arc::new(tokio::sync::Mutex::new(transmmit_file_rx)),
         };
         return receiver;
     }
@@ -106,7 +119,14 @@ impl Receiver {
             redirect_create_file_expect: self.redirect_create_file_expect.clone(),
             redirect_create_file_exists: self.redirect_create_file_exists.clone(),
             redirect_query_directory_file_infos: self.redirect_query_directory_file_infos.clone(),
+            transmmit_file_tx: self.transmmit_file_tx.clone(),
+            transmmit_file_rx: self.transmmit_file_rx.clone(),
         };
+
+        let receiver_ = receiver.clone();
+        tokio::spawn(async move {
+            receiver_.multiworker_save_transmit_files().await;
+        });
 
         let server = package::communicate_server::CommunicateServer::new(receiver);
     
@@ -211,16 +231,14 @@ impl Receiver {
                     }
                 }
                 else if file_type == package::FileType::Sourcefiles as i32 {
-                    let ret = Self::storage(&solution, &project, &path, &content).await;
-                    match ret {
-                        Ok(_) => {
-                        },
-                        Err(err) => {
-                            log::error!("transmit file handle save source files failed: {}", err);
-                            reply.error_code = 1;
-                            reply.error_message = err;
-                        }
-                    };
+                    
+                    self.transmmit_file_tx.send(TransmitFile {
+                        sln: solution,
+                        project: project,
+                        path: path,
+                        content: content,
+                    }).await.unwrap();
+
                 }
                 else if file_type == package::FileType::Precompiledsrcfiles as i32 {
                     let ret = Self::storage(&solution, &project, &path, &content).await;
@@ -1217,6 +1235,35 @@ impl Receiver {
             log::warn!("pdb file is not found, path: {:?}.", result);
         }
     }
+
+    async fn multiworker_save_transmit_files(&self) {
+        let rx = self.transmmit_file_rx.clone();
+        let mut handles = Vec::new();
+        for i in 0..4 {
+            let rx_ = rx.clone();
+
+            let handle = tokio::spawn(async move {
+               loop {
+                    let transmit_file = {
+                        let mut rx_guard = rx_.lock().await;
+                        match rx_guard.recv().await {
+                            Some(file) => file,
+                            None => {
+                                break;
+                            }
+                        }
+                    };
+                    let _ = Self::storage(&transmit_file.sln, &transmit_file.project, &transmit_file.path, &transmit_file.content).await;
+               } 
+            });
+            handles.push(handle);
+        }
+
+        for handle in handles {
+            let _ = handle.await;
+        }
+    }
+
 }
 
 type ResponseTaskStream = std::pin::Pin<Box<dyn tokio_stream::Stream<Item = Result<package::CompileTrResponse, tonic::Status>> + Send>>;
