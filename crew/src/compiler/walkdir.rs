@@ -72,7 +72,11 @@ impl FsNode {
 
         let mut overrides = ignore::overrides::OverrideBuilder::new(dir);
         overrides.add("**/*.{h,hh,hpp,hxx,c,cpp,cxx,cc,dat,inl,ipp,cppm,ixx,h++,inc}").unwrap();
-        let overrides = overrides.build().unwrap();
+
+        let overrides = overrides
+            .whitelist_no_extension(true)
+            .build()
+            .unwrap();
 
         let walker = ignore::WalkBuilder::new(dir)
             .hidden(true) 

@@ -570,7 +570,7 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
                 return Some(p);
             }
             else {
-                if p.exists() {
+                if p.is_file() {
                     if let Some(nodem) = reader.dir.get_mut(&dir) {
                         let nodem = std::sync::Arc::make_mut(nodem);
                         nodem.insnode(std::path::Path::new(dep), false);
@@ -588,13 +588,11 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
                 return Some(p);
             }
             else {
-                if p.exists() {
-
+                if p.is_file() {
                     if let Some(nodem) = reader.dir.get_mut(&dir.to_owned().into_os_string()) {
                         let nodem = std::sync::Arc::make_mut(nodem);
                         nodem.insnode(std::path::Path::new(dep), false);
                     }
-
                     return Some(p);
                 }
             }
