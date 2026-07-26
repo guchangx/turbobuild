@@ -40,6 +40,12 @@ pub struct PreSyncedDependency {
     pub paths: Vec<String>,
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
+pub struct SourceContent {
+    pub contents: Option<Vec<u8>>,
+    pub path: String, 
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct CompilerOutput {
     pub status: u32,

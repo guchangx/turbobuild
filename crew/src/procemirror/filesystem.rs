@@ -115,13 +115,13 @@ fn check_path_in_cache(dir: &String) -> bool {
         }
         else {
             if dir.starts_with("\\??\\") {
-                return crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().exists(&dir["\\??\\".len()..]);
+                return crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().exists(&dir["\\??\\".len()..],  crate::compiler::walkdir::NodeKind::Directory);
             }
             else if dir.starts_with("\\\\?\\") {
-                return crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().exists(&dir["\\\\?\\".len()..]);
+                return crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().exists(&dir["\\\\?\\".len()..], crate::compiler::walkdir::NodeKind::Directory);
             }
             else {
-                return crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().exists(&dir);
+                return crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().exists(&dir, crate::compiler::walkdir::NodeKind::Directory);
             }
         }
     }

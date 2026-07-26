@@ -482,14 +482,13 @@ impl MSVC {
         }
     }
     
-    async fn request_dist_compile_with_command(&self, addr: &str, compiler_input: CompilerInput, requires: &crate::compiler::model::PreSyncedDependency)
+    async fn request_dist_compile_with_command(&self, addr: &str, compiler_input: CompilerInput,  source: &crate::compiler::model::SourceContent, requires: &crate::compiler::model::PreSyncedDependency)
         -> CompilerOutput {
-
-        let output = self.request_dist_compile(&addr, &compiler_input, &requires).await;
+        let output = self.request_dist_compile(&addr, &compiler_input, &source, &requires).await;
         return output;
     }
 
-    async fn request_dist_compile(&self, addr: &str, input: &CompilerInput, presynced: &crate::compiler::model::PreSyncedDependency) -> CompilerOutput {
+    async fn request_dist_compile(&self, addr: &str, input: &CompilerInput, source: &crate::compiler::model::SourceContent, presynced: &crate::compiler::model::PreSyncedDependency) -> CompilerOutput {
     
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
         log::debug!("{:?} in commands compiler version: {:?}, addr: {:?}", input.project, cversion, addr);
@@ -524,7 +523,7 @@ impl MSVC {
             
                 let mut output = CompilerOutput::default();
 
-                let receiver = crate::communicate::distributor::Distributor::compile(addr, presynced.paths.clone(), input, String::new(), &std::borrow::Cow::from(Vec::new()), &self.runtime, self.output_callback.clone()).await;
+                let receiver = crate::communicate::distributor::Distributor::compile(addr, presynced.paths.clone(), input, source.path.clone(), &std::borrow::Cow::from(Vec::new()), &self.runtime, self.output_callback.clone()).await;
                 match receiver {
                     crate::communicate::packager::ReceiverType::Compile(recv) => {
                         output.status = recv.status;
@@ -676,20 +675,22 @@ impl MSVC {
     
                 notify.notified().await;
 
-                let mut requires = crate::compiler::model::PreSyncedDependency {
-                    paths: Vec::new(),
+                let mut requires = crate::compiler::model::SourceContent {
+                    contents: None,
+                    path: String::new(),
                 };
 
                 let requires_params = commands_dist_parameters_requires(&compiler_input);
                 if !requires_params.is_empty() {
                     let (contents, path) = crate::communicate::packer::Packer::pack_separate_file(&requires_params.to_str().unwrap());
-                
-                    requires = crate::compiler::model::PreSyncedDependency {
-                        paths: vec![path.into_string().unwrap()],
+
+                    requires = crate::compiler::model::SourceContent {
+                        contents: Some(contents.to_vec()),
+                        path: path.into_string().unwrap(),
                     };
                 }
     
-                let output = self.request_dist_compile_with_command(&addr, compiler_input.clone(), &requires).await;
+                let output = self.request_dist_compile_with_command(&addr, compiler_input.clone(), &requires, &crate::compiler::model::PreSyncedDependency { paths: Vec::new() }).await;
                 return output;
             }
             else
@@ -718,8 +719,9 @@ impl MSVC {
             commands.append(&mut files);
             compiler_input.compiler_commands = commands;
             
-            let mut requires = crate::compiler::model::PreSyncedDependency {
-                paths: Vec::new(),
+            let mut requires = crate::compiler::model::SourceContent {
+                contents: None,
+                path: String::new(),
             };
             if compiler_input.build_and_compiler_type.to_string_lossy().contains("msvc") {
                 if compiler_input.compiler_path.to_string_lossy().contains("~1") {
@@ -731,15 +733,16 @@ impl MSVC {
                 if !requires_params.is_empty() {
                     let (contents, path) = crate::communicate::packer::Packer::pack_separate_file(&requires_params.to_str().unwrap());
                 
-                    requires = crate::compiler::model::PreSyncedDependency {
-                        paths: vec![path.into_string().unwrap()],
+                    requires = crate::compiler::model::SourceContent {
+                        contents: Some(contents.to_vec()),
+                        path: path.into_string().unwrap(),
                     };
                 }
             }
 
             notify.notified().await;
 
-            let output = self.request_dist_compile_with_command(&addr, compiler_input.clone(), &requires).await;
+            let output = self.request_dist_compile_with_command(&addr, compiler_input.clone(), &requires, &crate::compiler::model::PreSyncedDependency { paths: Vec::new() }).await;
             return output;
         }
     }
@@ -963,7 +966,11 @@ impl MSVC {
                         input.compiler_commands.extend(left.iter().cloned());
                         
                         let dispatched = left.len() as u32;
-                        let output = self_.request_dist_compile(&addr, &input, &requires).await;
+                        let source = crate::compiler::model::SourceContent {
+                            contents: None,
+                            path: left.iter().map(|item| item.to_string_lossy().to_string()).collect::<Vec<_>>().join(";"),
+                        };
+                        let output = self_.request_dist_compile(&addr, &input, &source, &requires).await;
                         return (addr, dispatched, output);
                     });
                 }
@@ -1108,7 +1115,11 @@ impl MSVC {
                             input.compiler_commands.extend(left.iter().cloned()); 
 
                             let dispatched = left.len() as u32;
-                            let output = self_.request_dist_compile(&addr_, &input, &requires).await;
+                            let source = crate::compiler::model::SourceContent {
+                                contents: None,
+                                path: left.iter().map(|item| item.to_string_lossy().to_string()).collect::<Vec<_>>().join(";"),
+                            };
+                            let output = self_.request_dist_compile(&addr_, &input, &source, &requires).await;
 
                             return (addr_, dispatched, output);
                         });

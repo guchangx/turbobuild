@@ -10,6 +10,12 @@ pub struct FsNode {
     pub files: rustc_hash::FxHashSet<std::ffi::OsString>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeKind {
+    File,
+    Directory,
+}
+
 impl FsNode {
     pub fn new() -> Self {
         FsNode {
@@ -171,13 +177,13 @@ impl FsNode {
         return None;
     }
 
-    pub fn exists<P: AsRef<std::path::Path> + ?Sized>(&self, dir: &P) -> bool {
+    pub fn exists<P: AsRef<std::path::Path> + ?Sized>(&self, path: &P, kind: NodeKind) -> bool {
 
         if self.dir.is_empty() {
             return false;
         }
 
-        let target = dir.as_ref();
+        let target = path.as_ref();
 
         for (k ,v)  in self.dir.iter() {
             if let Ok(rest) = target.strip_prefix(k) {
@@ -185,7 +191,12 @@ impl FsNode {
                 let mut components = rest.components();
 
                 let Some(mut component) = components.next() else {
-                    return true;
+                    if kind == NodeKind::Directory {
+                        return true;
+                    }
+                    else {
+                        return false;
+                    }
                 };
 
                 let mut current_ref = v.as_ref();
@@ -207,7 +218,12 @@ impl FsNode {
                             }
                         }
                         None => {
-                            return current_ref.dir.contains_key(osstr) || current_ref.files.contains(osstr);
+                            if kind == NodeKind::Directory {
+                                return current_ref.dir.contains_key(osstr);
+                            }
+                            else if kind == NodeKind::File {
+                                return current_ref.files.contains(osstr);
+                            }
                         }
                     }
                 }
@@ -280,6 +296,30 @@ fn query_include_dir_ignore_test() {
 
     let files = fs.query(&std::path::Path::new("G:\\turbobuild\\crew\\src"));
     println!("query fs node dirs and files: {:?}", files);
+}
+
+#[test]
+fn exists_file_or_dir_test() {
+    let now = std::time::Instant::now();
+    let path = std::env::current_dir().unwrap();
+    println!("Current path: {:?}", path);
+    let mut fs = FsNode::new();
+    fs.add(&path.clone().into_os_string());
+    println!("query_fs_node_test_elapsed: {:?}", now.elapsed());
+    println!("query_fs_node_test_node: {:#?}", fs);
+
+    let files = fs.exists(&path, NodeKind::File);
+    println!("exists fs node dirs: {:?}", files);
+
+    let files = fs.exists(&path, NodeKind::Directory);
+    println!("exists fs node dirs: {:?}", files);
+
+
+    let files = fs.exists(&path.join("Cargo.toml"), NodeKind::File);
+    println!("exists fs node files: {:?}", files);
+
+    let files = fs.exists(&path.join("Cargo.toml"), NodeKind::Directory);
+    println!("exists fs node files: {:?}", files);
 }
 
 #[test]

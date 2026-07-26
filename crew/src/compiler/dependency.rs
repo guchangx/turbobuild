@@ -566,7 +566,7 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
             let dir = dir.to_owned().into_os_string();
             let p = tools::utils::normalize_lexical(dir.clone().into_string().unwrap() + "\\" + dep);
 
-            if reader.exists(&p) {
+            if reader.exists(&p, crate::compiler::walkdir::NodeKind::File) {
                 return Some(p);
             }
             else {
@@ -583,8 +583,15 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
     else {
         let reader = unsafe { crate::compiler::model::WALK_FS_NODE.as_mut().unwrap() };
         for dir in include_dirs {
-            let p = dir.join(dep);
-            if reader.exists(&p) {
+            let p;
+            if dep.starts_with("./") {
+                p = dir.join(&dep[2..]);
+            }
+            else {
+                p = dir.join(dep);
+            }
+            
+            if reader.exists(&p, crate::compiler::walkdir::NodeKind::File) {
                 return Some(p);
             }
             else {

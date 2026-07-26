@@ -830,7 +830,8 @@ impl Receiver {
         else {
             let p: crew::replica::project::Property = crew::replica::project::Property::new(solution, path);
             let repath = p.fetch_local_replica_project_path();
-    
+            
+            log::trace!("transmit storage project: {}, path: {}, repath: {:?}, content size: {}KB.", project, path, repath, content.len() / 1024);
             if repath.extension() == Some(&std::ffi::OsStr::new("zip")) {
                 Self::extract(&repath.to_str().unwrap(), &content).await;
             }

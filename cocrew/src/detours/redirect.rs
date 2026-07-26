@@ -65,7 +65,7 @@ pub unsafe fn pass_params_to_redirect(handle: win::Foundation::HANDLE, solution:
         }
         else {
             //FlushFileBuffers(handle);
-            log::trace!("send message by pipe {} {:?}", if bytes > 0 {"success."} else {"failed."}, arg);
+            //log::trace!("send message by pipe {} {:?}", if bytes > 0 {"success."} else {"failed."}, arg);
         }
     }
     else {
