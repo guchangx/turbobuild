@@ -836,7 +836,7 @@ impl Receiver {
                 Self::extract(&repath.to_str().unwrap(), &content).await;
             }
             else {
-                let file = match tokio::fs::File::create(&repath).await {
+                let file = match tokio::fs::File::create( &format!("{}{}", &repath.to_string_lossy(), ".tmp")).await {
                     Ok(file) => Ok(file),
                     Err(err) => {
                         if err.kind() == std::io::ErrorKind::NotFound {
@@ -846,7 +846,7 @@ impl Receiver {
                                 Err(err)
                             }
                             else {
-                                tokio::fs::File::create(&repath).await
+                                tokio::fs::File::create(format!("{}{}", &repath.to_string_lossy(), ".tmp")).await
                             }
                         }
                         else {
@@ -860,7 +860,21 @@ impl Receiver {
                 if let Ok(mut file) = file {
                     match file.write_all(&content).await {
                         Ok(_) => {
-                            log::trace!("transmit storage file success: {:?} {:?}", project, path);
+                            match tokio::fs::rename(&format!("{}{}", &repath.to_string_lossy(), ".tmp"), &repath).await {
+                                Ok(_) => {
+                                    log::trace!("transmit storage file success: {:?} {:?}", project, path);
+                                },
+                                Err(err) => {
+                                    if err.raw_os_error() == Some(std::io::ErrorKind::AlreadyExists as i32) {
+                                        std::fs::rename(&format!("{}{}", &repath.to_string_lossy(), ".tmp"), &repath).unwrap_or_else(|err| {
+                                            log::trace!("transmit storage file rename file failed. from {} to {}, {}", &format!("{}{}", &repath.to_string_lossy(), ".tmp"), &repath.to_string_lossy(), err);
+                                        });
+                                    }
+                                    else {
+                                       log::trace!("transmit storage file rename failed. {:?} {:?} {}", project, repath, err);
+                                    }
+                                }
+                            }
                         },
                         Err(err) => {
                             log::error!("transmit storage file failed. {:?} {:?} {:?}", project, path, err)

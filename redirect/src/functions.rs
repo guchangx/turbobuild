@@ -1711,8 +1711,6 @@ pub unsafe fn nt_create_file(
                             crate::log!(error, "zw_create_file failed! object name not found path: {}", name);
                         }
                         else {
-                            crate::log!(error, "zw_create_file failed! error_code: {:#X} path: {}", nt_status, name);
-
                             if nt_status == win::Foundation::STATUS_SHARING_VIOLATION {
                                 nt_status = zw_create_file(
                                     file_handle,
@@ -1727,6 +1725,12 @@ pub unsafe fn nt_create_file(
                                     ea_buffer,
                                     ea_length
                                 );
+                                if nt_status != win::Foundation::STATUS_SUCCESS {
+                                    crate::log!(error, "zw_create_file recrate failed! error_code: {:#X} path: {}", nt_status, name);
+                                }
+                            }
+                            else {
+                                crate::log!(error, "zw_create_file crate failed! error_code: {:#X} path: {}", nt_status, name);
                             }
                         }
                     }
@@ -1735,56 +1739,67 @@ pub unsafe fn nt_create_file(
                 else if let crate::replace::ReplaceNtResult::VirtualIncludesDir(unmodified) = replace {
                     crate::log!(trace, "nt_create_file includes hook replace path: {} {}", name.clone(), unmodified);
 
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    let mut args =  std::collections::HashMap::<String, String>::new();
-                    args.insert("objectname".to_string(), unmodified.clone());
-                    args.insert("replace".to_string(), name.clone());
-                    args.insert("exists".to_string(), "".to_string());
-                    
-                    let syscall = {
-                        let mut cid = SYS_CALL_ID.lock().unwrap();
-                        let syscall = crate::syscallredirect::MirrorSysCall {
-                            cid: *cid,
-                            api: "NtCreateFile".into(),
-                            args,
-                            responder: tx,
-                        };
-                        *cid += 1;
-                        syscall
-                    };
-                    
-                    crate::log!(trace, "nt_create_file includes hook send syscall cid: {:?} args: {:?}", &syscall.cid, &syscall.args);
-                    crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(syscall).unwrap();
-                    let exists = rx.blocking_recv().unwrap();
-                    if let Some(exists) = exists.get("exists") {
-                        if exists == "true" {
-                            let mut object_name_source_wide_char = std::ffi::OsString::from(name.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
-                            let mut fake_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
-                                Length: object_name_source_wide_char.len().saturating_sub(1) as u16 * 2,
-                                MaximumLength: object_name_source_wide_char.len() as u16 * 2,
-                                Buffer: object_name_source_wide_char.as_mut_ptr(),
+                    let is_exists = if crate::DEPENDENCYS.get().unwrap().keys().any(|item| { item.starts_with(&unmodified[4..]) }) {
+                        true
+                    }
+                    else {
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        let mut args =  std::collections::HashMap::<String, String>::new();
+                        args.insert("objectname".to_string(), unmodified.clone());
+                        args.insert("replace".to_string(), name.clone());
+                        args.insert("exists".to_string(), "".to_string());
+                        
+                        let syscall = {
+                            let mut cid = SYS_CALL_ID.lock().unwrap();
+                            let syscall = crate::syscallredirect::MirrorSysCall {
+                                cid: *cid,
+                                api: "NtCreateFile".into(),
+                                args,
+                                responder: tx,
                             };
-                            (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
-
-                            let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block, allocation_size,
-                                file_attributes, share_access, windows_sys::Wdk::Storage::FileSystem::FILE_OPEN_IF, create_options, ea_buffer, ea_length
-                            );
-                    
-                            if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
-
-                                NT_HANDLE_AND_DIR.with(|cell| {
-                                    cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, unmodified);
-                                });
+                            *cid += 1;
+                            syscall
+                        };
+                        
+                        crate::log!(trace, "nt_create_file includes hook send syscall cid: {:?} args: {:?}", &syscall.cid, &syscall.args);
+                        crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(syscall).unwrap();
+                        let exists = rx.blocking_recv().unwrap();
+                        if let Some(exists) = exists.get("exists") {
+                            if exists == "true" {
+                                true
                             }
-                            else {
-                                crate::log!(error, "zw_create_file includes dir failed!: path: {} handle: {:?} status: {:#X}", name, *file_handle, nt_status);
+                            else
+                            {
+                                false
                             }
-                            return nt_status;
                         }
-                        else
-                        {
-                            return windows_sys::Win32::Foundation::STATUS_OBJECT_NAME_NOT_FOUND;
+                        else {
+                            false
                         }
+                    };
+
+                    if is_exists {
+                        let mut object_name_source_wide_char = std::ffi::OsString::from(name.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+                        let mut fake_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
+                            Length: object_name_source_wide_char.len().saturating_sub(1) as u16 * 2,
+                            MaximumLength: object_name_source_wide_char.len() as u16 * 2,
+                            Buffer: object_name_source_wide_char.as_mut_ptr(),
+                        };
+                        (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
+
+                        let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block, allocation_size,
+                            file_attributes, share_access, windows_sys::Wdk::Storage::FileSystem::FILE_OPEN_IF, create_options, ea_buffer, ea_length
+                        );
+                
+                        if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
+                            NT_HANDLE_AND_DIR.with(|cell| {
+                                cell.borrow_mut().insert(*file_handle as windows_sys::Win32::Foundation::HANDLE, unmodified);
+                            });
+                        }
+                        else {
+                            crate::log!(error, "zw_create_file includes dir failed!: path: {} handle: {:?} status: {:#X}", name, *file_handle, nt_status);
+                        }
+                        return nt_status;
                     }
                     else {
                         return windows_sys::Win32::Foundation::STATUS_OBJECT_NAME_NOT_FOUND;
