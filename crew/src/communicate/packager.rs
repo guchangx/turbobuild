@@ -1,9 +1,14 @@
 use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
-use windows_sys::Wdk::Storage::FileSystem::RtlAppendStringToString;
 
 pub mod pack {
     include!("../../proto/pack.rs");
+}
+
+#[derive(Default, Clone)] 
+pub struct TransmitArchive {
+    pub path: String,
+    pub content: bytes::Bytes,
 }
 
 #[derive(Clone)]
@@ -11,6 +16,7 @@ pub struct Sender {
     client: pack::communicate_client::CommunicateClient<tonic::transport::Channel>,
     host: String,
     runtime: Option<std::sync::Arc<tokio::runtime::Handle>>,
+    transmit_archive_tx: tokio::sync::mpsc::Sender<TransmitArchive>,
 }
 
 pub struct CommandArgs {
@@ -75,7 +81,7 @@ pub enum SenderType<'a> {
     ArchiveStream(ArchiveStreamArgs),
     Compile(SourcesFile<'a>, crate::compiler::model::OutputCallback),
     CheckResource,
-} 
+}
 
 pub struct CommandRecv {
     pub status: bool,
@@ -100,6 +106,8 @@ pub enum ReceiverType {
     None,
 }
 
+static TRANSMIT_ARCHIVE_CHANNEL: std::sync::OnceLock<tokio::sync::mpsc::Sender<TransmitArchive>> = std::sync::OnceLock::new();
+
 impl Sender {
     pub async fn new(addr: &str, runtime: Option<&std::sync::Arc<tokio::runtime::Handle>>) -> Self {
         let mut host = "localhost"; 
@@ -116,10 +124,12 @@ impl Sender {
         let client = pack::communicate_client::CommunicateClient::new(channel)
             .max_decoding_message_size(1024 * 1024 * 180 * 2)
             .max_encoding_message_size(1024 * 1024 * 180 * 2);
+
         let sender = Sender {
             client,
             host: host.to_string(),
             runtime: runtime.cloned(),
+            transmit_archive_tx: Self::transmit_archive_sender(),
         };
 
         return sender;
@@ -277,19 +287,16 @@ impl Sender {
                         Ok(stream) => {
                             //log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
                             
-                            let path = stream.path.clone();
+                            let path = stream.path;
                             if !path.is_empty() && stream.content.len() > 0 {
-                                tokio::spawn(async move {
-                                    match tokio::fs::OpenOptions::new().write(true).create(true).open(&path).await {
-                                        Ok(mut file) => {
-                                            file.write_all(&stream.content).await.unwrap();
-                                            log::debug!("save file {} success.", path);
-                                        },
-                                        Err(err) => {
-                                            log::error!("save file {} failed: {:?}", path, err);
-                                        }
-                                    }
-                                });
+                                let file = TransmitArchive {
+                                    path,
+                                    content: stream.content,
+                                };
+
+                                if let Err(err) = self.transmit_archive_tx.send(file).await {
+                                    log::error!("queue received archive save request failed: {:?}", err);
+                                }
                             }
                         }
                         Err(err) => {
@@ -542,6 +549,51 @@ impl Sender {
         };
     }
 
+    fn transmit_archive_sender() -> tokio::sync::mpsc::Sender<TransmitArchive> {
+        TRANSMIT_ARCHIVE_CHANNEL
+            .get_or_init(|| {
+                let (sender, receiver) = tokio::sync::mpsc::channel(512);
+                let receiver = std::sync::Arc::new(tokio::sync::Mutex::new(receiver));
+
+                for _ in 0..4 {
+                    let receiver = receiver.clone();
+                    tokio::spawn(async move {
+                        Self::multiworker_save_transmit_archives(receiver).await;
+                    });
+                }
+
+                sender
+            })
+            .clone()
+    }
+
+    async fn multiworker_save_transmit_archives(
+        receiver: std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<TransmitArchive>>>) {
+        loop {
+            let transmit_file = {
+                let mut receiver = receiver.lock().await;
+                receiver.recv().await
+            };
+
+            let Some(transmit_file) = transmit_file else {
+                break;
+            };
+
+            match tokio::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&transmit_file.path)
+                .await
+            {
+                Ok(mut file) => match file.write_all(&transmit_file.content).await {
+                    Ok(_) => log::debug!("result file save worker saved {}.", transmit_file.path),
+                    Err(err) => log::error!("result file save worker write {} failed: {:?}", transmit_file.path, err),
+                },
+                Err(err) => log::error!("result file save worker open {} failed: {:?}", transmit_file.path, err),
+            }
+        }
+    }
 }
 
 

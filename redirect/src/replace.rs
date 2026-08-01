@@ -182,7 +182,7 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
     if rtype == ReplaceType::File {
         if DEPENDENCYS.get().map_or(false, |deps| {
             deps.iter().any(|(key, value)| {
-                if path.contains(key) {
+                if path == key {
                     let modified = format!(r"\??\{}", value);
                     *path = modified;
                     return true;
