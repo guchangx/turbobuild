@@ -404,7 +404,6 @@ impl Receiver {
         let _read_handle = tokio::spawn(async move {
             log::debug!("transmit redirect handle read task start.");
             let mut stream = request.into_inner();
-            let responder = crate::communicate::syscallredirectpipe::GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_tx.as_ref();
 
             while let Some(request) = stream.next().await {
                 if let Ok(real) = request {
@@ -540,14 +539,25 @@ impl Receiver {
                                             }).collect(),
                                         };
 
-                                        match responder.send(command_result) {
-                                            Ok(_) => {
-                                                log::debug!("transmit redirect handle send create file exists cache callback: {} {}", real.api, cid);
-                                            },
-                                            Err(err) => {
-                                                log::error!("transmit redirect handle send create file exists cache callback failed: {:?}", err);
-                                            },
+                                        let responder = {
+                                            crate::communicate::syscallredirectpipe::PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL
+                                                .read()
+                                                .unwrap()
+                                                .get(&(cid / 10000))
+                                                .cloned()
                                         };
+                                        if let Some(responder) = responder {
+                                            match responder.send(command_result).await {
+                                                Ok(_) => {
+                                                },
+                                                Err(err) => {
+                                                    log::error!("transmit redirect handle send create file exists cache callback failed: {:?}", err);
+                                                },
+                                            };
+                                        }
+                                        else {
+                                            log::error!("transmit redirect handle send create file exists cache callback failed: responder not found for cid: {}", cid);
+                                        }
                                     }
                                 }
                             }
@@ -560,7 +570,7 @@ impl Receiver {
                                     });
                                     std::mem::take(&mut cache.cids)
                                 };
-
+                                
                                 for cid in cids {
                                     if cid != real.cid {
                                         let command_result = MirrorSysCall {
@@ -570,15 +580,23 @@ impl Receiver {
                                                 (param.key.clone(), param.value.clone())
                                             }).collect(),
                                         };
-
-                                        match responder.send(command_result) {
-                                            Ok(_) => {
-                                                log::debug!("transmit redirect handle send create file expect cache callback: {} {}", real.api, cid);
-                                            },
-                                            Err(err) => {
-                                                log::error!("transmit redirect handle send create file expect cache callback failed: {:?}", err);
-                                            },
+                                        
+                                        let responder = {
+                                            crate::communicate::syscallredirectpipe::PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL
+                                                .read()
+                                                .unwrap()
+                                                .get(&(cid / 10000))
+                                                .cloned()
                                         };
+                                        if let Some(responder) = responder {
+                                            match responder.send(command_result).await {
+                                                Ok(_) => {
+                                                },
+                                                Err(err) => {
+                                                    log::error!("transmit redirect handle send create file expect cache callback failed: {:?}", err);
+                                                },
+                                            };
+                                        }
                                     }
                                 }
                             }
@@ -596,15 +614,19 @@ impl Receiver {
                                 }
                             });
 
-                            let mut caches = redirect_query_directory_file_infos.write().unwrap();
-                            if let Some(c) = caches.get_mut(&path) {
-
-                                let cids = c.cids.clone();
-
-                                c.cids.clear();
-                                c.fileinformation = fileinformation.clone();
-
-                                drop(caches);
+                            let cids = {
+                                let mut caches = redirect_query_directory_file_infos.write().unwrap();
+                                if let Some(cache) = caches.get_mut(&path) {
+                                    let cids = cache.cids.clone();
+                                    cache.cids.clear();
+                                    cache.fileinformation = fileinformation.clone();
+                                    Some(cids)
+                                }
+                                else {
+                                    None
+                                }
+                            };
+                            if let Some(cids) = cids {
                                 for cid in cids {
                                     if cid != real.cid {
                                         let command_result = MirrorSysCall {
@@ -614,15 +636,22 @@ impl Receiver {
                                                ("fileinformation".to_string(), fileinformation.clone()),
                                            ]),
                                         };
-
-                                       match responder.send(command_result) {
-                                           Ok(_) => {
-                                               log::debug!("transmit redirect handle send query directory cache callback: {} {}", real.api, cid);
-                                           },
-                                           Err(err) => {
-                                               log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);
-                                           },
-                                       };
+                                        let responder = {
+                                            crate::communicate::syscallredirectpipe::PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL
+                                                .read()
+                                                .unwrap()
+                                                .get(&(cid / 10000))
+                                                .cloned()
+                                        };
+                                        if let Some(responder) = responder {
+                                            match responder.send(command_result).await {
+                                                Ok(_) => {
+                                                },
+                                                Err(err) => {
+                                                    log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);
+                                                },
+                                            };
+                                        }
                                     }
                                 }
                             }
@@ -634,14 +663,22 @@ impl Receiver {
                             args: real.params.iter().map(|param| (param.key.clone(), param.value.clone())).collect(),
                         };
 
-                        match responder.send(command_result) {
-                            Ok(_) => {
-                                //log::debug!("transmit redirect handle send callback: {:?} {}", real.api, real.cid);
-                            },
-                            Err(err) => {
-                                log::error!("transmit redirect handle send callback failed: {:?}", err);
-                            },
+                        let responder = {
+                            crate::communicate::syscallredirectpipe::PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL
+                                .read()
+                                .unwrap()
+                                .get(&(real.cid / 10000))
+                                .cloned()
                         };
+                        if let Some(responder) = responder {
+                            match responder.send(command_result).await {
+                                Ok(_) => {
+                                },
+                                Err(err) => {
+                                    log::error!("transmit redirect handle send callback failed: {:?}", err);
+                                },
+                            };
+                        }
                     });
                 }
                 else if let Err(err) = request {
@@ -657,7 +694,6 @@ impl Receiver {
         //receive syscall messages from mpsc and send syscall to crew by grpc.
         let _write_handle = tokio::spawn(async move {
 
-            let responder = crate::communicate::syscallredirectpipe::GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_tx.as_ref();
             let channel = { NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_rx.lock().await.take() };
 
             if let Some(mut rx) = channel {
@@ -698,16 +734,25 @@ impl Receiver {
                                             ).collect(),
                                         };
 
-                                        match responder.send(reply) {
-                                            Ok(_) => {},
-                                            Err(err) => {
-                                                log::error!("transmit redirect handle send callback failed: {:?}", err);
-                                            },
+                                        let responder = {
+                                            crate::communicate::syscallredirectpipe::PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL
+                                                .read()
+                                                .unwrap()
+                                                .get(&(syscall.cid / 10000))
+                                                .cloned()
+                                        };
+
+                                        if let Some(responder) = responder {
+                                            match responder.send(reply).await {
+                                                Ok(_) => {},
+                                                Err(err) => {
+                                                    log::error!("transmit redirect handle send callback failed: {:?}", err);
+                                                },
+                                            }
                                         }
                                     }
                                     continue;
                                 }
-
                             }
                         }
                         else if let Some((_, _)) = syscall.args.get_key_value("exists") {
@@ -745,11 +790,20 @@ impl Receiver {
                                             ).collect(),
                                         };
 
-                                        match responder.send(reply) {
-                                            Ok(_) => {},
-                                            Err(err) => {
-                                                log::error!("transmit redirect handle send callback failed: {:?}", err);
-                                            },
+                                        let responder = {
+                                            crate::communicate::syscallredirectpipe::PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL
+                                                .read()
+                                                .unwrap()
+                                                .get(&(syscall.cid / 10000))
+                                                .cloned()
+                                        };
+                                        if let Some(responder) = responder {
+                                            match responder.send(reply).await {
+                                                Ok(_) => {},
+                                                Err(err) => {
+                                                    log::error!("transmit redirect handle send callback failed: {:?}", err);
+                                                },
+                                            }
                                         }
                                     }
                                     continue;
@@ -759,41 +813,54 @@ impl Receiver {
                     }
                     else if syscall.api == "NtQueryDirectoryFile" {
                         if let Some((_, path)) = syscall.args.get_key_value("filehandle") {
-                            let mut caches = self__.redirect_query_directory_file_infos.write().unwrap();
-                            if let Some(c) = caches.get_mut(path) {
-                                if c.fileinformation.is_empty() {
-                                    c.cids.push(syscall.cid);
-                                    drop(caches);
-                                    continue;
+                            let cfileinformation = {
+                                let mut caches = self__.redirect_query_directory_file_infos.write().unwrap();
+                                match caches.get_mut(path) {
+                                    Some(cache) if cache.fileinformation.is_empty() => {
+                                        cache.cids.push(syscall.cid);
+                                        Some(String::new())
+                                    }
+                                    Some(cache) => Some(cache.fileinformation.clone()),
+                                    None => {
+                                        caches.insert(path.clone(), QueryDirectoryFileInfos {
+                                            cids: vec![syscall.cid],
+                                            fileinformation: String::new(),
+                                        });
+                                        None
+                                    }
                                 }
-                                else {
+                            };
+
+                            if let Some(fileinformation) = cfileinformation {
+                                if !fileinformation.is_empty() {
                                     let reply = MirrorSysCall {
                                         cid: syscall.cid,
                                         api: syscall.api.clone(),
-                                        args: std::collections::HashMap::from([
-                                            ("fileinformation".to_string(), c.fileinformation.clone()),
-                                        ]),
+                                        args: std::collections::HashMap::from([(
+                                            "fileinformation".to_string(),
+                                            fileinformation,
+                                        )]),
                                     };
-
-                                    drop(caches);
-
-                                    match responder.send(reply) {
-                                        Ok(_) => {
-                                            log::debug!("transmit redirect handle send query directory cache callback: {} {}", syscall.api, syscall.cid);
-                                        },
-                                        Err(err) => {
-                                            log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);
-                                        },
+    
+                                    let responder = {
+                                        crate::communicate::syscallredirectpipe::PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL
+                                            .read()
+                                            .unwrap()
+                                            .get(&(syscall.cid / 10000))
+                                            .cloned()
                                     };
-                                    continue;
+    
+                                    if let Some(responder) = responder {
+                                        match responder.send(reply).await {
+                                            Ok(_) => {
+                                            },
+                                            Err(err) => {
+                                                log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);
+                                            },
+                                        };
+                                    }
                                 }
-                            }
-                            else {
-                                caches.insert(path.clone(), QueryDirectoryFileInfos {
-                                    cids: vec![syscall.cid],
-                                    fileinformation: String::new(),
-                                });
-                                drop(caches);
+                                continue;
                             }
                         }
                     }

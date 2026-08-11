@@ -13,21 +13,8 @@ pub struct MirrorSysCall {
     pub args: std::collections::HashMap<String, String>,
 }
 
-pub struct CHANNEL {
-    pub grpc_to_namedpipe_tx: std::sync::Arc<tokio::sync::broadcast::Sender<MirrorSysCall>>,
-    pub grpc_to_namedpipe_rx: std::sync::Arc<tokio::sync::Mutex<tokio::sync::broadcast::Receiver<MirrorSysCall>>>,
-}
-
-pub static GRPC_TO_NAMEDPIPE_CHANNEL: std::sync::LazyLock<CHANNEL> = std::sync::LazyLock::new(|| {
-
-    let (tx, rx) = tokio::sync::broadcast::channel(1024);
-    let grpc_to_namedpipe_tx =  std::sync::Arc::new(tx);
-    let grpc_to_namedpipe_rx = std::sync::Arc::new(tokio::sync::Mutex::new(rx));
-
-    return CHANNEL {
-        grpc_to_namedpipe_tx,
-        grpc_to_namedpipe_rx
-    };
+pub static PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL: std::sync::LazyLock<std::sync::RwLock<std::collections::HashMap<u32, std::sync::Arc<tokio::sync::mpsc::Sender<MirrorSysCall>>>>> = std::sync::LazyLock::new(|| {
+    return std::sync::RwLock::new(std::collections::HashMap::<u32, std::sync::Arc<tokio::sync::mpsc::Sender<MirrorSysCall>>>::new());
 });
 
 pub fn compiler_redirect_syscall() {
@@ -108,30 +95,28 @@ pub fn compiler_redirect_syscall() {
             let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let closed_ = closed.clone();
 
-            let mut rx = { GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_rx.lock().await.resubscribe() };
+            let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+            {
+                let grpc_to_namedpipe_tx =  std::sync::Arc::new(tx);
+                PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL.write().unwrap().insert(pid, grpc_to_namedpipe_tx.clone());
+            }
             
             rt_.spawn(async move {
                 while !closed.load(std::sync::atomic::Ordering::Relaxed) {
                     match rx.recv().await {
-                        Ok(response) => {
-                            if response.cid / 10000 == pid {
-                                let response = format_mirror_syscall(&response);
-                                match writer.write_all(response.as_bytes()).await {
-                                    Ok(_) => {
-                                    },
-                                    Err(err) => {
-                                        log::error!("failed to write mirror syscall response to namedpipe. {:?} err: {}", response, err);
-                                        break;
-                                    }
+                        Some(response) => {
+                            let response = format_mirror_syscall(&response);
+                            match writer.write_all(response.as_bytes()).await {
+                                Ok(_) => {
+                                },
+                                Err(err) => {
+                                    log::error!("failed to write mirror syscall response to namedpipe. {:?} err: {}", response, err);
+                                    break;
                                 }
                             }
                         },
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            log::warn!("cocrew namedpipe writer for pid {} lagged by {} messages, some syscall responses lost!", pid, n);
-                            continue;
-                        },
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            log::warn!("mirror syscall response broadcast channel closed for pid {}.", pid);
+                        None => {
+                            log::warn!("mirror syscall response channel closed, dropped receiver.");
                             break;
                         }
                     }
@@ -213,8 +198,15 @@ pub fn compiler_redirect_syscall_2() {
         loop {
         
         if !pipe.is_null() && pipe != win::Foundation::INVALID_HANDLE_VALUE {
-            
-            if win::Foundation::TRUE == win::System::Pipes::ConnectNamedPipe(pipe, std::ptr::null_mut()) {
+            let connected = win::System::Pipes::ConnectNamedPipe(pipe, std::ptr::null_mut());
+            let connect_error = if connected == win::Foundation::FALSE {
+                win::Foundation::GetLastError()
+            }
+            else {
+                win::Foundation::ERROR_SUCCESS
+            };
+
+            if connected == win::Foundation::TRUE || connect_error == win::Foundation::ERROR_PIPE_CONNECTED {
 
                 let handle = tools::ptr::HandleBox::new(pipe);
                 let handle_ = handle.clone();
@@ -294,6 +286,8 @@ pub fn compiler_redirect_syscall_2() {
                     win::System::Pipes::DisconnectNamedPipe(handle.get().to_owned() as _);
                     win::Foundation::CloseHandle(handle.get().to_owned() as _);
                     log::warn!("redirect syscall read named pipe message task exit. count: {} client pid: {}", count, pid);
+
+                    PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL.write().unwrap().remove(&pid);
                 });
 
                 /* 
@@ -310,35 +304,33 @@ pub fn compiler_redirect_syscall_2() {
                 );
                 */
 
-                let rt_ = rt.clone();
                 let _ = rt.spawn_blocking( move || {
-                    let mut rx = rt_.block_on(async move {
-                        let rx = { GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_rx.lock().await.resubscribe() };
-                        rx
-                    });
+
+                    let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+                    {
+                        let grpc_to_namedpipe_tx =  std::sync::Arc::new(tx);
+                        PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL.write().unwrap().insert(pid, grpc_to_namedpipe_tx.clone());
+                    }
+
                     log::trace!("start mirror syscall response task for pid: {}", pid);
                     loop {
-                        if let Ok(response) = rx.blocking_recv() {
-                            log::trace!("mirror syscall response recv: pid: {:?} {:?}", pid, response);
-                            if response.cid / 10000 == pid {
-                                let response = format_mirror_syscall(&response);
-                                log::debug!("received grpc response: {:?}", response);
+                        if let Some(response) = rx.blocking_recv() {
 
-                                let mut bytes: u32 = 0;
-                                let result = win::Storage::FileSystem::WriteFile(
-                                    handle_.get().to_owned() as _,
-                                    response.as_bytes().as_ptr() as *const u8,
-                                    response.len() as u32,
-                                    &mut bytes,
-                                    std::ptr::null_mut()
-                                );
-                                if result == win::Foundation::FALSE {
-                                    let error = win::Foundation::GetLastError();
-                                    log::error!("failed to write mirror syscall response to pipe. {:?} err: {}, message: {}", response, error, tools::utils::get_winapi_error_message(error));
-                                }
-                                else {
-                                    log::info!("success sent mirror syscall response. send size: {} length: {} {:?}", bytes, response.as_bytes().len(), response);
-                                }
+                            let response = format_mirror_syscall(&response);
+
+                            let mut bytes: u32 = 0;
+                            let result = win::Storage::FileSystem::WriteFile(
+                                handle_.get().to_owned() as _,
+                                response.as_bytes().as_ptr() as *const u8,
+                                response.len() as u32,
+                                &mut bytes,
+                                std::ptr::null_mut()
+                            );
+                            if result == win::Foundation::FALSE {
+                                let error = win::Foundation::GetLastError();
+                                log::error!("failed to write mirror syscall response to pipe. {:?} err: {}, message: {}", response, error, tools::utils::get_winapi_error_message(error));
+                            }
+                            else {
                             }
                         }
                         else {

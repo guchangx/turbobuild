@@ -74,7 +74,7 @@ impl TaskManager {
             frequency: crew.frequency.clone(),
             memory: crew.memory,
             running: 0,
-            max: 1024,
+            max: crew.core * crew.core,
         };
         self.add(task);
     }

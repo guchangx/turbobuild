@@ -810,7 +810,7 @@ impl MSVC {
 
         let addr_map_archive_stream = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, _>::new()));
         let addr_map_task_count = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, usize>::new()));
-        for (addr, core) in &all {
+        'all: for (addr, core) in &all {
             let (stream, _notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
             addr_map_archive_stream.lock().await.insert(addr.clone(), stream.clone());
 
@@ -974,12 +974,12 @@ impl MSVC {
                         return (addr, dispatched, output);
                     });
                 }
-                else  {
+                else {
                     log::error!("no available addr to schedule for dist compile.");
                 }
 
                 if sources.is_empty() {
-                    break;
+                    break 'all;
                 }
             }
         }

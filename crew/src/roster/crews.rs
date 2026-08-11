@@ -1,5 +1,6 @@
 use std::f32;
 
+pub const STEP: u32 = 1;
 
 #[derive(Default, Clone)]
 pub struct ResourceList {
@@ -221,9 +222,14 @@ impl TasksManager {
             return (item.index, size);
         }
         else if index.is_some() {
-            if let Some(item) = self.tasks.iter_mut().find(|item| item.addr == addr) {
-                item.running += 1;
-                return (item.index, 1);
+            if self.can_run(addr) {
+                if let Some(item) = self.tasks.iter_mut().find(|item| item.addr == addr) {
+                    item.running += STEP;
+                    return (item.index, STEP);
+                }
+                else {
+                    return (-1, 0);
+                }
             }
             else {
                 return (-1, 0);
@@ -271,9 +277,24 @@ impl TasksManager {
     }
 
     pub fn usage(&mut self, cpu: f32, memory: f32) {
-        if let Some(task) = self.tasks.iter_mut().find(|item| item.addr == "127.0.0.1") {
+        if let Some(task) = self.tasks.iter_mut().find(|item| item.addr == "127.0.0.1" || item.addr == "localhost") {
             task.usage.cpu = cpu;
             task.usage.memory = memory;
+        }
+    }
+
+    pub fn can_run(&self, addr: &str) -> bool {
+        
+        if let Some(task) = self.tasks.iter().find(|item| item.addr == addr) {
+            if task.running <= task.max {
+                return true;
+            }
+            else {
+                return false;
+            }
+        }
+        else {
+            return false;
         }
     }
 }

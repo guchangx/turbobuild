@@ -371,7 +371,6 @@ impl Sender {
 
                                 }
                                 else if response.progress == pack::CompileProgress::Compilestart as i32 {
-                                    log::debug!("{:?} compiled sourcefile start response: {}", project, response.tips);
                                 }
                                 else if response.progress == pack::CompileProgress::Compiling as i32 {
 
@@ -587,7 +586,7 @@ impl Sender {
                 .await
             {
                 Ok(mut file) => match file.write_all(&transmit_file.content).await {
-                    Ok(_) => log::debug!("result file save worker saved {}.", transmit_file.path),
+                    Ok(_) => log::debug!("result file save worker saved {}", transmit_file.path),
                     Err(err) => log::error!("result file save worker write {} failed: {:?}", transmit_file.path, err),
                 },
                 Err(err) => log::error!("result file save worker open {} failed: {:?}", transmit_file.path, err),
