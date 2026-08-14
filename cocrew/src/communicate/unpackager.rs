@@ -162,9 +162,10 @@ impl Receiver {
                     result = rx_guard.recv() => {
                         match result {
                             Some(result) => {
-                                if let Some((file, context)) = result.obj {
+                                if let Some((file, offset, context)) = result.obj {
                                     let reply = package::FileTrResponse {
                                         path: file.to_string_lossy().to_string(),
+                                        offset: offset,
                                         content: context,
                                         error_code: 0,
                                         error_message: result.source_file.to_string_lossy().to_string(),
@@ -172,9 +173,10 @@ impl Receiver {
                                     tx_.send(Ok(reply)).await.unwrap();
                                 }
 
-                                if let Some((file, context)) = result.pdb {
+                                if let Some((file, offset, context)) = result.pdb {
                                     let reply = package::FileTrResponse {
                                         path: file.to_string_lossy().to_string(),
+                                        offset: offset,
                                         content: context,
                                         error_code: 0,
                                         error_message: result.source_file.to_string_lossy().to_string(),
@@ -182,9 +184,10 @@ impl Receiver {
                                     tx_.send(Ok(reply)).await.unwrap();
                                 }
 
-                                if let Some((file, context)) = result.idb {
+                                if let Some((file, offset, context)) = result.idb {
                                     let reply = package::FileTrResponse {
                                         path: file.to_string_lossy().to_string(),
+                                        offset: offset,
                                         content: context,
                                         error_code: 0,
                                         error_message: result.source_file.to_string_lossy().to_string(),
@@ -205,6 +208,7 @@ impl Receiver {
 
                 let mut reply = package::FileTrResponse {
                     path: "".to_string(),
+                    offset: -1,
                     content: Vec::new(),
                     error_code: 0,
                     error_message: "sync file success.".to_string(),
@@ -951,7 +955,8 @@ impl Receiver {
                     
                     if let Some(obj) = result.obj {
                         let file = obj.0;
-                        let content = obj.1;
+                        //let offset = obj.1;
+                        let content = obj.2;
                         let intermediate = package::IntermediateResult {
                             file: file.to_string_lossy().into(),
                             content: content,
@@ -961,7 +966,7 @@ impl Receiver {
 
                     if let Some(idb) = result.idb {
                         let file = idb.0;
-                        let content = idb.1;
+                        let content = idb.2;
                         let intermediate = package::IntermediateResult {
                             file: file.to_string_lossy().into(),
                             content: content,
@@ -970,7 +975,7 @@ impl Receiver {
                     }
                     if let Some(pdb) = result.pdb {
                         let file = pdb.0;
-                        let content = pdb.1;
+                        let content = pdb.2;
                         let intermediate = package::IntermediateResult {
                             file: file.to_string_lossy().into(),
                             content: content,
@@ -1195,6 +1200,7 @@ impl Receiver {
 
                         let reply = package::FileTrResponse {
                             path: origin.to_string_lossy().to_string(),
+                            offset: -1,
                             content: contents,
                             error_code: 0,
                             error_message: "sync file success.".to_string(),
@@ -1227,6 +1233,7 @@ impl Receiver {
     
                         let reply = package::FileTrResponse {
                             path: origin.to_string_lossy().to_string(),
+                            offset: -1,
                             content: contents,
                             error_code: 0,
                             error_message: "sync file success.".to_string(),

@@ -58,9 +58,9 @@ impl CompilerOutput {
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct CompiledResult {
     pub source_file: std::ffi::OsString,
-    pub obj: Option<(std::ffi::OsString, Vec<u8>)>,
-    pub pdb: Option<(std::ffi::OsString, Vec<u8>)>,
-    pub idb: Option<(std::ffi::OsString, Vec<u8>)>,
+    pub obj: Option<(std::ffi::OsString, i64, Vec<u8>)>,
+    pub pdb: Option<(std::ffi::OsString, i64, Vec<u8>)>,
+    pub idb: Option<(std::ffi::OsString, i64, Vec<u8>)>,
 }
 
 pub type CompiledResults = Vec<CompiledResult>;

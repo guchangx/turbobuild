@@ -6,6 +6,7 @@ mod replace;
 mod functions;
 mod logger;
 pub mod syscallredirect;
+pub mod artifactsredirect;
 use windows_sys::Win32 as win;
 
 //TODO The current size of the package is 1.24M
@@ -387,7 +388,14 @@ fn fetch_args_from_command() {
 }   
 
 fn uninit_custom_resource() {
-    log!(info, "[{:?}] uninit custom resource. receive is closed: {}", crate::PROJECTNAME.get(), LOGGER.tx.capacity());
+    //log!(info, "[{:?}] uninit custom resource. receive is closed: {}", crate::PROJECTNAME.get(), LOGGER.tx.capacity());
+
+    crate::logger::output_debug_string(
+        &format!(
+            "[{:?}] uninit custom resource.",
+            crate::PROJECTNAME.get()
+        ),
+    );
 }
 
 unsafe fn show_message_box_for_debug() {
@@ -439,6 +447,7 @@ unsafe extern "system" fn DllMain(
             fetch_args_from_command(); // 300ns
             crate::logger::redirect_stdout_log_2_cocrew(); // 600ns
             crate::syscallredirect::async_connect_syscall_namedpipe(); // 40ns
+            crate::artifactsredirect::async_connect_artifacts_namedpipe();
             
             let ret = crate::detours::DetourRestoreAfterWith();
             if ret == win::Foundation::FALSE {

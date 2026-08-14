@@ -1,6 +1,6 @@
 use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
-use windows_sys::Wdk::Storage::FileSystem::RtlAppendStringToString;
+use tokio::io::AsyncSeekExt;
 
 pub mod pack {
     include!("../../proto/pack.rs");
@@ -271,6 +271,8 @@ impl Sender {
                 
                 let host = self.host.clone();
 
+                let mut fshandle = std::collections::HashMap::<String, tokio::fs::File>::new();
+
                 let mut response_stream = response.into_inner();
                 while let Some(stream) = response_stream.next().await {
                     match stream {
@@ -278,18 +280,49 @@ impl Sender {
                             //log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
                             
                             let path = stream.path.clone();
-                            if !path.is_empty() && stream.content.len() > 0 {
-                                tokio::spawn(async move {
-                                    match tokio::fs::OpenOptions::new().write(true).create(true).open(&path).await {
-                                        Ok(mut file) => {
-                                            file.write_all(&stream.content).await.unwrap();
-                                            log::debug!("save file {} success.", path);
-                                        },
-                                        Err(err) => {
-                                            log::error!("save file {} failed: {:?}", path, err);
+                            if !path.is_empty() {
+                                if stream.offset == -1 && stream.content.len() > 0 {
+                                    tokio::spawn(async move {
+                                        match tokio::fs::OpenOptions::new().write(true).create(true).open(&path).await {
+                                            Ok(mut file) => {
+                                                file.write_all(&stream.content).await.unwrap();
+                                                log::debug!("save file {} success.", path);
+                                            },
+                                            Err(err) => {
+                                                log::error!("save file {} failed: {:?}", path, err);
+                                            }
+                                        }
+                                    });
+                                }
+                                else if stream.offset >= 0 {
+                                    if stream.content.len() == 0 {
+                                        fshandle.remove(&path);
+                                        log::debug!("save file chunk {} success.", path);
+                                    }
+                                    else {
+                                        if !fshandle.contains_key(&path) {
+                                            match tokio::fs::OpenOptions::new().write(true).create(true).open(&path).await {
+                                                Ok(file) => {
+                                                    fshandle.insert(path.clone(), file);
+                                                },
+                                                Err(err) => {
+                                                    log::error!("open file chunk {} failed: {:?}", path, err);
+                                                    continue;
+                                                }
+                                            }
+                                        }
+    
+                                        let file = fshandle.get_mut(&path).unwrap();
+                                        if let Err(err) = file.seek(std::io::SeekFrom::Start(stream.offset as u64)).await {
+                                            log::error!("seek file {} failed: {:?}", path, err);
+                                        }
+                                        else if let Err(err) = file.write_all(&stream.content).await {
+                                            log::error!("write file chunk {} failed: {:?}", path, err);
+                                        }
+                                        else {
                                         }
                                     }
-                                });
+                                }
                             }
                         }
                         Err(err) => {

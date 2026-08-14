@@ -69,7 +69,7 @@ pub unsafe fn pass_params_to_redirect(handle: win::Foundation::HANDLE, solution:
         }
     }
     else {
-        log::warn!("don't pass project name and project path, use current path and don't redirect.");
+        log::warn!("don't pass solution name and project path, use current path and don't redirect.");
     }
     win::Foundation::CloseHandle(handle);
 }
@@ -404,14 +404,14 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
 
                         if bytesStdOuputRead > 2 && chTmpStdOutputReadBuffer[(bytesStdOuputRead - 1) as usize] == b'\n' && chTmpStdOutputReadBuffer[(bytesStdOuputRead - 2) as usize] == b'\r' {
                             if line.is_empty() {
-                                stdoutstream.try_send(chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize].to_vec()).unwrap_or_else(|_| {
-                                    log::error!("try send stdout stream failed.");
+                                stdoutstream.try_send(chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize].to_vec()).unwrap_or_else(|e| {
+                                    log::error!("try send stdout stream failed. error: {:?}", e);
                                 });
                             }
                             else {
                                 line.extend_from_slice(&chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize]);
-                                stdoutstream.try_send(line[..].to_vec()).unwrap_or_else(|_| {
-                                    log::error!("try send stdout stream failed.");
+                                stdoutstream.try_send(line[..].to_vec()).unwrap_or_else(|e| {
+                                    log::error!("try send stdout stream failed. error: {:?}", e);
                                 });
                                 line.clear();
                             }

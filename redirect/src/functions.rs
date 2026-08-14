@@ -2,6 +2,7 @@ use windows_sys::Win32 as win;
 
 use crate::log;
 
+pub static mut EXIT_PROCESS_KERNELBASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_FILE_A: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_FILE_W: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_FILE_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
@@ -16,6 +17,9 @@ pub static mut CREATE_PROCESS_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut s
 pub static mut GET_VOLUME_INFORMATION_BY_HANDLE_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut GET_FILE_INFORMATION_BY_HANDLE_EX_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut NT_CLOSE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+pub static mut NT_WRITE_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+pub static mut NT_SET_INFORMATION_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+
 
 static SYS_CALL_ID: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<u32>>> = std::sync::LazyLock::new(|| {
     let pid = std::process::id();
@@ -852,6 +856,12 @@ pub unsafe fn kernelbase_create_process_w(
     }
 }
 
+pub unsafe fn kernelbase_exit_process(uexitcode: u32) {
+    crate::log!(trace, "kernelbase_exit_process hook exitcode: {}", uexitcode);
+    let exit_process: extern "system" fn(uexitcode: u32) -> ! = std::mem::transmute(EXIT_PROCESS_KERNELBASE);
+    exit_process(uexitcode);
+}
+
 pub unsafe fn kernelbase_get_volume_information_by_handle_w(
     hfile: windows_sys::Win32::Foundation::HANDLE,
     lpvolumenamebuffer: windows_sys::core::PWSTR,
@@ -941,10 +951,22 @@ thread_local! {
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
+
 thread_local! {
     static NT_HANDLE_AND_DIR: std::cell::RefCell<std::collections::HashMap<windows_sys::Win32::Foundation::HANDLE, String>> =
-        std::cell::RefCell::new(std::collections::HashMap::new());
+    std::cell::RefCell::new(std::collections::HashMap::new());
 }
+
+#[derive(Debug, Clone)]
+struct ArtifactInfo {
+    name: String,
+    offset: i64,
+    end: i64,
+}
+
+//remove rwlock, createfile writefile closefile is sequential, no need to lock
+static mut NT_HANDLE_AND_OBJ_ARTIFACTS: std::sync::LazyLock<std::collections::HashMap<i32, ArtifactInfo>>
+    = std::sync::LazyLock::new(|| std::collections::HashMap::new());
 
 static NT_HANDLE_MAP_FILES: std::sync::LazyLock<std::sync::RwLock<std::collections::HashMap<i32, Vec<String>>>> =
     std::sync::LazyLock::new(|| std::sync::RwLock::new(std::collections::HashMap::new()));
@@ -1940,6 +1962,30 @@ pub unsafe fn nt_create_file(
                         }
                     }
                 }
+                else if replace == crate::replace::ReplaceNtResult::ArtifactObjPath {
+                    
+                    let mut object_name_source_wide_char = std::ffi::OsString::from("\\??\\NUL").encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+                    let mut nul_object_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
+                        Length: object_name_source_wide_char.len().saturating_sub(1) as u16 * 2,
+                        MaximumLength: object_name_source_wide_char.len() as u16 * 2,
+                        Buffer: object_name_source_wide_char.as_mut_ptr(),
+                    };
+
+                    (*object_attributes).ObjectName = &mut nul_object_name_adapter;
+
+                    let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block, allocation_size,
+                        file_attributes, share_access, windows_sys::Wdk::Storage::FileSystem::FILE_OPEN_IF, create_options, ea_buffer, ea_length
+                    );
+
+                    if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
+                        crate::log!(debug, "open nul file for obj file path: {}", name);
+                        NT_HANDLE_AND_OBJ_ARTIFACTS.insert(*file_handle as i32, ArtifactInfo { name: name.clone(), offset: 0 , end: 0});
+                    }
+                    else {
+                        crate::log!(error, "zw_create_file for obj file path failed! error_code: {:#X} path: {}", nt_status, name);
+                    }
+                    return nt_status;
+                }
                 else {
                     let nt_status = zw_create_file(
                         file_handle,
@@ -2007,8 +2053,31 @@ pub unsafe fn nt_query_information_file(
     length: u32,
     fileinformationclass: windows_sys::Wdk::Storage::FileSystem::FILE_INFORMATION_CLASS) -> windows_sys::Win32::Foundation::NTSTATUS {
 
-    crate::log!(trace, "nt_query_information_file called");
-
+    if let Some(artifact) = NT_HANDLE_AND_OBJ_ARTIFACTS.get(&(filehandle as i32)) {
+        if windows_sys::Wdk::Storage::FileSystem::FilePositionInformation == fileinformationclass {
+            let pos = fileinformation as *mut windows_sys::Wdk::Storage::FileSystem::FILE_POSITION_INFORMATION;
+            (*pos).CurrentByteOffset = artifact.offset;
+    
+            if !iostatusblock.is_null() {
+                (*iostatusblock).Anonymous.Status = crate::win::Foundation::STATUS_SUCCESS;
+                (*iostatusblock).Information = 8; //std::mem::size_of::<FILE_POSITION_INFORMATION>();
+            }
+    
+            return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+        }
+        else if windows_sys::Wdk::Storage::FileSystem::FileStandardInformation == fileinformationclass {
+            let standard_info = fileinformation as *mut windows_sys::Wdk::Storage::FileSystem::FILE_STANDARD_INFORMATION;
+            (*standard_info).EndOfFile = artifact.end;
+    
+            if !iostatusblock.is_null() {
+                (*iostatusblock).Anonymous.Status = crate::win::Foundation::STATUS_SUCCESS;
+                (*iostatusblock).Information = 24; //std::mem::size_of::<windows_sys::Wdk::Storage::FileSystem::FILE_STANDARD_INFORMATION>();
+            }
+    
+            return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+        }
+    }
+    
     let nt_query_information_file: extern "system" fn(
         filehandle: windows_sys::Win32::Foundation::HANDLE,
         iostatusblock: *mut windows_sys::Win32::System::IO::IO_STATUS_BLOCK,
@@ -2017,33 +2086,16 @@ pub unsafe fn nt_query_information_file(
         fileinformationclass: windows_sys::Wdk::Storage::FileSystem::FILE_INFORMATION_CLASS
     ) -> windows_sys::Win32::Foundation::NTSTATUS = std::mem::transmute(NT_QUERY_INFORMATION_FILE);
 
-    let skip = NT_HANDLE_AND_DIR.with(|cell| {
-        let handle_and_dir = cell.borrow();
-        return handle_and_dir.get(&filehandle).is_some();
-    });
+    let nt_status = nt_query_information_file(
+        filehandle,
+        iostatusblock,
+        fileinformation,
+        length,
+        fileinformationclass
+    );
 
-    if false && skip && fileinformationclass == windows_sys::Wdk::Storage::FileSystem::FileIsRemoteDeviceInformation {
-        if !fileinformation.is_null() {
-            *(fileinformation as *mut u8) = 0;
-        }
-
-        if !iostatusblock.is_null() {
-            (*iostatusblock).Anonymous.Status = windows_sys::Win32::Foundation::STATUS_SUCCESS;
-            (*iostatusblock).Information = 1 as _;
-        }
-        return windows_sys::Win32::Foundation::STATUS_SUCCESS;
-    }
-    else {
-        let nt_status = nt_query_information_file(
-            filehandle,
-            iostatusblock,
-            fileinformation,
-            length,
-            fileinformationclass
-        );
-
-        return nt_status;
-    }
+    return nt_status;
+    
 }
 
 pub unsafe fn nt_query_volume_information_file(
@@ -2127,6 +2179,121 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
     //NT_HANDLE_MAP_FILES.write().unwrap().remove(&(handle as i32));
 
     let nt_status = nt_close_inner(handle);
+
+    if let Some(artinfo) = NT_HANDLE_AND_OBJ_ARTIFACTS.remove(&(handle as i32)) {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        crate::artifactsredirect::REDIRECT_ARTIFACTS_CHANNEL.tx.try_send(crate::artifactsredirect::Artifacts {
+            path: artinfo.name.clone(),
+            offset: 0,
+            length: 0,
+            content: Vec::new(),
+            done: Some(tx),
+        }).unwrap();
+
+        rx.blocking_recv().unwrap();
+        log!(trace, "nt_close hook path: {}", artinfo.name);
+    }
+
+    return nt_status;
+}
+
+pub unsafe fn nt_write_file(
+    filehandle: windows_sys::Win32::Foundation::HANDLE,
+    event: windows_sys::Win32::Foundation::HANDLE,
+    apc_routine: windows_sys::Win32::System::IO::PIO_APC_ROUTINE,
+    apc_context: *mut core::ffi::c_void,
+    io_status_block: *mut windows_sys::Win32::System::IO::IO_STATUS_BLOCK,
+    buffer: *const core::ffi::c_void,
+    length: u32,
+    byte_offset: *mut i64,
+    key: *mut u32
+    ) -> windows_sys::Win32::Foundation::NTSTATUS {
+
+    if let Some(artinfo) = NT_HANDLE_AND_OBJ_ARTIFACTS.get_mut(&(filehandle as i32)) {
+        let offset = artinfo.offset;
+        if artinfo.offset >= artinfo.end {
+            artinfo.end = artinfo.offset + length as i64;
+            artinfo.offset = artinfo.end;
+        }
+
+        let slice = std::slice::from_raw_parts(buffer as *const u8, length as usize);
+        crate::artifactsredirect::REDIRECT_ARTIFACTS_CHANNEL.tx.try_send(crate::artifactsredirect::Artifacts {
+            path: artinfo.name.clone(),
+            offset: offset,
+            length: length as u64,
+            content: slice.to_vec(),
+            done: None,
+        }).unwrap();
+
+        crate::log!(trace, "nt_write_file hook path: {} offset: {} length: {}", artinfo.name, offset, length);
+
+        if !io_status_block.is_null() {
+            (*io_status_block).Anonymous.Status = crate::win::Foundation::STATUS_SUCCESS;
+            (*io_status_block).Information = length as usize; 
+        }
+
+        return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+    }
+
+    let nt_write_file_inner: extern "system" fn(
+        filehandle: windows_sys::Win32::Foundation::HANDLE,
+        event: windows_sys::Win32::Foundation::HANDLE,
+        apc_routine: windows_sys::Win32::System::IO::PIO_APC_ROUTINE,
+        apc_context: *mut core::ffi::c_void,
+        io_status_block: *mut windows_sys::Win32::System::IO::IO_STATUS_BLOCK,
+        buffer: *const core::ffi::c_void,
+        length: u32,
+        byte_offset: *mut i64,
+        key: *mut u32
+    ) -> windows_sys::Win32::Foundation::NTSTATUS = std::mem::transmute(NT_WRITE_FILE);
+
+    let nt_status = nt_write_file_inner(
+        filehandle,
+        event,
+        apc_routine,
+        apc_context,
+        io_status_block,
+        buffer,
+        length,
+        byte_offset,
+        key
+    );
+    return nt_status;
+}
+
+pub unsafe fn nt_set_information_file(
+    filehandle: win::Foundation::HANDLE,
+    iostatusblock: *mut win::System::IO::IO_STATUS_BLOCK,
+    fileinformation: *const core::ffi::c_void,
+    length: u32,
+    fileinformationclass: windows_sys::Wdk::Storage::FileSystem::FILE_INFORMATION_CLASS,
+    ) -> win::Foundation::NTSTATUS {
+
+    if let Some(artifactinfo) = NT_HANDLE_AND_OBJ_ARTIFACTS.get_mut(&(filehandle as i32)) {
+        if fileinformationclass == windows_sys::Wdk::Storage::FileSystem::FilePositionInformation && !fileinformation.is_null() {
+            let pos = &*(fileinformation as *const windows_sys::Wdk::Storage::FileSystem::FILE_POSITION_INFORMATION);
+            artifactinfo.offset = pos.CurrentByteOffset;
+            return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+        }
+    }
+
+    let nt_set_information_file_inner: extern "system" fn(
+        filehandle: win::Foundation::HANDLE,
+        iostatusblock: *mut win::System::IO::IO_STATUS_BLOCK,
+        fileinformation: *const core::ffi::c_void,
+        length: u32,
+        fileinformationclass: windows_sys::Wdk::Storage::FileSystem::FILE_INFORMATION_CLASS
+    ) -> win::Foundation::NTSTATUS = std::mem::transmute(NT_SET_INFORMATION_FILE);
+
+    let nt_status = nt_set_information_file_inner(
+        filehandle,
+        iostatusblock,
+        fileinformation,
+        length,
+        fileinformationclass,
+    );
+
     return nt_status;
 }
 

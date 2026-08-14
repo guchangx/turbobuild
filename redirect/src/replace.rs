@@ -166,6 +166,7 @@ pub enum ReplaceNtResult {
     IncludesDir,
     VirtualIncludesDir(String),
     FilePath,
+    ArtifactObjPath,
     NeedObtain(String),
 }
 
@@ -179,7 +180,10 @@ pub enum ReplaceType {
 
 pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
 
-    if rtype == ReplaceType::File {
+    if crate::SOLUTIONNAME.get().is_none() || crate::REPLICADIR.get().is_none() {
+        return ReplaceNtResult::NoMatch;
+    }
+    else if rtype == ReplaceType::File {
         if DEPENDENCYS.get().map_or(false, |deps| {
             deps.iter().any(|(key, value)| {
                 if path.contains(key) {
@@ -310,6 +314,9 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
                         return ReplaceNtResult::NeedObtain(unmodified);
                     }
                 }
+            }
+            else if extension == "obj" {
+                return ReplaceNtResult::ArtifactObjPath;
             }
             else {
                 //.pdb .idb .obj .nls
