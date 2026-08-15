@@ -1200,7 +1200,7 @@ impl MSVC {
                 project: project.as_ref().clone(),
                 name: name,
                 path: path.clone(),
-                content: content.clone(),
+                content: content,
             };
     
             let _ = stream.send(archive).await;
@@ -1244,7 +1244,7 @@ impl MSVC {
                     project: project.as_ref().clone(),
                     name: name,
                     path: path.clone(),
-                    content: content.clone(),
+                    content: content,
                 };
                 
                 let _ = stream.send(archive).await;
@@ -1710,9 +1710,9 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
             let line = line.replace(r#"""#, "");
             if line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") || line.ends_with(".cxx") || line.ends_with(".i") {
                 if sync_compile_result {
-                    let mut obj: Option<(std::ffi::OsString, Vec<u8>)> = None;
-                    let mut pdb: Option<(std::ffi::OsString, Vec<u8>)> = None;
-                    let mut idb: Option<(std::ffi::OsString, Vec<u8>)> = None;
+                    let mut obj: Option<(std::ffi::OsString, bytes::Bytes)> = None;
+                    let mut pdb: Option<(std::ffi::OsString, bytes::Bytes)> = None;
+                    let mut idb: Option<(std::ffi::OsString, bytes::Bytes)> = None;
     
                     let mut result_path = std::path::PathBuf::from("");
                     let object = fetch_compile_object_file(&build_and_compiler_type, compiler_commands, compiler_working_dir);
@@ -1735,7 +1735,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
                             let mut contents = Vec::new();
                             let mut file = std::io::BufReader::new(file);
                             let _ = file.read_to_end(&mut contents).unwrap();
-                            obj = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
+                            obj = Some((result_path.clone().into_os_string(), bytes::Bytes::from(contents)));
                         },
                         Err(error) => {
                             if error.kind() == std::io::ErrorKind::NotFound {
@@ -1771,7 +1771,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
                                 let mut contents = Vec::new();
                                 let mut file = std::io::BufReader::new(file);
                                 let _ = file.read_to_end(&mut contents).unwrap();
-                                pdb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
+                                pdb = Some((result_path.clone().into_os_string(), bytes::Bytes::from(contents)));
                             },
                             Err(error) => {
                                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -1789,7 +1789,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
                                 let mut contents = Vec::new();
                                 let mut file = std::io::BufReader::new(file);
                                 let _ = file.read_to_end(&mut contents).unwrap();
-                                idb = Some((std::ffi::OsString::from(result_path.to_str().unwrap()), contents));
+                                idb = Some((result_path.into_os_string(), bytes::Bytes::from(contents)));
                             },
                             Err(error) => {
                                 if error.kind() == std::io::ErrorKind::NotFound {

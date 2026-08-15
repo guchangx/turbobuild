@@ -33,8 +33,8 @@ pub struct CompileTrRequest {
 pub struct IntermediateResult {
     #[prost(string, tag = "1")]
     pub file: ::prost::alloc::string::String,
-    #[prost(bytes = "vec", tag = "2")]
-    pub content: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "bytes", tag = "2")]
+    pub content: ::prost::bytes::Bytes,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CompileTrResponse {
@@ -63,15 +63,15 @@ pub struct FileTrRequest {
     pub name: ::prost::alloc::string::String,
     #[prost(string, tag = "5")]
     pub path: ::prost::alloc::string::String,
-    #[prost(bytes = "vec", tag = "6")]
-    pub content: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "bytes", tag = "6")]
+    pub content: ::prost::bytes::Bytes,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct FileTrResponse {
     #[prost(string, tag = "1")]
     pub path: ::prost::alloc::string::String,
-    #[prost(bytes = "vec", tag = "2")]
-    pub content: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bytes = "bytes", tag = "2")]
+    pub content: ::prost::bytes::Bytes,
     #[prost(int32, tag = "3")]
     pub error_code: i32,
     #[prost(string, tag = "4")]

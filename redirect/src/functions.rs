@@ -1713,6 +1713,8 @@ pub unsafe fn nt_create_file(
                         }
                         else {
                             if nt_status == win::Foundation::STATUS_SHARING_VIOLATION {
+                                //should sleep 3 milliseconds and retry
+                                //std::thread::sleep(std::time::Duration::from_millis(3));
                                 nt_status = zw_create_file(
                                     file_handle,
                                     access_mask,

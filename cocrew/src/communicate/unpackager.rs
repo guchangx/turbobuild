@@ -46,7 +46,7 @@ pub struct TransmitFile {
     pub sln: String,
     pub project: String,
     pub path: String,
-    pub content: Vec<u8>,
+    pub content: bytes::Bytes,
 }
 
 #[derive(Clone)] 
@@ -205,7 +205,7 @@ impl Receiver {
 
                 let mut reply = package::FileTrResponse {
                     path: "".to_string(),
-                    content: Vec::new(),
+                    content: bytes::Bytes::new(),
                     error_code: 0,
                     error_message: "sync file success.".to_string(),
                 };
@@ -1259,11 +1259,12 @@ impl Receiver {
                         let mut contents = Vec::new();
                         let mut file = tokio::io::BufReader::new(file);
                         let _ = file.read_to_end(&mut contents).await.unwrap();
+
                         let origin = crate::compiler::msvc::repair_original_path(&solution_name_, &origin_working_dir_, &result);
 
                         let reply = package::FileTrResponse {
-                            path: origin.to_string_lossy().to_string(),
-                            content: contents,
+                            path: origin.into_string().unwrap(),
+                            content: bytes::Bytes::from(contents),
                             error_code: 0,
                             error_message: "sync file success.".to_string(),
                         };
@@ -1294,8 +1295,8 @@ impl Receiver {
                         let origin = crate::compiler::msvc::repair_original_path(&solution_name_, &origin_working_dir_, &result_);     
     
                         let reply = package::FileTrResponse {
-                            path: origin.to_string_lossy().to_string(),
-                            content: contents,
+                            path: origin.into_string().unwrap(),
+                            content: bytes::Bytes::from(contents),
                             error_code: 0,
                             error_message: "sync file success.".to_string(),
                         };

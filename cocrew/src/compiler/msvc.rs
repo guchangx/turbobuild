@@ -364,7 +364,7 @@ async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_
 
                 let compiled_gen_result = crew::compiler::model::CompiledResult {
                     source_file: std::ffi::OsString::from(&line),
-                    obj: Some((origin, contents)),
+                    obj: Some((origin, bytes::Bytes::from(contents))),
                     pdb: None,
                     idb: None,
                 };
@@ -428,7 +428,7 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
 
                     let compiled_gen_result = crew::compiler::model::CompiledResult {
                         source_file: std::ffi::OsString::from(&line),
-                        obj: Some((origin,contents)),
+                        obj: Some((origin, bytes::Bytes::from(contents))),
                         pdb: None,
                         idb: None,
                     };
@@ -468,8 +468,8 @@ fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, solut
     log::trace!("compile result program database path: {:?}", result);
     let mut compiled_results: CompiledResults = Vec::new();
 
-    let mut pdb: Option<(std::ffi::OsString, Vec<u8>)> = None;
-    let mut idb: Option<(std::ffi::OsString, Vec<u8>)> = None;
+    let mut pdb: Option<(std::ffi::OsString, bytes::Bytes)> = None;
+    let mut idb: Option<(std::ffi::OsString, bytes::Bytes)> = None;
 
     if result.exists() {
         match std::fs::File::open(&result) {
@@ -478,7 +478,7 @@ fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, solut
                 let mut file = std::io::BufReader::new(file);
                 let _ = file.read_to_end(&mut contents).unwrap();
                 let origin = repair_original_path(&solution_name, &origin_working_dir, &result);        
-                pdb = Some((origin, contents));
+                pdb = Some((origin, bytes::Bytes::from(contents)));
             },
             Err(error) => {
                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -497,7 +497,7 @@ fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, solut
                 let mut file = std::io::BufReader::new(file);
                 let _ = file.read_to_end(&mut contents).unwrap();
                 let origin = repair_original_path(&solution_name, &origin_working_dir, &result);     
-                idb = Some((origin, contents));
+                idb = Some((origin, bytes::Bytes::from(contents)));
             },
             Err(error) => {
                 if error.kind() == std::io::ErrorKind::NotFound {
