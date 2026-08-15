@@ -587,6 +587,9 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
             if dep.starts_with("./") {
                 p = dir.join(&dep[2..]);
             }
+            else if dep.contains("/") {
+                p = dir.join(dep.replace("/", std::path::MAIN_SEPARATOR_STR));
+            }
             else {
                 p = dir.join(dep);
             }

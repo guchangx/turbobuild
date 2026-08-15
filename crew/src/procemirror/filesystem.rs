@@ -5,7 +5,8 @@ use windows_sys::Win32 as win;
 
 pub fn route_file_system_operation(redirect: crate::communicate::packager::pack::RemoteSyscall) -> crate::communicate::packager::pack::LocalSyscall {
     let mut params = redirect.params.iter().map(|(param)| (param.key.clone(), param.value.clone())).collect::<std::collections::HashMap<String, String>>();
-
+    log::debug!("route_file_system_operation: {:?}", redirect);
+    
     match redirect.api.as_str() {
         "NtQueryDirectoryFile" => {
             let results = unsafe { redirect_nt_query_directory_file(params) };

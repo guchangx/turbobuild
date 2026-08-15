@@ -777,8 +777,6 @@ impl MSVC {
         let extracted_pdb = actions.pdb_file.clone();
         let mut source_file_current_dir_set = std::collections::HashSet::<std::path::PathBuf>::from_iter(source_file_current_dir.iter().cloned());
         source_file_current_dir.extend(actions.include_dir.into_iter().filter(|item| source_file_current_dir_set.insert(item.clone())));
-
-        log::trace!("include dir list: {:#?}", &source_file_current_dir);
         
         let now = std::time::Instant::now();
         unsafe {
@@ -1162,6 +1160,7 @@ impl MSVC {
         };
 
         if write {
+            // returns true if the key was not already in the set.
             if !cache.insert(path.clone()) {
                 return;
             }
@@ -1216,8 +1215,16 @@ impl MSVC {
             }
         }
         else {
+            // returns true if the key was not already in the set.
             if !cache.insert(path.clone()) {
-                return;
+                let reader = {
+                    let r = rwlock.read().await;
+                    r.clone()
+                };
+
+                if reader.is_empty() {
+                    return;
+                }
             }
             else {
                 let content = bytes::Bytes::from(tokio::fs::read(&path).await.unwrap_or_else(|_| {
@@ -1249,9 +1256,11 @@ impl MSVC {
                 r.clone()
             };
             for dep in reader.iter() {
-                Box::pin(async {
-                    self.parser_sourcefile_sync_dependency(dep.to_string(), defines.clone(), include_dirs, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
-                }).await;
+                if !cache.contains(dep) {
+                    Box::pin(async {
+                        self.parser_sourcefile_sync_dependency(dep.to_string(), defines.clone(), include_dirs, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
+                    }).await;
+                }
             }
         }
     }

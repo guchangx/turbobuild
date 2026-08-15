@@ -937,7 +937,7 @@ pub unsafe fn kernelbase_get_file_information_by_handle_ex(
 }
 
 thread_local! {
-    static NT_HANDLE_AND_FILENAMES: std::cell::RefCell<std::collections::HashMap<windows_sys::Win32::Foundation::HANDLE, Vec<String>>> =
+    static NT_QUERY_DIR_FILE_HANDLE_MAP_NAMES: std::cell::RefCell<std::collections::HashMap<windows_sys::Win32::Foundation::HANDLE, Vec<String>>> =
         std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
@@ -1118,7 +1118,7 @@ pub unsafe fn nt_query_directory_file(
         //second or subsequent query.
         if (*io_status_block).Information < length as usize && (*io_status_block).Information > 0 && (*io_status_block).Anonymous.Status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
 
-            let maybe_filenames = NT_HANDLE_AND_FILENAMES.with(|cell| {
+            let maybe_filenames = NT_QUERY_DIR_FILE_HANDLE_MAP_NAMES.with(|cell| {
                 let handle_and_filenames = cell.borrow();
                 handle_and_filenames.get(&file_handle).cloned()
             });
@@ -1184,7 +1184,7 @@ pub unsafe fn nt_query_directory_file(
                     (*entry).NextEntryOffset = next_offset;                 
                     (*entry).FileIndex = index as u32;
                     (*entry).FileNameLength = virtual_file_name_bytes as u32;
-
+                    
                     let end_of_file: i64 = if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY { 0 } else { 1024 };
                     let alloc_size: i64 = if attr == win::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY { 0 } else { 1024 };
                     let time: i64 = 0x1DB777E6D1C0000i64;
@@ -1210,7 +1210,7 @@ pub unsafe fn nt_query_directory_file(
                     }
                 }
 
-                NT_HANDLE_AND_FILENAMES.with(|cell| {
+                NT_QUERY_DIR_FILE_HANDLE_MAP_NAMES.with(|cell| {
                     let mut handle_and_filenames = cell.borrow_mut();
                     if entries_written < filenames.len() {
                         handle_and_filenames.insert(file_handle, filenames[entries_written..].to_vec());
@@ -1355,6 +1355,7 @@ pub unsafe fn nt_query_directory_file(
                     else {
                     
                     }
+
                     let mut current_offset = 0usize;
 
                     let filenames: Vec<String> = fileinfo.lines().map(|item| item.to_string()).collect();
@@ -1436,7 +1437,7 @@ pub unsafe fn nt_query_directory_file(
                         }
                     }
 
-                    NT_HANDLE_AND_FILENAMES.with(|cell| {
+                    NT_QUERY_DIR_FILE_HANDLE_MAP_NAMES.with(|cell| {
                         let mut handle_and_filenames = cell.borrow_mut();
                         if entries_written < files_count {
                             handle_and_filenames.insert(file_handle, filenames[entries_written..].to_vec());
