@@ -1979,7 +1979,7 @@ pub unsafe fn nt_create_file(
 
                     if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
                         crate::log!(debug, "open nul file for obj file path: {}", name);
-                        NT_HANDLE_AND_OBJ_ARTIFACTS.insert(*file_handle as i32, ArtifactInfo { name: name.clone(), offset: 0 , end: 0});
+                        NT_HANDLE_AND_OBJ_ARTIFACTS.insert(*file_handle as i32, ArtifactInfo { name: name.clone(), offset: 0, end: 0});
                     }
                     else {
                         crate::log!(error, "zw_create_file for obj file path failed! error_code: {:#X} path: {}", nt_status, name);
@@ -2183,7 +2183,7 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
     if let Some(artinfo) = NT_HANDLE_AND_OBJ_ARTIFACTS.remove(&(handle as i32)) {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
-        crate::artifactsredirect::REDIRECT_ARTIFACTS_CHANNEL.tx.try_send(crate::artifactsredirect::Artifacts {
+        crate::artifactsredirect::send_artifact(crate::artifactsredirect::Artifacts {
             path: artinfo.name.clone(),
             offset: 0,
             length: 0,
@@ -2211,14 +2211,18 @@ pub unsafe fn nt_write_file(
     ) -> windows_sys::Win32::Foundation::NTSTATUS {
 
     if let Some(artinfo) = NT_HANDLE_AND_OBJ_ARTIFACTS.get_mut(&(filehandle as i32)) {
+        
         let offset = artinfo.offset;
+
         if artinfo.offset >= artinfo.end {
             artinfo.end = artinfo.offset + length as i64;
-            artinfo.offset = artinfo.end;
         }
 
+        artinfo.offset += length as i64;
+
         let slice = std::slice::from_raw_parts(buffer as *const u8, length as usize);
-        crate::artifactsredirect::REDIRECT_ARTIFACTS_CHANNEL.tx.try_send(crate::artifactsredirect::Artifacts {
+        
+        crate::artifactsredirect::send_artifact(crate::artifactsredirect::Artifacts {
             path: artinfo.name.clone(),
             offset: offset,
             length: length as u64,

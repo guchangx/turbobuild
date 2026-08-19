@@ -108,7 +108,6 @@ impl FsNode {
                                         }
                                     }
                                     None => {
-                                        log::debug!("File without extension: {:?}", p);
                                         let _ = tx_.send((p.to_path_buf(), false));
                                     }
                                 }

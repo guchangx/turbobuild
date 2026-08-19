@@ -283,7 +283,7 @@ impl Sender {
                             if !path.is_empty() {
                                 if stream.offset == -1 && stream.content.len() > 0 {
                                     tokio::spawn(async move {
-                                        match tokio::fs::OpenOptions::new().write(true).create(true).open(&path).await {
+                                        match tokio::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&path).await {
                                             Ok(mut file) => {
                                                 file.write_all(&stream.content).await.unwrap();
                                                 log::debug!("save file {} success.", path);
@@ -296,7 +296,12 @@ impl Sender {
                                 }
                                 else if stream.offset >= 0 {
                                     if stream.content.len() == 0 {
-                                        fshandle.remove(&path);
+                                        let file = fshandle.remove(&path);
+                                        if let Some(mut file) = file {
+                                            if let Err(err) = file.flush().await {
+                                                log::error!("flush file {} failed: {:?}", path, err);
+                                            }
+                                        }
                                         log::debug!("save file chunk {} success.", path);
                                     }
                                     else {
@@ -311,7 +316,7 @@ impl Sender {
                                                 }
                                             }
                                         }
-    
+                                        log::debug!("save file chunk {} offset: {} size: {}.", path, stream.offset, stream.content.len());
                                         let file = fshandle.get_mut(&path).unwrap();
                                         if let Err(err) = file.seek(std::io::SeekFrom::Start(stream.offset as u64)).await {
                                             log::error!("seek file {} failed: {:?}", path, err);
@@ -357,7 +362,7 @@ impl Sender {
             compiler: compile.compiler,
             working_dir: compile.working_dir,
             variety: compile.variety,
-            commands: compile.commands,
+            commands: compile.commands.clone(),
             envs: compile.envs.iter().map(|(k,v)| pack::Envs {
                 key: k.clone(),
                 value: v.clone(),
@@ -366,6 +371,8 @@ impl Sender {
             content: compile.content.to_vec(),
             presyncfiles: compile.presyncfiles,
         });
+
+        log::debug!("send compiled sourcefile request: {:?}", compile.commands.clone());
 
         let response = self.to_owned().client.transmit_task(request).await;
 

@@ -1298,7 +1298,7 @@ impl package::communicate_server::Communicate for Receiver {
     type transmit_fileStream = ResponseFileStream;
     async fn transmit_file(&self, request: tonic::Request<tonic::Streaming<package::FileTrRequest>>) -> core::result::Result<tonic::Response<Self::transmit_fileStream>, tonic::Status> {
         log::debug!("sync request transmit file. from: {:?}", request.remote_addr());
-        let (tx, rx) = tokio::sync::mpsc::channel(256);
+        let (tx, rx) = tokio::sync::mpsc::channel(512);
 
         let self_ = self.clone();
         let _ = tokio::task::spawn(async move {
@@ -1316,7 +1316,7 @@ impl package::communicate_server::Communicate for Receiver {
         log::debug!("sync request transmit compiler: {:?}", rt_compile.compiler);
         log::debug!("commands: {:?}", rt_compile.commands);
         
-        let (tx, rx) = tokio::sync::mpsc::channel(256);
+        let (tx, rx) = tokio::sync::mpsc::channel(512);
         let self_ = self.clone();
         let _ = tokio::spawn(async move {
             self_.transmit_task_handle(rt_compile, tx).await;
