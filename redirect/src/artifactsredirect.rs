@@ -89,7 +89,7 @@ fn redirect_artifacts_2_cocrew() {
                 
                 let mut chunks = Vec::<Artifacts>::new();
 
-                while let Some(artifacts) = rx.recv().await {
+                while let Some(mut artifacts) = rx.recv().await {
                     log!(debug, "redirect send artifacts to named pipe: path: {}, offset: {}, length: {}", artifacts.path, artifacts.offset, artifacts.length);
 
                     if let Some(chunk) = chunks.iter_mut().find(|item| item.path == artifacts.path) {
@@ -143,11 +143,24 @@ fn redirect_artifacts_2_cocrew() {
                                     log!(debug, "redirect failed to write artifacts to named pipe: {:?}", err);
                                     break;
                                 }
+                                chunks.retain(|item| item.path != artifacts.path);
                             }
-                            chunks.retain(|item| item.path != artifacts.path);
                             continue;
                         }
                         else {
+
+                            if artifacts.offset == 0 {
+                                if artifacts.length == chunk.offset as u64 {
+                                    artifacts.content.append(&mut chunk.content);
+                                    chunk.content = artifacts.content;
+
+                                    chunk.offset = artifacts.offset;
+                                    chunk.length += artifacts.length;
+
+                                    continue;
+                                }
+                            }
+
                             //offset + clength + content + plen + path + continue
                             let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8;
                             let mut buffer = Vec::with_capacity(8 + tsize);

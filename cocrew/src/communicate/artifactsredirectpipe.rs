@@ -109,42 +109,43 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                 let iscontinue = u64::from_le_bytes(buffer[16 + clen as usize + 8 + plen..(16 + clen as usize + 8 + plen + 8)].try_into().unwrap());
 
                 let ospath = std::ffi::OsString::from(&path.to_string());
-                if iscontinue.eq(&1) {
-                    let context = buffer[16..(16 + clen as usize)].to_vec();
-                    let compiled_gen_result = if path.ends_with(".obj") {
-                        crew::compiler::model::CompiledResult {
-                            source_file: ospath.clone(),
-                            obj: Some((ospath.clone(), offset, context)),
-                            pdb: None,
-                            idb: None,
-                        }
+                log::info!("received artifact file chunk: path: {}, offset: {}, clen: {}, iscontinue: {}", path, offset, clen, iscontinue);
+
+                let context = buffer[16..(16 + clen as usize)].to_vec();
+                let compiled_gen_result = if path.ends_with(".obj") {
+                    crew::compiler::model::CompiledResult {
+                        source_file: ospath.clone(),
+                        obj: Some((ospath.clone(), offset, context)),
+                        pdb: None,
+                        idb: None,
                     }
-                    else if path.ends_with(".pdb") {
-                        crew::compiler::model::CompiledResult {
-                            source_file: ospath.clone(),
-                            obj: None,
-                            pdb: Some((ospath.clone(), offset, context)),
-                            idb: None,
-                        }
+                }
+                else if path.ends_with(".pdb") {
+                    crew::compiler::model::CompiledResult {
+                        source_file: ospath.clone(),
+                        obj: None,
+                        pdb: Some((ospath.clone(), offset, context)),
+                        idb: None,
                     }
-                    else if path.ends_with(".idb") {
-                        crew::compiler::model::CompiledResult {
-                            source_file: ospath.clone(),
-                            obj: None,
-                            pdb: None,
-                            idb: Some((ospath.clone(), offset, context)),
-                        }
+                }
+                else if path.ends_with(".idb") {
+                    crew::compiler::model::CompiledResult {
+                        source_file: ospath.clone(),
+                        obj: None,
+                        pdb: None,
+                        idb: Some((ospath.clone(), offset, context)),
                     }
-                    else {
-                        log::warn!("received unknown artifact file type: {}", path);
-                        continue;
-                    };
-     
-                    crate::communicate::unpackager::TASK_TO_FILE_CHANNEL.task_to_file_tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                        log::warn!("send artifact file to grpc channel failed: {:?}", err);
-                    });
                 }
                 else {
+                    log::warn!("received unknown artifact file type: {}", path);
+                    continue;
+                };
+    
+                crate::communicate::unpackager::TASK_TO_FILE_CHANNEL.task_to_file_tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                    log::warn!("send artifact file to grpc channel failed: {:?}", err);
+                });
+                
+                if iscontinue.eq(&0) {
                     //last chunk, send end
                     let compiled_gen_result = if path.ends_with(".obj") {
                         crew::compiler::model::CompiledResult {
