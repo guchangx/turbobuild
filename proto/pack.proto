@@ -65,9 +65,10 @@ message FileTrRequest {
 
 message FileTrResponse {
     string path = 1;
-    bytes content = 2;
-    int32 error_code = 3;
-    string error_message = 4;
+    int64 offset = 2;
+    bytes content = 3;
+    int32 error_code = 4;
+    string error_message = 5;
 }
 
 message Params {

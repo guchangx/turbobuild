@@ -208,6 +208,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
 
             log::info!("{:?} stream stdout: {:?}", &project_name_, line);
 
+            /* 
             //limited concurrency
             let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(32));
 
@@ -231,6 +232,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
                     }
                 });
             });
+            */
         }
 
         drop(out_stream);
@@ -263,6 +265,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         let lines: Vec<_> = compile_output.lines().collect();
         let (files, _warnings) = filter_compiler_warning(lines);
         if unready_objfiles.lock().unwrap().is_empty() {
+            /* 
             let out_stream = out_err_stream.stdout.clone();
             for line in files {
                 let out_stream_ = out_stream.clone();
@@ -275,6 +278,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
                 });
             }
             drop(out_stream);
+            */
         }
         else {
             return_local_compile_result_object_files(unready_objfiles, &solution_name, &origin_working_dir, out_err_stream);
@@ -289,7 +293,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
             if task.expected != 0 && task.done >= task.expected {
                 synced_tasks.remove(&project_name.to_string_lossy().to_string());
                 drop(synced_tasks);
-                return_local_compile_result_pdbfiles((*program_database).clone(), &solution_name, &origin_working_dir, out_err_stream);
+                return_local_compile_result_pdb_files((*program_database).clone(), &solution_name, &origin_working_dir, out_err_stream);
             }
         }
     }
@@ -364,7 +368,7 @@ async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_
 
                 let compiled_gen_result = crew::compiler::model::CompiledResult {
                     source_file: std::ffi::OsString::from(&line),
-                    obj: Some((origin, bytes::Bytes::from(contents))),
+                    obj: Some((origin, -1, bytes::Bytes::from(contents))),
                     pdb: None,
                     idb: None,
                 };
@@ -428,7 +432,7 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
 
                     let compiled_gen_result = crew::compiler::model::CompiledResult {
                         source_file: std::ffi::OsString::from(&line),
-                        obj: Some((origin, bytes::Bytes::from(contents))),
+                        obj: Some((origin, -1,  bytes::Bytes::from(contents))),
                         pdb: None,
                         idb: None,
                     };
@@ -450,7 +454,7 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
     log::trace!("unready obj file end, send out stream end.");
 }
 
-fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, solution_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
+fn return_local_compile_result_pdb_files(program_database: ProgramDataBase, solution_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
     let mut result = std::path::PathBuf::from("");
     match &program_database {
         ProgramDataBase::PathWithPDBName(path) => {
@@ -468,8 +472,8 @@ fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, solut
     log::trace!("compile result program database path: {:?}", result);
     let mut compiled_results: CompiledResults = Vec::new();
 
-    let mut pdb: Option<(std::ffi::OsString, bytes::Bytes)> = None;
-    let mut idb: Option<(std::ffi::OsString, bytes::Bytes)> = None;
+    let mut pdb: Option<(std::ffi::OsString, i64, bytes::Bytes)> = None;
+    let mut idb: Option<(std::ffi::OsString, i64, bytes::Bytes)> = None;
 
     if result.exists() {
         match std::fs::File::open(&result) {
@@ -478,7 +482,7 @@ fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, solut
                 let mut file = std::io::BufReader::new(file);
                 let _ = file.read_to_end(&mut contents).unwrap();
                 let origin = repair_original_path(&solution_name, &origin_working_dir, &result);        
-                pdb = Some((origin, bytes::Bytes::from(contents)));
+                pdb = Some((origin, -1, bytes::Bytes::from(contents)));
             },
             Err(error) => {
                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -497,7 +501,7 @@ fn return_local_compile_result_pdbfiles(program_database: ProgramDataBase, solut
                 let mut file = std::io::BufReader::new(file);
                 let _ = file.read_to_end(&mut contents).unwrap();
                 let origin = repair_original_path(&solution_name, &origin_working_dir, &result);     
-                idb = Some((origin, bytes::Bytes::from(contents)));
+                idb = Some((origin, -1, bytes::Bytes::from(contents)));
             },
             Err(error) => {
                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -1051,8 +1055,7 @@ mod tests {
         compiler_commands.push(std::ffi::OsString::from("/Folz4.obj"));
 
         compiler_commands.push(std::ffi::OsString::from(format!(r#"/I {}"#, working_dir.to_string_lossy())));
-        //compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, working_dir.to_string_lossy())));
-        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, r"D:\WorkSpace\turbobuild\fake\draft")));
+        compiler_commands.push(std::ffi::OsString::from(format!(r#"{}\lz4.c"#, working_dir.to_string_lossy())));
 
         let (out_sender, mut out_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
         let (err_sender, mut err_receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(128);
@@ -1080,9 +1083,10 @@ mod tests {
         drop(out_err_stream);
 
         task.join().unwrap();
-        assert!(status == 0);
+
         println!("compile stdout: {}", String::from_utf8_lossy(&stdout));
         println!("compile stderr: {}", String::from_utf8_lossy(&stderr));
+        assert!(status == 0);
     }
 
     #[test]

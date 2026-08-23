@@ -1,5 +1,6 @@
 use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
+use tokio::io::AsyncSeekExt;
 
 pub mod pack {
     include!("../../proto/pack.rs");
@@ -281,6 +282,8 @@ impl Sender {
                 
                 let host = self.host.clone();
 
+                let mut fshandle = std::collections::HashMap::<String, tokio::fs::File>::new();
+
                 let mut response_stream = response.into_inner();
                 while let Some(stream) = response_stream.next().await {
                     match stream {
@@ -331,7 +334,7 @@ impl Sender {
             compiler: compile.compiler,
             working_dir: compile.working_dir,
             variety: compile.variety,
-            commands: compile.commands,
+            commands: compile.commands.clone(),
             envs: compile.envs.iter().map(|(k,v)| pack::Envs {
                 key: k.clone(),
                 value: v.clone(),
@@ -340,6 +343,8 @@ impl Sender {
             content: compile.content.to_vec(),
             presyncfiles: compile.presyncfiles,
         });
+
+        log::debug!("send compiled sourcefile request: {:?}", compile.commands.clone());
 
         let response = self.to_owned().client.transmit_task(request).await;
 

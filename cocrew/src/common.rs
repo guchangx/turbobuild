@@ -44,6 +44,7 @@ pub fn init_common() {
     };
     
     crate::communicate::syscallredirectpipe::compiler_redirect_syscall();
+    crate::communicate::artifactsredirectpipe::compiler_redirect_artifacts();
 
     let _guard = handle.enter();
     tokio::task::Builder::new().name("redirect_stdout_log_2_cocrew").spawn_blocking(|| {

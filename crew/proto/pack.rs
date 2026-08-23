@@ -70,11 +70,13 @@ pub struct FileTrRequest {
 pub struct FileTrResponse {
     #[prost(string, tag = "1")]
     pub path: ::prost::alloc::string::String,
-    #[prost(bytes = "bytes", tag = "2")]
+    #[prost(int64, tag = "2")]
+    pub offset: i64,
+    #[prost(bytes = "bytes", tag = "3")]
     pub content: ::prost::bytes::Bytes,
-    #[prost(int32, tag = "3")]
+    #[prost(int32, tag = "4")]
     pub error_code: i32,
-    #[prost(string, tag = "4")]
+    #[prost(string, tag = "5")]
     pub error_message: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

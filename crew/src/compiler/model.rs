@@ -64,9 +64,9 @@ impl CompilerOutput {
 #[derive(Debug, Clone)]
 pub struct CompiledResult {
     pub source_file: std::ffi::OsString,
-    pub obj: Option<(std::ffi::OsString, bytes::Bytes)>,
-    pub pdb: Option<(std::ffi::OsString, bytes::Bytes)>,
-    pub idb: Option<(std::ffi::OsString, bytes::Bytes)>,
+    pub obj: Option<(std::ffi::OsString, i64, bytes::Bytes)>,
+    pub pdb: Option<(std::ffi::OsString, i64, bytes::Bytes)>,
+    pub idb: Option<(std::ffi::OsString, i64, bytes::Bytes)>,
 }
 
 pub type CompiledResults = Vec<CompiledResult>;
