@@ -1,5 +1,4 @@
-
-use crate::{artifactsredirect, log};
+use crate::log;
 
 use tokio::{io::AsyncWriteExt, io::AsyncSeekExt, net::windows::named_pipe::{
     ClientOptions,
@@ -87,114 +86,147 @@ fn redirect_artifacts_2_cocrew() {
             Some(mut client) => {
                 log!(debug, "redirect success connect to artifacts named pipe");
                 
-                let mut chunks = Vec::<Artifacts>::new();
-
-                while let Some(mut artifacts) = rx.recv().await {
-                    log!(debug, "redirect send artifacts to named pipe: path: {}, offset: {}, length: {}", artifacts.path, artifacts.offset, artifacts.length);
-
-                    if let Some(chunk) = chunks.iter_mut().find(|item| item.path == artifacts.path) {
-                        if artifacts.length == 0 { // last chunk, send all
-                            //offset + length + content + plen + path + continue
-                            let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8;
-                            let mut buffer = Vec::with_capacity(8 + tsize);
-
-                            // write the length of the buffer first 8 bit
-                            buffer.extend_from_slice(&tsize.to_le_bytes());
-
-                            buffer.extend_from_slice(&(chunk.offset as i64).to_le_bytes());
-                            buffer.extend_from_slice(&(chunk.length as u64).to_le_bytes());
-                            buffer.extend_from_slice(chunk.content.as_slice());
-                            buffer.extend_from_slice(&(chunk.path.len() as u64).to_le_bytes());
-                            buffer.extend_from_slice(chunk.path.as_bytes());
-                            buffer.extend_from_slice(&0u64.to_le_bytes());
-
-                            if let Err(err) = client.write_all(&buffer).await {
-                                log!(debug, "redirect failed to write artifacts to named pipe: {:?}", err);
-                                break;
-                            }
+                let mut chunks = std::collections::HashMap::<String, Artifacts>::new();
+                let mut batch_recv_chunks: Vec<Artifacts> = Vec::with_capacity(4);
+                loop {
+                    batch_recv_chunks.clear();
+                    let cnum = rx.recv_many(&mut batch_recv_chunks, 4).await;
+                    
+                    if cnum == 0 {
+                        log!(debug, "loop receive artifacts end");
+                        break;
+                    }
+                    else {
+                        for mut artifacts in batch_recv_chunks.drain(..) {
                             
-                            client.flush().await.unwrap();
-                            if let Some(done) = artifacts.done {
-                                let _ = done.send(());
-                                log!(trace, "redirect_artifacts_2_cocrew done path: {}", artifacts.path);
-                            }
-                            chunks.retain(|item| item.path != artifacts.path);
-                            continue;
-                        }
-                        else if chunk.offset + chunk.length as i64 == artifacts.offset {
-                            chunk.content.extend_from_slice(&artifacts.content);
-                            chunk.length += artifacts.length;
-                            if chunk.length >= 32768 /*32 * 1024*/ {
-                                //offset + clength + content + plen + path + continue
-                                let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8;
-                                let mut buffer = Vec::with_capacity(8 + tsize);
-
-                                // write the length of the buffer first 8 bit
-                                buffer.extend_from_slice(&tsize.to_le_bytes());
-
-                                buffer.extend_from_slice(&(chunk.offset as i64).to_le_bytes());
-                                buffer.extend_from_slice(&(chunk.length as u64).to_le_bytes());
-                                buffer.extend_from_slice(chunk.content.as_slice());
-                                buffer.extend_from_slice(&(chunk.path.len() as u64).to_le_bytes());
-                                buffer.extend_from_slice(chunk.path.as_bytes());
-                                buffer.extend_from_slice(&1u64.to_le_bytes());
-
-                                if let Err(err) = client.write_all(&buffer).await {
-                                    log!(debug, "redirect failed to write artifacts to named pipe: {:?}", err);
-                                    break;
+                            if let Some(chunk) = chunks.get_mut(&artifacts.path) {
+                                if artifacts.length == 0 { // last chunk, send all
+                                    //offset + length + content + plen + path + continue
+                                    let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8;
+                                    let mut buffer = Vec::with_capacity(8 + tsize);
+    
+                                    // write the length of the buffer first 8 bit
+                                    buffer.extend_from_slice(&tsize.to_le_bytes());
+    
+                                    buffer.extend_from_slice(&(chunk.offset as i64).to_le_bytes());
+                                    buffer.extend_from_slice(&(chunk.length as u64).to_le_bytes());
+                                    buffer.extend_from_slice(chunk.content.as_slice());
+                                    buffer.extend_from_slice(&(chunk.path.len() as u64).to_le_bytes());
+                                    buffer.extend_from_slice(chunk.path.as_bytes());
+                                    buffer.extend_from_slice(&0u64.to_le_bytes());
+    
+                                    if let Err(err) = client.write_all(&buffer).await {
+                                        log!(debug, "redirect failed to write artifacts to named pipe: {:?}", err);
+                                        break;
+                                    }
+                                    
+                                    client.flush().await.unwrap();
+                                    if let Some(done) = artifacts.done {
+                                        let _ = done.send(());
+                                        log!(trace, "redirect_artifacts_2_cocrew done path: {}", artifacts.path);
+                                    }
+                                    chunks.remove(&artifacts.path);
+                                    continue;
                                 }
-                                chunks.retain(|item| item.path != artifacts.path);
-                            }
-                            continue;
-                        }
-                        else {
-
-                            if artifacts.offset == 0 {
-                                if artifacts.length == chunk.offset as u64 {
-                                    artifacts.content.append(&mut chunk.content);
-                                    chunk.content = artifacts.content;
-
-                                    chunk.offset = artifacts.offset;
+                                else if chunk.offset + chunk.length as i64 == artifacts.offset {
+                                    //reserve
                                     chunk.length += artifacts.length;
-
+                                    chunk.content.reserve(chunk.length as usize);
+                                    chunk.content.extend_from_slice(&artifacts.content);
+                                    if chunk.length >= 65536 /* 64 * 1024 */ {
+                                        //offset + clength + content + plen + path + continue
+                                        let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8;
+                                        let mut buffer = Vec::with_capacity(8 + tsize);
+    
+                                        // write the length of the buffer first 8 bit
+                                        buffer.extend_from_slice(&tsize.to_le_bytes());
+    
+                                        buffer.extend_from_slice(&(chunk.offset as i64).to_le_bytes());
+                                        buffer.extend_from_slice(&(chunk.length as u64).to_le_bytes());
+                                        buffer.extend_from_slice(chunk.content.as_slice());
+                                        buffer.extend_from_slice(&(chunk.path.len() as u64).to_le_bytes());
+                                        buffer.extend_from_slice(chunk.path.as_bytes());
+                                        buffer.extend_from_slice(&1u64.to_le_bytes());
+    
+                                        if let Err(err) = client.write_all(&buffer).await {
+                                            log!(debug, "redirect failed to write artifacts to named pipe: {:?}", err);
+                                            break;
+                                        }
+                                        chunks.remove(&artifacts.path);
+                                    }
+                                    continue;
+                                }
+                                else {
+                                    
+                                    //insert
+                                    if artifacts.offset == 0 {
+                                        if artifacts.length == chunk.offset as u64 {
+                                            artifacts.content.append(&mut chunk.content);
+                                            chunk.content = artifacts.content;
+    
+                                            chunk.offset = artifacts.offset;
+                                            chunk.length += artifacts.length;
+                                            continue;
+                                        }
+                                    }
+    
+                                    //offset + clength + content + plen + path + continue
+                                    let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8;
+                                    let mut buffer = Vec::with_capacity(8 + tsize);
+    
+                                    // write the total length of the buffer first 8 bit
+                                    buffer.extend_from_slice(&tsize.to_le_bytes());
+    
+                                    buffer.extend_from_slice(&(chunk.offset as i64).to_le_bytes());
+                                    buffer.extend_from_slice(&(chunk.length as u64).to_le_bytes());
+                                    buffer.extend_from_slice(chunk.content.as_slice());
+                                    buffer.extend_from_slice(&(chunk.path.len() as u64).to_le_bytes());
+                                    buffer.extend_from_slice(chunk.path.as_bytes());
+                                    buffer.extend_from_slice(&1u64.to_le_bytes());
+    
+                                    if let Err(err) = client.write_all(&buffer).await {
+                                        log!(debug, "redirect failed to write artifacts to named pipe: {:?}", err);
+                                        break;
+                                    }
+                                    //repalace
+                                    chunk.offset = artifacts.offset;
+                                    chunk.length = artifacts.length;
+                                    chunk.content = artifacts.content;
                                     continue;
                                 }
                             }
+                            else {
+                                if 0 == artifacts.offset && artifacts.done.is_some() {
 
-                            //offset + clength + content + plen + path + continue
-                            let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8;
-                            let mut buffer = Vec::with_capacity(8 + tsize);
+                                    //offset + length + content + plen + path + continue
+                                    let tsize = 8 + 8 + 0 as usize + 8 + artifacts.path.len() + 8;
+                                    let mut buffer = Vec::with_capacity(8 + tsize);
+    
+                                    // write the length of the buffer first 8 bit
+                                    buffer.extend_from_slice(&tsize.to_le_bytes());
+    
+                                    buffer.extend_from_slice(&(artifacts.offset as i64).to_le_bytes());
+                                    buffer.extend_from_slice(&(artifacts.length as u64).to_le_bytes());
+                                    buffer.extend_from_slice(artifacts.content.as_slice());
+                                    buffer.extend_from_slice(&(artifacts.path.len() as u64).to_le_bytes());
+                                    buffer.extend_from_slice(artifacts.path.as_bytes());
+                                    buffer.extend_from_slice(&0u64.to_le_bytes());
+    
+                                    if let Err(err) = client.write_all(&buffer).await {
+                                        log!(debug, "redirect failed to write artifacts to named pipe: {:?}", err);
+                                        break;
+                                    }
 
-                            // write the total length of the buffer first 8 bit
-                            buffer.extend_from_slice(&tsize.to_le_bytes());
-
-                            buffer.extend_from_slice(&(chunk.offset as i64).to_le_bytes());
-                            buffer.extend_from_slice(&(chunk.length as u64).to_le_bytes());
-                            buffer.extend_from_slice(chunk.content.as_slice());
-                            buffer.extend_from_slice(&(chunk.path.len() as u64).to_le_bytes());
-                            buffer.extend_from_slice(chunk.path.as_bytes());
-                            buffer.extend_from_slice(&1u64.to_le_bytes());
-
-                            if let Err(err) = client.write_all(&buffer).await {
-                                log!(debug, "redirect failed to write artifacts to named pipe: {:?}", err);
-                                break;
+                                    client.flush().await.unwrap();
+                                    let _ = artifacts.done.take().unwrap().send(());
+                                    log!(trace, "redirect_artifacts_2_cocrew done path: {}", artifacts.path);
+                                }
+                                else { 
+                                    chunks.insert(artifacts.path.clone(), artifacts);
+                                }
+                                continue;
                             }
-                            //repalace
-                            chunk.offset = artifacts.offset;
-                            chunk.length = artifacts.length;
-                            chunk.content = artifacts.content;
-                            continue;
                         }
-                    }
-                    else {
-                        if let Some(done) = artifacts.done {
-                            let _ = done.send(());
-                            log!(trace, "redirect_artifacts_2_cocrew done path: {}", artifacts.path);
-                        }
-                        else{
-                            chunks.push(artifacts);
-                        }
-                        continue;
                     }
                 }
             }

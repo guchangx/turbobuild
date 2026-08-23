@@ -2067,7 +2067,13 @@ pub unsafe fn nt_query_information_file(
         }
         else if windows_sys::Wdk::Storage::FileSystem::FileStandardInformation == fileinformationclass {
             let standard_info = fileinformation as *mut windows_sys::Wdk::Storage::FileSystem::FILE_STANDARD_INFORMATION;
+            log!(trace, "nt_query_information_file FileStandardInformation: handle: {:?}, artifact: {:?}", filehandle, artifact);
+
             (*standard_info).EndOfFile = artifact.end;
+            (*standard_info).AllocationSize = artifact.end;
+            (*standard_info).NumberOfLinks = 1;
+            (*standard_info).DeletePending = false;
+            (*standard_info).Directory = false;
     
             if !iostatusblock.is_null() {
                 (*iostatusblock).Anonymous.Status = crate::win::Foundation::STATUS_SUCCESS;
@@ -2181,6 +2187,8 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
     let nt_status = nt_close_inner(handle);
 
     if let Some(artinfo) = NT_HANDLE_AND_OBJ_ARTIFACTS.remove(&(handle as i32)) {
+        log!(trace, "nt_close begin artifacts path: {}", artinfo.name);
+        crate::logger::output_debug_string(&format!("nt_close hook begin path: {}", artinfo.name));
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         crate::artifactsredirect::send_artifact(crate::artifactsredirect::Artifacts {
@@ -2190,9 +2198,9 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
             content: Vec::new(),
             done: Some(tx),
         }).unwrap();
-
         rx.blocking_recv().unwrap();
-        log!(trace, "nt_close hook path: {}", artinfo.name);
+        log!(trace, "nt_close end artifacts path: {}", artinfo.name);
+        crate::logger::output_debug_string(&format!("nt_close hook end path: {}", artinfo.name));
     }
 
     return nt_status;
@@ -2221,7 +2229,6 @@ pub unsafe fn nt_write_file(
         artinfo.offset += length as i64;
 
         let slice = std::slice::from_raw_parts(buffer as *const u8, length as usize);
-        
         crate::artifactsredirect::send_artifact(crate::artifactsredirect::Artifacts {
             path: artinfo.name.clone(),
             offset: offset,
@@ -2229,7 +2236,7 @@ pub unsafe fn nt_write_file(
             content: slice.to_vec(),
             done: None,
         }).unwrap();
-
+        
         crate::log!(trace, "nt_write_file hook path: {} offset: {} length: {}", artinfo.name, offset, length);
 
         if !io_status_block.is_null() {
@@ -2238,6 +2245,7 @@ pub unsafe fn nt_write_file(
         }
 
         return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+        
     }
 
     let nt_write_file_inner: extern "system" fn(

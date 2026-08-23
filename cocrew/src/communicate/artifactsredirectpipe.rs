@@ -36,17 +36,19 @@ async fn accept_connections(mut server: tokio::net::windows::named_pipe::NamedPi
         };
 
         tokio::spawn(async move {
-            unsafe {
+            let pid = unsafe {
                 let mut pid: u32 = 0;
                 windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId(
                     connected.as_raw_handle() as _,
                     &mut pid as *mut u32,
                 );
-                log::info!("connected to artifacts redirect named pipe server, client pid: {}", pid);
-            }
-            
+                pid
+            };
+
+            log::info!("connected to artifacts redirect named pipe server, client pid: {}", pid);
+
             if let Err(error) = handle(&mut connected).await {
-                log::error!("server failed to handle artifacts redirect client: {:?}", error);
+                log::error!("server failed to handle artifacts redirect client {} {:?}", pid, error);
             }
         });
     }
