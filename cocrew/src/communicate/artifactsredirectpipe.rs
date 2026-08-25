@@ -117,7 +117,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                 let compiled_gen_result = if path.ends_with(".obj") {
                     crew::compiler::model::CompiledResult {
                         source_file: ospath.clone(),
-                        obj: Some((ospath.clone(), offset, context)),
+                        obj: Some((ospath.clone(), offset, bytes::Bytes::from(context))),
                         pdb: None,
                         idb: None,
                     }
@@ -126,7 +126,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                     crew::compiler::model::CompiledResult {
                         source_file: ospath.clone(),
                         obj: None,
-                        pdb: Some((ospath.clone(), offset, context)),
+                        pdb: Some((ospath.clone(), offset, bytes::Bytes::from(context))),
                         idb: None,
                     }
                 }
@@ -135,7 +135,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                         source_file: ospath.clone(),
                         obj: None,
                         pdb: None,
-                        idb: Some((ospath.clone(), offset, context)),
+                        idb: Some((ospath.clone(), offset, bytes::Bytes::from(context))),
                     }
                 }
                 else {
@@ -152,7 +152,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                     let compiled_gen_result = if path.ends_with(".obj") {
                         crew::compiler::model::CompiledResult {
                             source_file: ospath.clone(),
-                            obj: Some((ospath, -1, Vec::new())),
+                            obj: Some((ospath, -1, bytes::Bytes::new())),
                             pdb: None,
                             idb: None,
                         }
@@ -161,7 +161,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                         crew::compiler::model::CompiledResult {
                             source_file: ospath.clone(),
                             obj: None,
-                            pdb: Some((ospath, -1, Vec::new())),
+                            pdb: Some((ospath, -1, bytes::Bytes::new())),
                             idb: None,
                         }
                     }
@@ -170,7 +170,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                             source_file: ospath.clone(),
                             obj: None,
                             pdb: None,
-                            idb: Some((ospath, -1, Vec::new())),
+                            idb: Some((ospath, -1, bytes::Bytes::new())),
                         }
                     }   
                     else {

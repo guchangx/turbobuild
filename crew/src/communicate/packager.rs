@@ -9,8 +9,14 @@ pub mod pack {
 #[derive(Default, Clone)] 
 pub struct TransmitArchive {
     pub path: String,
+    pub offset: i64,
     pub content: bytes::Bytes,
 }
+
+type SharedTransmitFsHandle = std::sync::Arc<tokio::sync::Mutex<tokio::fs::File>>;
+type TransmitFileTable = std::sync::Arc<
+    tokio::sync::RwLock<std::collections::HashMap<String, SharedTransmitFsHandle>>,
+>;
 
 #[derive(Clone)]
 pub struct Sender {
@@ -282,18 +288,16 @@ impl Sender {
                 
                 let host = self.host.clone();
 
-                let mut fshandle = std::collections::HashMap::<String, tokio::fs::File>::new();
-
                 let mut response_stream = response.into_inner();
                 while let Some(stream) = response_stream.next().await {
                     match stream {
                         Ok(stream) => {
                             //log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
                             
-                            let path = stream.path;
-                            if !path.is_empty() && stream.content.len() > 0 {
+                            if !stream.path.is_empty() {
                                 let file = TransmitArchive {
-                                    path,
+                                    path: stream.path,
+                                    offset: stream.offset,
                                     content: stream.content,
                                 };
 
@@ -559,10 +563,20 @@ impl Sender {
                 let (sender, receiver) = tokio::sync::mpsc::channel(512);
                 let receiver = std::sync::Arc::new(tokio::sync::Mutex::new(receiver));
 
-                for _ in 0..4 {
+                let fshandle: TransmitFileTable = std::sync::Arc::new(tokio::sync::RwLock::new(
+                    std::collections::HashMap::new(),
+                ));
+
+                let worker_count: usize = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).max(32) / 2;
+                for _ in 0..worker_count {
                     let receiver = receiver.clone();
+                    let fshandle = fshandle.clone();
                     tokio::spawn(async move {
-                        Self::multiworker_save_transmit_archives(receiver).await;
+                        Self::multiworker_save_transmit_archives(
+                            receiver,
+                            fshandle,
+                        )
+                        .await;
                     });
                 }
 
@@ -571,30 +585,155 @@ impl Sender {
             .clone()
     }
 
-    async fn multiworker_save_transmit_archives(
-        receiver: std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<TransmitArchive>>>) {
-        loop {
-            let transmit_file = {
-                let mut receiver = receiver.lock().await;
-                receiver.recv().await
-            };
+    async fn get_or_open_transmit_file(
+        fshandle: &TransmitFileTable,
+        path: &str,
+    ) -> std::io::Result<SharedTransmitFsHandle> {
 
-            let Some(transmit_file) = transmit_file else {
-                break;
-            };
+        let mut files = fshandle.write().await;
 
-            match tokio::fs::OpenOptions::new()
+        if let Some(state) = files.get(path) {
+            return Ok(state.clone());
+        }
+        else {
+            let file = tokio::fs::OpenOptions::new()
                 .write(true)
                 .create(true)
                 .truncate(true)
-                .open(&transmit_file.path)
-                .await
-            {
-                Ok(mut file) => match file.write_all(&transmit_file.content).await {
-                    Ok(_) => log::debug!("result file save worker saved {}", transmit_file.path),
-                    Err(err) => log::error!("result file save worker write {} failed: {:?}", transmit_file.path, err),
-                },
-                Err(err) => log::error!("result file save worker open {} failed: {:?}", transmit_file.path, err),
+                .open(path)
+                .await?;
+    
+            let state = std::sync::Arc::new(tokio::sync::Mutex::new(file));
+    
+            files.insert(path.to_owned(), state.clone());
+            return Ok(state)
+        }
+    }
+
+    async fn multiworker_save_transmit_archives(
+        receiver: std::sync::Arc<
+            tokio::sync::Mutex<tokio::sync::mpsc::Receiver<TransmitArchive>>,
+        >,
+        fshandle: TransmitFileTable,
+    ) {
+        loop {
+
+            let (transmit_file_stream, file) = {
+                let mut receiver = receiver.lock().await;
+                let Some(transmit_file_stream) = receiver.recv().await else {
+                    break;
+                };
+
+                //chunk
+                if transmit_file_stream.offset >= 0 && !transmit_file_stream.content.is_empty() {
+                    match Self::get_or_open_transmit_file(
+                        &fshandle,
+                        &transmit_file_stream.path,
+                    )
+                    .await
+                    {
+                        Ok(file) => (transmit_file_stream, Some(file)),
+                        Err(error) => {
+                            log::error!(
+                                "open file chunk {} failed: {:?}",
+                                transmit_file_stream.path,
+                                error
+                            );
+                            (transmit_file_stream, None)
+                        }
+                    }
+                }
+                //last chunk
+                else if transmit_file_stream.offset == -1 && transmit_file_stream.content.is_empty() {
+                    let handle = fshandle.write().await.remove(&transmit_file_stream.path);
+                    (transmit_file_stream, handle)
+                } 
+                //completefile
+                else {
+                    (transmit_file_stream, None)
+                }
+            };
+
+            //save completefile
+            if transmit_file_stream.offset == -1 && !transmit_file_stream.content.is_empty() {
+                match tokio::fs::OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .open(&transmit_file_stream.path)
+                    .await
+                {
+                    Ok(mut file) => {
+                        if let Err(error) = file.write_all(&transmit_file_stream.content).await {
+                            log::error!(
+                                "result file save worker write {} failed: {:?}",
+                                transmit_file_stream.path,
+                                error
+                            );
+                        }
+                        else {
+                            log::debug!(
+                                "result file save worker write {} done.",
+                                transmit_file_stream.path
+                            );
+                        }
+                    }
+                    Err(error) => {
+                        log::error!(
+                            "result file save worker open {} failed: {:?}",
+                            transmit_file_stream.path,
+                            error
+                        );
+                    }
+                }
+                continue;
+            }
+            else {
+                if let Some(file) = file {
+                    
+                    let mut file = file.lock().await;
+                    
+                    if transmit_file_stream.content.is_empty() {
+                        if let Err(err) = file.flush().await {
+                            log::error!(
+                                "flush file chunk {} at offset {} failed: {:?}",
+                                transmit_file_stream.path,
+                                transmit_file_stream.offset,
+                                err
+                            );
+                        }
+                        else {
+                            log::debug!(
+                                "flush file chunk {} done.",
+                                transmit_file_stream.path
+                            );
+                        }
+                        continue;
+                    }
+                    else {
+                        log::debug!("seek file chunk {} offset: {} length: {}", transmit_file_stream.path, transmit_file_stream.offset, transmit_file_stream.content.len());
+                        if let Err(error) = file
+                            .seek(std::io::SeekFrom::Start(transmit_file_stream.offset as u64))
+                            .await
+                        {
+                            log::error!(
+                                "seek file chunk {} at offset {} failed: {:?}",
+                                transmit_file_stream.path,
+                                transmit_file_stream.offset,
+                                error
+                            );
+                            continue;
+                        }
+                        if let Err(error) = file.write_all(&transmit_file_stream.content).await {
+                            log::error!(
+                                "write file chunk {} at offset {} failed: {:?}",
+                                transmit_file_stream.path,
+                                transmit_file_stream.offset,
+                                error
+                            );
+                        }
+                    }
+                };
             }
         }
     }
