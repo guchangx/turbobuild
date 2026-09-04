@@ -207,32 +207,51 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
             let line = String::from_utf8_lossy(&data);
 
             log::info!("{:?} stream stdout: {:?}", &project_name_, line);
-
-            /* 
+ 
             //limited concurrency
             let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(32));
-
             line.lines().for_each(|item| {
-                let item = item.to_string();
-                let generated_object_ = generated_object_.clone();
-                let solution_name_ = std::sync::Arc::clone(&solution_name_);
-                let origin_working_dir_ = origin_working_dir_.clone();
-                let out_stream = out_stream.clone();
-                let unready_objfiles_ = unready_objfiles_.clone();
-                let semaphore_ = semaphore.clone();
-
-                rt_.spawn(async move {
-                    if !item.is_empty() {
-                        let permit = semaphore_.clone().acquire_owned().await.unwrap();
-                        let objfile = pre_return_local_compile_result_object_files(&std::borrow::Cow::from(item), &(*generated_object_), &solution_name_, &origin_working_dir_, &out_stream).await;
-                        if let Some(objfile) = objfile {
-                            unready_objfiles_.lock().unwrap().insert(objfile.0, objfile.1);
+                if false {
+                    let item = item.to_string();
+                    let generated_object_ = generated_object_.clone();
+                    let solution_name_ = std::sync::Arc::clone(&solution_name_);
+                    let origin_working_dir_ = origin_working_dir_.clone();
+                    let out_stream = out_stream.clone();
+                    let unready_objfiles_ = unready_objfiles_.clone();
+                    let semaphore_ = semaphore.clone();
+    
+                    rt_.spawn(async move {
+                        if !item.is_empty() {
+                            let permit = semaphore_.clone().acquire_owned().await.unwrap();
+                            let objfile = pre_return_local_compile_result_object_files(&std::borrow::Cow::from(item), &(*generated_object_), &solution_name_, &origin_working_dir_, &out_stream).await;
+                            if let Some(objfile) = objfile {
+                                unready_objfiles_.lock().unwrap().insert(objfile.0, objfile.1);
+                            }
+                            drop(permit);
                         }
-                        drop(permit);
+                    });
+                }
+                else {
+                    let line = line.replace(r#"""#, "");
+                    let line = line.trim_end();
+                    
+                    if line.starts_with("Generating Code...") { 
+                    
                     }
-                });
+                    else if line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") || line.ends_with(".cxx") {
+                        let compiled_result = crew::compiler::model::CompiledResult {
+                            source_file: std::ffi::OsString::from(&line),
+                            obj: None,
+                            pdb: None,
+                            idb: None,
+                        };
+                        let _ = out_stream.try_send(vec![compiled_result]).unwrap_or_else(|err| {
+                            log::warn!("try send .obj results to out stream failed: {:?}", err);
+                        });
+                    }
+                }   
             });
-            */
+            
         }
 
         drop(out_stream);
@@ -264,24 +283,26 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     if status == 0 {
         let lines: Vec<_> = compile_output.lines().collect();
         let (files, _warnings) = filter_compiler_warning(lines);
-        if unready_objfiles.lock().unwrap().is_empty() {
-            /* 
-            let out_stream = out_err_stream.stdout.clone();
-            for line in files {
-                let out_stream_ = out_stream.clone();
-                let generated_object = generated_object.clone();
-                let line = line.to_string();
-                let solution_name = solution_name.clone();
-                let origin_working_dir = origin_working_dir.clone();
-                rt.spawn(async move {
-                    let _ = pre_return_local_compile_result_object_files(&std::borrow::Cow::from(line), &(*generated_object), &solution_name, &origin_working_dir, &out_stream_);
-                });
+        log::info!("{:?} finally stream stdout: {:?}", &project_name_, files);
+        if false {
+            if unready_objfiles.lock().unwrap().is_empty() {
+                 
+                let out_stream = out_err_stream.stdout.clone();
+                for line in files {
+                    let out_stream_ = out_stream.clone();
+                    let generated_object = generated_object.clone();
+                    let line = line.to_string();
+                    let solution_name = solution_name.clone();
+                    let origin_working_dir = origin_working_dir.clone();
+                    rt.spawn(async move {
+                        let _ = pre_return_local_compile_result_object_files(&std::borrow::Cow::from(line), &(*generated_object), &solution_name, &origin_working_dir, &out_stream_);
+                    });
+                }
+                drop(out_stream);
             }
-            drop(out_stream);
-            */
-        }
-        else {
-            return_local_compile_result_object_files(unready_objfiles, &solution_name, &origin_working_dir, out_err_stream);
+            else {
+                return_local_compile_result_object_files(unready_objfiles, &solution_name, &origin_working_dir, out_err_stream);
+            }
         }
 
         let mut synced_tasks = COMPILE_TASK_COUNT.lock().unwrap();
@@ -289,7 +310,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         if let Some(task) = task {
             task.pdb = (*program_database).clone();
             task.done += 1;
-            log::trace!("compile task expected: {:?} done: {:?}, project: {:?}.", task.expected, task.done, &project_name);
+            log::trace!("compile task expected count: {:?} done: {:?}, project: {:?}.", task.expected, task.done, &project_name);
             if task.expected != 0 && task.done >= task.expected {
                 synced_tasks.remove(&project_name.to_string_lossy().to_string());
                 drop(synced_tasks);

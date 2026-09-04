@@ -132,6 +132,8 @@ impl Receiver {
     
         let result = tonic::transport::Server::builder()
             .tcp_nodelay(true)
+            .initial_connection_window_size(32 * 1024 * 1024)
+            .initial_stream_window_size(64 * 1024 * 1024)
             .add_service(server.max_decoding_message_size(1024 *1024 * 180 * 2).max_encoding_message_size(1024 * 1024 * 180 * 2))
             .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
             //.serve(addr)
@@ -163,6 +165,7 @@ impl Receiver {
                         match result {
                             Some(result) => {
                                 if let Some((file, offset, context)) = result.obj {
+                                    log::debug!("received file transfer result: {:?}, offset: {:?} length: {:?}", file, offset, context.len());
                                     let reply = package::FileTrResponse {
                                         path: file.to_string_lossy().to_string(),
                                         offset: offset,

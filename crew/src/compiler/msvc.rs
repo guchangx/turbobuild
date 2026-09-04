@@ -1128,7 +1128,7 @@ impl MSVC {
                 }
             }
         }
-        
+        log::debug!("clearing addr_map_archive_stream project: {:?}", project);
         addr_map_archive_stream.lock().await.clear();
 
         return compiler_output.lock().unwrap().to_owned();

@@ -959,7 +959,7 @@ thread_local! {
 
 #[derive(Debug, Clone)]
 struct ArtifactInfo {
-    name: String,
+    name: std::sync::Arc<String>,
     offset: i64,
     end: i64,
 }
@@ -1982,7 +1982,7 @@ pub unsafe fn nt_create_file(
 
                     if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
                         crate::log!(debug, "open nul file for obj file path: {}", name);
-                        NT_HANDLE_AND_OBJ_ARTIFACTS.insert(*file_handle as i32, ArtifactInfo { name: name.clone(), offset: 0, end: 0});
+                        NT_HANDLE_AND_OBJ_ARTIFACTS.insert(*file_handle as i32, ArtifactInfo { name: std::sync::Arc::new(name), offset: 0, end: 0});
                     }
                     else {
                         crate::log!(error, "zw_create_file for obj file path failed! error_code: {:#X} path: {}", nt_status, name);
@@ -2190,8 +2190,6 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
     let nt_status = nt_close_inner(handle);
 
     if let Some(artinfo) = NT_HANDLE_AND_OBJ_ARTIFACTS.remove(&(handle as i32)) {
-        log!(trace, "nt_close begin artifacts path: {}", artinfo.name);
-        crate::logger::output_debug_string(&format!("nt_close hook begin path: {}", artinfo.name));
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         crate::artifactsredirect::send_artifact(crate::artifactsredirect::Artifacts {
@@ -2240,7 +2238,7 @@ pub unsafe fn nt_write_file(
             done: None,
         }).unwrap();
         
-        crate::log!(trace, "nt_write_file hook path: {} offset: {} length: {}", artinfo.name, offset, length);
+        //crate::log!(trace, "nt_write_file hook path: {} offset: {} length: {}", artinfo.name, offset, length);
 
         if !io_status_block.is_null() {
             (*io_status_block).Anonymous.Status = crate::win::Foundation::STATUS_SUCCESS;
@@ -2248,7 +2246,6 @@ pub unsafe fn nt_write_file(
         }
 
         return windows_sys::Win32::Foundation::STATUS_SUCCESS;
-        
     }
 
     let nt_write_file_inner: extern "system" fn(

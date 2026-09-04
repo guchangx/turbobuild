@@ -1,3 +1,4 @@
+
 use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
 use tokio::io::AsyncSeekExt;
@@ -17,6 +18,23 @@ type SharedTransmitFsHandle = std::sync::Arc<tokio::sync::Mutex<tokio::fs::File>
 type TransmitFileTable = std::sync::Arc<
     tokio::sync::RwLock<std::collections::HashMap<String, SharedTransmitFsHandle>>,
 >;
+
+type TransmitFileTableWinNative = std::sync::Arc<
+    tokio::sync::RwLock<std::collections::HashMap<String, std::sync::Arc<tools::ptr::HandleBox>>>,
+>;
+
+#[repr(C)]
+struct NativeWriteRequest {
+    // OVERLAPPED must be the first field because the completion thread casts
+    // the OVERLAPPED pointer back to NativeWriteRequest.
+    overlapped: windows_sys::Win32::System::IO::OVERLAPPED,
+    file: std::sync::Arc<tools::ptr::HandleBox>,
+    content: bytes::Bytes,
+    offset: u64,
+}
+
+unsafe impl Send for NativeWriteRequest {}
+unsafe impl Sync for NativeWriteRequest {}
 
 #[derive(Clone)]
 pub struct Sender {
@@ -123,6 +141,8 @@ impl Sender {
         }
         
         let channel = tonic::transport::Endpoint::from_shared(std::format!("http://{}:19302", host)).unwrap()
+            .initial_stream_window_size(32 * 1024 * 1024)
+            .initial_connection_window_size(64 * 1024 * 1024)
             .connect_timeout(std::time::Duration::from_secs(30))
             .connect()
             .await
@@ -136,6 +156,9 @@ impl Sender {
             client,
             host: host.to_string(),
             runtime: runtime.cloned(),
+            #[cfg(target_os = "windows")]
+            transmit_archive_tx: Self::transmit_archive_sender_win_native(),
+            #[cfg(target_os = "macos")]
             transmit_archive_tx: Self::transmit_archive_sender(),
         };
 
@@ -737,8 +760,341 @@ impl Sender {
             }
         }
     }
-}
 
+    fn transmit_archive_sender_win_native() -> tokio::sync::mpsc::Sender<TransmitArchive> {
+        TRANSMIT_ARCHIVE_CHANNEL
+            .get_or_init(|| {
+                let (sender, receiver) = tokio::sync::mpsc::channel(512);
+                let receiver = std::sync::Arc::new(tokio::sync::Mutex::new(receiver));
+
+                let fshandle: TransmitFileTableWinNative = std::sync::Arc::new(tokio::sync::RwLock::new(
+                    std::collections::HashMap::new(),
+                ));
+
+                let iocp_handle = unsafe {
+                    windows_sys::Win32::System::IO::CreateIoCompletionPort(
+                        windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE,
+                        std::ptr::null_mut(),
+                        0,
+                        0,
+                    )
+                };
+                if iocp_handle.is_null() {
+                    panic!(
+                        "CreateIoCompletionPort failed: {:?}",
+                        std::io::Error::last_os_error()
+                    );
+                }
+
+                let iocp = std::sync::Arc::new(tools::ptr::HandleBox::new(iocp_handle));
+
+                let completion_iocp = iocp.clone();
+                std::thread::Builder::new()
+                    .name("crew-file-iocp".to_string())
+                    .spawn(move || Self::native_iocp_completion_loop(completion_iocp))
+                    .expect("spawn native file IOCP completion thread failed");
+
+                let worker_count: usize = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).max(32) / 2;
+                for _ in 0..worker_count {
+                    let receiver = receiver.clone();
+                    let fshandle = fshandle.clone();
+                    let iocp = iocp.clone();
+                    tokio::spawn(async move {
+                        Self::multiworker_save_transmit_archives_win_native(
+                            receiver,
+                            fshandle,
+                            iocp,
+                        )
+                        .await;
+                    });
+                }
+
+                sender
+            })
+            .clone()
+    }
+
+    fn multiworker_save_transmit_archives_win_native(
+        receiver: std::sync::Arc<
+            tokio::sync::Mutex<tokio::sync::mpsc::Receiver<TransmitArchive>>,
+        >,
+        fshandle: TransmitFileTableWinNative,
+        iocp: std::sync::Arc<tools::ptr::HandleBox>,
+    ) -> impl std::future::Future<Output = ()> {
+        async move {
+            loop {
+                let (transmit_file, file) = {
+                    let mut receiver = receiver.lock().await;
+                    let Some(transmit_file) = receiver.recv().await else {
+                        break;
+                    };
+                    
+                    drop(receiver);
+
+                    if transmit_file.offset >= 0 && !transmit_file.content.is_empty() {
+                        match Self::get_or_open_transmit_file_win_native(
+                            &fshandle,
+                            &iocp,
+                            &transmit_file.path,
+                        )
+                        .await
+                        {
+                            Ok(file) => (transmit_file, Some(file)),
+                            Err(error) => {
+                                log::error!(
+                                    "native open file chunk {} failed: {:?}",
+                                    transmit_file.path,
+                                    error
+                                );
+                                (transmit_file, None)
+                            }
+                        }
+                    } else if transmit_file.offset == -1 && transmit_file.content.is_empty() {
+                        if let Some(handle) = fshandle.write().await.remove(&transmit_file.path) {
+                            if let Ok(file) = std::sync::Arc::try_unwrap(handle) {
+                                unsafe {
+                                    windows_sys::Win32::Foundation::CloseHandle(*file.get());
+                                }
+                            }
+                        }
+                        (transmit_file, None)
+                    } else {
+                        (transmit_file, None)
+                    }
+                };
+
+                if transmit_file.offset == -1 && !transmit_file.content.is_empty() {
+                    match Self::open_win_native_transmit_file(
+                        &iocp,
+                        &transmit_file.path,
+                        windows_sys::Win32::Storage::FileSystem::CREATE_ALWAYS,
+                    ) {
+                        Ok(file) => {
+                            if let Err(error) = Self::submit_native_write(
+                                file,
+                                0,
+                                transmit_file.content,
+                            ) {
+                                log::error!(
+                                    "native write complete file {} failed: {:?}",
+                                    transmit_file.path,
+                                    error
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            log::error!(
+                                "native open complete file {} failed: {:?}",
+                                transmit_file.path,
+                                error
+                            );
+                        }
+                    }
+                    continue;
+                }
+
+                let Some(file) = file else {
+                    continue;
+                };
+
+                log::info!("submitting native write for file {} at offset {} with content length {}", transmit_file.path, transmit_file.offset, transmit_file.content.len());
+                if let Err(error) = Self::submit_native_write(
+                    file,
+                    transmit_file.offset as u64,
+                    transmit_file.content,
+                ) {
+                    log::error!(
+                        "native write file {} at offset {} failed: {:?}",
+                        transmit_file.path,
+                        transmit_file.offset,
+                        error
+                    );
+                }
+            }
+        }
+    }
+
+    async fn get_or_open_transmit_file_win_native(
+        fshandle: &TransmitFileTableWinNative,
+        iocp: &std::sync::Arc<tools::ptr::HandleBox>,
+        path: &str,
+    ) -> std::io::Result<std::sync::Arc<tools::ptr::HandleBox>> {
+
+        {
+            let files = fshandle.read().await;
+            if let Some(state) = files.get(path) {
+                return Ok(state.clone());
+            }
+        }
+
+        let mut files = fshandle.write().await;
+
+        if let Some(state) = files.get(path) {
+            return Ok(state.clone());
+        }
+
+        let file = Self::open_win_native_transmit_file(
+            iocp,
+            path,
+            windows_sys::Win32::Storage::FileSystem::CREATE_ALWAYS,
+        )?;
+
+        files.insert(path.to_owned(), file.clone());
+        Ok(file)
+    }
+
+    fn open_win_native_transmit_file(
+        iocp: &std::sync::Arc<tools::ptr::HandleBox>,
+        path: &str,
+        creation_disposition: u32,
+    ) -> std::io::Result<std::sync::Arc<tools::ptr::HandleBox>> {
+        use std::os::windows::ffi::OsStrExt;
+
+        let path = if let Some(path) = path.strip_prefix("\\??\\") {
+            path.to_owned()
+        } 
+        else {
+            path.to_owned()
+        };
+
+        let path = std::ffi::OsStr::new(&path)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>();
+
+        let handle = unsafe {
+            windows_sys::Win32::Storage::FileSystem::CreateFileW(
+                path.as_ptr(),
+                windows_sys::Win32::Foundation::GENERIC_WRITE,
+                windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ
+                    | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_WRITE
+                    | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
+                std::ptr::null(),
+                creation_disposition,
+                windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL
+                    | windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OVERLAPPED,
+                std::ptr::null_mut(),
+            )
+        };
+
+        if handle.is_null() || handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+            return Err(std::io::Error::last_os_error());
+        }
+
+        let associated = unsafe {
+            windows_sys::Win32::System::IO::CreateIoCompletionPort(
+                handle,
+                *iocp.get(),
+                0,
+                0,
+            )
+        };
+        if associated.is_null() {
+            let error = std::io::Error::last_os_error();
+            unsafe {
+                windows_sys::Win32::Foundation::CloseHandle(handle);
+            }
+            return Err(error);
+        }
+
+        Ok(std::sync::Arc::new(tools::ptr::HandleBox::new(handle)))
+    }
+
+    fn submit_native_write(
+        file: std::sync::Arc<tools::ptr::HandleBox>,
+        offset: u64,
+        content: bytes::Bytes,
+    ) -> std::io::Result<()> {
+        let length = u32::try_from(content.len()).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "native WriteFile request is larger than u32::MAX",
+            )
+        })?;
+
+        let mut request = Box::new(NativeWriteRequest {
+            overlapped: unsafe { std::mem::zeroed() },
+            file,
+            content,
+            offset,
+        });
+        request.overlapped.Anonymous.Anonymous.Offset = offset as u32;
+        request.overlapped.Anonymous.Anonymous.OffsetHigh = (offset >> 32) as u32;
+
+        let requestptr = Box::into_raw(request);
+        let result = unsafe {
+            windows_sys::Win32::Storage::FileSystem::WriteFile(
+                *(*requestptr).file.get(),
+                (*requestptr).content.as_ptr(),
+                length,
+                std::ptr::null_mut(),
+                &mut (*requestptr).overlapped,
+            )
+        };
+
+        if result == windows_sys::Win32::Foundation::FALSE {
+            let error_code = unsafe { windows_sys::Win32::Foundation::GetLastError() };
+            if error_code != windows_sys::Win32::Foundation::ERROR_IO_PENDING {
+                unsafe {
+                    drop(Box::from_raw(requestptr));
+                }
+                return Err(std::io::Error::from_raw_os_error(error_code as i32));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn native_iocp_completion_loop(iocp: std::sync::Arc<tools::ptr::HandleBox>) {
+        loop {
+            let mut transferred = 0u32;
+            let mut completion_key = 0usize;
+            let mut overlapped = std::ptr::null_mut();
+
+            let result = unsafe {
+                windows_sys::Win32::System::IO::GetQueuedCompletionStatus(
+                    *iocp.get(),
+                    &mut transferred,
+                    &mut completion_key,
+                    &mut overlapped,
+                    u32::MAX,
+                )
+            };
+
+            if overlapped.is_null() {
+                log::error!(
+                    "native GetQueuedCompletionStatus returned without OVERLAPPED: {:?}",
+                    std::io::Error::last_os_error()
+                );
+                continue;
+            }
+
+            let request = unsafe { Box::from_raw(overlapped as *mut NativeWriteRequest) };
+            if result == windows_sys::Win32::Foundation::FALSE {
+                log::error!(
+                    "native WriteFile completion failed at offset {}: {:?}",
+                    request.offset,
+                    std::io::Error::last_os_error()
+                );
+            } else if transferred as usize != request.content.len() {
+                log::error!(
+                    "native WriteFile short completion at offset {}: {} / {} bytes",
+                    request.offset,
+                    transferred,
+                    request.content.len()
+                );
+            }
+            let filearc = request.file.clone();
+            drop(request);
+
+            if let Ok(handle) = std::sync::Arc::try_unwrap(filearc) {
+                unsafe {
+                    windows_sys::Win32::Foundation::CloseHandle(*handle.get());
+                }
+            };
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
