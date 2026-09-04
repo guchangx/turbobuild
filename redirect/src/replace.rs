@@ -90,30 +90,7 @@ pub fn replace(path: &mut String) -> ReplaceResult {
             return ReplaceResult::NoMatch;
         }
         else if extension == "pdb"  || extension == "idb" {
-            if let Some(replica_pdbpath) = crate::REPLICA_PDBPATH.get() {
-                let mut pdb = replica_pdbpath.to_string();
-
-                if extension == "idb" {
-                    pdb = pdb.replace(".pdb", ".idb");
-                }
-
-                *path = pdb;
-                return ReplaceResult::Success;
-            }
-            else if let Some(solution) = crate::SOLUTIONNAME.get() {
-                if let Some(index) = path.find(solution) {
-                    let tail = &path[index..];
-                    let modified = format!(r"{}\{}\{}", crate::REPLICADIR.get().unwrap(), "Project", tail);
-                    *path = modified;
-                    return ReplaceResult::Success;
-                }
-                else {
-                    return ReplaceResult::NoMatch;
-                }
-            }
-            else {
-                return ReplaceResult::NoMatch;
-            }
+            return ReplaceResult::NoMatch;
         }
         else if extension == "c" || extension == "cpp" || extension == "cxx" || extension == "cc" {
 
@@ -167,6 +144,7 @@ pub enum ReplaceNtResult {
     VirtualIncludesDir(String),
     FilePath,
     ArtifactObjPath,
+    ArtifactPDBPath(String),
     NeedObtain(String),
 }
 
@@ -318,8 +296,36 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
             else if extension == "obj" {
                 return ReplaceNtResult::ArtifactObjPath;
             }
+            else if extension == "pdb" || extension == "idb" {
+                if let Some(replica_pdbpath) = crate::REPLICA_PDBPATH.get() {
+                    let mut pdb = replica_pdbpath.to_string();
+
+                    if extension == "idb" {
+                        pdb = pdb.replace(".pdb", ".idb");
+                    }
+                    let unmodified = path.to_string();
+                    let modified = format!(r"\??\{}", pdb);
+                    *path = modified;
+                    return ReplaceNtResult::ArtifactPDBPath(unmodified);
+                }
+                else if let Some(solution) = crate::SOLUTIONNAME.get() {
+                    if let Some(index) = path.find(solution) {
+                        let tail = &path[index..];
+                        let modified = format!(r"\??\{}\{}\{}", crate::REPLICADIR.get().unwrap(), "Project", tail);
+                        let unmodified = path.to_string();
+                        *path = modified;
+                        return ReplaceNtResult::ArtifactPDBPath(unmodified);
+                    }
+                    else {
+                        return ReplaceNtResult::NoMatch;
+                    }
+                }
+                else {
+                    return ReplaceNtResult::NoMatch;
+                }
+            }
             else {
-                //.pdb .idb .obj .nls
+                //.idb .nls
                 return ReplaceNtResult::NoMatch;
             }
         }

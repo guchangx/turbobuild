@@ -5,6 +5,7 @@ use crate::log;
 pub static mut EXIT_PROCESS_KERNELBASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_FILE_A: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_FILE_W: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+pub static mut GET_FILE_TYPE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_FILE_A_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut CREATE_FILE_W_KERNEL_BASE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut NT_QUERY_DIRECTORY_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
@@ -19,6 +20,10 @@ pub static mut GET_FILE_INFORMATION_BY_HANDLE_EX_KERNEL_BASE: *mut std::ffi::c_v
 pub static mut NT_CLOSE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut NT_WRITE_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 pub static mut NT_SET_INFORMATION_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+pub static mut NT_READ_FILE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+
+pub static mut NDR_CLIENT_CALL2: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
+pub static mut I_RPC_SEND_RECEIVE: *mut std::ffi::c_void = 0 as *mut std::ffi::c_void;
 
 
 static SYS_CALL_ID: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<u32>>> = std::sync::LazyLock::new(|| {
@@ -284,6 +289,19 @@ pub unsafe fn create_file_w(
         return 0 as win::Foundation::HANDLE;
     }
 
+}
+
+pub unsafe fn get_file_type(hfile: win::Foundation::HANDLE) -> u32 {
+
+    if NT_HANDLE_AND_PDB_ARTIFACTS.contains_key(&(hfile as i32)) {
+        return win::Storage::FileSystem::FILE_TYPE_DISK;
+    }
+
+    let get_file_type: extern "system" fn(
+        h_file: win::Foundation::HANDLE,
+    ) -> u32 = std::mem::transmute(GET_FILE_TYPE);
+
+    get_file_type(hfile)
 }
 
 pub unsafe fn kernelbase_create_file_a(
@@ -966,6 +984,17 @@ struct ArtifactInfo {
 
 //remove rwlock, createfile writefile closefile is sequential, no need to lock
 static mut NT_HANDLE_AND_OBJ_ARTIFACTS: std::sync::LazyLock<std::collections::HashMap<i32, ArtifactInfo>>
+    = std::sync::LazyLock::new(|| std::collections::HashMap::new());
+
+#[derive(Debug, Clone)]
+struct ArtifactContext {
+    context: Vec<u8>
+}
+
+static mut NT_HANDLE_AND_PDB_ARTIFACTS: std::sync::LazyLock<std::collections::HashMap<i32, ArtifactInfo>>
+    = std::sync::LazyLock::new(|| std::collections::HashMap::new());
+
+static mut PATH_AND_ARTIFACTS_CONTEXT: std::sync::LazyLock<std::collections::HashMap<String, ArtifactContext>>
     = std::sync::LazyLock::new(|| std::collections::HashMap::new());
 
 static NT_HANDLE_MAP_FILES: std::sync::LazyLock<std::sync::RwLock<std::collections::HashMap<i32, Vec<String>>>> =
@@ -1989,6 +2018,84 @@ pub unsafe fn nt_create_file(
                     }
                     return nt_status;
                 }
+                else if let crate::replace::ReplaceNtResult::ArtifactPDBPath(unmodified) = replace {
+                    if true {
+                        if create_disposition == windows_sys::Wdk::Storage::FileSystem::FILE_OPEN {
+                            if let Some(k) = NT_HANDLE_AND_PDB_ARTIFACTS.iter().find_map(|(k, v)| {
+                                if v.name == unmodified {
+                                    Some(*k)
+                                } else {
+                                    None
+                                }
+                            }) {
+                                let mut object_name_source_wide_char = std::ffi::OsString::from("\\??\\NUL").encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+                                let mut fake_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
+                                    Length: object_name_source_wide_char.len().saturating_sub(1) as u16 * 2,
+                                    MaximumLength: object_name_source_wide_char.len() as u16 * 2,
+                                    Buffer: object_name_source_wide_char.as_mut_ptr(),
+                                };
+    
+                                (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
+    
+                                let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block, allocation_size, file_attributes,
+                                    share_access, create_disposition, create_options, ea_buffer, ea_length
+                                );
+                                
+                                if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
+                                    NT_HANDLE_AND_PDB_ARTIFACTS.insert(*file_handle as i32, ArtifactInfo { name: unmodified.clone(), offset: 0 , end: 0});
+                                    crate::log!(debug, "open pdb file for pdb file handle: {:?} path: {} unmodified: {} pdb: {:?}", *file_handle, name, unmodified, (*io_status_block).Information);
+                                }
+                                else {
+                                    crate::log!(error, "zw_create_file for pdb file path failed! error_code: {:#X} path: {} unmodified: {}", nt_status, name, unmodified);
+                                }
+    
+                                return nt_status;                           
+                            }
+                            else {
+                                crate::log!(error, "nt_create_file for pdb file unmodified: {} create_disposition: {} not found existing handle in NT_HANDLE_AND_PDB_ARTIFACTS", unmodified, create_disposition);
+                                return windows_sys::Win32::Foundation::STATUS_OBJECT_NAME_NOT_FOUND;
+                            }
+                        }
+                        else if create_disposition == windows_sys::Wdk::Storage::FileSystem::FILE_OVERWRITE_IF {
+                            let mut object_name_source_wide_char = std::ffi::OsString::from("\\??\\NUL").encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+                            let mut fake_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
+                                Length: object_name_source_wide_char.len().saturating_sub(1) as u16 * 2,
+                                MaximumLength: object_name_source_wide_char.len() as u16 * 2,
+                                Buffer: object_name_source_wide_char.as_mut_ptr(),
+                            };
+    
+                            (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
+                        }
+    
+                        let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block, allocation_size, file_attributes,
+                            share_access, create_disposition, create_options, ea_buffer, ea_length
+                        );
+    
+                        if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
+                            NT_HANDLE_AND_PDB_ARTIFACTS.insert(*file_handle as i32, ArtifactInfo { name: unmodified.clone(), offset: 0 , end: 0});
+                            crate::log!(debug, "open pdb file overwrite for pdb file handle: {:?} path: {} unmodified: {} info: {:?}", *file_handle, name, unmodified, (*io_status_block).Information);
+                        }
+                        else {
+                            crate::log!(error, "zw_create_file for pdb file path failed! error_code: {:#X} path: {} unmodified: {}", nt_status, name, unmodified);
+                        }
+    
+                        return nt_status;
+                    }
+                    else {
+                        let mut object_name_source_wide_char = std::ffi::OsString::from(name).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
+                        let mut fake_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
+                            Length: object_name_source_wide_char.len().saturating_sub(1) as u16 * 2,
+                            MaximumLength: object_name_source_wide_char.len() as u16 * 2,
+                            Buffer: object_name_source_wide_char.as_mut_ptr(),
+                        };
+
+                        (*object_attributes).ObjectName = &mut fake_obejct_name_adapter;
+                        let nt_status = zw_create_file(file_handle, access_mask, object_attributes, io_status_block, allocation_size, file_attributes,
+                            share_access, create_disposition, create_options, ea_buffer, ea_length
+                        );
+                        return nt_status;
+                    }
+                }
                 else {
                     let nt_status = zw_create_file(
                         file_handle,
@@ -2085,6 +2192,46 @@ pub unsafe fn nt_query_information_file(
     
             return windows_sys::Win32::Foundation::STATUS_SUCCESS;
         }
+    }
+    else if let Some(artifact) = NT_HANDLE_AND_PDB_ARTIFACTS.get(&(filehandle as i32)) {
+        if windows_sys::Wdk::Storage::FileSystem::FilePositionInformation == fileinformationclass {
+            let pos = fileinformation as *mut windows_sys::Wdk::Storage::FileSystem::FILE_POSITION_INFORMATION;
+            (*pos).CurrentByteOffset = artifact.offset;
+            
+            if !iostatusblock.is_null() {
+                (*iostatusblock).Anonymous.Status = crate::win::Foundation::STATUS_SUCCESS;
+                (*iostatusblock).Information = 8; //std::mem::size_of::<FILE_POSITION_INFORMATION>();
+            }
+        }
+        else if windows_sys::Wdk::Storage::FileSystem::FileIdInformation == fileinformationclass {
+
+            let mut hash1 = 0xcbf29ce484222325u64;
+            let mut hash2 = 0x84222325cbf29ce4u64;
+            for byte in artifact.name.as_bytes() {
+                hash1 ^= *byte as u64;
+                hash1 = hash1.wrapping_mul(0x100000001b3u64);
+                hash2 ^= (*byte as u64).wrapping_add(0x9eu64);
+                hash2 = hash2.wrapping_mul(0x100000001b3u64);
+            }
+
+            let mut id = [0u8; 16];
+            id[..8].copy_from_slice(&hash1.to_le_bytes());
+            id[8..].copy_from_slice(&hash2.to_le_bytes());
+
+            let result = fileinformation as *mut windows_sys::Wdk::Storage::FileSystem::FILE_ID_INFORMATION;
+            (*result).VolumeSerialNumber = 0x5442_5044_0000_0001u64;
+            (*result).FileId.Identifier = id;
+
+            if !iostatusblock.is_null() {
+                (*iostatusblock).Anonymous.Status = windows_sys::Win32::Foundation::STATUS_SUCCESS;
+                (*iostatusblock).Information = 24; //std::mem::size_of::<FileIdInformation>()
+            }
+            return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+
+        }
+        else if windows_sys::Wdk::Storage::FileSystem::FileVolumeNameInformation == fileinformationclass {
+        }
+        return windows_sys::Win32::Foundation::STATUS_SUCCESS;
     }
     
     let nt_query_information_file: extern "system" fn(
@@ -2191,7 +2338,6 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
 
     if let Some(artinfo) = NT_HANDLE_AND_OBJ_ARTIFACTS.remove(&(handle as i32)) {
         let (tx, rx) = tokio::sync::oneshot::channel();
-
         crate::artifactsredirect::send_artifact(crate::artifactsredirect::Artifacts {
             path: artinfo.name.clone(),
             offset: 0,
@@ -2200,8 +2346,23 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
             done: Some(tx),
         }).unwrap();
         rx.blocking_recv().unwrap();
-        log!(trace, "nt_close end artifacts path: {}", artinfo.name);
-        crate::logger::output_debug_string(&format!("nt_close hook end path: {}", artinfo.name));
+        log!(trace, "nt_close hook obj path: {}", artinfo.name);
+    }
+    else if let Some(artinfo) = NT_HANDLE_AND_PDB_ARTIFACTS.remove(&(handle as i32)) {
+        if !NT_HANDLE_AND_PDB_ARTIFACTS.values().any(|item| item.name == artinfo.name) {
+            if let Some(artcontext) = PATH_AND_ARTIFACTS_CONTEXT.remove(&artinfo.name) {
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                crate::artifactsredirect::send_artifact(crate::artifactsredirect::Artifacts {
+                    path: artinfo.name.clone(),
+                    offset: 0,
+                    length: artcontext.context.len() as u64,
+                    content: artcontext.context,
+                    done: Some(tx),
+                }).unwrap();
+                rx.blocking_recv().unwrap();
+                log!(trace, "nt_close hook pdb end path: {}", artinfo.name);
+            }
+        }
     }
 
     return nt_status;
@@ -2237,14 +2398,30 @@ pub unsafe fn nt_write_file(
             content: slice.to_vec(),
             done: None,
         }).unwrap();
-        
-        //crate::log!(trace, "nt_write_file hook path: {} offset: {} length: {}", artinfo.name, offset, length);
+
+        crate::log!(trace, "nt_write_file obj path: {} offset: {} length: {}", artinfo.name, offset, length);
 
         if !io_status_block.is_null() {
             (*io_status_block).Anonymous.Status = crate::win::Foundation::STATUS_SUCCESS;
             (*io_status_block).Information = length as usize; 
         }
 
+        return windows_sys::Win32::Foundation::STATUS_SUCCESS;
+    }
+    else if let Some(artinfo) = NT_HANDLE_AND_PDB_ARTIFACTS.get(&(filehandle as i32)) {
+        let slice = std::slice::from_raw_parts(buffer as *const u8, length as usize);
+        
+        if let Some(art) = PATH_AND_ARTIFACTS_CONTEXT.get_mut(&artinfo.name) {
+            art.context[artinfo.offset as usize..artinfo.offset as usize + slice.len()].copy_from_slice(slice);
+        }
+
+        crate::log!(trace, "nt_write_file pdb path: {} offset: {} length: {}", artinfo.name, artinfo.offset, length);
+
+        if !io_status_block.is_null() {
+            (*io_status_block).Anonymous.Status = crate::win::Foundation::STATUS_SUCCESS;
+            (*io_status_block).Information = length as usize;
+        }
+         
         return windows_sys::Win32::Foundation::STATUS_SUCCESS;
     }
 
@@ -2274,6 +2451,12 @@ pub unsafe fn nt_write_file(
     return nt_status;
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct FILE_END_OF_FILE_INFORMATION {
+    pub EndOfFile: i64
+}
+
 pub unsafe fn nt_set_information_file(
     filehandle: win::Foundation::HANDLE,
     iostatusblock: *mut win::System::IO::IO_STATUS_BLOCK,
@@ -2288,6 +2471,36 @@ pub unsafe fn nt_set_information_file(
             artifactinfo.offset = pos.CurrentByteOffset;
             return windows_sys::Win32::Foundation::STATUS_SUCCESS;
         }
+    }
+    else if let Some(artifactinfo) = NT_HANDLE_AND_PDB_ARTIFACTS.get_mut(&(filehandle as i32)) {
+
+        if fileinformationclass == windows_sys::Wdk::Storage::FileSystem::FilePositionInformation && !fileinformation.is_null() {
+            let pos = &*(fileinformation as *const windows_sys::Wdk::Storage::FileSystem::FILE_POSITION_INFORMATION);
+            artifactinfo.offset = pos.CurrentByteOffset;
+        }
+        else if fileinformationclass == windows_sys::Wdk::Storage::FileSystem::FileAllocationInformation && !fileinformation.is_null() {
+        }
+        else if fileinformationclass == windows_sys::Wdk::Storage::FileSystem::FileEndOfFileInformation && !fileinformation.is_null() {
+            let end = &*(fileinformation as *const crate::functions::FILE_END_OF_FILE_INFORMATION);
+            artifactinfo.end = end.EndOfFile;
+
+            PATH_AND_ARTIFACTS_CONTEXT.entry(artifactinfo.name.clone())
+                .and_modify(|item| {
+                    item.context.resize(end.EndOfFile as usize, 0);
+                })
+                .or_insert_with(
+                    || {
+                        let mut context = Vec::new();
+                        context.resize(end.EndOfFile as usize, 0);
+                        ArtifactContext { context }
+                    }
+                );
+            
+            if !iostatusblock.is_null() {
+                (*iostatusblock).Information = 0 as usize;
+            }
+        }
+        return windows_sys::Win32::Foundation::STATUS_SUCCESS;
     }
 
     let nt_set_information_file_inner: extern "system" fn(
@@ -2307,6 +2520,142 @@ pub unsafe fn nt_set_information_file(
     );
 
     return nt_status;
+}
+
+pub unsafe fn nt_read_file(
+    filehandle: win::Foundation::HANDLE,
+    event: win::Foundation::HANDLE,
+    apcroutine: win::System::IO::PIO_APC_ROUTINE,
+    apccontext: *const core::ffi::c_void,
+    iostatusblock: *mut win::System::IO::IO_STATUS_BLOCK,
+    buffer: *mut core::ffi::c_void,
+    length: u32,
+    byteoffset: *const i64,
+    key: *const u32,
+) -> win::Foundation::NTSTATUS {
+
+    if let Some(artinfo) = NT_HANDLE_AND_PDB_ARTIFACTS.get_mut(&(filehandle as i32)) {
+
+        let start = artinfo.offset as usize;
+        let mut rbytes = 0usize;
+
+        if let Some(artifact) = PATH_AND_ARTIFACTS_CONTEXT.get(&artinfo.name) {
+            let data = &artifact.context;
+
+            if start < data.len() {
+                rbytes = std::cmp::min(length as usize, data.len() - start);
+                std::ptr::copy_nonoverlapping(
+                    data.as_ptr().add(start),
+                    buffer as *mut u8,
+                    rbytes,
+                );
+            }
+        }
+        
+        let status = if rbytes == length as usize {
+            windows_sys::Win32::Foundation::STATUS_SUCCESS
+        } 
+        else {
+            windows_sys::Win32::Foundation::STATUS_END_OF_FILE
+        };
+        if !iostatusblock.is_null() {
+            (*iostatusblock).Anonymous.Status = status;
+            (*iostatusblock).Information = rbytes;
+        }
+        
+        return status;
+    }
+
+    let nt_read_file_inner: extern "system" fn(
+        filehandle: win::Foundation::HANDLE,
+        event: win::Foundation::HANDLE,
+        apcroutine: win::System::IO::PIO_APC_ROUTINE,
+        apccontext: *const core::ffi::c_void,
+        iostatusblock: *mut win::System::IO::IO_STATUS_BLOCK,
+        buffer: *mut core::ffi::c_void,
+        length: u32,
+        byteoffset: *const i64,
+        key: *const u32,
+    ) -> win::Foundation::NTSTATUS = std::mem::transmute(NT_READ_FILE);
+
+    let nt_status = nt_read_file_inner(
+        filehandle,
+        event,
+        apcroutine,
+        apccontext,
+        iostatusblock,
+        buffer,
+        length,
+        byteoffset,
+        key,
+    );
+    return nt_status;
+}
+
+pub unsafe fn ndr_client_call2(
+    pstubdescriptor: *mut windows_sys::Win32::System::Rpc::MIDL_STUB_DESC,
+    pformat: *mut u8,
+    a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize, a9: usize, a10: usize
+) -> windows_sys::Win32::System::Rpc::CLIENT_CALL_RETURN {
+
+    //guid bf999caa-2e5d-4bdd-ae89-e7ee0ea5fcbe
+    if !pstubdescriptor.is_null() {
+        let stub = &*pstubdescriptor;
+        if !stub.RpcInterfaceInformation.is_null() {
+            let iface = &*(stub.RpcInterfaceInformation as *const  crate::win::System::Rpc::RPC_CLIENT_INTERFACE);
+            let guid = iface.InterfaceId.SyntaxGUID;
+            let major = iface.InterfaceId.SyntaxVersion.MajorVersion;
+            let minor = iface.InterfaceId.SyntaxVersion.MinorVersion;
+
+            crate::log!(trace, "ndrclientcall guid: {{{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}  Ver: {}.{}",
+                guid.data1,
+                guid.data2,
+                guid.data3,
+                guid.data4[0],
+                guid.data4[1],
+                guid.data4[2],
+                guid.data4[3],
+                guid.data4[4],
+                guid.data4[5],
+                guid.data4[6],
+                guid.data4[7],
+                major,
+                minor
+            );
+        }
+    }
+    
+    let ndr_client_call2_inner: extern "system" fn(
+        pstubdescriptor: *mut windows_sys::Win32::System::Rpc::MIDL_STUB_DESC,
+        pformat: *mut u8,
+       a3: usize, a4: usize, a5: usize, a6: usize, a7: usize, a8: usize, a9: usize, a10: usize
+    ) -> windows_sys::Win32::System::Rpc::CLIENT_CALL_RETURN = std::mem::transmute(NDR_CLIENT_CALL2);
+
+    let result = ndr_client_call2_inner(
+        pstubdescriptor,
+        pformat,
+        a3, a4, a5, a6, a7, a8, a9, a10
+    );
+
+    return result;
+}
+
+pub unsafe fn i_rpc_send_receive(message: *mut windows_sys::Win32::System::Rpc::RPC_MESSAGE) -> windows_sys::Win32::System::Rpc::RPC_STATUS {
+
+    if !message.is_null() {
+        let msg = &*message;
+        let procn = msg.ProcNum;
+        let buflen = msg.BufferLength;
+        let handle = msg.Handle;
+    }
+
+    let i_rpc_send_receive_inner: extern "system" fn(
+        message: *mut windows_sys::Win32::System::Rpc::RPC_MESSAGE
+    ) -> windows_sys::Win32::System::Rpc::RPC_STATUS = std::mem::transmute(I_RPC_SEND_RECEIVE); 
+
+    let result = i_rpc_send_receive_inner(message);
+
+    return result;
 }
 
 #[cfg(test)]
