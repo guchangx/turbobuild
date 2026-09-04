@@ -9,6 +9,10 @@ pub unsafe fn init_hook() {
     crate::functions::CREATE_FILE_W = win::Storage::FileSystem::CreateFileW as *mut std::ffi::c_void;
     crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_W), crate::functions::create_file_w as _);
 
+    //GetFileType
+    crate::functions::GET_FILE_TYPE = win::Storage::FileSystem::GetFileType as *mut std::ffi::c_void;
+    crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::GET_FILE_TYPE), crate::functions::get_file_type as _);
+
     let module = crate::utils::convert::string_2_lpstr("KernelBase.dll".to_string());
 
     let func_create_file_a = crate::utils::convert::string_2_lpstr("CreateFileA".to_string());
@@ -166,7 +170,7 @@ pub unsafe fn init_hook() {
         crate::functions::NT_WRITE_FILE = nt_write_file;
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_WRITE_FILE), crate::functions::nt_write_file as _);
     }
-
+     
     let func_nt_set_information_file = crate::utils::convert::string_2_lpstr("NtSetInformationFile".to_string());
     let nt_set_information_file = crate::detours::DetourFindFunction(module,  func_nt_set_information_file);
 
@@ -177,4 +181,41 @@ pub unsafe fn init_hook() {
         crate::functions::NT_SET_INFORMATION_FILE = nt_set_information_file;
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_SET_INFORMATION_FILE), crate::functions::nt_set_information_file as _);
     }
+    
+    let func_nt_read_file = crate::utils::convert::string_2_lpstr("NtReadFile".to_string());
+    let nt_read_file = crate::detours::DetourFindFunction(module,  func_nt_read_file);
+    if nt_read_file as usize == 0 {
+        crate::log!(error, "can not find nt_read_file in kernelbase module");
+    }
+    else {
+        crate::functions::NT_READ_FILE = nt_read_file;
+        crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NT_READ_FILE), crate::functions::nt_read_file as _);
+    }
+
+    /* 
+    //NdrClientCall2
+    let module = crate::utils::convert::string_2_lpstr("Rpcrt4.dll".to_string());
+    let func_ndr_client_call2 = crate::utils::convert::string_2_lpstr("NdrClientCall2".to_string());
+    let ndr_client_call2 = crate::detours::DetourFindFunction(module,  func_ndr_client_call2);
+
+    if ndr_client_call2 as usize == 0 {
+        crate::log!(error, "can not find ndr_client_call2 in rpcrt4 module");
+    }
+    else {
+        crate::functions::NDR_CLIENT_CALL2 = ndr_client_call2;
+        crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::NDR_CLIENT_CALL2), crate::functions::ndr_client_call2 as _);
+    }
+
+    //I_RpcSendReceive
+    let func_i_rpc_send_receive = crate::utils::convert::string_2_lpstr("I_RpcSendReceive".to_string());
+    let i_rpc_send_receive = crate::detours::DetourFindFunction(module,  func_i_rpc_send_receive);
+
+    if i_rpc_send_receive as usize == 0 {
+        crate::log!(error, "can not find i_rpc_send_receive in rpcrt4 module");
+    }
+    else {
+        crate::functions::I_RPC_SEND_RECEIVE = i_rpc_send_receive;
+        crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::I_RPC_SEND_RECEIVE), crate::functions::i_rpc_send_receive as _);
+    }
+    */
 }

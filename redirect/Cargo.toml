@@ -14,7 +14,9 @@ name = "redirect64"
 tools = { path = "../tools" }
 tokio = { version = "1.41.1", features = ["sync", "rt", "rt-multi-thread"] }
 chrono = "0.4.38"
-windows-sys = {version = "0.60", features = ["Wdk_Storage_FileSystem", "Win32_System_IO", "Win32_Storage_FileSystem", "Wdk_System_SystemServices", "Win32_System_WindowsProgramming", "Win32_UI", "Win32_UI_WindowsAndMessaging", "Win32_System_SystemServices", "Win32_System_LibraryLoader", "Win32_System_Console"]}
+windows-sys = {version = "0.60", features = ["Wdk_Storage_FileSystem", "Win32_System_IO", "Win32_Storage_FileSystem", "Wdk_System_SystemServices", 
+    "Win32_System_WindowsProgramming", "Win32_UI", "Win32_UI_WindowsAndMessaging", "Win32_System_SystemServices", "Win32_System_LibraryLoader", 
+    "Win32_System_Console", "Win32_System_Rpc", "Win32_System_Com"]}
 
 [dev-dependencies]
 tokio = { version = "1.41.1", features = ["sync", "rt", "rt-multi-thread", "time", "net", "io-util", "macros"] }
