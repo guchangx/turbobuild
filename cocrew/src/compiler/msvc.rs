@@ -314,7 +314,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
             if task.expected != 0 && task.done >= task.expected {
                 synced_tasks.remove(&project_name.to_string_lossy().to_string());
                 drop(synced_tasks);
-                return_local_compile_result_pdb_files((*program_database).clone(), &solution_name, &origin_working_dir, out_err_stream);
+                //return_local_compile_result_pdb_files((*program_database).clone(), &solution_name, &origin_working_dir, out_err_stream);
             }
         }
     }

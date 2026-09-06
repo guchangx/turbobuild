@@ -42,6 +42,7 @@ impl Distributor {
         
         let notify = std::sync::Arc::new(tokio::sync::Notify::new());
         if (addr == "127.0.0.1" || addr == "localhost") && !*crate::ENFORCE_ACTIVATE_LOCAL_COCREW {
+            notify.notify_one();
             return (None, notify);
         }
 

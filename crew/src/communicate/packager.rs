@@ -12,6 +12,8 @@ pub struct TransmitArchive {
     pub path: String,
     pub offset: i64,
     pub content: bytes::Bytes,
+    #[cfg(target_os = "windows")]
+    pub fshandle: TransmitFileTableWinNative,
 }
 
 type SharedTransmitFsHandle = std::sync::Arc<tokio::sync::Mutex<tokio::fs::File>>;
@@ -42,6 +44,10 @@ pub struct Sender {
     host: String,
     runtime: Option<std::sync::Arc<tokio::runtime::Handle>>,
     transmit_archive_tx: tokio::sync::mpsc::Sender<TransmitArchive>,
+    #[cfg(target_os = "windows")]
+    fshandle: TransmitFileTableWinNative,
+    #[cfg(target_os = "macos")]
+    fshandle: TransmitFileTable,
 }
 
 pub struct CommandArgs {
@@ -158,6 +164,7 @@ impl Sender {
             runtime: runtime.cloned(),
             #[cfg(target_os = "windows")]
             transmit_archive_tx: Self::transmit_archive_sender_win_native(),
+            fshandle: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             #[cfg(target_os = "macos")]
             transmit_archive_tx: Self::transmit_archive_sender(),
         };
@@ -280,6 +287,8 @@ impl Sender {
 
         let mut receiver = args.rx;
         let callback = args.callback;
+        let fshandle = self.fshandle.clone();
+
 
         let handle = self.runtime.as_ref().map(|runtime| runtime.spawn(async move {
 
@@ -298,6 +307,14 @@ impl Sender {
                 };
             }
 
+            loop {
+                if fshandle.read().await.is_empty() {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+            }
+
+            log::debug!("waiting for fshandle to be empty before dropping tx");
             drop(tx);
         }));
 
@@ -322,6 +339,7 @@ impl Sender {
                                     path: stream.path,
                                     offset: stream.offset,
                                     content: stream.content,
+                                    fshandle: self.fshandle.clone(),
                                 };
 
                                 if let Err(err) = self.transmit_archive_tx.send(file).await {
@@ -337,13 +355,14 @@ impl Sender {
                 };
 
                 log::debug!("transmit file {} completed.", host);
-                callback();
             },
             Err(err) => {
                 log::error!("transmit file {} failed: {:?}", self.host, err);
                 result.status = false;
             }
         };
+
+        callback();
 
         if let Some(handle) = handle {
             let _ = handle.await.unwrap();
@@ -767,10 +786,6 @@ impl Sender {
                 let (sender, receiver) = tokio::sync::mpsc::channel(512);
                 let receiver = std::sync::Arc::new(tokio::sync::Mutex::new(receiver));
 
-                let fshandle: TransmitFileTableWinNative = std::sync::Arc::new(tokio::sync::RwLock::new(
-                    std::collections::HashMap::new(),
-                ));
-
                 let iocp_handle = unsafe {
                     windows_sys::Win32::System::IO::CreateIoCompletionPort(
                         windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE,
@@ -797,12 +812,10 @@ impl Sender {
                 let worker_count: usize = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).max(32) / 2;
                 for _ in 0..worker_count {
                     let receiver = receiver.clone();
-                    let fshandle = fshandle.clone();
                     let iocp = iocp.clone();
                     tokio::spawn(async move {
                         Self::multiworker_save_transmit_archives_win_native(
                             receiver,
-                            fshandle,
                             iocp,
                         )
                         .await;
@@ -818,7 +831,6 @@ impl Sender {
         receiver: std::sync::Arc<
             tokio::sync::Mutex<tokio::sync::mpsc::Receiver<TransmitArchive>>,
         >,
-        fshandle: TransmitFileTableWinNative,
         iocp: std::sync::Arc<tools::ptr::HandleBox>,
     ) -> impl std::future::Future<Output = ()> {
         async move {
@@ -829,6 +841,8 @@ impl Sender {
                         break;
                     };
                     
+                    let fshandle = transmit_file.fshandle.clone();
+
                     drop(receiver);
 
                     if transmit_file.offset >= 0 && !transmit_file.content.is_empty() {
@@ -1094,6 +1108,7 @@ impl Sender {
             };
         }
     }
+    
 }
 
 #[cfg(test)]

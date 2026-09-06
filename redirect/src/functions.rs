@@ -2022,7 +2022,7 @@ pub unsafe fn nt_create_file(
                     if true {
                         if create_disposition == windows_sys::Wdk::Storage::FileSystem::FILE_OPEN {
                             if let Some(k) = NT_HANDLE_AND_PDB_ARTIFACTS.iter().find_map(|(k, v)| {
-                                if v.name == unmodified {
+                                if *v.name == unmodified {
                                     Some(*k)
                                 } else {
                                     None
@@ -2042,7 +2042,7 @@ pub unsafe fn nt_create_file(
                                 );
                                 
                                 if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
-                                    NT_HANDLE_AND_PDB_ARTIFACTS.insert(*file_handle as i32, ArtifactInfo { name: unmodified.clone(), offset: 0 , end: 0});
+                                    NT_HANDLE_AND_PDB_ARTIFACTS.insert(*file_handle as i32, ArtifactInfo { name: std::sync::Arc::new(unmodified.clone()), offset: 0 , end: 0});
                                     crate::log!(debug, "open pdb file for pdb file handle: {:?} path: {} unmodified: {} pdb: {:?}", *file_handle, name, unmodified, (*io_status_block).Information);
                                 }
                                 else {
@@ -2072,7 +2072,7 @@ pub unsafe fn nt_create_file(
                         );
     
                         if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
-                            NT_HANDLE_AND_PDB_ARTIFACTS.insert(*file_handle as i32, ArtifactInfo { name: unmodified.clone(), offset: 0 , end: 0});
+                            NT_HANDLE_AND_PDB_ARTIFACTS.insert(*file_handle as i32, ArtifactInfo { name: std::sync::Arc::new(unmodified.clone()), offset: 0 , end: 0});
                             crate::log!(debug, "open pdb file overwrite for pdb file handle: {:?} path: {} unmodified: {} info: {:?}", *file_handle, name, unmodified, (*io_status_block).Information);
                         }
                         else {
@@ -2350,7 +2350,7 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
     }
     else if let Some(artinfo) = NT_HANDLE_AND_PDB_ARTIFACTS.remove(&(handle as i32)) {
         if !NT_HANDLE_AND_PDB_ARTIFACTS.values().any(|item| item.name == artinfo.name) {
-            if let Some(artcontext) = PATH_AND_ARTIFACTS_CONTEXT.remove(&artinfo.name) {
+            if let Some(artcontext) = PATH_AND_ARTIFACTS_CONTEXT.remove(artinfo.name.as_ref()) {
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 crate::artifactsredirect::send_artifact(crate::artifactsredirect::Artifacts {
                     path: artinfo.name.clone(),
@@ -2360,7 +2360,7 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
                     done: Some(tx),
                 }).unwrap();
                 rx.blocking_recv().unwrap();
-                log!(trace, "nt_close hook pdb end path: {}", artinfo.name);
+                log!(trace, "nt_close hook pdb end path: {:?}", artinfo.name);
             }
         }
     }
@@ -2399,8 +2399,6 @@ pub unsafe fn nt_write_file(
             done: None,
         }).unwrap();
 
-        crate::log!(trace, "nt_write_file obj path: {} offset: {} length: {}", artinfo.name, offset, length);
-
         if !io_status_block.is_null() {
             (*io_status_block).Anonymous.Status = crate::win::Foundation::STATUS_SUCCESS;
             (*io_status_block).Information = length as usize; 
@@ -2411,11 +2409,9 @@ pub unsafe fn nt_write_file(
     else if let Some(artinfo) = NT_HANDLE_AND_PDB_ARTIFACTS.get(&(filehandle as i32)) {
         let slice = std::slice::from_raw_parts(buffer as *const u8, length as usize);
         
-        if let Some(art) = PATH_AND_ARTIFACTS_CONTEXT.get_mut(&artinfo.name) {
+        if let Some(art) = PATH_AND_ARTIFACTS_CONTEXT.get_mut(artinfo.name.as_ref()) {
             art.context[artinfo.offset as usize..artinfo.offset as usize + slice.len()].copy_from_slice(slice);
         }
-
-        crate::log!(trace, "nt_write_file pdb path: {} offset: {} length: {}", artinfo.name, artinfo.offset, length);
 
         if !io_status_block.is_null() {
             (*io_status_block).Anonymous.Status = crate::win::Foundation::STATUS_SUCCESS;
@@ -2484,7 +2480,7 @@ pub unsafe fn nt_set_information_file(
             let end = &*(fileinformation as *const crate::functions::FILE_END_OF_FILE_INFORMATION);
             artifactinfo.end = end.EndOfFile;
 
-            PATH_AND_ARTIFACTS_CONTEXT.entry(artifactinfo.name.clone())
+            PATH_AND_ARTIFACTS_CONTEXT.entry(artifactinfo.name.as_ref().clone())
                 .and_modify(|item| {
                     item.context.resize(end.EndOfFile as usize, 0);
                 })
@@ -2539,7 +2535,7 @@ pub unsafe fn nt_read_file(
         let start = artinfo.offset as usize;
         let mut rbytes = 0usize;
 
-        if let Some(artifact) = PATH_AND_ARTIFACTS_CONTEXT.get(&artinfo.name) {
+        if let Some(artifact) = PATH_AND_ARTIFACTS_CONTEXT.get(artinfo.name.as_ref()) {
             let data = &artifact.context;
 
             if start < data.len() {

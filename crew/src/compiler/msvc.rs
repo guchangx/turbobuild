@@ -808,10 +808,15 @@ impl MSVC {
 
         let addr_map_archive_stream = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, _>::new()));
         let addr_map_task_count = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, usize>::new()));
+
+        let addr_map_archive_stream_notify = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, _>::new()));
+
         'all: for (addr, core) in &all {
-            let (stream, _notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
+            let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
             addr_map_archive_stream.lock().await.insert(addr.clone(), stream.clone());
 
+            addr_map_archive_stream_notify.lock().await.insert(addr.clone(), notify);
+            
             dependency_cache_by_addr.insert(addr.clone(), std::sync::Arc::new(dashmap::DashSet::new()));
             
             let dependency_cache = dependency_cache_by_addr.get(addr).unwrap().value().clone();
@@ -1130,6 +1135,10 @@ impl MSVC {
         }
         log::debug!("clearing addr_map_archive_stream project: {:?}", project);
         addr_map_archive_stream.lock().await.clear();
+
+        for (_, notify) in addr_map_archive_stream_notify.lock().await.iter() {
+            notify.notified().await;
+        }
 
         return compiler_output.lock().unwrap().to_owned();
     }

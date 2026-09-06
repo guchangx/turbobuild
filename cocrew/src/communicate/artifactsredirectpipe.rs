@@ -109,8 +109,8 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
         buffer.resize(length as usize, 0);
         let _ = match pipe.read_exact(&mut buffer).await {
             Ok(_) => {
-                // 8       8                   8             8
-                //offset + clength + content + plen + path + continue
+                // 8       8                         8         8
+                //offset + contentlength + content + pathlen + path + continue
                 let offset = i64::from_le_bytes(buffer[0..8].try_into().unwrap());
                 let clength = u64::from_le_bytes(buffer[8..16].try_into().unwrap());
                 
@@ -119,8 +119,6 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                 
                 let iscontinue = u64::from_le_bytes(buffer[16 + clength as usize + 8 + plen..(16 + clength as usize + 8 + plen + 8)].try_into().unwrap());
 
-                let ospath = std::ffi::OsString::from(&path.to_string());
-                log::info!("cocrew received artifact file chunk: path: {:?}, offset: {}, clen: {}, iscontinue: {}", ospath, offset,clength, iscontinue);
                 if let Some(arti) = chunks.get_mut(&path.to_string()) {
                     if offset == 0 && clength == arti.offset as u64 {
                         arti.offset = 0;

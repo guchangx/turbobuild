@@ -200,8 +200,8 @@ fn redirect_artifacts_2_cocrew() {
                             else {
                                 if 0 == artifacts.offset && artifacts.done.is_some() {
 
-                                    //offset + length + content + plen + path + continue
-                                    let tsize = 8 + 8 + 0 as usize + 8 + artifacts.path.len() + 8;
+                                    //offset + contentlength + content + pathlen + path + continue
+                                    let tsize = 8 + 8 + artifacts.content.len() as usize + 8 + artifacts.path.len() + 8;
                                     let mut buffer = Vec::with_capacity(8 + tsize);
     
                                     // write the length of the buffer first 8 bit
