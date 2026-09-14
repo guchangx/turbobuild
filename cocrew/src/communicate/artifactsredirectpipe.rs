@@ -109,15 +109,19 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
         buffer.resize(length as usize, 0);
         let _ = match pipe.read_exact(&mut buffer).await {
             Ok(_) => {
-                // 8       8                         8         8
-                //offset + contentlength + content + pathlen + path + continue
+                // 8       8                         8         8          8
+                //offset + contentlength + content + pathlen + path + projlen + project + continue
                 let offset = i64::from_le_bytes(buffer[0..8].try_into().unwrap());
                 let clength = u64::from_le_bytes(buffer[8..16].try_into().unwrap());
                 
                 let plen = u64::from_le_bytes(buffer[16 + clength as usize..(16 + clength as usize + 8)].try_into().unwrap()) as usize;
                 let path = String::from_utf8_lossy(&buffer[16 + clength as usize + 8..(16 + clength as usize + 8 + plen)]);
                 
-                let iscontinue = u64::from_le_bytes(buffer[16 + clength as usize + 8 + plen..(16 + clength as usize + 8 + plen + 8)].try_into().unwrap());
+                let proj_start = 16 + clength as usize + 8 + plen;
+                let projlen = u64::from_le_bytes(buffer[proj_start..(proj_start + 8)].try_into().unwrap()) as usize;
+                let project = String::from_utf8_lossy(&buffer[proj_start + 8..(proj_start + 8 + projlen)]);
+
+                let iscontinue = u64::from_le_bytes(buffer[proj_start + 8 + projlen..(proj_start + 8 + projlen + 8)].try_into().unwrap());
 
                 if let Some(arti) = chunks.get_mut(&path.to_string()) {
                     if offset == 0 && clength == arti.offset as u64 {
@@ -135,11 +139,23 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                     }
                     else if offset == 0 && clength != arti.offset as u64 {
                         let content = std::mem::take(&mut arti.content); //move ownership
-                        let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content));
-
-                        crate::communicate::unpackager::TASK_TO_FILE_CHANNEL.task_to_file_tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                            log::warn!("send artifact file to grpc channel failed: {:?}", err);
-                        });
+                        let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), if iscontinue == 0 { true } else { false });
+                        if compiled_gen_result.obj.is_some() {
+                            let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
+                            tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                                log::warn!("send artifact file to grpc channel failed: {:?}", err);
+                            });
+                        }
+                        else if compiled_gen_result.pdb.is_some() {
+                            let slot = {
+                                let path = path.strip_prefix(r"\??\").unwrap_or(&path);
+                                let mut mappdb = crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap();
+                                mappdb.entry(path.to_string())
+                                .or_insert_with(tools::blockingslot::BlockingSlot::new)
+                                .clone()
+                            };
+                            slot.write(compiled_gen_result);
+                        }
 
                         //discontinuous data
                         arti.offset = offset;
@@ -152,31 +168,49 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
 
                         if arti.length > 2097152 /*2 * 1024 * 1024*/ || iscontinue.eq(&0) {
                             let content = std::mem::take(&mut arti.content); //move ownership
-                            let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content));
+                            let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), if iscontinue == 0 { true } else { false });
 
-                            crate::communicate::unpackager::TASK_TO_FILE_CHANNEL.task_to_file_tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                                log::warn!("send artifact file to grpc channel failed: {:?}", err);
-                            });
+                            if compiled_gen_result.obj.is_some() {
+                                let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
+                                tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                                        log::warn!("send artifact file to grpc channel failed: {:?}", err);
+                                    });
+                                }
+                            else if compiled_gen_result.pdb.is_some() {
+                                let slot = {
+                                    let path = path.strip_prefix(r"\??\").unwrap_or(&path);
+                                    let mut mappdb = crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap();
+                                    mappdb.entry(path.to_string())
+                                    .or_insert_with(tools::blockingslot::BlockingSlot::new)
+                                    .clone()
+                                };
+                                slot.write(compiled_gen_result);
+                            }
 
                             arti.offset = 0;
                             arti.length = 0;
                         }
-
-                        if iscontinue.eq(&0) {
-                            //last chunk, send end
-                            let compiled_gen_result = generate_artifact(&path, -1, bytes::Bytes::new());
-                            crate::communicate::unpackager::TASK_TO_FILE_CHANNEL.task_to_file_tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                                log::warn!("send artifact end file chunk to grpc channel failed: {:?}", err);
-                            });
-                        }
                     }
                     else {
                         let content = std::mem::take(&mut arti.content); //move ownership
-                        let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content));
+                        let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), if iscontinue == 0 { true } else { false });
 
-                        crate::communicate::unpackager::TASK_TO_FILE_CHANNEL.task_to_file_tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                            log::warn!("send artifact file to grpc channel failed: {:?}", err);
-                        });
+                        if compiled_gen_result.obj.is_some() {
+                            let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
+                            tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                                log::warn!("send artifact file to grpc channel failed: {:?}", err);
+                            });
+                        }
+                        else if compiled_gen_result.pdb.is_some() {
+                            let slot = {
+                                let path = path.strip_prefix(r"\??\").unwrap_or(&path);
+                                let mut mappdb = crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap();
+                                mappdb.entry(path.to_string())
+                                .or_insert_with(tools::blockingslot::BlockingSlot::new)
+                                .clone()
+                            };
+                            slot.write(compiled_gen_result);
+                        }
 
                         //discontinuous data
                         arti.offset = offset;
@@ -190,15 +224,23 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                 }
                 else {
                     if iscontinue.eq(&0) {
-                        let compiled_gen_result = generate_artifact(&path, offset, bytes::Bytes::from(buffer[16..(16 + clength as usize)].to_vec()));
-                        crate::communicate::unpackager::TASK_TO_FILE_CHANNEL.task_to_file_tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                            log::warn!("send artifact file to grpc channel failed: {:?}", err);
-                        });
-
-                        let compiled_gen_result = generate_artifact(&path, -1, bytes::Bytes::new());
-                        crate::communicate::unpackager::TASK_TO_FILE_CHANNEL.task_to_file_tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                            log::warn!("send artifact end file chunk to grpc channel failed: {:?}", err);
-                        });
+                        let compiled_gen_result = generate_artifact(&path, offset, bytes::Bytes::from(buffer[16..(16 + clength as usize)].to_vec()), if iscontinue == 0 { true } else { false });
+                        if compiled_gen_result.obj.is_some() {
+                            let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
+                            tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                                log::warn!("send artifact file to grpc channel failed: {:?}", err);
+                            });
+                        }
+                        else if compiled_gen_result.pdb.is_some() {
+                            let slot = {
+                                let path = path.strip_prefix(r"\??\").unwrap_or(&path);
+                                let mut mappdb = crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap();
+                                mappdb.entry(path.to_string())
+                                .or_insert_with(tools::blockingslot::BlockingSlot::new)
+                                .clone()
+                            };
+                            slot.write(compiled_gen_result);                       
+                        }
                     }
                     else {
                         let arti = Artifacts {
@@ -220,13 +262,13 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
     Ok(())
 }
 
-fn generate_artifact(path: &std::borrow::Cow<str>, offset: i64, context: bytes::Bytes) -> crew::compiler::model::CompiledResult {
+fn generate_artifact(path: &std::borrow::Cow<str>, offset: i64, context: bytes::Bytes, last: bool) -> crew::compiler::model::CompiledResult {
     let ospath = std::ffi::OsString::from(path.to_string());
     
     let compiled_gen_result = if path.ends_with(".obj") {
         crew::compiler::model::CompiledResult {
             source_file: ospath.clone(),
-            obj: Some((ospath, offset, context)),
+            obj: Some((ospath, offset, context, last)),
             pdb: None,
             idb: None,
         }
@@ -235,7 +277,7 @@ fn generate_artifact(path: &std::borrow::Cow<str>, offset: i64, context: bytes::
         crew::compiler::model::CompiledResult {
             source_file: ospath.clone(),
             obj: None,
-            pdb: Some((ospath, offset, context)),
+            pdb: Some((ospath, offset, context, last)),
             idb: None,
         }
     }
@@ -244,7 +286,7 @@ fn generate_artifact(path: &std::borrow::Cow<str>, offset: i64, context: bytes::
             source_file: ospath.clone(),
             obj: None,
             pdb: None,
-            idb: Some((ospath, offset, context)),
+            idb: Some((ospath, offset, context, last)),
         }
     }
     else {

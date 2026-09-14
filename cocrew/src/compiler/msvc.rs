@@ -32,6 +32,11 @@ pub struct CompileTaskCount {
 pub static COMPILE_TASK_COUNT: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, CompileTaskCount>>>> =
     std::sync::LazyLock::new(|| std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())));
 
+pub static PATH_MAP_PDB_ARTIFACT_ONESHOT: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, tools::blockingslot::BlockingSlot<crew::compiler::model::CompiledResult>>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+
 impl crate::compiler::interface::Compiler for MSVC {
     fn request_compile(&self, compiler_input: CompilerInput) -> (CompilerOutput, Option<CompiledResults>) {
         let output = request_local_compile_by_preprocessed_source(&compiler_input, &self.out_err_stream);
@@ -314,7 +319,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
             if task.expected != 0 && task.done >= task.expected {
                 synced_tasks.remove(&project_name.to_string_lossy().to_string());
                 drop(synced_tasks);
-                //return_local_compile_result_pdb_files((*program_database).clone(), &solution_name, &origin_working_dir, out_err_stream);
+                wait_local_compile_result_pdb_files((*program_database).clone(), &solution_name, &origin_working_dir, out_err_stream);
             }
         }
     }
@@ -389,7 +394,7 @@ async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_
 
                 let compiled_gen_result = crew::compiler::model::CompiledResult {
                     source_file: std::ffi::OsString::from(&line),
-                    obj: Some((origin, -1, bytes::Bytes::from(contents))),
+                    obj: Some((origin, -1, bytes::Bytes::from(contents), true)),
                     pdb: None,
                     idb: None,
                 };
@@ -453,7 +458,7 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
 
                     let compiled_gen_result = crew::compiler::model::CompiledResult {
                         source_file: std::ffi::OsString::from(&line),
-                        obj: Some((origin, -1,  bytes::Bytes::from(contents))),
+                        obj: Some((origin, -1,  bytes::Bytes::from(contents), true)),
                         pdb: None,
                         idb: None,
                     };
@@ -493,8 +498,8 @@ fn return_local_compile_result_pdb_files(program_database: ProgramDataBase, solu
     log::trace!("compile result program database path: {:?}", result);
     let mut compiled_results: CompiledResults = Vec::new();
 
-    let mut pdb: Option<(std::ffi::OsString, i64, bytes::Bytes)> = None;
-    let mut idb: Option<(std::ffi::OsString, i64, bytes::Bytes)> = None;
+    let mut pdb: Option<(std::ffi::OsString, i64, bytes::Bytes, bool)> = None;
+    let mut idb: Option<(std::ffi::OsString, i64, bytes::Bytes, bool)> = None;
 
     if result.exists() {
         match std::fs::File::open(&result) {
@@ -503,7 +508,7 @@ fn return_local_compile_result_pdb_files(program_database: ProgramDataBase, solu
                 let mut file = std::io::BufReader::new(file);
                 let _ = file.read_to_end(&mut contents).unwrap();
                 let origin = repair_original_path(&solution_name, &origin_working_dir, &result);        
-                pdb = Some((origin, -1, bytes::Bytes::from(contents)));
+                pdb = Some((origin, -1, bytes::Bytes::from(contents), true));
             },
             Err(error) => {
                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -522,7 +527,7 @@ fn return_local_compile_result_pdb_files(program_database: ProgramDataBase, solu
                 let mut file = std::io::BufReader::new(file);
                 let _ = file.read_to_end(&mut contents).unwrap();
                 let origin = repair_original_path(&solution_name, &origin_working_dir, &result);     
-                idb = Some((origin, -1, bytes::Bytes::from(contents)));
+                idb = Some((origin, -1, bytes::Bytes::from(contents), true));
             },
             Err(error) => {
                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -551,6 +556,50 @@ fn return_local_compile_result_pdb_files(program_database: ProgramDataBase, solu
     }
     else {
         log::warn!("pdb file is not found, path: {:?}.", result);
+    }
+}
+
+fn wait_local_compile_result_pdb_files(program_database: ProgramDataBase, solution_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
+
+    let mut result = std::path::PathBuf::from("");
+    match &program_database {
+        ProgramDataBase::PathWithPDBName(path) => {
+            result = path.clone();
+        },
+        ProgramDataBase::PathWithoutPDBName(dir) => {
+            result = dir.join("vc143");
+            result.set_extension("pdb");
+        },
+        _ => {
+            log::warn!("fetch result pdb file path failed.");
+        }
+    };
+    log::trace!("wait compile result program database path: {:?}", result);
+    let origin = crate::compiler::msvc::repair_original_path(&solution_name, &origin_working_dir, &result);
+    let slot = {
+        let mut map = PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap();
+        map.entry(origin.to_string_lossy().to_string())
+        .or_insert_with(tools::blockingslot::BlockingSlot::new)
+        .clone()
+    };
+    let compiled_gen_result = slot.blocking_read();
+
+    log::trace!("compile result program database path: {:?} offset: {} length: {}", origin, compiled_gen_result.pdb.as_ref().map_or(0, |pdb| pdb.1), compiled_gen_result.pdb.as_ref().map_or(0, |pdb| pdb.2.len()));
+    
+    if compiled_gen_result.pdb.is_some() {
+        // .ilk .res .asm
+        let compiled_result = CompiledResult {
+            source_file: std::ffi::OsString::from(&result),
+            obj: None,
+            pdb: compiled_gen_result.pdb,
+            idb: None,
+        };
+        let mut compiled_results: CompiledResults = Vec::new();
+        compiled_results.push(compiled_result);
+
+        out_err_stream.stdout.try_send(compiled_results).unwrap_or_else(|err| {
+            log::warn!("try send compiled pdb results to out stream failed: {:?}", err);
+        });
     }
 }
 

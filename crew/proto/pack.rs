@@ -74,9 +74,11 @@ pub struct FileTrResponse {
     pub offset: i64,
     #[prost(bytes = "bytes", tag = "3")]
     pub content: ::prost::bytes::Bytes,
-    #[prost(int32, tag = "4")]
+    #[prost(bool, tag = "4")]
+    pub last: bool,
+    #[prost(int32, tag = "5")]
     pub error_code: i32,
-    #[prost(string, tag = "5")]
+    #[prost(string, tag = "6")]
     pub error_message: ::prost::alloc::string::String,
 }
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]

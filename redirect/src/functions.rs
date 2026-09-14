@@ -2021,13 +2021,8 @@ pub unsafe fn nt_create_file(
                 else if let crate::replace::ReplaceNtResult::ArtifactPDBPath(unmodified) = replace {
                     if true {
                         if create_disposition == windows_sys::Wdk::Storage::FileSystem::FILE_OPEN {
-                            if let Some(k) = NT_HANDLE_AND_PDB_ARTIFACTS.iter().find_map(|(k, v)| {
-                                if *v.name == unmodified {
-                                    Some(*k)
-                                } else {
-                                    None
-                                }
-                            }) {
+                            if NT_HANDLE_AND_PDB_ARTIFACTS.values().any(|v| v.name.as_ref() == &unmodified) 
+                                ||  PATH_AND_ARTIFACTS_CONTEXT.contains_key(&unmodified) {
                                 let mut object_name_source_wide_char = std::ffi::OsString::from("\\??\\NUL").encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
                                 let mut fake_obejct_name_adapter = windows_sys::Win32::Foundation::UNICODE_STRING {
                                     Length: object_name_source_wide_char.len().saturating_sub(1) as u16 * 2,
@@ -2339,6 +2334,7 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
     if let Some(artinfo) = NT_HANDLE_AND_OBJ_ARTIFACTS.remove(&(handle as i32)) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         crate::artifactsredirect::send_artifact(crate::artifactsredirect::Artifacts {
+            project: crate::PROJECTNAME.get().unwrap_or(&"".to_string()).to_string(),
             path: artinfo.name.clone(),
             offset: 0,
             length: 0,
@@ -2350,13 +2346,14 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
     }
     else if let Some(artinfo) = NT_HANDLE_AND_PDB_ARTIFACTS.remove(&(handle as i32)) {
         if !NT_HANDLE_AND_PDB_ARTIFACTS.values().any(|item| item.name == artinfo.name) {
-            if let Some(artcontext) = PATH_AND_ARTIFACTS_CONTEXT.remove(artinfo.name.as_ref()) {
+            if let Some(artcontext) = PATH_AND_ARTIFACTS_CONTEXT.get(artinfo.name.as_ref()) {
                 let (tx, rx) = tokio::sync::oneshot::channel();
                 crate::artifactsredirect::send_artifact(crate::artifactsredirect::Artifacts {
+                    project: crate::PROJECTNAME.get().unwrap_or(&"".to_string()).to_string(),
                     path: artinfo.name.clone(),
                     offset: 0,
                     length: artcontext.context.len() as u64,
-                    content: artcontext.context,
+                    content: artcontext.context.clone(),
                     done: Some(tx),
                 }).unwrap();
                 rx.blocking_recv().unwrap();
@@ -2392,6 +2389,7 @@ pub unsafe fn nt_write_file(
 
         let slice = std::slice::from_raw_parts(buffer as *const u8, length as usize);
         crate::artifactsredirect::send_artifact(crate::artifactsredirect::Artifacts {
+            project: crate::PROJECTNAME.get().unwrap_or(&"".to_string()).to_string(),
             path: artinfo.name.clone(),
             offset: offset,
             length: length as u64,

@@ -11,6 +11,7 @@ pub mod pack {
 pub struct TransmitArchive {
     pub path: String,
     pub offset: i64,
+    pub last: bool,
     pub content: bytes::Bytes,
     #[cfg(target_os = "windows")]
     pub fshandle: TransmitFileTableWinNative,
@@ -21,8 +22,39 @@ type TransmitFileTable = std::sync::Arc<
     tokio::sync::RwLock<std::collections::HashMap<String, SharedTransmitFsHandle>>,
 >;
 
+struct HandleBox {
+    handle: windows_sys::Win32::Foundation::HANDLE,
+}
+
+impl HandleBox {
+    pub fn new(h: windows_sys::Win32::Foundation::HANDLE) -> Self {
+        Self { handle: h }
+    }
+ 
+    pub fn get(&self) -> &windows_sys::Win32::Foundation::HANDLE {
+        &self.handle
+    }
+    
+    pub fn clone(&self) -> Self {
+        Self { handle: self.handle.clone() }
+    }
+}
+
+unsafe impl Send for HandleBox {}
+unsafe impl Sync for HandleBox {}
+
+impl Drop for HandleBox {
+    fn drop(&mut self) {
+        if !self.handle.is_null() && self.handle != windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+            unsafe {
+                windows_sys::Win32::Foundation::CloseHandle(self.handle);
+            }
+        }
+    }
+}
+
 type TransmitFileTableWinNative = std::sync::Arc<
-    tokio::sync::RwLock<std::collections::HashMap<String, std::sync::Arc<tools::ptr::HandleBox>>>,
+    tokio::sync::RwLock<std::collections::HashMap<String, std::sync::Arc<HandleBox>>>,
 >;
 
 #[repr(C)]
@@ -30,7 +62,7 @@ struct NativeWriteRequest {
     // OVERLAPPED must be the first field because the completion thread casts
     // the OVERLAPPED pointer back to NativeWriteRequest.
     overlapped: windows_sys::Win32::System::IO::OVERLAPPED,
-    file: std::sync::Arc<tools::ptr::HandleBox>,
+    file: std::sync::Arc<HandleBox>,
     content: bytes::Bytes,
     offset: u64,
 }
@@ -338,6 +370,7 @@ impl Sender {
                                 let file = TransmitArchive {
                                     path: stream.path,
                                     offset: stream.offset,
+                                    last: stream.last,
                                     content: stream.content,
                                     fshandle: self.fshandle.clone(),
                                 };
@@ -801,7 +834,7 @@ impl Sender {
                     );
                 }
 
-                let iocp = std::sync::Arc::new(tools::ptr::HandleBox::new(iocp_handle));
+                let iocp = std::sync::Arc::new(HandleBox::new(iocp_handle));
 
                 let completion_iocp = iocp.clone();
                 std::thread::Builder::new()
@@ -831,98 +864,57 @@ impl Sender {
         receiver: std::sync::Arc<
             tokio::sync::Mutex<tokio::sync::mpsc::Receiver<TransmitArchive>>,
         >,
-        iocp: std::sync::Arc<tools::ptr::HandleBox>,
+        iocp: std::sync::Arc<HandleBox>,
     ) -> impl std::future::Future<Output = ()> {
         async move {
             loop {
-                let (transmit_file, file) = {
-                    let mut receiver = receiver.lock().await;
-                    let Some(transmit_file) = receiver.recv().await else {
-                        break;
-                    };
-                    
-                    let fshandle = transmit_file.fshandle.clone();
-
-                    drop(receiver);
-
-                    if transmit_file.offset >= 0 && !transmit_file.content.is_empty() {
-                        match Self::get_or_open_transmit_file_win_native(
-                            &fshandle,
-                            &iocp,
-                            &transmit_file.path,
-                        )
-                        .await
-                        {
-                            Ok(file) => (transmit_file, Some(file)),
-                            Err(error) => {
-                                log::error!(
-                                    "native open file chunk {} failed: {:?}",
-                                    transmit_file.path,
-                                    error
-                                );
-                                (transmit_file, None)
-                            }
-                        }
-                    } else if transmit_file.offset == -1 && transmit_file.content.is_empty() {
-                        if let Some(handle) = fshandle.write().await.remove(&transmit_file.path) {
-                            if let Ok(file) = std::sync::Arc::try_unwrap(handle) {
-                                unsafe {
-                                    windows_sys::Win32::Foundation::CloseHandle(*file.get());
-                                }
-                            }
-                        }
-                        (transmit_file, None)
-                    } else {
-                        (transmit_file, None)
-                    }
+                let mut receiver = receiver.lock().await;
+                let Some(transmit_file) = receiver.recv().await else {
+                    break;
                 };
+                let fshandle = transmit_file.fshandle.clone();
+                drop(receiver);
 
-                if transmit_file.offset == -1 && !transmit_file.content.is_empty() {
+                if transmit_file.content.is_empty() {
+                    continue;
+                }
+
+                if transmit_file.offset < 0 {
                     match Self::open_win_native_transmit_file(
                         &iocp,
                         &transmit_file.path,
                         windows_sys::Win32::Storage::FileSystem::CREATE_ALWAYS,
                     ) {
                         Ok(file) => {
-                            if let Err(error) = Self::submit_native_write(
-                                file,
-                                0,
-                                transmit_file.content,
-                            ) {
-                                log::error!(
-                                    "native write complete file {} failed: {:?}",
-                                    transmit_file.path,
-                                    error
-                                );
+                            log::info!("submitting native write for complete file {} with content length {}", transmit_file.path, transmit_file.content.len());
+                            if let Err(error) = Self::submit_native_write(file, 0, transmit_file.content) {
+                                log::error!("native write complete file {} failed: {:?}", transmit_file.path, error);
                             }
                         }
                         Err(error) => {
-                            log::error!(
-                                "native open complete file {} failed: {:?}",
-                                transmit_file.path,
-                                error
-                            );
+                            log::error!("native open complete file {} failed: {:?}", transmit_file.path, error);
                         }
                     }
-                    continue;
-                }
+                } else {
+                    let is_last = transmit_file.last;
+                    let path = transmit_file.path.clone();
 
-                let Some(file) = file else {
-                    continue;
-                };
+                    match Self::get_or_open_transmit_file_win_native(&fshandle, &iocp, &path).await {
+                        Ok(file) => {
+                            log::info!("submitting native write for file {} at offset {} with content length {}, last: {}", path, transmit_file.offset, transmit_file.content.len(), is_last);
+                            if let Err(error) = Self::submit_native_write(file, transmit_file.offset as u64, transmit_file.content) {
+                                log::error!("native write file {} at offset {} failed: {:?}", path, transmit_file.offset, error);
+                            }
 
-                log::info!("submitting native write for file {} at offset {} with content length {}", transmit_file.path, transmit_file.offset, transmit_file.content.len());
-                if let Err(error) = Self::submit_native_write(
-                    file,
-                    transmit_file.offset as u64,
-                    transmit_file.content,
-                ) {
-                    log::error!(
-                        "native write file {} at offset {} failed: {:?}",
-                        transmit_file.path,
-                        transmit_file.offset,
-                        error
-                    );
+                            if is_last {
+                                if let Some(handle) = fshandle.write().await.remove(&path) {
+                                }
+                            }
+                        }
+                        Err(error) => {
+                            log::error!("native open file chunk {} failed: {:?}", path, error);
+                        }
+                    }
                 }
             }
         }
@@ -930,9 +922,9 @@ impl Sender {
 
     async fn get_or_open_transmit_file_win_native(
         fshandle: &TransmitFileTableWinNative,
-        iocp: &std::sync::Arc<tools::ptr::HandleBox>,
+        iocp: &std::sync::Arc<HandleBox>,
         path: &str,
-    ) -> std::io::Result<std::sync::Arc<tools::ptr::HandleBox>> {
+    ) -> std::io::Result<std::sync::Arc<HandleBox>> {
 
         {
             let files = fshandle.read().await;
@@ -958,10 +950,10 @@ impl Sender {
     }
 
     fn open_win_native_transmit_file(
-        iocp: &std::sync::Arc<tools::ptr::HandleBox>,
+        iocp: &std::sync::Arc<HandleBox>,
         path: &str,
         creation_disposition: u32,
-    ) -> std::io::Result<std::sync::Arc<tools::ptr::HandleBox>> {
+    ) -> std::io::Result<std::sync::Arc<HandleBox>> {
         use std::os::windows::ffi::OsStrExt;
 
         let path = if let Some(path) = path.strip_prefix("\\??\\") {
@@ -1011,11 +1003,11 @@ impl Sender {
             return Err(error);
         }
 
-        Ok(std::sync::Arc::new(tools::ptr::HandleBox::new(handle)))
+        Ok(std::sync::Arc::new(HandleBox::new(handle)))
     }
 
     fn submit_native_write(
-        file: std::sync::Arc<tools::ptr::HandleBox>,
+        file: std::sync::Arc<HandleBox>,
         offset: u64,
         content: bytes::Bytes,
     ) -> std::io::Result<()> {
@@ -1059,7 +1051,7 @@ impl Sender {
         Ok(())
     }
 
-    fn native_iocp_completion_loop(iocp: std::sync::Arc<tools::ptr::HandleBox>) {
+    fn native_iocp_completion_loop(iocp: std::sync::Arc<HandleBox>) {
         loop {
             let mut transferred = 0u32;
             let mut completion_key = 0usize;
@@ -1100,12 +1092,6 @@ impl Sender {
             }
             let filearc = request.file.clone();
             drop(request);
-
-            if let Ok(handle) = std::sync::Arc::try_unwrap(filearc) {
-                unsafe {
-                    windows_sys::Win32::Foundation::CloseHandle(*handle.get());
-                }
-            };
         }
     }
     

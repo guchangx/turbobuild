@@ -41,6 +41,11 @@ pub static TASK_TO_FILE_CHANNEL: std::sync::LazyLock<CompileResultSync> = std::s
     };
 });
 
+pub static PROJECT_MAP_TASK_TO_FILE_CHANNEL: std::sync::LazyLock<std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, tokio::sync::mpsc::Sender<crew::compiler::model::CompiledResult>>>>>
+    = std::sync::LazyLock::new(|| {
+    std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()))
+});
+
 #[derive(Default, Clone)] 
 pub struct TransmitFile {
     pub sln: String,
@@ -155,43 +160,48 @@ impl Receiver {
         let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel::<()>();
         let mut cancel_tx = Some(cancel_tx);
 
+        let (task_to_file_tx, mut task_to_file_rx) = tokio::sync::mpsc::channel::<crew::compiler::model::CompiledResult>(512);
+
         let tx_ = tx.clone();
         tokio::spawn(async move {
-            let mut rx_guard = TASK_TO_FILE_CHANNEL.task_to_file_rx.lock().await;
+
             tokio::pin!(cancel_rx);
             loop {
                 tokio::select! {
-                    result = rx_guard.recv() => {
+                    result = task_to_file_rx.recv() => {
                         match result {
                             Some(result) => {
-                                if let Some((file, offset, context)) = result.obj {
+                                if let Some((file, offset, context, last)) = result.obj {
                                     log::debug!("received file transfer result: {:?}, offset: {:?} length: {:?}", file, offset, context.len());
                                     let reply = package::FileTrResponse {
                                         path: file.to_string_lossy().to_string(),
                                         offset: offset,
                                         content: context,
+                                        last: last,
                                         error_code: 0,
                                         error_message: result.source_file.to_string_lossy().to_string(),
                                     };
                                     tx_.send(Ok(reply)).await.unwrap();
                                 }
 
-                                if let Some((file, offset, context)) = result.pdb {
+                                if let Some((file, offset, context, last)) = result.pdb {
                                     let reply = package::FileTrResponse {
                                         path: file.to_string_lossy().to_string(),
                                         offset: offset,
                                         content: context,
+                                        last: last,
                                         error_code: 0,
                                         error_message: result.source_file.to_string_lossy().to_string(),
                                     };
                                     tx_.send(Ok(reply)).await.unwrap();
                                 }
 
-                                if let Some((file, offset, context)) = result.idb {
+                                if let Some((file, offset, context, last)) = result.idb {
                                     let reply = package::FileTrResponse {
                                         path: file.to_string_lossy().to_string(),
                                         offset: offset,
                                         content: context,
+                                        last: last,
                                         error_code: 0,
                                         error_message: result.source_file.to_string_lossy().to_string(),
                                     };
@@ -206,6 +216,8 @@ impl Receiver {
             }
         });
 
+        let mut project_ = std::sync::Arc::new(String::new());
+
         while let Some(request) = stream.next().await {
             if let Ok(request) = request {
 
@@ -213,6 +225,7 @@ impl Receiver {
                     path: "".to_string(),
                     offset: -1,
                     content: bytes::Bytes::new(),
+                    last: false,
                     error_code: 0,
                     error_message: "sync file success.".to_string(),
                 };
@@ -220,7 +233,12 @@ impl Receiver {
                 let name = request.name;
                 let path = request.path;
                 let project = request.project;
-        
+                
+                PROJECT_MAP_TASK_TO_FILE_CHANNEL.write().unwrap().entry(project.clone()).or_insert_with(|| {
+                    project_ = std::sync::Arc::new(project.clone());
+                    task_to_file_tx.clone()
+                });
+
                 let file_type = request.file_type;
                 let solution = request.solution;
                 let content = request.content;
@@ -268,7 +286,7 @@ impl Receiver {
                                 let tx_ = tx.clone();
                                 let pdb = task.pdb.clone();
                                 tokio::spawn(async move {
-                                    Self::return_local_compile_result_pdbfiles(pdb,
+                                    Self::wait_local_compile_result_pdbfiles(pdb,
                                         &std::ffi::OsString::from(solution),
                                         &std::ffi::OsString::from(path),
                                         tx_
@@ -311,6 +329,7 @@ impl Receiver {
                 break;
             }
         }
+        PROJECT_MAP_TASK_TO_FILE_CHANNEL.write().unwrap().remove(&*project_);
     }
     
     async fn transmit_task_handle(&self, request: package::CompileTrRequest, tx: tokio::sync::mpsc::Sender<Result<package::CompileTrResponse, tonic::Status>>) {
@@ -1274,6 +1293,7 @@ impl Receiver {
                             path: origin.into_string().unwrap(),
                             offset: -1,
                             content: bytes::Bytes::from(contents),
+                            last: true,
                             error_code: 0,
                             error_message: "sync file success.".to_string(),
                         };
@@ -1307,6 +1327,7 @@ impl Receiver {
                             path: origin.into_string().unwrap(),
                             offset: -1,
                             content: bytes::Bytes::from(contents),
+                            last: true,
                             error_code: 0,
                             error_message: "sync file success.".to_string(),
                         };
@@ -1326,6 +1347,48 @@ impl Receiver {
         }
         else {
             log::warn!("pdb file is not found, path: {:?}.", result);
+        }
+    }
+
+    async fn wait_local_compile_result_pdbfiles(program_database: crate::compiler::msvc::ProgramDataBase, solution_name: &std::ffi::OsString, 
+        origin_working_dir: &std::ffi::OsString, tx: tokio::sync::mpsc::Sender<Result<package::FileTrResponse, tonic::Status>>) {
+        let mut result = std::path::PathBuf::from("");
+        match &program_database {
+            crate::compiler::msvc::ProgramDataBase::PathWithPDBName(path) => {
+                result = path.clone();
+            },
+            crate::compiler::msvc::ProgramDataBase::PathWithoutPDBName(dir) => {
+                result = dir.join("vc143");
+                result.set_extension("pdb");
+            },
+            _ => {
+                log::warn!("fetch result pdb file path failed.");
+            }
+        };
+        
+        log::trace!("wait compile result program database path: {:?}", result);
+        let origin = crate::compiler::msvc::repair_original_path(&solution_name, &origin_working_dir, &result);
+
+        let slot = {
+            let mut map = crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap();
+            map.entry(origin.to_string_lossy().to_string())
+            .or_insert_with(tools::blockingslot::BlockingSlot::new)
+            .clone()
+        };
+        let compiled_gen_result = slot.blocking_read();
+        log::trace!("compile result program database path: {:?} offset: {} length: {}", result, compiled_gen_result.pdb.as_ref().map_or(0, |pdb| pdb.1), compiled_gen_result.pdb.as_ref().map_or(0, |pdb| pdb.2.len()));
+
+        if let Some((_, _, contents, last)) = &compiled_gen_result.pdb {
+            // .ilk .res .asm
+            let reply = package::FileTrResponse {
+                path: origin.into_string().unwrap(),
+                offset: -1,
+                content: contents.clone(),
+                last: *last,
+                error_code: 0,
+                error_message: "sync file success.".to_string(),
+            };
+            tx.send(Ok(reply)).await.unwrap();
         }
     }
 

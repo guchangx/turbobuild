@@ -33,6 +33,7 @@ async fn connect() -> Option<NamedPipeClient>
 }
 
 pub struct Artifacts {
+    pub project: String,
     pub path:  std::sync::Arc<String>,
     pub offset: i64,
     pub length: u64,
@@ -100,8 +101,8 @@ fn redirect_artifacts_2_cocrew() {
                             
                             if let Some(chunk) = chunks.get_mut(artifacts.path.as_ref()) {
                                 if artifacts.length == 0 { // last chunk, send all
-                                    //offset + length + content + plen + path + continue
-                                    let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8;
+                                    //offset + length + content + plen + path + projlen + project + continue
+                                    let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8 + chunk.project.len() + 8;
                                     let mut buffer = Vec::with_capacity(8 + tsize);
     
                                     // write the length of the buffer first 8 bit
@@ -112,6 +113,8 @@ fn redirect_artifacts_2_cocrew() {
                                     buffer.extend_from_slice(chunk.content.as_slice());
                                     buffer.extend_from_slice(&(chunk.path.len() as u64).to_le_bytes());
                                     buffer.extend_from_slice(chunk.path.as_bytes());
+                                    buffer.extend_from_slice(&(chunk.project.len() as u64).to_le_bytes());
+                                    buffer.extend_from_slice(chunk.project.as_bytes());
                                     buffer.extend_from_slice(&0u64.to_le_bytes());
                                     
                                     
@@ -135,8 +138,8 @@ fn redirect_artifacts_2_cocrew() {
                                     chunk.content.extend_from_slice(&artifacts.content);
 
                                     if chunk.length > 524288 /* 512 * 1024 */ {
-                                        //offset + clength + content + plen + path + continue
-                                        let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8;
+                                        //offset + clength + content + plen + path + projlen + project + continue
+                                        let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8 + chunk.project.len() + 8;
                                         let mut buffer = Vec::with_capacity(8 + tsize);
     
                                         // write the length of the buffer first 8 bit
@@ -147,6 +150,8 @@ fn redirect_artifacts_2_cocrew() {
                                         buffer.extend_from_slice(chunk.content.as_slice());
                                         buffer.extend_from_slice(&(chunk.path.len() as u64).to_le_bytes());
                                         buffer.extend_from_slice(chunk.path.as_bytes());
+                                        buffer.extend_from_slice(&(chunk.project.len() as u64).to_le_bytes());
+                                        buffer.extend_from_slice(chunk.project.as_bytes());
                                         buffer.extend_from_slice(&1u64.to_le_bytes());
                                     
                                         if let Err(err) = client.write_all(&buffer).await {
@@ -171,8 +176,8 @@ fn redirect_artifacts_2_cocrew() {
                                         }
                                     }
     
-                                    //offset + clength + content + plen + path + continue
-                                    let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8;
+                                    //offset + clength + content + plen + path + projlen + project + continue
+                                    let tsize = 8 + 8 + chunk.length as usize + 8 + chunk.path.len() + 8 + chunk.project.len() + 8;
                                     let mut buffer = Vec::with_capacity(8 + tsize);
     
                                     // write the total length of the buffer first 8 bit
@@ -183,6 +188,8 @@ fn redirect_artifacts_2_cocrew() {
                                     buffer.extend_from_slice(chunk.content.as_slice());
                                     buffer.extend_from_slice(&(chunk.path.len() as u64).to_le_bytes());
                                     buffer.extend_from_slice(chunk.path.as_bytes());
+                                    buffer.extend_from_slice(&(chunk.project.len() as u64).to_le_bytes());
+                                    buffer.extend_from_slice(chunk.project.as_bytes());
                                     buffer.extend_from_slice(&1u64.to_le_bytes());
     
                                     if let Err(err) = client.write_all(&buffer).await {
@@ -200,8 +207,8 @@ fn redirect_artifacts_2_cocrew() {
                             else {
                                 if 0 == artifacts.offset && artifacts.done.is_some() {
 
-                                    //offset + contentlength + content + pathlen + path + continue
-                                    let tsize = 8 + 8 + artifacts.content.len() as usize + 8 + artifacts.path.len() + 8;
+                                    //offset + contentlength + content + pathlen + path + projlen + project + continue
+                                    let tsize = 8 + 8 + artifacts.content.len() as usize + 8 + artifacts.path.len() + 8 + artifacts.project.len() + 8;
                                     let mut buffer = Vec::with_capacity(8 + tsize);
     
                                     // write the length of the buffer first 8 bit
@@ -212,6 +219,8 @@ fn redirect_artifacts_2_cocrew() {
                                     buffer.extend_from_slice(artifacts.content.as_slice());
                                     buffer.extend_from_slice(&(artifacts.path.len() as u64).to_le_bytes());
                                     buffer.extend_from_slice(artifacts.path.as_bytes());
+                                    buffer.extend_from_slice(&(artifacts.project.len() as u64).to_le_bytes());
+                                    buffer.extend_from_slice(artifacts.project.as_bytes());
                                     buffer.extend_from_slice(&0u64.to_le_bytes());
                                     
                                     if let Err(err) = client.write_all(&buffer).await {
