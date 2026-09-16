@@ -329,6 +329,7 @@ impl Receiver {
                 break;
             }
         }
+        log::info!("transmit file handle end and remove task artifact channel, project: {}", &*project_);
         PROJECT_MAP_TASK_TO_FILE_CHANNEL.write().unwrap().remove(&*project_);
     }
     
@@ -979,6 +980,67 @@ impl Receiver {
         }
     }
 
+    const FILE_ATTRIBUTE_TEMPORARY: u32 = 0x00000100;
+    async fn storage_win_temporary(solution: &str, project: &str, path: &str, content: &[u8]) -> Result<String, String> {
+        use tokio::io::AsyncWriteExt;
+
+        if solution.is_empty() || path.is_empty() {
+            log::error!("transmit storage project name or path is empty.");
+            return Err("project or path param is empty, so do nothing".to_string());
+        }
+        else {
+            let p: crew::replica::project::Property = crew::replica::project::Property::new(solution, path);
+            let repath = p.fetch_local_replica_project_path();
+            
+            if repath.extension() == Some(&std::ffi::OsStr::new("zip")) {
+                Self::extract(&repath.to_str().unwrap(), &content).await;
+            }
+            else {
+                let mut options = tokio::fs::OpenOptions::new();
+                options.write(true).create(true).truncate(true).share_mode(windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ);
+                #[cfg(windows)]
+                {
+                    options.custom_flags(Self::FILE_ATTRIBUTE_TEMPORARY);
+                }
+
+                let file = match options.open(&repath).await {
+                    Ok(file) => Ok(file),
+                    Err(err) => {
+                        if err.kind() == std::io::ErrorKind::NotFound {
+                            let parent = repath.parent().unwrap();
+                            if let Err(err) = tokio::fs::create_dir_all(parent).await {
+                                log::debug!("transmit storage create parent dir: {:?} err: {:?}", parent, err);
+                                Err(err)
+                            }
+                            else {
+                                options.open(&repath).await
+                            }
+                        }
+                        else {
+                            log::error!("transmit storage file create failed: {:?}, {}", repath, err);
+                            Err(err)
+                        }
+                    }
+                };
+                
+                //same source file may being used by another process. compiler open and current write at same time.
+                if let Ok(mut file) = file {
+                    file.set_len(content.len() as u64).await.unwrap();
+                    match file.write_all(&content).await {
+                        Ok(_) => {
+                            log::trace!("transmit storage file success: {:?} {:?}", project, repath);
+                        },
+                        Err(err) => {
+                            log::error!("transmit storage file failed. {:?} {:?} {:?}", project, repath, err)
+                        }
+                    }
+                    drop(file);
+                }
+            }
+            return Ok(repath.to_string_lossy().to_string());   
+        }
+    }
+
     async fn extract(path: &str, content: &[u8]) {
         if path.ends_with(".zip") {
             let dir = &path[..(path.len() - ".zip".len())];
@@ -1395,7 +1457,8 @@ impl Receiver {
     async fn multiworker_save_transmit_files(&self) {
         let rx = self.transmmit_file_rx.clone();
         let mut handles = Vec::new();
-        for i in 0..4 {
+        let worker = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).max(32) / 2;
+        for i in 0..worker {
             let rx_ = rx.clone();
 
             let handle = tokio::spawn(async move {
@@ -1409,8 +1472,8 @@ impl Receiver {
                             }
                         }
                     };
-                    let _ = Self::storage(&transmit_file.sln, &transmit_file.project, &transmit_file.path, &transmit_file.content).await;
-               } 
+                    let _ = Self::storage_win_temporary(&transmit_file.sln, &transmit_file.project, &transmit_file.path, &transmit_file.content).await;
+               }
             });
             handles.push(handle);
         }

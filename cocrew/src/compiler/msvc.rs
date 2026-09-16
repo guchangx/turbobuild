@@ -237,15 +237,16 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
                     });
                 }
                 else {
-                    let line = line.replace(r#"""#, "");
-                    let line = line.trim_end();
+
+                    let item = item.replace(r#"""#, "");
+                    let item = item.trim_end();
                     
-                    if line.starts_with("Generating Code...") { 
+                    if item.starts_with("Generating Code...") {
                     
                     }
-                    else if line.ends_with(".i") || line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") || line.ends_with(".cxx") {
+                    else if item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cc") || item.ends_with(".cxx") {
                         let compiled_result = crew::compiler::model::CompiledResult {
-                            source_file: std::ffi::OsString::from(&line),
+                            source_file: std::ffi::OsString::from(&item),
                             obj: None,
                             pdb: None,
                             idb: None,

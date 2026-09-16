@@ -1167,7 +1167,8 @@ pub unsafe fn nt_query_directory_file(
     }
     else {
         //second or subsequent query.
-        if (*io_status_block).Information < length as usize && (*io_status_block).Information > 0 && (*io_status_block).Anonymous.Status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
+        // > 64 i am not sure why
+        if (*io_status_block).Information < length as usize && (*io_status_block).Information > 64 && (*io_status_block).Anonymous.Status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
 
             let maybe_filenames = NT_QUERY_DIR_FILE_HANDLE_MAP_NAMES.with(|cell| {
                 let handle_and_filenames = cell.borrow();
@@ -2172,7 +2173,6 @@ pub unsafe fn nt_query_information_file(
         }
         else if windows_sys::Wdk::Storage::FileSystem::FileStandardInformation == fileinformationclass {
             let standard_info = fileinformation as *mut windows_sys::Wdk::Storage::FileSystem::FILE_STANDARD_INFORMATION;
-            log!(trace, "nt_query_information_file FileStandardInformation: handle: {:?}, artifact: {:?}", filehandle, artifact);
 
             (*standard_info).EndOfFile = artifact.end;
             (*standard_info).AllocationSize = artifact.end;
