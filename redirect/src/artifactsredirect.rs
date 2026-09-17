@@ -117,7 +117,6 @@ fn redirect_artifacts_2_cocrew() {
                                     buffer.extend_from_slice(chunk.project.as_bytes());
                                     buffer.extend_from_slice(&0u64.to_le_bytes());
                                     
-                                    
                                     if let Err(err) = client.write_all(&buffer).await {
                                         log!(debug, "redirect failed to write artifacts to named pipe: {:?}", err);
                                         break;
@@ -134,7 +133,7 @@ fn redirect_artifacts_2_cocrew() {
                                 else if chunk.offset + chunk.length as i64 == artifacts.offset {
                                     //reserve
                                     chunk.length += artifacts.length;
-                                    chunk.content.reserve(chunk.length as usize);
+                                    chunk.content.reserve(artifacts.length as usize);
                                     chunk.content.extend_from_slice(&artifacts.content);
 
                                     if chunk.length > 524288 /* 512 * 1024 */ {
@@ -158,7 +157,10 @@ fn redirect_artifacts_2_cocrew() {
                                             log!(debug, "redirect failed to write artifacts to named pipe: {:?}", err);
                                             break;
                                         }
-                                        chunks.remove(artifacts.path.as_ref());
+
+                                        chunk.offset = chunk.offset + chunk.length as i64;
+                                        chunk.length = 0;
+                                        chunk.content = Vec::new();
                                     }
                                     continue;
                                 }
@@ -230,7 +232,7 @@ fn redirect_artifacts_2_cocrew() {
 
                                     //client.flush().await.unwrap();
                                     let _ = artifacts.done.take().unwrap().send(());
-                                    log!(trace, "redirect_artifacts_2_cocrew done path: {}", artifacts.path);
+                                    log!(trace, "redirect_artifacts_2_cocrew done path: {} offset: {} length: {}", artifacts.path, artifacts.offset, artifacts.length);
                                 }
                                 else { 
                                     chunks.insert(artifacts.path.as_ref().to_string(), artifacts);

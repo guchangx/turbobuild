@@ -22,8 +22,8 @@ type TransmitFileTable = std::sync::Arc<
     tokio::sync::RwLock<std::collections::HashMap<String, SharedTransmitFsHandle>>,
 >;
 
-struct HandleBox {
-    handle: windows_sys::Win32::Foundation::HANDLE,
+pub(crate) struct HandleBox {
+    pub handle: windows_sys::Win32::Foundation::HANDLE,
 }
 
 impl HandleBox {
@@ -53,9 +53,28 @@ impl Drop for HandleBox {
     }
 }
 
-type TransmitFileTableWinNative = std::sync::Arc<
-    tokio::sync::RwLock<std::collections::HashMap<String, std::sync::Arc<HandleBox>>>,
->;
+#[derive(Clone, Default)]
+pub struct TransmitFileTableWinNative {
+    pub files: std::sync::Arc<tokio::sync::RwLock<std::collections::HashMap<String, std::sync::Arc<HandleBox>>>>,
+    pub expected: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub completed: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    pub notify: std::sync::Arc<tokio::sync::Notify>,
+}
+
+impl TransmitFileTableWinNative {
+    pub fn new() -> Self {
+        Self {
+            files: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            expected: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            completed: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            notify: std::sync::Arc::new(tokio::sync::Notify::new()),
+        }
+    }
+}
+
+pub static PROJECT_COMPLETED_STATUS: std::sync::LazyLock<std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, bool>>>> = std::sync::LazyLock::new(|| {
+    std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()))
+});
 
 #[repr(C)]
 struct NativeWriteRequest {
@@ -196,7 +215,7 @@ impl Sender {
             runtime: runtime.cloned(),
             #[cfg(target_os = "windows")]
             transmit_archive_tx: Self::transmit_archive_sender_win_native(),
-            fshandle: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            fshandle: TransmitFileTableWinNative::new(),
             #[cfg(target_os = "macos")]
             transmit_archive_tx: Self::transmit_archive_sender(),
         };
@@ -321,9 +340,9 @@ impl Sender {
         let callback = args.callback;
         let fshandle = self.fshandle.clone();
 
-
         let handle = self.runtime.as_ref().map(|runtime| runtime.spawn(async move {
 
+            let project_ = std::sync::OnceLock::new();
             while let Some(archive) = receiver.recv().await {
                 let request = pack::FileTrRequest {
                     file_type: archive.file_type as i32,
@@ -333,20 +352,36 @@ impl Sender {
                     path: archive.path,
                     content: archive.content,
                 };
-        
+
+                if request.file_type as i32 == crate::communicate::packager::FileType::SyncTaskCount as i32 {
+                    let count_str = String::from_utf8_lossy(&request.content);
+                    if let Ok(count) = count_str.parse::<usize>() {
+                        fshandle.expected.store(count, std::sync::atomic::Ordering::Release);
+                    }
+                }
+
+                project_.set(request.project.clone()).ok();
+
                 if let Err(err) = tx.send(request).await {
                     log::error!("transmit file error: {:?}", err);
                 };
             }
+            let is_failed = project_
+                .get()
+                .and_then(|p| PROJECT_COMPLETED_STATUS.read().unwrap().get(p).copied());
 
-            loop {
-                if fshandle.read().await.is_empty() {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+            if is_failed == Some(false) {
+
+            }
+            else {
+                fshandle.notify.notified().await;
             }
 
-            log::debug!("waiting for fshandle to be empty before dropping tx");
+            PROJECT_COMPLETED_STATUS.write().unwrap().remove(project_.get().unwrap_or(&"".to_string()));
+            fshandle.expected.store(0, std::sync::atomic::Ordering::Release);
+            fshandle.completed.store(0, std::sync::atomic::Ordering::Release);
+
+            log::debug!("waiting for fshandle to be empty before dropping tx project: {:?}", project_.get());
             drop(tx);
         }));
 
@@ -364,7 +399,6 @@ impl Sender {
                 while let Some(stream) = response_stream.next().await {
                     match stream {
                         Ok(stream) => {
-                            //log::debug!("transmit file {} response code: {}, message: {}", host, stream.error_code, stream.error_message);
                             
                             if !stream.path.is_empty() {
                                 let file = TransmitArchive {
@@ -422,7 +456,6 @@ impl Sender {
             content: compile.content.to_vec(),
             presyncfiles: compile.presyncfiles,
         });
-
         log::debug!("send compiled sourcefile request: {:?}", compile.commands.clone());
 
         let response = self.to_owned().client.transmit_task(request).await;
@@ -500,6 +533,9 @@ impl Sender {
                                 }
                             }
                             else {
+
+                                PROJECT_COMPLETED_STATUS.write().unwrap().insert(project.clone(), false);
+
                                 log::debug!("{:?} compiled sourcefile failed response out: {:?}", project, String::from_utf8_lossy(&response.out));
                                 log::debug!("{:?} compiled sourcefile failed response err: {:?}", project, String::from_utf8_lossy(&response.err));
                                 recv.status = response.status;
@@ -895,24 +931,29 @@ impl Sender {
                             log::error!("native open complete file {} failed: {:?}", transmit_file.path, error);
                         }
                     }
-                } else {
-                    let is_last = transmit_file.last;
+                } 
+                else {
                     let path = transmit_file.path.clone();
 
                     match Self::get_or_open_transmit_file_win_native(&fshandle, &iocp, &path).await {
                         Ok(file) => {
-                            log::info!("submitting native write for file {} at offset {} with content length {}, last: {}", path, transmit_file.offset, transmit_file.content.len(), is_last);
+                            log::info!("submitting native write for file {} at offset {} with content length {}, last: {}", path, transmit_file.offset, transmit_file.content.len(), transmit_file.last);
                             if let Err(error) = Self::submit_native_write(file, transmit_file.offset as u64, transmit_file.content) {
                                 log::error!("native write file {} at offset {} failed: {:?}", path, transmit_file.offset, error);
-                            }
-
-                            if is_last {
-                                if let Some(handle) = fshandle.write().await.remove(&path) {
-                                }
                             }
                         }
                         Err(error) => {
                             log::error!("native open file chunk {} failed: {:?}", path, error);
+                        }
+                    }
+
+                    if transmit_file.last {
+                        transmit_file.fshandle.files.write().await.remove(&path);
+                        transmit_file.fshandle.completed.fetch_add(1, std::sync::atomic::Ordering::Release);
+                        if fshandle.files.read().await.is_empty() 
+                            && fshandle.expected.load(std::sync::atomic::Ordering::Acquire) > 0
+                            && fshandle.expected.load(std::sync::atomic::Ordering::Acquire) <= fshandle.completed.load(std::sync::atomic::Ordering::Acquire)  {
+                            fshandle.notify.notify_one();
                         }
                     }
                 }
@@ -927,13 +968,13 @@ impl Sender {
     ) -> std::io::Result<std::sync::Arc<HandleBox>> {
 
         {
-            let files = fshandle.read().await;
+            let files = fshandle.files.read().await;
             if let Some(state) = files.get(path) {
                 return Ok(state.clone());
             }
         }
 
-        let mut files = fshandle.write().await;
+        let mut files = fshandle.files.write().await;
 
         if let Some(state) = files.get(path) {
             return Ok(state.clone());
@@ -977,7 +1018,7 @@ impl Sender {
                     | windows_sys::Win32::Storage::FileSystem::FILE_SHARE_DELETE,
                 std::ptr::null(),
                 creation_disposition,
-                windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_NORMAL
+                windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_TEMPORARY
                     | windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OVERLAPPED,
                 std::ptr::null_mut(),
             )

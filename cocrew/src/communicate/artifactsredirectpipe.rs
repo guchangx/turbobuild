@@ -171,11 +171,18 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                             let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), if iscontinue == 0 { true } else { false });
 
                             if compiled_gen_result.obj.is_some() {
-                                let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
-                                tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                                let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap()
+                                    .get(project.as_ref()).cloned();
+                                
+                                if let Some(tx) = tx {
+                                    tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
                                         log::warn!("send artifact file to grpc channel failed: {:?}", err);
                                     });
                                 }
+                                else {
+                                    log::warn!("send artifact file to grpc channel failed: project {} not found {:?}", project,  crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().keys());
+                                }
+                            }
                             else if compiled_gen_result.pdb.is_some() {
                                 let slot = {
                                     let path = path.strip_prefix(r"\??\").unwrap_or(&path);

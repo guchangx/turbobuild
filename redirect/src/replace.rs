@@ -57,7 +57,13 @@ pub enum ReplaceResult {
 
 pub fn replace(path: &mut String) -> ReplaceResult {
 
-    if DEPENDENCYS.get().map_or(false, |deps| { deps.keys().any(|key| key == &path.replace('/', "\\")) }) {
+    if DEPENDENCYS.get().is_some_and(|deps| {
+        if path.contains('/') {
+            deps.contains_key(&path.replace('/', "\\"))
+        } else {
+            deps.contains_key(path.as_str())
+        }
+    }) {
         return ReplaceResult::NoMatch;
     }
     else if path.contains(r"AppData\Local\Temp\") || path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {
@@ -162,15 +168,14 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
         return ReplaceNtResult::NoMatch;
     }
     else if rtype == ReplaceType::File {
-        if DEPENDENCYS.get().map_or(false, |deps| {
-            deps.iter().any(|(key, value)| {
-                if &path[4..] == key.as_str() {
-                    let modified = format!(r"\??\{}", value);
-                    *path = modified;
-                    return true;
-                }
+        if DEPENDENCYS.get().map_or(false, |deps| {            
+            if let Some(value) = deps.get(&path[4..]) {
+                *path = format!(r"\??\{}", value);
+                return true;
+            }
+            else {
                 return false;
-            }) }) {
+            }}) {
             return ReplaceNtResult::Success;
         }
         else if path.contains(r"AppData\Local\Temp\") {
