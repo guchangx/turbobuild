@@ -227,7 +227,7 @@ impl Sender {
         
         match sender_type {
             SenderType::Command(_args) => {
-                self.redirect_net_command().await;
+                self.dist_syscall().await;
 
                 let result = CommandRecv {
                     status: true,
@@ -629,11 +629,11 @@ impl Sender {
         }
     }
 
-    async fn redirect_net_command(&mut self) {
+    async fn dist_syscall(&mut self) {
         
         let (tx, rx) = tokio::sync::mpsc::channel(128);
         let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
-        log::debug!("transmit redirect net start addr: {}.", self.host);
+        log::debug!("transmit redirect syscall start addr: {}.", self.host);
 
         match self.to_owned().client.transmit_syscall(request_stream).await {
             Ok(response) => {
@@ -647,23 +647,23 @@ impl Sender {
                             let local = crate::procemirror::filesystem::route_file_system_operation(stream); //700 µs
 
                             if let Err(err) = tx.send(local.clone()).await {
-                                log::error!("transmit redirect net error: {:?}", err);
+                                log::error!("transmit redirect syscall error: {:?}", err);
                             }
                             else {
                             } 
                         }
                         Err(err) => {
-                            log::error!("transmit redirect net {} failed: {:?}", host, err);
+                            log::error!("transmit redirect syscall {} failed: {:?}", host, err);
                             break;
                         }
                     }
                 };
                 drop(tx);
-                log::debug!("transmit firedirect netle {} completed.", host);
-                crate::communicate::distributor::CONNECTED_ADDRS.lock().await.retain(|item| item != &host);
+                log::debug!("transmit redirect syscall {} completed, connect finish.", host);
+                crate::communicate::distributor::CONNECTED_ADDR_MAP_SENDER.lock().await.retain(|key, _| key != &host);
             },
             Err(err) => {
-                log::error!("transmit redirect net {} failed: {:?}", self.host, err);
+                log::error!("transmit redirect syscall {} failed: {:?}", self.host, err);
             }
         };
     }

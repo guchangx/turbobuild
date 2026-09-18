@@ -359,32 +359,6 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                     let mut line = Vec::new();
                     let mut stdout = Vec::new();
                     loop {
-                        let mut avail: u32 = 0;
-                        let peek = win::System::Pipes::PeekNamedPipe(
-                            *hStdOutputReadBox.get(),
-                            std::ptr::null_mut(),
-                            0,
-                            std::ptr::null_mut(),
-                            &mut avail,
-                            std::ptr::null_mut()
-                        );
-
-                        if peek == win::Foundation::FALSE {
-                            break;
-                        }
-
-                        if avail == 0 {
-                            let wait = win::System::Threading::WaitForSingleObject(
-                                *hProcessForStdout.get(), 0
-                            );
-                            if wait == 0 {  // WAIT_OBJECT_0: cl.exe has exited
-                                log::debug!("stdout reader: cl.exe exited and no more data, exiting");
-                                break;
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(10));
-                            continue;
-                        }
-
                         chTmpStdOutputReadBuffer.fill(0);
                         let bStdOutputRead = win::Storage::FileSystem::ReadFile(
                             *hStdOutputReadBox.get(),
@@ -434,33 +408,6 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                     let mut stderr = Vec::new();
 
                     loop {
-
-                        let mut avail: u32 = 0;
-                        let peek = win::System::Pipes::PeekNamedPipe(
-                            *hStdErrorReadBox.get(),
-                            std::ptr::null_mut(),
-                            0,
-                            std::ptr::null_mut(),
-                            &mut avail,
-                            std::ptr::null_mut()
-                        );
-
-                        if peek == win::Foundation::FALSE {
-                            break;
-                        }
-
-                        if avail == 0 {
-                            let wait = win::System::Threading::WaitForSingleObject(
-                                *hProcessForStderr.get(), 0
-                            );
-                            if wait == 0 {  // WAIT_OBJECT_0: cl.exe has exited
-                                log::debug!("stderr reader: cl.exe exited and no more data, exiting");
-                                break;
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(10));
-                            continue;
-                        }
-
                         chTmpStdErrorReadBuffer.fill(0);
                         let bStdErrorRead = win::Storage::FileSystem::ReadFile(
                             *hStdErrorReadBox.get(), 

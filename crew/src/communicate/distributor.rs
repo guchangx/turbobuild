@@ -1,6 +1,6 @@
 
-pub static CONNECTED_ADDRS: std::sync::LazyLock<std::sync::Arc<tokio::sync::Mutex<Vec<String>>>> = std::sync::LazyLock::new(|| {
-    std::sync::Arc::new(tokio::sync::Mutex::new(Vec::new()))
+pub static CONNECTED_ADDR_MAP_SENDER: std::sync::LazyLock<std::sync::Arc<tokio::sync::Mutex<std::collections::HashMap<String, super::packager::Sender>>>> = std::sync::LazyLock::new(|| {
+    std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new()))
 });
 
 #[derive(Default, Clone)]
@@ -85,20 +85,21 @@ impl Distributor {
             presyncfiles: presyncedfiles,
         };
 
-        {
-            //TODO: should check the connecting status, if the addr is in connected addrs.
-            let mut addrs = CONNECTED_ADDRS.lock().await;
-        
-            if !addrs.iter().any(|item| item == addr) {
-                let mut sender = super::packager::Sender::new(addr, Some(runtime)).await;
-                addrs.push(addr.to_string());
+        let mut sender = {
+            let mut addrs = CONNECTED_ADDR_MAP_SENDER.lock().await;
+            if let Some(existing_sender) = addrs.get(addr) {
+                existing_sender.clone()
+            } 
+            else {
+                let sender = super::packager::Sender::new(addr, Some(&runtime)).await;
+                addrs.insert(addr.to_string(), sender.clone());
+                let mut sender_ = sender.clone();
                 runtime.spawn(async move {
-                    sender.dist(super::packager::SenderType::Command(crate::communicate::packager::CommandArgs {})).await;
+                    sender_.dist(super::packager::SenderType::Command(crate::communicate::packager::CommandArgs {})).await;
                 });
+                sender
             }
-        }
-
-        let mut sender = super::packager::Sender::new(addr, Some(runtime)).await;
+        };
         
         let args = super::packager::SenderType::Compile(args, output_callback);
         let result = sender.dist(args).await;
