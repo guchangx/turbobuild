@@ -1616,6 +1616,33 @@ pub unsafe fn nt_query_directory_file(
     }
 }
 
+const PIPE_PREFIX: &[u16] = &[
+    b'\\' as u16, b'\\' as u16,
+    b'.' as u16,
+    b'\\' as u16,
+    b'p' as u16, b'i' as u16, b'p' as u16, b'e' as u16,
+    b'\\' as u16,
+];
+
+const WINDOWS_GLOBALIZATION_PREFIX: &[u16] = &[
+    b'\\' as u16, b'?' as u16, b'?' as u16, b'\\' as u16,
+    b'C' as u16, b':' as u16, b'\\' as u16,
+    b'W' as u16, b'I' as u16, b'N' as u16, b'D' as u16, b'O' as u16, b'W' as u16, b'S' as u16,
+    b'\\' as u16,
+    b'G' as u16, b'l' as u16, b'o' as u16, b'b' as u16, b'a' as u16, b'l' as u16, b'i' as u16, b'z' as u16, b'a' as u16, b't' as u16, b'i' as u16, b'o' as u16, b'n' as u16,
+    b'\\' as u16,
+];
+
+const APPDATA_LOCAL_TEMP_COMPONENT: &[u16] = &[
+    b'\\' as u16,
+    b'A' as u16, b'p' as u16, b'p' as u16, b'D' as u16, b'a' as u16, b't' as u16, b'a' as u16,
+    b'\\' as u16,
+    b'L' as u16, b'o' as u16, b'c' as u16, b'a' as u16, b'l' as u16,
+    b'\\' as u16,
+    b'T' as u16, b'e' as u16, b'm' as u16, b'p' as u16,
+    b'\\' as u16,
+];
+
 pub unsafe fn nt_create_file(
     file_handle:         *mut win::Foundation::HANDLE,
     access_mask:         win::Storage::FileSystem::FILE_ACCESS_RIGHTS,
@@ -1695,7 +1722,32 @@ pub unsafe fn nt_create_file(
                 };
             }
 
-            if !buffer.is_null() && length > 0 && !is_mount_point_manager {
+            let length_in_u16 = length as usize / std::mem::size_of::<u16>();
+            let path = std::slice::from_raw_parts(buffer, length_in_u16);
+            let ignore_pipe = path.get(..PIPE_PREFIX.len())
+                .is_some_and(|prefix|
+                    prefix
+                    .iter()
+                    .zip(PIPE_PREFIX.iter())
+                    .all(|(&actual, &expected)| actual == expected)
+                );
+
+            let ignore_globalization = path.get(..WINDOWS_GLOBALIZATION_PREFIX.len())
+                .is_some_and(|prefix|
+                    prefix
+                        .iter()
+                        .zip(WINDOWS_GLOBALIZATION_PREFIX.iter())
+                        .all(|(&actual, &expected)| actual == expected)
+                );
+
+            let ignore_local_temp = path.windows(APPDATA_LOCAL_TEMP_COMPONENT.len()).any(|candidate| {
+                candidate
+                    .iter()
+                    .zip(APPDATA_LOCAL_TEMP_COMPONENT.iter())
+                    .all(|(&actual, &expected)| actual == expected)
+            });
+
+            if !buffer.is_null() && length > 0 && !is_mount_point_manager && !ignore_pipe && !ignore_globalization && !ignore_local_temp {
 
                 /* 
                 // another way to get string from utf16 slice.
@@ -1711,7 +1763,7 @@ pub unsafe fn nt_create_file(
                 }
                 */
                 
-                let mut name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+                let mut name = crate::utils::convert::unicode_to_string(object_name).unwrap();
                 crate::log!(trace, "nt_create_file hook path: {} - {}", if rtype == crate::replace::ReplaceType::Dir { "dir" } else { "file" }, name);
                 let replace = crate::replace::nt_replace(&mut name, rtype);
                 if replace == crate::replace::ReplaceNtResult::Success {

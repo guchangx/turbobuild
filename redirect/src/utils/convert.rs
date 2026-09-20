@@ -28,6 +28,18 @@ pub fn lpwstr_2_string(lp_param: LPCWSTR) -> core::option::Option<std::string::S
     }
 }
 
+pub unsafe fn unicode_to_string(
+    unicode_string: *const windows_sys::Win32::Foundation::UNICODE_STRING,
+) -> Option<String> {
+
+    let unicode_string = &*unicode_string;
+
+    let utf16_length = unicode_string.Length as usize / std::mem::size_of::<u16>();
+    let utf16 = std::slice::from_raw_parts(unicode_string.Buffer, utf16_length);
+
+    String::from_utf16(utf16).ok()
+}
+
 pub fn string_2_lpwstr(param: String) -> Vec<u16> {
     use std::os::windows::prelude::*;
 

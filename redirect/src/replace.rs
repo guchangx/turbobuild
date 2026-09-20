@@ -178,9 +178,9 @@ pub fn nt_replace(path: &mut String, rtype: ReplaceType) -> ReplaceNtResult {
             }}) {
             return ReplaceNtResult::Success;
         }
-        else if path.contains(r"AppData\Local\Temp\") {
-            return ReplaceNtResult::NoMatch;
-        }
+        //else if path.contains(r"AppData\Local\Temp\") {
+        //    return ReplaceNtResult::NoMatch;
+        //}
         else if let Some(extension) = std::path::Path::new(path).extension() {
             if extension == "h" || extension == "hpp" || extension == "hxx" || extension == "inl" || extension == "inc" || extension == "ipp" || extension == "pch" {
                 if path.contains(r"Replica\MSVC") || path.contains(r"Replica\Windows Kits") {

@@ -3,11 +3,11 @@ use windows_sys::Win32 as win;
 pub unsafe fn init_hook() {
     crate::log!(info, "[{:?} {:?}] init compiler hk.", crate::SOLUTIONNAME.get(), crate::PROJECTNAME.get());
 
-    crate::functions::CREATE_FILE_A = win::Storage::FileSystem::CreateFileA as *mut std::ffi::c_void;
-    crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_A), crate::functions::create_file_a as _);
+    //crate::functions::CREATE_FILE_A = win::Storage::FileSystem::CreateFileA as *mut std::ffi::c_void;
+    //crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_A), crate::functions::create_file_a as _);
 
-    crate::functions::CREATE_FILE_W = win::Storage::FileSystem::CreateFileW as *mut std::ffi::c_void;
-    crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_W), crate::functions::create_file_w as _);
+    //crate::functions::CREATE_FILE_W = win::Storage::FileSystem::CreateFileW as *mut std::ffi::c_void;
+    //crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_W), crate::functions::create_file_w as _);
 
     //GetFileType
     crate::functions::GET_FILE_TYPE = win::Storage::FileSystem::GetFileType as *mut std::ffi::c_void;
@@ -15,6 +15,7 @@ pub unsafe fn init_hook() {
 
     let module = crate::utils::convert::string_2_lpstr("KernelBase.dll".to_string());
 
+    /* 
     let func_create_file_a = crate::utils::convert::string_2_lpstr("CreateFileA".to_string());
     let kernelbase_create_file_a = crate::detours::DetourFindFunction(module,  func_create_file_a);
     if kernelbase_create_file_a as usize == 0 {
@@ -35,7 +36,7 @@ pub unsafe fn init_hook() {
         crate::functions::CREATE_FILE_W_KERNEL_BASE =  kernelbase_create_file_w;
         crate::detours::DetourAttach(core::ptr::addr_of_mut!(crate::functions::CREATE_FILE_W_KERNEL_BASE), crate::functions::kernelbase_create_file_w as _);
     }
-
+    */
     let func_create_process_a = crate::utils::convert::string_2_lpstr("CreateProcessA".to_string());
     let kernelbase_create_process_a = crate::detours::DetourFindFunction(module,  func_create_process_a);
     if kernelbase_create_process_a as usize == 0 {

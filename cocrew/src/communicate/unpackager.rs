@@ -1457,7 +1457,7 @@ impl Receiver {
     async fn multiworker_save_transmit_files(&self) {
         let rx = self.transmmit_file_rx.clone();
         let mut handles = Vec::new();
-        let worker = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).max(32) / 2;
+        let worker = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(32) / 2;
         for i in 0..worker {
             let rx_ = rx.clone();
 

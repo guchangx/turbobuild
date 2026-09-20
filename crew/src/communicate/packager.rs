@@ -678,7 +678,7 @@ impl Sender {
                     std::collections::HashMap::new(),
                 ));
 
-                let worker_count: usize = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).max(32) / 2;
+                let worker_count: usize = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(32) / 2;
                 for _ in 0..worker_count {
                     let receiver = receiver.clone();
                     let fshandle = fshandle.clone();
@@ -878,7 +878,7 @@ impl Sender {
                     .spawn(move || Self::native_iocp_completion_loop(completion_iocp))
                     .expect("spawn native file IOCP completion thread failed");
 
-                let worker_count: usize = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).max(32) / 2;
+                let worker_count: usize = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(32) / 2;
                 for _ in 0..worker_count {
                     let receiver = receiver.clone();
                     let iocp = iocp.clone();
