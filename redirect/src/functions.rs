@@ -1060,7 +1060,6 @@ pub unsafe fn nt_query_directory_file(
     if !file_name.is_null() {
         let buffer = (*file_name).Buffer;
         name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-        crate::log!(debug, "nt_query_directory_file called: handle: {:?}, file_name: {:?} ", file_handle, name);
     } 
     else {
         name = String::new();
@@ -2448,6 +2447,7 @@ pub unsafe fn nt_write_file(
             content: slice.to_vec(),
             done: None,
         }).unwrap();
+        log!(trace, "nt_write_file hook object write: {:?} offset: {:?} length: {:?}", artinfo.name, offset, length);
 
         if !io_status_block.is_null() {
             (*io_status_block).Anonymous.Status = crate::win::Foundation::STATUS_SUCCESS;

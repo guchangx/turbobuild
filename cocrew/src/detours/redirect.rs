@@ -117,7 +117,8 @@ pub unsafe fn pass_params_to_mspdbsrv(solution: &str) {
     let _ = windows_sys::Win32::System::Memory::FlushViewOfFile(buf.Value as *const std::ffi::c_void, data.len() as usize);
     win::System::Memory::UnmapViewOfFile(buf);
 
-    win::Foundation::CloseHandle(h_map);
+    //can not close immediately after mapping, as the view might still be in use
+    //win::Foundation::CloseHandle(h_map);
 }
 
 fn replace_includes_path_by_replica(includes: &std::ffi::OsString) -> std::borrow::Cow<'_, std::ffi::OsString> {

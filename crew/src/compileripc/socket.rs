@@ -123,7 +123,7 @@ impl Receiver {
 
                     if size < buffer.len() || ( size == buffer.len() && buffer.ends_with(b"}}")) {
                         log::debug!("buildassist connection data: {}", data);
-
+                        let now = std::time::Instant::now();
                         let input: serde_json::Value = serde_json::from_str(data.as_str()).expect(&format!("invalid json data: {}", data));
 
                         let solution = input["solution"].as_str().unwrap();
@@ -232,7 +232,7 @@ impl Receiver {
                         }
 
                         let _ = stream.lock().await.shutdown().await;
-                        log::info!("assistbuild request compile \"{}\" done. from: {:?}", project, stream.lock().await.peer_addr().unwrap());
+                        log::info!("assistbuild request compile \"{}\" done. from: {:?}, duration: {:?}", project, stream.lock().await.peer_addr().unwrap(), now.elapsed());
                         break;
                     }
                 },

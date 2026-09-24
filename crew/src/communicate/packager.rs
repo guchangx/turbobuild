@@ -381,7 +381,7 @@ impl Sender {
             fshandle.expected.store(0, std::sync::atomic::Ordering::Release);
             fshandle.completed.store(0, std::sync::atomic::Ordering::Release);
 
-            log::debug!("waiting for fshandle to be empty before dropping tx project: {:?}", project_.get());
+            log::debug!("waiting for project: {:?} finished", project_.get());
             drop(tx);
         }));
 
@@ -443,7 +443,7 @@ impl Sender {
         let request = tonic::Request::new(pack::CompileTrRequest {
             solution: compile.solution,
             project: compile.project,
-            file: compile.file,
+            file: compile.file.clone(),
             compiler: compile.compiler,
             working_dir: compile.working_dir,
             variety: compile.variety,
@@ -558,7 +558,7 @@ impl Sender {
                     let _ = handle.await;
                 }
 
-                log::info!("send compiled sourcefile receive response done. {}. elapsed: {:?}", project, now.elapsed());
+                log::info!("send compiled sourcefile receive response done. {} file: {} elapsed: {:?}", project, compile.file, now.elapsed());
             }
             Err(err) => {
                 log::warn!("send compiled sourcefile failed: {:?} {}", err, project);
@@ -912,6 +912,17 @@ impl Sender {
                 drop(receiver);
 
                 if transmit_file.content.is_empty() {
+                    log::info!("skipping empty content for file {} at offset {} length {} last: {}", transmit_file.path, transmit_file.offset, transmit_file.content.len(), transmit_file.last);
+
+                    if transmit_file.last {
+                        transmit_file.fshandle.files.write().await.remove(&transmit_file.path);
+                        transmit_file.fshandle.completed.fetch_add(1, std::sync::atomic::Ordering::Release);
+                        if fshandle.files.read().await.is_empty() 
+                            && fshandle.expected.load(std::sync::atomic::Ordering::Acquire) > 0
+                            && fshandle.expected.load(std::sync::atomic::Ordering::Acquire) <= fshandle.completed.load(std::sync::atomic::Ordering::Acquire)  {
+                            fshandle.notify.notify_one();
+                        }
+                    }
                     continue;
                 }
 

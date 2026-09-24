@@ -498,6 +498,12 @@ impl MSVC {
             output.status = code as u32;
             output.out = out;
             output.err = err;
+
+            // local compilation stream output
+            let callback = (self.output_callback)(output.clone());
+            let callback = Box::into_pin(callback);
+            let _ = callback.await;
+
             return output;
         }
 
@@ -748,7 +754,6 @@ impl MSVC {
     }
 
     async fn request_dist_compile_with_source_and_include(&self, input: &CompilerInput) -> CompilerOutput {
-        log::debug!("request dist compile with source and include file.");
 
         let mut set = tokio::task::JoinSet::new();
         

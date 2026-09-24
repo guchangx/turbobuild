@@ -48,7 +48,10 @@ async fn accept_connections(mut server: tokio::net::windows::named_pipe::NamedPi
             log::info!("connected to artifacts redirect named pipe server, client pid: {}", pid);
 
             if let Err(error) = handle(&mut connected).await {
-                log::error!("server failed to handle artifacts redirect client {} {:?}", pid, error);
+                //Custom { kind: UnexpectedEof, error: "early eof" }
+                if error.kind() != io::ErrorKind::UnexpectedEof {
+                    log::error!("server failed to handle artifacts redirect client {} {:?}", pid, error);
+                }
             }
         });
     }
@@ -139,7 +142,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                     }
                     else if offset == 0 && clength != arti.offset as u64 {
                         let content = std::mem::take(&mut arti.content); //move ownership
-                        let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), if iscontinue == 0 { true } else { false });
+                        let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), false);
                         if compiled_gen_result.obj.is_some() {
                             let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
                             tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
@@ -156,11 +159,31 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                             };
                             slot.write(compiled_gen_result);
                         }
-
-                        //discontinuous data
-                        arti.offset = offset;
-                        arti.length = clength;
-                        arti.content = buffer[16..(16 + clength as usize)].to_vec()
+                        if iscontinue == 0 {
+                            let last_result = generate_artifact(&path, offset, bytes::Bytes::copy_from_slice(&buffer[16..(16 + clength as usize)]), true);
+                            if last_result.obj.is_some() {
+                                let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
+                                tx.send(last_result).await.ok();
+                            }
+                            else if last_result.pdb.is_some() {
+                                let slot = {
+                                    let path = path.strip_prefix(r"\??\").unwrap_or(&path);
+                                    let mut mappdb = crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap();
+                                    mappdb.entry(path.to_string())
+                                    .or_insert_with(tools::blockingslot::BlockingSlot::new)
+                                    .clone()
+                                };
+                                slot.write(last_result);
+                            }
+                            
+                            arti.offset = 0;
+                            arti.length = 0;
+                        } else {
+                            //discontinuous data
+                            arti.offset = offset;
+                            arti.length = clength;
+                            arti.content = buffer[16..(16 + clength as usize)].to_vec()
+                        }
                     }
                     else if arti.offset + arti.length as i64 == offset {
                         arti.length += clength;
@@ -199,33 +222,57 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                         }
                     }
                     else {
-                        let content = std::mem::take(&mut arti.content); //move ownership
-                        let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), if iscontinue == 0 { true } else { false });
-
-                        if compiled_gen_result.obj.is_some() {
-                            let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
-                            tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                                log::warn!("send artifact file to grpc channel failed: {:?}", err);
-                            });
+                        if !arti.content.is_empty() {
+                            let content = std::mem::take(&mut arti.content); //move ownership
+                            let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), false);
+    
+                            if compiled_gen_result.obj.is_some() {
+                                let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
+                                tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                                    log::warn!("send artifact file to grpc channel failed: {:?}", err);
+                                });
+                            }
+                            else if compiled_gen_result.pdb.is_some() {
+                                let slot = {
+                                    let path = path.strip_prefix(r"\??\").unwrap_or(&path);
+                                    let mut mappdb = crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap();
+                                    mappdb.entry(path.to_string())
+                                    .or_insert_with(tools::blockingslot::BlockingSlot::new)
+                                    .clone()
+                                };
+                                slot.write(compiled_gen_result);
+                            }
                         }
-                        else if compiled_gen_result.pdb.is_some() {
-                            let slot = {
-                                let path = path.strip_prefix(r"\??\").unwrap_or(&path);
-                                let mut mappdb = crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap();
-                                mappdb.entry(path.to_string())
-                                .or_insert_with(tools::blockingslot::BlockingSlot::new)
-                                .clone()
-                            };
-                            slot.write(compiled_gen_result);
+                        
+                        if iscontinue == 0 {
+                            let compiled_gen_result = generate_artifact(&path, offset, bytes::Bytes::copy_from_slice(&buffer[16..(16 + clength as usize)]), true);
+                            
+                            if compiled_gen_result.obj.is_some() {
+                                let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
+                                tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                                    log::warn!("send artifact file to grpc channel failed: {:?}", err);
+                                });
+                            }
+                            else if compiled_gen_result.pdb.is_some() {
+                                let slot = {
+                                    let path = path.strip_prefix(r"\??\").unwrap_or(&path);
+                                    let mut mappdb = crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap();
+                                    mappdb.entry(path.to_string())
+                                    .or_insert_with(tools::blockingslot::BlockingSlot::new)
+                                    .clone()
+                                };
+                                slot.write(compiled_gen_result);
+                            }
                         }
-
-                        //discontinuous data
-                        arti.offset = offset;
-                        arti.length = clength;
-                        arti.content = buffer[16..(16 + clength as usize)].to_vec()
+                        else {
+                            //discontinuous data
+                            arti.offset = offset;
+                            arti.length = clength;
+                            arti.content = buffer[16..(16 + clength as usize)].to_vec();
+                        }
                     }
 
-                    if 0 == arti.offset && 0 == arti.length {
+                    if iscontinue == 0 {
                         chunks.remove(&path.to_string());
                     }
                 }
