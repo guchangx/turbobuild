@@ -156,6 +156,7 @@ pub fn compiler_redirect_syscall() {
                     }
                 }
                 closed_.store(true, std::sync::atomic::Ordering::Relaxed);
+                PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL.write().unwrap().remove(&pid);
             });
             
             counter += 1;

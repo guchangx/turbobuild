@@ -690,7 +690,7 @@ fn query_include_dir_recursive(dir: std::path::PathBuf, start: &std::path::PathB
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() {
+            if entry.file_type().unwrap().is_file() {
                 if path.extension().and_then(|ext| ext.to_str()).map(|ext| ext.to_ascii_lowercase()).filter(|ext| ext == "h" || ext == "hpp" 
                     || ext == "hh" || ext == "hxx" || ext == "h++" || ext == "hm" || ext == "inl").is_some() {
                     if let Ok(p) = path.strip_prefix(&start) {
@@ -698,7 +698,7 @@ fn query_include_dir_recursive(dir: std::path::PathBuf, start: &std::path::PathB
                     }
                 }
             }
-            else if path.is_dir() {
+            else if entry.file_type().unwrap().is_dir() {
                 query_include_dir_recursive(path, &start, set);
             }
         }
