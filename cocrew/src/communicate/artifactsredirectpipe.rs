@@ -294,7 +294,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                                 .or_insert_with(tools::blockingslot::BlockingSlot::new)
                                 .clone()
                             };
-                            slot.write(compiled_gen_result);                       
+                            slot.write(compiled_gen_result);                
                         }
                     }
                     else {

@@ -1438,6 +1438,8 @@ impl Receiver {
         let compiled_gen_result = slot.blocking_read();
         log::trace!("compile result program database path: {:?} offset: {} length: {}", result, compiled_gen_result.pdb.as_ref().map_or(0, |pdb| pdb.1), compiled_gen_result.pdb.as_ref().map_or(0, |pdb| pdb.2.len()));
 
+        crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap().remove(&origin.to_string_lossy().to_string());
+        
         if let Some((_, _, contents, last)) = &compiled_gen_result.pdb {
             // .ilk .res .asm
             let reply = package::FileTrResponse {

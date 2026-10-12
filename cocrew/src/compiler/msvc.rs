@@ -587,6 +587,8 @@ fn wait_local_compile_result_pdb_files(program_database: ProgramDataBase, soluti
 
     log::trace!("compile result program database path: {:?} offset: {} length: {}", origin, compiled_gen_result.pdb.as_ref().map_or(0, |pdb| pdb.1), compiled_gen_result.pdb.as_ref().map_or(0, |pdb| pdb.2.len()));
     
+    crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap().remove(&origin.to_string_lossy().to_string());
+
     if compiled_gen_result.pdb.is_some() {
         // .ilk .res .asm
         let compiled_result = CompiledResult {
