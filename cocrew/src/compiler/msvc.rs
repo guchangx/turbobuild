@@ -283,8 +283,6 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
 
     let compile_output = String::from_utf8_lossy(&stdout);
     let compile_error = String::from_utf8_lossy(&stderr);
-    
-    log::info!("{:?} injectd compile status: {}, {:?} stdout: {:?} stderr: {:?}", project_name_, status, now.elapsed(), compile_output, compile_error);
 
     if status == 0 {
         let lines: Vec<_> = compile_output.lines().collect();
@@ -331,7 +329,9 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         let compiled_output: Vec<_> = errors.iter().map(|item| std::ffi::OsString::from(item)).collect();
         log::warn!("compile result failed. filename: {:?}, errors: {:?}", compiled_filename, compiled_output);
     }
-    
+
+    log::info!("{:?} injectd compile status: {}, {:?} stdout: {:?} stderr: {:?}", project_name_, status, now.elapsed(), compile_output, compile_error);
+
     let result = CompilerOutput {
         status: status,
         out: stdout,

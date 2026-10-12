@@ -280,9 +280,10 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                     if iscontinue.eq(&0) {
                         let compiled_gen_result = generate_artifact(&path, offset, bytes::Bytes::from(buffer[16..(16 + clength as usize)].to_vec()), if iscontinue == 0 { true } else { false });
                         if compiled_gen_result.obj.is_some() {
-                            let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
+                            let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref())
+                                .expect(format!("Failed to get channel for project: {} path: {}", project, path).as_str()).clone();
                             tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                                log::warn!("send artifact file to grpc channel failed: {:?}", err);
+                                log::warn!("send artifact file to grpc channel failed: {:?} path: {}", err, path);
                             });
                         }
                         else if compiled_gen_result.pdb.is_some() {

@@ -221,23 +221,23 @@ impl Receiver {
         while let Some(request) = stream.next().await {
             if let Ok(request) = request {
 
-                let mut reply = package::FileTrResponse {
-                    path: "".to_string(),
-                    offset: -1,
-                    content: bytes::Bytes::new(),
-                    last: false,
-                    error_code: 0,
-                    error_message: "sync file success.".to_string(),
-                };
-
                 let name = request.name;
                 let path = request.path;
                 let project = request.project;
-                
+
                 PROJECT_MAP_TASK_TO_FILE_CHANNEL.write().unwrap().entry(project.clone()).or_insert_with(|| {
                     project_ = std::sync::Arc::new(project.clone());
                     task_to_file_tx.clone()
                 });
+                
+                let mut reply = package::FileTrResponse {
+                    path: path.clone(),
+                    offset: -1,
+                    content: bytes::Bytes::new(),
+                    last: true,
+                    error_code: 0,
+                    error_message: "sync file success.".to_string(),
+                };
 
                 let file_type = request.file_type;
                 let solution = request.solution;
@@ -1152,14 +1152,12 @@ impl Receiver {
             }
 
             joins.join_all().await;
-            log::debug!("transmit compile handle {} out stream end.", project_);
         });
 
         tokio::spawn(async move {
             while let Some(results) = err_receiver.recv().await {
                 
             }
-            log::debug!("transmit compile handle {} err stream end.", project__);
         });
 
         let input_ = input.to_owned();

@@ -2,7 +2,7 @@
 use crate::compiler::model::{CompilerInput, CompilerOutput};
 
 pub trait Compiler {
-    fn request_compile(&self, compiler_input: CompilerInput) -> CompilerOutput;
+    async fn request_compile(&self, compiler_input: CompilerInput) -> CompilerOutput;
 }
 
 // local request compile
@@ -23,7 +23,7 @@ pub async fn request_compile<Func, Fut>(compiler_input: CompilerInput, runtime: 
             sender: distor,
             output_callback: std::sync::Arc::new(move|output: CompilerOutput| {Box::new(func(output))}),
         };
-        let output = msvc.request_compile(compiler_input);
+        let output = msvc.request_compile(compiler_input).await;
         return output;
     }
     else if compiler_input.build_and_compiler_type == "clang" {

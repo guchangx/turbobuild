@@ -35,29 +35,9 @@ use std::io::BufRead;
 use windows_sys::Win32 as win;
 
 impl crate::compiler::interface::Compiler for MSVC {
-    fn request_compile(&self, compiler_input: CompilerInput) -> CompilerOutput {
-
+    async fn request_compile(&self, compiler_input: CompilerInput) -> CompilerOutput {
         let self_ = self.clone();
-
-        let handle = self.runtime.spawn(async move {
-            let output = self_.request_msvc_compile(compiler_input).await;
-            return output;
-        });
-        
-        let output = tokio::task::block_in_place(||{
-            let output = self.runtime.block_on(handle);
-            return output;
-        });
-        
-        match output {
-            Ok(output) => {
-                return output;
-            },
-            Err(err) => {
-                log::error!("request compile failed. {:?}", err);
-                return CompilerOutput::default();
-            }
-        }
+        self_.request_msvc_compile(compiler_input).await
     }
 }
 
@@ -494,7 +474,13 @@ impl MSVC {
         log::debug!("{:?} in commands compiler version: {:?}, addr: {:?}", input.project, cversion, addr);
         if (addr == "127.0.0.1" || addr == "localhost") && !*crate::ENFORCE_ACTIVATE_LOCAL_COCREW {
             let mut output = CompilerOutput::default();
-            let (code, out, err) = start_local_compiler(&input.compiler_path, &input.compiler_working_dir, &input.compiler_commands, &input.envs);
+            let path = input.compiler_path.clone();
+            let working_dir = input.compiler_working_dir.clone();
+            let commands = input.compiler_commands.clone();
+            let envs = input.envs.clone();
+            let (code, out, err) = tokio::task::spawn_blocking(move || {
+                start_local_compiler(&path, &working_dir, &commands, &envs)
+            }).await.unwrap();
             output.status = code as u32;
             output.out = out;
             output.err = err;
@@ -1187,6 +1173,24 @@ impl MSVC {
             }));
             
             let p = std::path::Path::new(&path);
+            let name = p.file_name()
+                .and_then(std::ffi::OsStr::to_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| path.clone());
+    
+            let archive = crate::communicate::packager::ArchiveArgs {
+                file_type:  crate::communicate::packager::FileType::SourceFiles,
+                solution: solution.as_ref().clone(),
+                project: project.as_ref().clone(),
+                name: name,
+                path: path.clone(),
+                content: content.clone(),
+            };
+    
+            let _ = stream.send(archive).await;
+
+            log::trace!("parsed source file {:?} {:?}", project, path);
+            
             let parent = p.parent().unwrap_or_else(|| std::path::Path::new("")).to_path_buf();
 
             let dependency;
@@ -1202,25 +1206,6 @@ impl MSVC {
 
             *_write_guard = dependency.clone().into_iter().collect::<std::collections::HashSet<String>>();
             drop(_write_guard);
-
-            let name = p.file_name()
-                .and_then(std::ffi::OsStr::to_str)
-                .map(str::to_owned)
-                .unwrap_or_else(|| path.clone());
-    
-            let archive = crate::communicate::packager::ArchiveArgs {
-                file_type:  crate::communicate::packager::FileType::SourceFiles,
-                solution: solution.as_ref().clone(),
-                project: project.as_ref().clone(),
-                name: name,
-                path: path.clone(),
-                content: content,
-            };
-    
-            let _ = stream.send(archive).await;
-            
-            
-            log::trace!("parsed source file {:?} {:?} dependency: {:#?}.", project, path, &dependency);
     
             for dep in dependency.clone() {
                 Box::pin(async {

@@ -333,7 +333,7 @@ impl Sender {
 
     async fn dist_archive_stream(&mut self, args: ArchiveStreamArgs) -> ArchiveRecv {
 
-        let (tx, rx) = tokio::sync::mpsc::channel(128);
+        let (tx, rx) = tokio::sync::mpsc::channel(256);
         let request_stream = tokio_stream::wrappers::ReceiverStream::new(rx);
 
         let mut receiver = args.rx;
@@ -381,7 +381,7 @@ impl Sender {
             fshandle.expected.store(0, std::sync::atomic::Ordering::Release);
             fshandle.completed.store(0, std::sync::atomic::Ordering::Release);
 
-            log::debug!("waiting for project: {:?} finished", project_.get());
+            log::debug!("waiting for project: {:?} achive stream finished", project_.get());
             drop(tx);
         }));
 
@@ -458,6 +458,7 @@ impl Sender {
         });
         log::debug!("send compiled sourcefile request: {:?}", compile.commands.clone());
 
+        let now = std::time::Instant::now();
         let response = self.to_owned().client.transmit_task(request).await;
 
         let mut recv = CompileRecv {
@@ -468,7 +469,6 @@ impl Sender {
 
         match response {
             Ok(response) => {
-                let now = std::time::Instant::now();
                 let (tx, rx) = tokio::sync::mpsc::channel::<Vec<pack::IntermediateResult>>(128);
                 let mut myself = self.clone();
                 let project_ = project.clone();
