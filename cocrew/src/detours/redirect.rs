@@ -177,7 +177,8 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
         let lpCommandLine = command.as_str();
 
         let bInheritHandles = win::Foundation::TRUE;
-        let dwCreationFlags = win::System::Threading::CREATE_DEFAULT_ERROR_MODE | win::System::Threading::CREATE_SUSPENDED | win::System::Threading::CREATE_UNICODE_ENVIRONMENT;
+        let dwCreationFlags = win::System::Threading::CREATE_DEFAULT_ERROR_MODE | win::System::Threading::CREATE_SUSPENDED 
+            | win::System::Threading::CREATE_UNICODE_ENVIRONMENT | win::System::Threading::EXTENDED_STARTUPINFO_PRESENT;
 
         let mut env_block: Vec<u16> = Vec::new();
         let version = extract_version_from_path(&app);
@@ -305,14 +306,45 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                 win::Foundation::SetHandleInformation(hStdErrorRead, win::Foundation::HANDLE_FLAG_INHERIT, 0);
             }
 
+            let mut handlesInherit: [win::Foundation::HANDLE; 3] = [
+                hStdInRead,
+                hStdOutputWrite,
+                hStdErrorWrite,
+            ];
+            let mut attrSize: usize = 0;
+            win::System::Threading::InitializeProcThreadAttributeList(std::ptr::null_mut(), 1, 0, &mut attrSize);
+
+            let mut attrListBuf = vec![0u8; attrSize];
+            let lpAttributeList = attrListBuf.as_mut_ptr() as win::System::Threading::LPPROC_THREAD_ATTRIBUTE_LIST;
+            let initThreadAttr = win::System::Threading::InitializeProcThreadAttributeList(lpAttributeList, 1, 0, &mut attrSize);
+            if initThreadAttr == win::Foundation::FALSE {
+                log::error!("InitializeProcThreadAttributeList failed: {}", win::Foundation::GetLastError());
+            }
+
+            const PROC_THREAD_ATTRIBUTE_HANDLE_LIST: usize = 0x00020002;
+            let updateThreadAttr = win::System::Threading::UpdateProcThreadAttribute(
+                lpAttributeList,
+                0,
+                PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                handlesInherit.as_mut_ptr() as *mut _,
+                (handlesInherit.len() * std::mem::size_of::<win::Foundation::HANDLE>()) as usize,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            );
+            if updateThreadAttr == win::Foundation::FALSE {
+                log::error!("UpdateProcThreadAttribute failed: {}", win::Foundation::GetLastError());
+            }
+
             let lpProcessAttributes = std::ptr::null_mut();
             let lpThreadAttributes = std::ptr::null_mut();
-            let mut lpStartupInfo: crate::detours::detours::_STARTUPINFOW = std::mem::MaybeUninit::zeroed().assume_init();
-            lpStartupInfo.cb = std::mem::size_of::<crate::detours::detours::_STARTUPINFOW>() as u32;
-            lpStartupInfo.hStdInput = hStdInRead as *mut std::ffi::c_void;            
-            lpStartupInfo.hStdOutput = hStdOutputWrite as *mut std::ffi::c_void;
-            lpStartupInfo.hStdError = hStdErrorWrite as *mut std::ffi::c_void;
-            lpStartupInfo.dwFlags |= win::System::Threading::STARTF_USESTDHANDLES;
+    
+            let mut lpStartupInfoEx: win::System::Threading::STARTUPINFOEXW = std::mem::MaybeUninit::zeroed().assume_init();
+            lpStartupInfoEx.StartupInfo.cb = std::mem::size_of::<win::System::Threading::STARTUPINFOEXW>() as u32;
+            lpStartupInfoEx.StartupInfo.hStdInput = hStdInRead as *mut std::ffi::c_void;            
+            lpStartupInfoEx.StartupInfo.hStdOutput = hStdOutputWrite as *mut std::ffi::c_void;
+            lpStartupInfoEx.StartupInfo.hStdError = hStdErrorWrite as *mut std::ffi::c_void;
+            lpStartupInfoEx.StartupInfo.dwFlags |= win::System::Threading::STARTF_USESTDHANDLES;
+            lpStartupInfoEx.lpAttributeList = lpAttributeList;
 
             let mut lpProcessInformation: crate::detours::detours::_PROCESS_INFORMATION = std::mem::MaybeUninit::zeroed().assume_init();
                
@@ -325,11 +357,12 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                 dwCreationFlags, 
                 lpEnvironment, 
                 currentDirectoryWideChars.as_ptr(), 
-                &mut lpStartupInfo as *mut _, 
+                std::ptr::addr_of_mut!(lpStartupInfoEx) as *mut crate::detours::detours::_STARTUPINFOW,
                 &mut lpProcessInformation as *mut _, 
                 dllPath, 
                 Option::None
             );
+            win::System::Threading::DeleteProcThreadAttributeList(lpAttributeList);
         
             win::Foundation::CloseHandle(hStdOutputWrite);
             win::Foundation::CloseHandle(hStdErrorWrite);
