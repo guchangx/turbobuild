@@ -3,11 +3,11 @@
 //walkdir.rs
 //msvc.rs
 //mod.rs
-
+use compact_str::CompactString;
 #[derive(Clone, Default, Debug)]
 pub struct FsNode {
-    pub dir: rustc_hash::FxHashMap<std::ffi::OsString, std::sync::Arc<FsNode>>,
-    pub files: rustc_hash::FxHashMap<std::ffi::OsString, u32>, // Stores file sizes in KiB.
+    pub dir: rustc_hash::FxHashMap<CompactString, Box<FsNode>>,
+    pub files: rustc_hash::FxHashMap<CompactString, u32>, // Stores file sizes in KiB.
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,7 +36,7 @@ impl FsNode {
                 }
                 _ => {
                     if !self.dir.keys().any(|key| path.starts_with(key)) {
-                        self.dir.insert(path.clone().into_os_string(), std::sync::Arc::new(FsNode::new()));
+                        self.dir.insert(CompactString::new(path.to_string_lossy()), Box::new(FsNode::new()));
                         result.push(path.to_owned());
                     }
                 }
@@ -57,24 +57,25 @@ impl FsNode {
 
         while let Some(component) = components.next() {
             let should_descend = components.peek().is_some() || is_dir;
+            let key = CompactString::new(component.to_string_lossy());
 
             if should_descend {
                 let child = current
                     .dir
-                    .entry(component.to_owned())
-                    .or_insert_with(|| std::sync::Arc::new(FsNode::new()));
-                current = std::sync::Arc::make_mut(child);
+                    .entry(key)
+                    .or_insert_with(|| Box::new(FsNode::new()));
+                current = child.as_mut();
             } else {
-                current.files.insert(component.to_owned(), size);
+                current.files.insert(key, size);
             }
         }
     }
 
     pub fn add(&mut self, dir: &std::ffi::OsString) {
         let nodea = self.dir
-            .entry(dir.to_owned())
-            .or_insert_with(|| std::sync::Arc::new(FsNode::new()));
-        let nodem = std::sync::Arc::make_mut(nodea);
+            .entry(CompactString::new(dir.to_string_lossy()))
+            .or_insert_with(|| Box::new(FsNode::new()));
+        let nodem = nodea.as_mut();
 
         let mut overrides = ignore::overrides::OverrideBuilder::new(dir);
         overrides.add("**/*.{h,hh,hpp,hxx,c,cpp,cxx,cc,dat,inl,ipp,cppm,ixx,h++,inc}").unwrap();
@@ -163,7 +164,7 @@ impl FsNode {
     
     }
 
-    pub fn query<P: AsRef<std::path::Path> + ?Sized>(&self, dir: &P) -> Option<(std::collections::HashSet<std::ffi::OsString>, std::collections::HashSet<std::ffi::OsString>)> {
+    pub fn query<P: AsRef<std::path::Path> + ?Sized>(&self, dir: &P) -> Option<(std::collections::HashSet<CompactString>, std::collections::HashSet<CompactString>)> {
 
         if self.dir.is_empty() {
             return None;
@@ -182,7 +183,11 @@ impl FsNode {
             for component in rest.components() {
                 match component {
                     std::path::Component::Normal(osstr) => {
-                        if let Some(next) = current_ref.dir.get(osstr) {
+                        let Some(s) = osstr.to_str() else {
+                            matched = false;
+                            break;
+                        };
+                        if let Some(next) = current_ref.dir.get(s) {
                             current_ref = next.as_ref();
                         }
                         else {
@@ -235,9 +240,13 @@ impl FsNode {
                         _ => break,
                     };
 
+                    let Some(s) = osstr.to_str() else {
+                        break;
+                    };
+
                     match components.next() {
                         Some(next_component) => {
-                            match current_ref.dir.get(osstr) {
+                            match current_ref.dir.get(s) {
                                 Some(next) => {
                                     current_ref = next.as_ref();
                                     component = next_component;
@@ -247,10 +256,10 @@ impl FsNode {
                         }
                         None => {
                             if kind == NodeKind::Directory {
-                                return current_ref.dir.contains_key(osstr);
+                                return current_ref.dir.contains_key(s);
                             }
                             else if kind == NodeKind::File {
-                                return current_ref.files.contains_key(osstr);
+                                return current_ref.files.contains_key(s);
                             }
                         }
                     }
@@ -276,6 +285,10 @@ impl FsNode {
                     return None;
                 };
 
+                let Some(name) = name.to_str() else {
+                    return None;
+                };
+
                 if components.peek().is_none() {
                     return current.files.get(name).copied();
                 }
@@ -285,6 +298,14 @@ impl FsNode {
         }
 
         None
+    }
+    pub fn shrink(&mut self) {
+        self.dir.shrink_to_fit();
+        self.files.shrink_to_fit();
+
+        for entry in self.dir.values_mut() {
+            entry.shrink();
+        }
     }
 }
 

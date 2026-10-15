@@ -144,19 +144,19 @@ fn query_dir_in_cache(dir: &String) -> Option<String> {
         write!(&mut result, ".|16\n..|16\n").unwrap(); //must have . and .. entries for directory
         for (i, dir) in dirs.iter().enumerate() {
             if filesize == 0 && i == dirsize - 1 {
-                writeln!(&mut result, "{}|17", dir.to_string_lossy()).unwrap();
+                writeln!(&mut result, "{}|17", dir).unwrap();
             }
             else {
-                writeln!(&mut result, "{}|16", dir.to_string_lossy()).unwrap();
+                writeln!(&mut result, "{}|16", dir).unwrap();
             }
         }
 
         for (i, file) in files.iter().enumerate() {
             if i == filesize - 1 {
-                writeln!(&mut result, "{}|33", file.to_string_lossy()).unwrap();
+                writeln!(&mut result, "{}|33", file).unwrap();
             }
             else {
-                writeln!(&mut result, "{}|32", file.to_string_lossy()).unwrap();
+                writeln!(&mut result, "{}|32", file).unwrap();
             }
         }
         return Some(result);

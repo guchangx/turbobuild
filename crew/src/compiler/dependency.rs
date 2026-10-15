@@ -563,8 +563,8 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
     if dep.starts_with("..") {
         let reader = unsafe { crate::compiler::model::WALK_FS_NODE.as_mut().unwrap() };
         for dir in include_dirs {
-            let dir = dir.to_owned().into_os_string();
-            let p = tools::utils::normalize_lexical(dir.clone().into_string().unwrap() + "\\" + dep);
+            let Some(dir) = dir.to_str() else { continue; };
+            let p = tools::utils::normalize_lexical(format!("{}\\{}", dir, dep));
 
             if reader.exists(&p, crate::compiler::walkdir::NodeKind::File) {
                 return Some(p);
@@ -579,8 +579,7 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
                         }
                     };
 
-                    if let Some(nodem) = reader.dir.get_mut(&dir) {
-                        let nodem = std::sync::Arc::make_mut(nodem);
+                    if let Some(nodem) = reader.dir.get_mut(dir) {
                         nodem.insnode(std::path::Path::new(dep), false, size);
                     }
                     return Some(p);
@@ -615,9 +614,10 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
                         }
                     };
 
-                    if let Some(nodem) = reader.dir.get_mut(&dir.to_owned().into_os_string()) {
-                        let nodem = std::sync::Arc::make_mut(nodem);
-                        nodem.insnode(std::path::Path::new(dep), false, size);
+                    if let Some(dir) = dir.to_str() {
+                        if let Some(nodem) = reader.dir.get_mut(dir) {
+                            nodem.insnode(std::path::Path::new(dep), false, size);
+                        }
                     }
                     return Some(p);
                 }
