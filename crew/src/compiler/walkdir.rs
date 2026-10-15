@@ -7,7 +7,7 @@
 #[derive(Clone, Default, Debug)]
 pub struct FsNode {
     pub dir: rustc_hash::FxHashMap<std::ffi::OsString, std::sync::Arc<FsNode>>,
-    pub files: rustc_hash::FxHashSet<std::ffi::OsString>,
+    pub files: rustc_hash::FxHashMap<std::ffi::OsString, u32>, // Stores file sizes in KiB.
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,7 +20,7 @@ impl FsNode {
     pub fn new() -> Self {
         FsNode {
             dir: rustc_hash::FxHashMap::default(),
-            files: rustc_hash::FxHashSet::default(),
+            files: rustc_hash::FxHashMap::default(),
         }
     }
 
@@ -46,7 +46,7 @@ impl FsNode {
         result
     }
 
-    pub fn insnode(&mut self, path: &std::path::Path, is_dir: bool) {
+    pub fn insnode(&mut self, path: &std::path::Path, is_dir: bool, size: u32) {
 
         let mut current = self;
 
@@ -65,7 +65,7 @@ impl FsNode {
                     .or_insert_with(|| std::sync::Arc::new(FsNode::new()));
                 current = std::sync::Arc::make_mut(child);
             } else {
-                current.files.insert(component.to_owned());
+                current.files.insert(component.to_owned(), size);
             }
         }
     }
@@ -91,7 +91,7 @@ impl FsNode {
             .build_parallel();
 
         let dir_ = dir.clone();
-        let (tx, rx) = std::sync::mpsc::channel::<(std::path::PathBuf, bool)>();
+        let (tx, rx) = std::sync::mpsc::channel::<(std::path::PathBuf, bool, u32)>();
         let walk_thread = std::thread::spawn(move || {
             walker.run(|| {
                 let tx_ = tx.clone();
@@ -99,10 +99,9 @@ impl FsNode {
 
                 Box::new(move |result| {
                     if let Ok(entry) = result {
-
                         if entry.file_type().map_or(false, |ft| ft.is_dir()) {
                             if let Ok(p) = entry.path().strip_prefix(&dir_) {
-                                let _ = tx_.send((p.to_path_buf(), true));
+                                let _ = tx_.send((p.to_path_buf(), true, 0));
                             }
                         }
                         else {
@@ -110,11 +109,41 @@ impl FsNode {
                                 match p.extension() {
                                     Some(ext) => {
                                         if is_tracked_file_extension(ext) {
-                                            let _ = tx_.send((p.to_path_buf(), false));
+                                            match entry.metadata() {
+                                                Ok(metadata) => {
+                                                    let _ = tx_.send((
+                                                        p.to_path_buf(),
+                                                        false,
+                                                        file_size_in_kib(metadata.len()),
+                                                    ));
+                                                }
+                                                Err(error) => {
+                                                    log::warn!(
+                                                        "failed to read metadata for {:?}: {:?}",
+                                                        entry.path(),
+                                                        error
+                                                    );
+                                                }
+                                            }
                                         }
                                     }
                                     None => {
-                                        let _ = tx_.send((p.to_path_buf(), false));
+                                        match entry.metadata() {
+                                            Ok(metadata) => {
+                                                let _ = tx_.send((
+                                                    p.to_path_buf(),
+                                                    false,
+                                                    file_size_in_kib(metadata.len()),
+                                                ));
+                                            }
+                                            Err(error) => {
+                                                log::warn!(
+                                                    "failed to read metadata for {:?}: {:?}",
+                                                    entry.path(),
+                                                    error
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -126,8 +155,8 @@ impl FsNode {
             });
         });
         
-        for (path, is_dir) in rx {
-            nodem.insnode(&path, is_dir);
+        for (path, is_dir, size) in rx {
+            nodem.insnode(&path, is_dir, size);
         }
 
         walk_thread.join().unwrap();
@@ -169,7 +198,7 @@ impl FsNode {
             }
 
             if matched {
-                return Some((current_ref.dir.keys().cloned().collect(), current_ref.files.iter().cloned().collect()));
+                return Some((current_ref.dir.keys().cloned().collect(), current_ref.files.keys().cloned().collect()));
             }
         }
 
@@ -221,7 +250,7 @@ impl FsNode {
                                 return current_ref.dir.contains_key(osstr);
                             }
                             else if kind == NodeKind::File {
-                                return current_ref.files.contains(osstr);
+                                return current_ref.files.contains_key(osstr);
                             }
                         }
                     }
@@ -229,6 +258,33 @@ impl FsNode {
             }
         }
         return false;
+    }
+
+    pub fn sourcefile_size<P: AsRef<std::path::Path> + ?Sized>(&self, path: &P) -> Option<u32> {
+        let target = path.as_ref();
+
+        for (root, node) in &self.dir {
+            let Ok(rest) = target.strip_prefix(root) else {
+                continue;
+            };
+
+            let mut current = node.as_ref();
+            let mut components = rest.components().peekable();
+
+            while let Some(component) = components.next() {
+                let std::path::Component::Normal(name) = component else {
+                    return None;
+                };
+
+                if components.peek().is_none() {
+                    return current.files.get(name).copied();
+                }
+
+                current = current.dir.get(name)?.as_ref();
+            }
+        }
+
+        None
     }
 }
 
@@ -240,6 +296,15 @@ fn is_tracked_file_extension(ext: &std::ffi::OsStr) -> bool {
             | b"dat" | b"inl" | b"ipp"
             | b"cppm" | b"ixx" | b"h++" | b"inc"
     )
+}
+
+pub fn file_size_in_kib(size_in_bytes: u64) -> u32 {
+    let size_in_kib = size_in_bytes
+        .saturating_add(1023)
+        .checked_div(1024)
+        .unwrap_or(u64::MAX);
+
+    u32::try_from(size_in_kib).unwrap_or(u32::MAX)
 }
 
 pub struct WalkDir {

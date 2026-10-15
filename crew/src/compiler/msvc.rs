@@ -783,7 +783,17 @@ impl MSVC {
             for dir in roots {
                 crate::compiler::model::WALK_FS_NODE.as_mut().unwrap().add(&dir.into_os_string());
             }
+
+            let filesystem = crate::compiler::model::WALK_FS_NODE.as_ref().unwrap();
+            sources.sort_by_key(|source| {
+                std::cmp::Reverse(
+                    filesystem
+                        .sourcefile_size(std::path::Path::new(source))
+                        .unwrap_or(0),
+                )
+            });
         }
+
         log::debug!("query include dir and files done. elapsed time: {:?}", now.elapsed());
         
         let local_include_dirs = std::sync::Arc::new(source_file_current_dir);

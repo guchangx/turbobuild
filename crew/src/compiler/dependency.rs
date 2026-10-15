@@ -571,9 +571,17 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
             }
             else {
                 if p.is_file() {
+                    let size = match std::fs::metadata(&p) {
+                        Ok(metadata) => crate::compiler::walkdir::file_size_in_kib(metadata.len()),
+                        Err(error) => {
+                            log::warn!("failed to read metadata for {:?}: {:?}", p, error);
+                            return Some(p);
+                        }
+                    };
+
                     if let Some(nodem) = reader.dir.get_mut(&dir) {
                         let nodem = std::sync::Arc::make_mut(nodem);
-                        nodem.insnode(std::path::Path::new(dep), false);
+                        nodem.insnode(std::path::Path::new(dep), false, size);
                     }
                     return Some(p);
                 }
@@ -599,9 +607,17 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
             }
             else {
                 if p.is_file() {
+                    let size = match std::fs::metadata(&p) {
+                        Ok(metadata) => crate::compiler::walkdir::file_size_in_kib(metadata.len()),
+                        Err(error) => {
+                            log::warn!("failed to read metadata for {:?}: {:?}", p, error);
+                            return Some(p);
+                        }
+                    };
+
                     if let Some(nodem) = reader.dir.get_mut(&dir.to_owned().into_os_string()) {
                         let nodem = std::sync::Arc::make_mut(nodem);
-                        nodem.insnode(std::path::Path::new(dep), false);
+                        nodem.insnode(std::path::Path::new(dep), false, size);
                     }
                     return Some(p);
                 }
