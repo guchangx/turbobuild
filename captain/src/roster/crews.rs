@@ -115,6 +115,7 @@ impl TaskManager {
 
 pub struct ConstitutionList {
     crews: Vec<CrewConstitution>,
+    #[allow(dead_code)]
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
 }
 
@@ -207,6 +208,7 @@ pub struct CrewResource {
 #[derive(Debug, Clone)]
 pub struct ResourceList {
     crews: Vec<CrewResource>,
+    #[allow(dead_code)]
     common: std::sync::Weak<std::sync::Mutex<crate::common::Common>>,
 }
 
