@@ -162,12 +162,12 @@ pub fn fetch_compiler_commands() -> Option<CompilerInput> {
     }
 
     if commands.len() <= 2  && commands.last().unwrap().to_string_lossy().ends_with(".rsp") {
-        let (project, compiler, commands) = fetch_and_parse_commands_for_msbuild(&mut commands);
+        let (_solution, compiler, commands) = fetch_and_parse_commands_for_msbuild(&mut commands);
         match commands {
             Some(commands) => {
                 let input = CompilerInput {
                     solution: solution_.unwrap(),
-                    project: if project.is_empty() { project_.unwrap() } else { std::ffi::OsString::from(project) },
+                    project: if _solution.is_empty() { project_.unwrap() } else { std::ffi::OsString::from(_solution) },
                     index: index,
                     compiler_path: if compiler.is_empty() { compiler_.unwrap() } else { std::ffi::OsString::from(compiler) },
                     compiler_working_dir: std::ffi::OsString::from(working_dir),
@@ -265,7 +265,7 @@ fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsStr
 
             match fetch_compiler_parameters_from_response_file(rspfile.to_string_lossy().replace("@", "")) {
                 Some(line) => {
-                    let (project, compiler, commands) = parse_commands_by_line(line.as_str());
+                    let (solution, compiler, commands) = parse_commands_by_line(line.as_str());
                     
                     if !compiler.is_empty() {
                         let path = std::path::PathBuf::from(compiler.clone());
@@ -278,7 +278,7 @@ fn fetch_and_parse_commands_for_msbuild(input_commands: &mut Vec<std::ffi::OsStr
                             .nth(0)
                             .unwrap();
                     }
-                    return (project, compiler, Some(commands));
+                    return (solution, compiler, Some(commands));
                 },
                 None => {
                     return (String::new(), String::new(), None);
@@ -298,7 +298,8 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
     if let Some(start) = line.find(assist) {
         let cl = "cl.exe";
         if let Some(end) = line[start..].find(cl) {
-            let assit_cl = &line[start..(start + end + cl.len() + 1)];
+            let end_idx = (start + end + cl.len() + 1).min(line.len());
+            let assit_cl = &line[start..end_idx];
             line_ = line.replace(assit_cl, "").to_string();
             compiler = assit_cl.replace(assist, "").trim_end().to_string();
         }
@@ -308,20 +309,19 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
     }
 
     let mut line__ = String::new();
-    let mut project = String::new();
+    let mut solution = String::new();
     let assist = "BuildAssistSolutionName:";
     if let Some(start) = line_.find(assist) {
         let delimiter = " ";
         if let Some(end) = line_[start..].find(delimiter) {
-            let project_name = &line_[start..(start + end + delimiter.len())];
-            line__ = line_.replace(project_name, "").to_string();
-            project = project_name.replace(assist, "").trim_end().to_string();
+            let solution_name = &line_[start..(start + end + delimiter.len())];
+            line__ = line_.replace(solution_name, "").to_string();
+            solution = solution_name.replace(assist, "").trim_end().to_string();
         }
     }
     else {
         line__.push_str(&line_);
     }
-
     
     let commands: Vec<_> = line__.split(&[' ', '\u{A0}']).collect();
 
@@ -403,7 +403,7 @@ fn parse_commands_by_line(line: &str) -> (String, String, Vec<std::ffi::OsString
             result_.push(std::ffi::OsString::from(item));
         }
     }
-    return (project, compiler, result_);
+    return (solution, compiler, result_);
 }
 
 fn parse_commands_for_ninja(commands: &Vec<std::ffi::OsString>) -> Option<std::ffi::OsString> {
@@ -466,9 +466,10 @@ mod tests {
     #[test]
     //cargo test --package buildassist --tests parse_commands -- --show-output
     fn parse_commands() {
-        let line = r#"/c /IE:\TestFuture\GammaRay\GammaRayTool\build_enable\3rdparty\kde /Zi /nologo /W1 /WX- /diagnostics:column /Od /Ob0 /D _WINDLL /D UNICODE /D WIN32 /D UNICODE /D QT_CORE_LIB /D "CMAKE_INTDIR=\"Debug\"" /D MAKE_KITEMMODELS_LIB /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /Fo"gammaray_kitemmodels.dir\Debug\\" /Fd"gammaray_kitemmodels.dir\Debug\vc143.pdb" /external:W0 /Gd /TP /wd4244 /errorReport:prompt BuildAssistCompilerPath:C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\cl.exe BuildAssistProjectName:GammaRay /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include/QtCore" E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\kmodelindexproxymapper.cpp E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\krecursivefilterproxymodel.cpp"#;
+        let line = r#"/c /IE:\TestFuture\GammaRay\GammaRayTool\build_enable\3rdparty\kde /Zi /nologo /W1 /WX- /diagnostics:column /Od /Ob0 /D _WINDLL /D UNICODE /D WIN32 /D UNICODE /D QT_CORE_LIB /D "CMAKE_INTDIR=\"Debug\"" /D MAKE_KITEMMODELS_LIB /Gm- /EHsc /RTC1 /MDd /GS /fp:precise /Zc:wchar_t /Zc:forScope /Zc:inline /GR /Fo"gammaray_kitemmodels.dir\Debug\\" /Fd"gammaray_kitemmodels.dir\Debug\vc143.pdb" /external:W0 /Gd /TP /wd4244 /errorReport:prompt BuildAssistCompilerPath:C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC\14.39.33519\bin\Hostx64\x64\cl.exe BuildAssistSolutionName:GammaRay /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include" /external:I "D:/WorkTool/Qt/qt_5.15.2.17/out64/include/QtCore" E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\kmodelindexproxymapper.cpp E:\TestFuture\GammaRay\GammaRayTool\3rdparty\kde\krecursivefilterproxymodel.cpp"#;
         let (project, compiler, commands) = parse_commands_by_line(line);
         assert!(!project.is_empty() && compiler.ends_with("cl.exe"));
+        assert_eq!(project, "GammaRay");
         println!("commands {:?}", commands);
     }
 
@@ -524,6 +525,8 @@ mod tests {
         ];
         let out = fetch_and_parse_commands_for_cmake(&mut input);
         println!("commands {:#?}", out);
+        assert_eq!(out.0, std::ffi::OsString::from("clang-cl.exe"));
+        assert_eq!(out.1, vec![std::ffi::OsString::from("/nologo")]);
     }
 
 }

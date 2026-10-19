@@ -8,7 +8,7 @@ pub struct SocketClient {
 impl SocketClient {
 
     pub fn new() -> Self {
-        let addr = "localhost:22403".to_socket_addrs().unwrap().next().unwrap();
+        let addr = std::net::SocketAddr::V6(std::net::SocketAddrV6::new(std::net::Ipv6Addr::LOCALHOST, 22403, 0, 0));
         match std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_secs(3)) {
             Ok(client) => {
                 Self {
