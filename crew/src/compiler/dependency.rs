@@ -377,7 +377,7 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: std::sync::Arc<std:
 
     let mut includes = std::vec::Vec::new();
 
-    for line in content.split(|&b| b == b'\n').take(180) {
+    for line in content.split(|&b| b == b'\n').take(36000) {
 
         if line.is_empty() || line[0] == b'\r' { continue; }
         let trimmed = trim(line);
@@ -559,6 +559,10 @@ fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String
 
 fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path::PathBuf>, dep: &str) -> Option<std::path::PathBuf> {
     
+    if include_dirs.is_empty() {
+        return Some(std::path::PathBuf::from(dep));
+    }
+
     #[allow(static_mut_refs)]
     if dep.starts_with("..") {
         let reader = unsafe { crate::compiler::model::WALK_FS_NODE.as_mut().unwrap() };
@@ -724,7 +728,7 @@ fn query_include_dir_recursive(dir: std::path::PathBuf, start: &std::path::PathB
 #[cfg(test)]
 mod tests {
 
-    use super::*;
+use super::*;
     #[test]
     fn test_parser_sourcefile_dependency() {
         let content = b"// This is a comment\n#include <stdio.h>\n#include \"myheader.h\"\nint main() { return 0; }";
@@ -1012,6 +1016,19 @@ mod tests {
         assert_eq!(dependencies.len(), 1);
     }
 
+    #[test]
+    fn test_parser_sourcefile_dependency_with_include_define() {
+        let content = r#"
+            #include SOME_HEADER_FILE
+        "#;
+
+        let defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::from([("SOME_HEADER_FILE".to_string(), Some("myheader.h".to_string()))])));
+
+        let include_dirs = &std::vec::Vec::new();
+
+        let dependencies = parser_sourcefile_dependency(content.as_bytes(), defines, include_dirs);
+        println!("{:?}", &dependencies);
+    }
     //TODO: 
     //#if __has_include(<version>)
     //#  include <version>

@@ -1,6 +1,8 @@
 
 fn main()  {
-    println!("captain build xxxxx.proto file.");
+    
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=./../proto/notify.proto");
 
     std::env::set_var("PROTOC", "./../vendor/protoc-28.1-win64/bin/protoc.exe");
     
