@@ -1159,24 +1159,25 @@ impl MSVC {
         let (rwlock, write) = match resolve_dependency_includes.entry(path.clone()) {
             dashmap::mapref::entry::Entry::Occupied(entry) => {
                 // Handle the case where the entry already exists
-                (entry.get().clone(), false)
+                (entry.get().clone(), None)
             },
             dashmap::mapref::entry::Entry::Vacant(entry) => {
                 // Handle the case where the entry does not exist
                 let rwlock = std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new()));
+                let guard = rwlock.clone().try_write_owned().expect("new lock must be free");
                 entry.insert(rwlock.clone());
-                (rwlock, true)
+                (rwlock, Some(guard))
             },
         };
 
-        if write {
+        if let Some(mut _write_guard) = write {
+            
             // returns true if the key was not already in the set.
             if !cache.insert(path.clone()) {
+                log::info!("insert file already exists in cache, skip parser {:?}", path);
                 return;
             }
-
-            let mut _write_guard = rwlock.write().await;
-
+            
             let content = bytes::Bytes::from(tokio::fs::read(&path).await.unwrap_or_else(|_| {
                 log::error!("failed to read file: {:?}", path);
                 Vec::new()
@@ -1198,8 +1199,6 @@ impl MSVC {
             };
     
             let _ = stream.send(archive).await;
-
-            log::trace!("parsed source file {:?} {:?}", project, path);
             
             let parent = p.parent().unwrap_or_else(|| std::path::Path::new("")).to_path_buf();
 
@@ -1216,7 +1215,8 @@ impl MSVC {
 
             *_write_guard = dependency.clone().into_iter().collect::<std::collections::HashSet<String>>();
             drop(_write_guard);
-    
+            
+            log::trace!("parsed source file {:?} {:?} dependencies: {:?}", project, path, dependency);
             for dep in dependency.clone() {
                 Box::pin(async {
                     self.parser_sourcefile_sync_dependency(dep, defines.clone(), include_dirs, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
@@ -1225,15 +1225,8 @@ impl MSVC {
         }
         else {
             // returns true if the key was not already in the set.
-            if !cache.insert(path.clone()) {
-                let reader = {
-                    let r = rwlock.read().await;
-                    r.clone()
-                };
-
-                if reader.is_empty() {
-                    return;
-                }
+            if !cache.insert(path.clone()) { //if exists.
+                log::warn!("file already exists in cache, skip parser {:?}", path);
             }
             else {
                 let content = bytes::Bytes::from(tokio::fs::read(&path).await.unwrap_or_else(|_| {
@@ -1264,6 +1257,7 @@ impl MSVC {
                 let r = rwlock.read().await;
                 r.clone()
             };
+
             for dep in reader.iter() {
                 if !cache.contains(dep) {
                     Box::pin(async {
