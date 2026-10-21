@@ -1852,44 +1852,41 @@ pub unsafe fn nt_create_file(
                         true
                     }
                     else {
-                        false
-                    };
-                    /* 
-                    //check from include and dependency
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    let mut args =  std::collections::HashMap::<String, String>::new();
-                    args.insert("objectname".to_string(), unmodified.clone());
-                    args.insert("replace".to_string(), name.clone());
-                    args.insert("exists".to_string(), "".to_string());
-                    
-                    let syscall = {
-                        let mut cid = SYS_CALL_ID.lock().unwrap();
-                        let syscall = crate::syscallredirect::MirrorSysCall {
-                            cid: *cid,
-                            api: "NtCreateFile".into(),
-                            args,
-                            responder: tx,
+                        //check from include and dependency
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        let mut args =  std::collections::HashMap::<String, String>::new();
+                        args.insert("objectname".to_string(), unmodified.clone());
+                        args.insert("replace".to_string(), name.clone());
+                        args.insert("exists".to_string(), "".to_string());
+                        
+                        let syscall = {
+                            let mut cid = SYS_CALL_ID.lock().unwrap();
+                            let syscall = crate::syscallredirect::MirrorSysCall {
+                                cid: *cid,
+                                api: "NtCreateFile".into(),
+                                args,
+                                responder: tx,
+                            };
+                            *cid += 1;
+                            syscall
                         };
-                        *cid += 1;
-                        syscall
-                    };
-                    
-                    crate::log!(trace, "nt_create_file includes hook send syscall cid: {:?} args: {:?}", &syscall.cid, &syscall.args);
-                    crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(syscall).unwrap();
-                    let exists = rx.blocking_recv().unwrap();
-                    if let Some(exists) = exists.get("exists") {
-                        if exists == "true" {
-                            true
+                        
+                        crate::log!(trace, "nt_create_file includes hook send syscall cid: {:?} args: {:?}", &syscall.cid, &syscall.args);
+                        crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(syscall).unwrap();
+                        let exists = rx.blocking_recv().unwrap();
+                        if let Some(exists) = exists.get("exists") {
+                            if exists == "true" {
+                                true
+                            }
+                            else
+                            {
+                                false
+                            }
                         }
-                        else
-                        {
+                        else {
                             false
                         }
-                    }
-                    else {
-                        false
-                    }
-                    */
+                    };
 
                     if is_exists {
                         let mut object_name_source_wide_char = std::ffi::OsString::from(name.clone()).encode_wide().chain(std::iter::once(0)).collect::<Vec<_>>();
