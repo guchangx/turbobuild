@@ -1,10 +1,10 @@
-
+﻿
 use crew::compiler::model::{CompiledResult, CompiledResults, CompilerInput, CompilerOutput};
 use std::io::Read;
 use windows_sys::Win32 as win;
 
 pub struct MSVC {
-    pub version: String,
+    #[allow(dead_code)] pub version: String,
     pub out_err_stream: crate::compiler::msvc::CompiledResultsStream,
 }
 
@@ -138,10 +138,9 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput, 
         combine_commands.push(commands[commands.len() - 1].clone());
     }
 
-    log::debug!("origin working dir: {:?}", compiler_input.compiler_working_dir);
+    
     let replica_working_dir = redirect_working_dir(&compiler_input.compiler_working_dir, &compiler_input.solution);
 
-    log::debug!("orgin compiler: {:?}", compiler_input.compiler_path);
     let replica_compiler = redirect_compiler_path(compiler_input.compiler_path.clone());
 
     if replica_compiler.is_some() {
@@ -158,10 +157,11 @@ fn request_local_compile_by_preprocessed_source(compiler_input: &CompilerInput, 
         return (output, results);
     }
     else {
+        log::error!("Failed to redirect compiler path: compiler not found in replica directory for {:?}", compiler_input.compiler_path);
         let mut output = CompilerOutput::default();
         output.status = 1;
         output.err = std::sync::Arc::new("can not find compiler in replica dir.".as_bytes().to_vec());
-        return (output, None);  
+        return (output, None);
     }
 }
 
@@ -211,7 +211,6 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
             stream_objfiles.lock().unwrap().push(data.clone());
             let line = String::from_utf8_lossy(&data);
 
-            log::info!("{:?} stream stdout: {:?}", &project_name_, line);
  
             //limited concurrency
             let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(32));
@@ -252,7 +251,7 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
                             idb: None,
                         };
                         let _ = out_stream.try_send(vec![compiled_result]).unwrap_or_else(|err| {
-                            log::warn!("try send .obj results to out stream failed: {:?}", err);
+                            log::warn!("Failed to send .obj result to output stream: {:?}", err);
                         });
                     }
                 }   
@@ -261,18 +260,16 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         }
 
         drop(out_stream);
-        log::info!("stream stdout end {:?}", &project_name_);
     });
 
     let err_stream = out_err_stream.stderr.clone();
 
     let _ = rt.spawn(async move {
         while let Some(data) = err_receiver.recv().await {
-            log::info!("{:?} stream stderr: {:?}",  &project_name__, String::from_utf8_lossy(&data));
+            log::debug!("{:?} stream stderr: {:?}", &project_name__, String::from_utf8_lossy(&data));
 
             //let _ = err_stream.send(data);
         }
-        log::info!("stream stderr end {:?}", &project_name__);
         drop(err_stream);
     });
 
@@ -287,7 +284,6 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
     if status == 0 {
         let lines: Vec<_> = compile_output.lines().collect();
         let (files, _warnings) = filter_compiler_warning(lines);
-        log::info!("{:?} finally stream stdout: {:?}", &project_name_, files);
         if false {
             if unready_objfiles.lock().unwrap().is_empty() {
                  
@@ -327,10 +323,10 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         let (lines, errors) = filter_compiler_error(lines);
         let compiled_filename: Vec<_> = lines.iter().map(|item| std::ffi::OsString::from(item)).collect();
         let compiled_output: Vec<_> = errors.iter().map(|item| std::ffi::OsString::from(item)).collect();
-        log::warn!("compile result failed. filename: {:?}, errors: {:?}", compiled_filename, compiled_output);
+        log::error!("Compilation failed for {:?}. Filenames: {:?}, Errors: {:?}, Stderr: {}", project_name_, compiled_filename, compiled_output, compile_error);
     }
 
-    log::info!("{:?} injectd compile status: {}, {:?} stdout: {:?} stderr: {:?}", project_name_, status, now.elapsed(), compile_output, compile_error);
+    log::info!("Compiled project {:?} in {:?}, exit status: {}", project_name_, now.elapsed(), status);
 
     let result = CompilerOutput {
         status: status,
@@ -369,11 +365,10 @@ async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_
                 result = path;
             },
             _ => {
-                log::warn!("fetch result obj file path failed.");
+                log::warn!("Failed to determine obj file path for line: {:?}", line);
             }
         };
 
-        log::trace!("compile result generated object path: {:?}", result);
 
         let compiled_result = crew::compiler::model::CompiledResult {
             source_file: std::ffi::OsString::from(&line),
@@ -382,7 +377,7 @@ async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_
             idb: None,
         };
         let _ = out_stream.try_send(vec![compiled_result]).unwrap_or_else(|err| {
-            log::warn!("try send .obj results to out stream failed: {:?}", err);
+            log::warn!("Failed to send .obj result to output stream: {:?}", err);
         });
         
         match tokio::fs::File::open(&result).await {
@@ -401,30 +396,27 @@ async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_
                 };
 
                 crate::communicate::unpackager::TASK_TO_FILE_CHANNEL.task_to_file_tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                    log::warn!("send unready .obj file path to channel failed: {:?}", err);
+                    log::warn!("Failed to send unready .obj file to channel: {:?}", err);
                 });
             },
             Err(error) => {
                 unready_objfiles = Some((line.to_string(), result.clone()));
                 if error.kind() == std::io::ErrorKind::NotFound {
-                    log::trace!(".obj file path is not found. {:?}.", unready_objfiles);
                 }
                 else {
-                    log::error!(".obj file read failed. {:?}, {:?}.", error, unready_objfiles);
+                    log::error!("Failed to read .obj file: error={:?}, unready={:?}", error, unready_objfiles);
                 }
             }
         };
         result.clear();
     }
     else {
-        log::trace!("exclude source file, maybe warning and error. {:?}", line);
     }
     return unready_objfiles;
 }
 
 fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<std::string::String, std::path::PathBuf>>>, solution_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
     
-    log::trace!("unready obj files: {:?}", objfiles.lock().unwrap());
     use tokio::io::AsyncReadExt;
     let objfiles: Vec<_> = objfiles.lock().unwrap().iter().map(|(k, v)|(k.clone(), v.clone())).collect();
     for (line, objfile) in objfiles {
@@ -440,7 +432,7 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
             idb: None,
         };
         let _ = out_stream.try_send(vec![compiled_result]).unwrap_or_else(|err| {
-            log::warn!("send unready .obj results to out stream failed: {:?}", err);
+            log::warn!("Failed to send unready .obj result to output stream: {:?}", err);
         });
 
         let rt = {crate::common::COCREW_RUNTIME.lock().unwrap().handle().clone()};
@@ -448,7 +440,6 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
 
             match tokio::fs::File::open(&objfile).await {
                 Ok(file) => {
-                    log::info!("sync unready obj file: {:?}", objfile);
 
                     let mut contents = Vec::new();
                     let mut file = tokio::io::BufReader::new(file);
@@ -464,24 +455,22 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
                         idb: None,
                     };
                     crate::communicate::unpackager::TASK_TO_FILE_CHANNEL.task_to_file_tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                        log::warn!("send unready .obj file path to channel failed: {:?}", err);
+                        log::warn!("Failed to send unready .obj file to channel: {:?}", err);
                     });
                 },
                 Err(error) => {
                     if error.kind() == std::io::ErrorKind::NotFound {
-                        log::trace!("unready .obj file path is not found. {:?}.", objfile);
                     }
                     else {
-                        log::error!("unready .obj file read failed. {:?}, {:?}.", error, objfile);
+                        log::error!("Failed to read unready .obj file {:?}: {:?}", objfile, error);
                     }
                 }
             };
         });
     }
-    log::trace!("unready obj file end, send out stream end.");
 }
 
-fn return_local_compile_result_pdb_files(program_database: ProgramDataBase, solution_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
+#[allow(dead_code)] fn return_local_compile_result_pdb_files(program_database: ProgramDataBase, solution_name: &std::ffi::OsString, origin_working_dir: &std::ffi::OsString, out_err_stream: &crate::compiler::msvc::CompiledResultsStream) {
     let mut result = std::path::PathBuf::from("");
     match &program_database {
         ProgramDataBase::PathWithPDBName(path) => {
@@ -492,11 +481,10 @@ fn return_local_compile_result_pdb_files(program_database: ProgramDataBase, solu
             result.set_extension("pdb");
         },
         _ => {
-            log::warn!("fetch result pdb file path failed.");
+            log::warn!("Failed to resolve pdb file path for database: {:?}", program_database);
         }
     };
     
-    log::trace!("compile result program database path: {:?}", result);
     let mut compiled_results: CompiledResults = Vec::new();
 
     let mut pdb: Option<(std::ffi::OsString, i64, bytes::Bytes, bool)> = None;
@@ -513,10 +501,10 @@ fn return_local_compile_result_pdb_files(program_database: ProgramDataBase, solu
             },
             Err(error) => {
                 if error.kind() == std::io::ErrorKind::NotFound {
-                    log::warn!(".pdb file path is not found. path: {:?}", result);
+                    log::warn!("Open .pdb file path not found: {:?}", result);
                 }
                 else {
-                    log::warn!(".pdb file read failed. {:?}, {:?}.", error, result);
+                    log::warn!("Open .pdb file {:?} {:?}", result, error);
                 }
             }
         }
@@ -535,7 +523,7 @@ fn return_local_compile_result_pdb_files(program_database: ProgramDataBase, solu
                     //log::warn!(".idb file path is not found.");
                 }
                 else {
-                    log::warn!(".idb file read failed. {:?}", error);
+                    log::warn!("Open .idb file {:?} {:?}", result, error);
                 }
             },
         }
@@ -551,12 +539,12 @@ fn return_local_compile_result_pdb_files(program_database: ProgramDataBase, solu
             compiled_results.push(compiled_result);
 
             out_err_stream.stdout.try_send(compiled_results).unwrap_or_else(|err| {
-                log::warn!("try send compiled pdb results to out stream failed: {:?}", err);
+                log::warn!("Failed to send compiled pdb results to out stream: {:?}", err);
             });
         }
     }
     else {
-        log::warn!("pdb file is not found, path: {:?}.", result);
+        log::warn!("Open .pdb file path not found: {:?}", result);
     }
 }
 
@@ -572,10 +560,9 @@ fn wait_local_compile_result_pdb_files(program_database: ProgramDataBase, soluti
             result.set_extension("pdb");
         },
         _ => {
-            log::warn!("fetch result pdb file path failed.");
+            log::warn!("Failed to resolve pdb file path for database: {:?}", program_database);
         }
     };
-    log::trace!("wait compile result program database path: {:?}", result);
     let origin = crate::compiler::msvc::repair_original_path(&solution_name, &origin_working_dir, &result);
     let slot = {
         let mut map = PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap();
@@ -585,7 +572,6 @@ fn wait_local_compile_result_pdb_files(program_database: ProgramDataBase, soluti
     };
     let compiled_gen_result = slot.blocking_read();
 
-    log::trace!("compile result program database path: {:?} offset: {} length: {}", origin, compiled_gen_result.pdb.as_ref().map_or(0, |pdb| pdb.1), compiled_gen_result.pdb.as_ref().map_or(0, |pdb| pdb.2.len()));
     
     crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap().remove(&origin.to_string_lossy().to_string());
 
@@ -601,7 +587,7 @@ fn wait_local_compile_result_pdb_files(program_database: ProgramDataBase, soluti
         compiled_results.push(compiled_result);
 
         out_err_stream.stdout.try_send(compiled_results).unwrap_or_else(|err| {
-            log::warn!("try send compiled pdb results to out stream failed: {:?}", err);
+            log::warn!("Failed to send compiled pdb results to out stream: {:?}", err);
         });
     }
 }
@@ -753,7 +739,7 @@ fn exact_compile_pdb_path(solution: std::borrow::Cow<str>, mut arg: std::borrow:
 struct CompileAction {
     pub program_database: ProgramDataBase,
     pub generated_object: GeneratedObject,
-    pub source_files: std::collections::HashMap<std::string::String, std::path::PathBuf>,
+    #[allow(dead_code)] pub source_files: std::collections::HashMap<std::string::String, std::path::PathBuf>,
 }
 
 fn parse_action_from_commands(compiler_input: &CompilerInput) -> CompileAction {
@@ -841,23 +827,23 @@ fn start_local_compiler(solution: &std::ffi::OsString, project: &std::ffi::OsStr
                 compiler_commands: &Vec<std::ffi::OsString>, envs: &std::collections::HashMap<std::ffi::OsString, std::ffi::OsString>, out_err_stream: &OutAndErrStream) 
                     -> (u32, std::sync::Arc<Vec<u8>>, std::sync::Arc<Vec<u8>>) {
 
-    log::trace!("solution: {:?}", solution);
-    log::trace!("project: {:?}", project);
-    log::trace!("working dir: {:?}", working_dir);
-    log::trace!("compiler path: {:?}", compiler_path);
-    log::trace!("compile content: {:?}", compiler_commands);
+    log::trace!("Solution: {:?}", solution);
+    log::trace!("Project: {:?}", project);
+    log::trace!("Working dir: {:?}", working_dir);
+    log::trace!("Compiler path: {:?}", compiler_path);
+    log::trace!("Compile content: {:?}", compiler_commands);
 
     let start = std::time::Instant::now();
     
     let (status, stdout, stderr) = start_local_compiler_with_inject(solution, project, compiler_path, working_dir, compiler_commands, envs, out_err_stream);
     
     let elapsed = start.elapsed();
-    log::info!("compile {:?} file with inject elapsed time: {:0x?}.", project, elapsed);
+    log::info!("Compiled project {:?} in {:?}", project, elapsed);
     return (status, stdout, stderr);
 }
 
 pub fn redirect_stdout_log() {
-    log::info!("redirect stdout log loop thread start.");
+    log::info!("Stdout log redirect server loop started");
 
     use std::os::windows::ffi::OsStrExt;
     let os_string = std::ffi::OsString::from("\\\\.\\pipe\\redirect_stdout_log_pipe");
@@ -910,7 +896,7 @@ pub fn redirect_stdout_log() {
                                 continue;
                             }
                             else {
-                                log::warn!("reaf pipe failed, error code: {}, message: {}, count: {}", error, tools::utils::get_winapi_error_message(error), count);
+                                log::warn!("Read named pipe failed, error code: {}, message: {}, count: {}", error, tools::utils::get_winapi_error_message(error), count);
                                 break;
                             }
                         }
@@ -931,7 +917,7 @@ pub fn redirect_stdout_log() {
             }
             else {
                 let error = win::Foundation::GetLastError();
-                log::debug!("connect named pipe failed. error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
+                log::debug!("Connect named pipe failed, error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
 
                 if error == win::Foundation::ERROR_NO_DATA {
     
@@ -944,7 +930,7 @@ pub fn redirect_stdout_log() {
         }
         else {
             let error = win::Foundation::GetLastError();
-            log::error!("connect named pipe failcreate named pipe failed. error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
+            log::error!("Create named pipe failed, error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
         }
         count += 1;
     }}
@@ -1004,7 +990,7 @@ fn redirect_compiler_path(compiler: std::ffi::OsString) -> Option<std::ffi::OsSt
                 return Some(compiler);
             }
             else {
-                log::warn!("redirect compiler path not found MSVC not find clang-cl, so return None.");
+                log::warn!("Redirect compiler path: neither MSVC nor clang-cl found in {:?}", compiler);
                 return None;
             }
         },
@@ -1019,9 +1005,9 @@ fn redirect_working_dir(working_dir: &std::ffi::OsString, solution: &std::ffi::O
             return Some(path.into_os_string());
         }
         else {
-            log::warn!("redirect working dir not exist so create, path: {:?} is not exists.", path);
+            log::debug!("Redirect working dir does not exist, creating: {:?}", path);
             std::fs::create_dir_all(&path).unwrap_or_else(|err| {
-                log::error!("create redirect working dir failed: {:?}, error: {:?}", path, err);
+                log::error!("Failed to create redirect working directory {:?}: {:?}", path, err);
             });
             return Some(path.into_os_string());
         }
@@ -1032,6 +1018,7 @@ fn redirect_working_dir(working_dir: &std::ffi::OsString, solution: &std::ffi::O
 } 
 
 #[cfg(test)]
+#[allow(unused)]
 mod tests {
 
     use crew::compiler;
@@ -1059,7 +1046,7 @@ mod tests {
                 while let Some(syscall) = rx.recv().await {
                     log::info!("recv syscall: {:?}", syscall);
 
-                    let responder = crate::communicate::syscallredirectpipe::GRPC_TO_NAMEDPIPE_CHANNEL.grpc_to_namedpipe_tx.as_ref();
+                    let responder = crate::communicate::syscallredirectpipe::PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL.read().unwrap().get(&(syscall.cid / 10000)).cloned();
                     
                     let command_result = crate::communicate::syscallredirectpipe::MirrorSysCall {
                         cid: syscall.cid,
@@ -1067,14 +1054,17 @@ mod tests {
                         args: std::collections::HashMap::from([("fileinformation".to_string(), "lz4.c".to_string())]),
                     };
 
-                    match responder.send(command_result) {
-                        Ok(_) => {
-                            log::info!("transmit redirect handle send callback success.");
-                        },
-                        Err(err) => {
-                            log::error!("transmit redirect handle send callback failed: {:?}", err);
-                        },
-                    };
+                    if let Some(responder) = responder {
+                        match responder.send(command_result).await {
+                            Ok(_) => {
+                                log::info!("transmit redirect handle send callback success.");
+                            },
+                            Err(err) => {
+                                log::error!("transmit redirect handle send callback failed: {:?}", err);
+                            },
+                        };
+                    }
+
                 }
             }
         });

@@ -1,4 +1,4 @@
-use std::{io, os::windows::io::AsRawHandle};
+﻿use std::{io, os::windows::io::AsRawHandle};
 use prost::bytes;
 use tokio::io::AsyncReadExt;
 
@@ -22,7 +22,7 @@ fn create_server(first_pipe_instance: bool) -> io::Result<tokio::net::windows::n
 async fn accept_connections(mut server: tokio::net::windows::named_pipe::NamedPipeServer) {
     loop {
         if let Err(error) = server.connect().await {
-            log::error!("server failed to connect artifacts redirect named pipe: {:?}", error);
+            log::error!("Failed to accept connection on artifacts redirect named pipe: {:?}", error);
             return;
         }
 
@@ -30,7 +30,7 @@ async fn accept_connections(mut server: tokio::net::windows::named_pipe::NamedPi
         server = match create_server(false) {
             Ok(server) => server,
             Err(error) => {
-                log::error!("server failed to replenish artifacts redirect named pipe: {:?}", error);
+                log::error!("Failed to create replenishment instance for artifacts redirect named pipe: {:?}", error);
                 return;
             }
         };
@@ -45,12 +45,10 @@ async fn accept_connections(mut server: tokio::net::windows::named_pipe::NamedPi
                 pid
             };
 
-            log::info!("connected to artifacts redirect named pipe server, client pid: {}", pid);
-
             if let Err(error) = handle(&mut connected).await {
                 //Custom { kind: UnexpectedEof, error: "early eof" }
-                if error.kind() != io::ErrorKind::UnexpectedEof {
-                    log::error!("server failed to handle artifacts redirect client {} {:?}", pid, error);
+                if error.kind() != io::ErrorKind::UnexpectedEof && error.kind() != io::ErrorKind::BrokenPipe {
+                    log::error!("Error handling artifacts redirect client (pid: {}): {:?}", pid, error);
                 }
             }
         });
@@ -67,14 +65,14 @@ pub fn compiler_redirect_artifacts() {
         match create_server(index == 0) {
             Ok(server) => waiting_servers.push(server),
             Err(error) => {
-                log::error!("failed to create artifacts redirect named pipe server instance {}/{}: {:?}", index + 1, *WAITING_PIPE_INSTANCES, error);
+                log::error!("Failed to create artifacts redirect named pipe server instance {}/{}: {:?}", index + 1, *WAITING_PIPE_INSTANCES, error);
                 break;
             }
         }
     }
 
     if waiting_servers.is_empty() {
-        log::error!("failed to create any artifacts redirect named pipe server instances");
+        log::error!("Failed to create any artifacts redirect named pipe server instances");
         return;
     }
 
@@ -83,7 +81,7 @@ pub fn compiler_redirect_artifacts() {
         rt.spawn(accept_connections(server));
     }
 
-    log::info!("artifacts redirect named pipe server ready with {} waiting instances", count);
+    log::info!("Artifacts redirect named pipe server ready with {} waiting instances", count);
 }
 
 async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> io::Result<()> {
@@ -144,10 +142,14 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                         let content = std::mem::take(&mut arti.content); //move ownership
                         let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), false);
                         if compiled_gen_result.obj.is_some() {
-                            let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
-                            tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                                log::warn!("send artifact file to grpc channel failed: {:?}", err);
-                            });
+                            let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).cloned();
+                            if let Some(tx) = tx {
+                                tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                                    log::warn!("Failed to send artifact to grpc channel for project '{}': {:?}", project, err);
+                                });
+                            } else {
+                                log::warn!("Cannot send artifact: channel for project '{}' not found", project);
+                            }
                         }
                         else if compiled_gen_result.pdb.is_some() {
                             let slot = {
@@ -162,8 +164,10 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                         if iscontinue == 0 {
                             let last_result = generate_artifact(&path, offset, bytes::Bytes::copy_from_slice(&buffer[16..(16 + clength as usize)]), true);
                             if last_result.obj.is_some() {
-                                let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
-                                tx.send(last_result).await.ok();
+                                let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).cloned();
+                                if let Some(tx) = tx {
+                                    tx.send(last_result).await.ok();
+                                }
                             }
                             else if last_result.pdb.is_some() {
                                 let slot = {
@@ -199,11 +203,11 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                                 
                                 if let Some(tx) = tx {
                                     tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                                        log::warn!("send artifact file to grpc channel failed: {:?}", err);
+                                        log::warn!("Failed to send artifact to grpc channel for project '{}': {:?}", project, err);
                                     });
                                 }
                                 else {
-                                    log::warn!("send artifact file to grpc channel failed: project {} not found {:?}", project,  crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().keys());
+                                    log::warn!("Cannot send artifact: channel for project '{}' not found", project);
                                 }
                             }
                             else if compiled_gen_result.pdb.is_some() {
@@ -227,10 +231,14 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                             let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), false);
     
                             if compiled_gen_result.obj.is_some() {
-                                let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
-                                tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                                    log::warn!("send artifact file to grpc channel failed: {:?}", err);
-                                });
+                                let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).cloned();
+                                if let Some(tx) = tx {
+                                    tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                                        log::warn!("Failed to send artifact to grpc channel for project '{}': {:?}", project, err);
+                                    });
+                                } else {
+                                    log::warn!("Cannot send artifact: channel for project '{}' not found", project);
+                                }
                             }
                             else if compiled_gen_result.pdb.is_some() {
                                 let slot = {
@@ -248,10 +256,14 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                             let compiled_gen_result = generate_artifact(&path, offset, bytes::Bytes::copy_from_slice(&buffer[16..(16 + clength as usize)]), true);
                             
                             if compiled_gen_result.obj.is_some() {
-                                let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).unwrap().clone();
-                                tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                                    log::warn!("send artifact file to grpc channel failed: {:?}", err);
-                                });
+                                let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).cloned();
+                                if let Some(tx) = tx {
+                                    tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                                        log::warn!("Failed to send artifact to grpc channel for project '{}': {:?}", project, err);
+                                    });
+                                } else {
+                                    log::warn!("Cannot send artifact: channel for project '{}' not found", project);
+                                }
                             }
                             else if compiled_gen_result.pdb.is_some() {
                                 let slot = {
@@ -280,11 +292,14 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                     if iscontinue.eq(&0) {
                         let compiled_gen_result = generate_artifact(&path, offset, bytes::Bytes::from(buffer[16..(16 + clength as usize)].to_vec()), if iscontinue == 0 { true } else { false });
                         if compiled_gen_result.obj.is_some() {
-                            let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref())
-                                .expect(format!("Failed to get channel for project: {} path: {}", project, path).as_str()).clone();
-                            tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
-                                log::warn!("send artifact file to grpc channel failed: {:?} path: {}", err, path);
-                            });
+                            let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).cloned();
+                            if let Some(tx) = tx {
+                                tx.send(compiled_gen_result).await.unwrap_or_else(|err| {
+                                    log::warn!("Failed to send artifact file to grpc channel: {:?} (path: {})", err, path);
+                                });
+                            } else {
+                                log::warn!("Cannot send artifact: channel for project '{}' not found (path: {})", project, path);
+                            }
                         }
                         else if compiled_gen_result.pdb.is_some() {
                             let slot = {
@@ -354,3 +369,4 @@ fn generate_artifact(path: &std::borrow::Cow<str>, offset: i64, context: bytes::
     };
     return compiled_gen_result;
 }
+

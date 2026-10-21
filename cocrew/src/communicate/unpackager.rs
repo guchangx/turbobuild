@@ -1,8 +1,8 @@
-
+﻿
 use tokio::io::AsyncWriteExt;
 
 use crate::{communicate::syscallredirectpipe::MirrorSysCall};
-use windows_sys::Win32::{self as win, UI::WindowsAndMessaging::STATE_SYSTEM_EXPANDED};
+use windows_sys::Win32 as win;
 
 #[allow(non_camel_case_types)]
 pub mod package {
@@ -111,7 +111,7 @@ impl Receiver {
 
     pub async fn init(&self) {
         let addr = "0.0.0.0:19302".parse().expect("parse addr failed");
-        log::debug!("init cocrew communicate server {}", addr);
+        log::info!("Starting cocrew communicate gRPC server on {}", addr);
 
         let socket = tokio::net::TcpSocket::new_v4().unwrap();
         socket.set_reuseaddr(true).unwrap();
@@ -146,10 +146,10 @@ impl Receiver {
         
         match result {
             Ok(_) => {
-                log::debug!("run communicate rpc service end");
+                log::info!("cocrew communicate rpc service stopped");
             },
             Err(err) => {
-                panic!("run communicate rpc service failed. addr {:?},  {:?}", addr, err);
+                log::error!("Failed to start communicate RPC service on {:?}: {:?}", addr, err); panic!("run communicate rpc service failed. addr {:?}, {:?}", addr, err);
             }
         }
     }
@@ -172,7 +172,6 @@ impl Receiver {
                         match result {
                             Some(result) => {
                                 if let Some((file, offset, context, last)) = result.obj {
-                                    log::debug!("received file transfer result: {:?}, offset: {:?} length: {:?}", file, offset, context.len());
                                     let reply = package::FileTrResponse {
                                         path: file.to_string_lossy().to_string(),
                                         offset: offset,
@@ -221,7 +220,7 @@ impl Receiver {
         while let Some(request) = stream.next().await {
             if let Ok(request) = request {
 
-                let name = request.name;
+                let _name = request.name;
                 let path = request.path;
                 let project = request.project;
 
@@ -252,7 +251,7 @@ impl Receiver {
 
                     }
                     else {
-                        log::error!("package toolchain is not end with .zip {}", path);
+                        log::error!("Toolchain package path does not end with .zip: {}", path);
                     }
                 }
                 else if file_type == package::FileType::Sourcefiles as i32 {
@@ -268,7 +267,7 @@ impl Receiver {
                 else if file_type == package::FileType::Precompiledsrcfiles as i32 {
                     let ret = Self::storage(&solution, &project, &path, &content).await;
                     if let Err(err) = ret {
-                        log::error!("transmit file handle save precompiled src files failed: {}", err);
+                        log::error!("Failed to save precompiled source file for project '{}': {}", project, err);
                         reply.error_code = 1;
                         reply.error_message = err;
                     };
@@ -307,7 +306,7 @@ impl Receiver {
                         }
                     }
                     else {
-                        log::error!("parse sync task count failed: {}", count_str);
+                        log::error!("Failed to parse sync task count '{}' for project '{}'", count_str, project);
                     }
                 }
                 else if file_type == package::FileType::Finish as i32 {
@@ -316,20 +315,20 @@ impl Receiver {
                     }
                 }
                 else {
-                    log::debug!("unknown file type: {}", file_type);
+                    log::warn!("Received unrecognized file type {} for path '{}'", file_type, path);
                 }
 
                 if tx.send(Ok(reply.clone())).await.is_err() {
-                    log::error!("tx send error.");
+                    log::error!("Failed to send file transfer response: stream channel closed");
                     break;
                 };
             }
             else {
-                log::error!("transmit file handle request error");
+                log::error!("Error reading file transfer request from stream");
                 break;
             }
         }
-        log::info!("transmit file handle end and remove task artifact channel, project: {}", &*project_);
+        log::info!("File transfer stream closed, cleaned up channel for project '{}'", &*project_);
         PROJECT_MAP_TASK_TO_FILE_CHANNEL.write().unwrap().remove(&*project_);
     }
     
@@ -354,8 +353,6 @@ impl Receiver {
                 (item.to_string(), repath.to_string_lossy().to_string())
             }).collect::<std::collections::HashMap<String, String>>());
 
-        log::trace!("transmit compile handle project: {}, file: {}, compiler: {}, commands size: {}, content size: {}KB.", &project, file, compiler, commands.len(), &content.len() / 1024 );
-
         if !content.is_empty() && !file.is_empty() {
             let ret = Self::storage(&solution_, &project, &file, &content).await;
 
@@ -373,7 +370,7 @@ impl Receiver {
                 reply.tips = ret.unwrap_err();
             }
 
-            tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("tx send failed: {:?}", err));
+            tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("Failed to send compile task response: {:?}", err));
         }
 
         if !compiler.is_empty() && !commands.is_empty() {
@@ -392,22 +389,15 @@ impl Receiver {
 
             let tx_ = tx.clone();
             
-            let project_ = project.clone();
             let output_callback = move |reply: package::CompileTrResponse| {
                 let tx = tx_.clone();
-                let project_ = project_.clone();
                 async move {
-                    for result in &reply.results {
-                        log::trace!("transmit compile handle {} return file: {}", project_, result.file);
-                    }
-
-                    tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("tx send failed: {:?}", err));
+                    tx.send(Ok(reply)).await.unwrap_or_else(|err| log::error!("Failed to send compile task response: {:?}", err));
                 }
             };
             handle.await.unwrap();
             Self::cocrew_execute(&compiler_input, output_callback).await;
             //TODO: what is file used for?
-            log::debug!("transmit compile task handle execute done, {} return file: {}", &project, file);
         }
 
         if compiler_.is_empty() || commands.is_empty() {
@@ -429,7 +419,6 @@ impl Receiver {
         let self_= self.clone();
         let self__ = self_.clone();
         let _read_handle = tokio::spawn(async move {
-            log::debug!("transmit redirect handle read task start.");
             let mut stream = request.into_inner();
 
             while let Some(request) = stream.next().await {
@@ -469,7 +458,7 @@ impl Receiver {
                                                 }
                                                 else {
                                                     //TODO: if rename failed, how to deal ?
-                                                    log::error!("rename file failed: from {} to {}, {}", format!("{}{}", &intermediate.file[4..], ".tmp"), &intermediate.file[4..], err);
+                                                    log::error!("Failed to rename temporary intermediate file to '{}': {}", &intermediate.file[4..], err);
                                                 }
                                             }
                                         }
@@ -537,7 +526,7 @@ impl Receiver {
                                                 Ok(_) => {},
                                                 Err(err) => {
                                                     if err.kind() == std::io::ErrorKind::AlreadyExists {
-                                                        log::error!("create replace dir failed: {} {}", replace, err)
+                                                        log::error!("Failed to create replace directory '{}': {}", replace, err)
                                                     }
                                                     else {
                                                         panic!("create replace dir failed: {} {}", replace, err);
@@ -578,12 +567,12 @@ impl Receiver {
                                                 Ok(_) => {
                                                 },
                                                 Err(err) => {
-                                                    log::error!("transmit redirect handle send create file exists cache callback failed: {:?}", err);
+                                                    log::error!("Failed to send NtCreateFile exists cache callback: {:?}", err);
                                                 },
                                             };
                                         }
                                         else {
-                                            log::error!("transmit redirect handle send create file exists cache callback failed: responder not found for cid: {}", cid);
+                                            log::error!("Failed to send NtCreateFile exists callback: responder not found for cid: {}", cid);
                                         }
                                     }
                                 }
@@ -620,7 +609,7 @@ impl Receiver {
                                                 Ok(_) => {
                                                 },
                                                 Err(err) => {
-                                                    log::error!("transmit redirect handle send create file expect cache callback failed: {:?}", err);
+                                                    log::error!("Failed to send NtCreateFile expect cache callback: {:?}", err);
                                                 },
                                             };
                                         }
@@ -675,7 +664,7 @@ impl Receiver {
                                                 Ok(_) => {
                                                 },
                                                 Err(err) => {
-                                                    log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);
+                                                    log::error!("Failed to send NtQueryDirectoryFile cache callback: {:?}", err);
                                                 },
                                             };
                                         }
@@ -709,12 +698,11 @@ impl Receiver {
                     });
                 }
                 else if let Err(err) = request {
-                    log::error!("transmit redirect handle inbound error: {:?}", err);
+                    log::error!("Syscall redirect inbound stream error: {:?}", err);
                     break;
                 }
             }
          
-            log::debug!("transmit redirect handle read task end.");
             
         });
 
@@ -882,7 +870,7 @@ impl Receiver {
                                             Ok(_) => {
                                             },
                                             Err(err) => {
-                                                log::error!("transmit redirect handle send query directory cache callback failed: {:?}", err);
+                                                log::error!("Failed to send NtQueryDirectoryFile cache callback: {:?}", err);
                                             },
                                         };
                                     }
@@ -902,11 +890,10 @@ impl Receiver {
                         Ok(_) => {
                         },
                         Err(err) => {
-                            log::warn!("transmit redirect handle send syscall message to crew failed. id: {} , {:?}", syscall.cid, err);
+                            log::warn!("Failed to forward syscall message to crew: id={}, {:?}", syscall.cid, err);
                         }
                     };
                 }
-                log::debug!("transmit redirect handle write task end.");
             }
             else {
                 panic!("transmit redirect handle obtain namedpipe to grpc channel failed.");
@@ -918,14 +905,13 @@ impl Receiver {
         use tokio::io::AsyncWriteExt;
 
         if solution.is_empty() || path.is_empty() {
-            log::error!("transmit storage project name or path is empty.");
+            log::error!("Storage failed: project name or path is empty");
             return Err("project or path param is empty, so do nothing".to_string());
         }
         else {
             let p: crew::replica::project::Property = crew::replica::project::Property::new(solution, path);
             let repath = p.fetch_local_replica_project_path();
             
-            log::trace!("transmit storage project: {}, path: {}, repath: {:?}, content size: {}KB.", project, path, repath, content.len() / 1024);
             if repath.extension() == Some(&std::ffi::OsStr::new("zip")) {
                 Self::extract(&repath.to_str().unwrap(), &content).await;
             }
@@ -936,7 +922,7 @@ impl Receiver {
                         if err.kind() == std::io::ErrorKind::NotFound {
                             let parent = repath.parent().unwrap();
                             if let Err(err) = tokio::fs::create_dir_all(parent).await {
-                                log::debug!("transmit storage create parent dir: {:?} err: {:?}", parent, err);
+                                log::warn!("Failed to create parent directory {:?}: {:?}", parent, err);
                                 Err(err)
                             }
                             else {
@@ -944,7 +930,7 @@ impl Receiver {
                             }
                         }
                         else {
-                            log::error!("transmit storage file create failed: {:?}, {}", repath, err);
+                            log::error!("Failed to create file {:?}: {}", repath, err);
                             Err(err)
                         }
                     }
@@ -956,16 +942,10 @@ impl Receiver {
                         Ok(_) => {
                             match tokio::fs::rename(&format!("{}{}", &repath.to_string_lossy(), ".tmp"), &repath).await {
                                 Ok(_) => {
-                                    log::trace!("transmit storage file success: {:?} {:?}", project, path);
                                 },
                                 Err(err) => {
                                     if err.raw_os_error() == Some(std::io::ErrorKind::AlreadyExists as i32) {
-                                        std::fs::rename(&format!("{}{}", &repath.to_string_lossy(), ".tmp"), &repath).unwrap_or_else(|err| {
-                                            log::trace!("transmit storage file rename file failed. from {} to {}, {}", &format!("{}{}", &repath.to_string_lossy(), ".tmp"), &repath.to_string_lossy(), err);
-                                        });
-                                    }
-                                    else {
-                                       log::trace!("transmit storage file rename failed. {:?} {:?} {}", project, repath, err);
+                                        let _ = std::fs::rename(&format!("{}{}", &repath.to_string_lossy(), ".tmp"), &repath);
                                     }
                                 }
                             }
@@ -985,7 +965,7 @@ impl Receiver {
         use tokio::io::AsyncWriteExt;
 
         if solution.is_empty() || path.is_empty() {
-            log::error!("transmit storage project name or path is empty.");
+            log::error!("Storage failed: project name or path is empty");
             return Err("project or path param is empty, so do nothing".to_string());
         }
         else {
@@ -1009,7 +989,7 @@ impl Receiver {
                         if err.kind() == std::io::ErrorKind::NotFound {
                             let parent = repath.parent().unwrap();
                             if let Err(err) = tokio::fs::create_dir_all(parent).await {
-                                log::debug!("transmit storage create parent dir: {:?} err: {:?}", parent, err);
+                                log::warn!("Failed to create parent directory {:?}: {:?}", parent, err);
                                 Err(err)
                             }
                             else {
@@ -1017,7 +997,7 @@ impl Receiver {
                             }
                         }
                         else {
-                            log::error!("transmit storage file create failed: {:?}, {}", repath, err);
+                            log::error!("Failed to create file {:?}: {}", repath, err);
                             Err(err)
                         }
                     }
@@ -1028,7 +1008,6 @@ impl Receiver {
                     file.set_len(content.len() as u64).await.unwrap();
                     match file.write_all(&content).await {
                         Ok(_) => {
-                            log::trace!("transmit storage file success: {:?} {:?}", project, repath);
                         },
                         Err(err) => {
                             log::error!("transmit storage file failed. {:?} {:?} {:?}", project, repath, err)
@@ -1049,10 +1028,9 @@ impl Receiver {
             
             match zip.extract(dir) {
                 Ok(_) => {
-                    log::trace!("extract zip file done: {} {:?}", dir, zip.file_names().collect::<Vec<&str>>());
                 },
                 Err(err) => {
-                    log::error!("extract zip file failed. {} {} {:?}", dir, err, zip.file_names().collect::<Vec<&str>>());
+                    log::error!("Failed to extract zip archive to '{}' ({} files): {}", dir, zip.len(), err);
                 }
             }
         }
@@ -1061,10 +1039,9 @@ impl Receiver {
             let mut zip = zip::ZipArchive::new(cursor).unwrap();
             match zip.extract(path) {
                 Ok(_) => {
-                    log::trace!("extract zip file done: {} {:?}", path, zip.file_names().collect::<Vec<&str>>());
                 },
                 Err(err) => {
-                    log::error!("extract zip file failed. {} {} {:?}", path, err, zip.file_names().collect::<Vec<&str>>());
+                    log::error!("Failed to extract zip archive to '{}' ({} files): {}", path, zip.len(), err);
                 }
             }
         }
@@ -1084,8 +1061,8 @@ impl Receiver {
 
         let sender_ = sender.clone();
         let project_ = input.project.to_string_lossy().into_owned();
-        let project__ = project_.clone();
-        let outputhandle = tokio::spawn(async move {
+        let _project__ = project_.clone();
+        let _outputhandle = tokio::spawn(async move {
 
             let reply = package::CompileTrResponse {
                 progress: package::CompileProgress::Compilestart.into(),
@@ -1155,7 +1132,7 @@ impl Receiver {
         });
 
         tokio::spawn(async move {
-            while let Some(results) = err_receiver.recv().await {
+            while let Some(_results) = err_receiver.recv().await {
                 
             }
         });
@@ -1206,9 +1183,8 @@ impl Receiver {
         let handel = tokio::spawn(async move {
             let createdir = |dir: &std::path::Path| {
                 if !dir.exists() {
-                    log::debug!("check dir exists create dir: {:?}", dir);
                     if let Err(err)  = std::fs::create_dir_all(&dir) {
-                        log::error!("create all dir failed: {:?} {}", dir, err);
+                        log::error!("Failed to create directory {:?}: {}", dir, err);
                     }
                 }
             };
@@ -1226,7 +1202,7 @@ impl Receiver {
                         return Some(path);
                     }
                     else {
-                        log::error!("not find solution in path: {:?} solution: {}.", pdb_or_obj, solution);
+                        log::error!("Solution '{}' not found in path: {:?}", solution, pdb_or_obj);
                         return None;
                     }            
                 }
@@ -1315,7 +1291,7 @@ impl Receiver {
         return handel;
     }
     
-    async fn return_local_compile_result_pdbfiles(program_database: crate::compiler::msvc::ProgramDataBase, solution_name: &std::ffi::OsString, 
+    #[allow(dead_code)] async fn return_local_compile_result_pdbfiles(program_database: crate::compiler::msvc::ProgramDataBase, solution_name: &std::ffi::OsString, 
         origin_working_dir: &std::ffi::OsString, tx: tokio::sync::mpsc::Sender<Result<package::FileTrResponse, tonic::Status>>) {
         use tokio::io::AsyncReadExt;
 
@@ -1333,7 +1309,6 @@ impl Receiver {
             }
         };
     
-        log::trace!("compile result program database path: {:?}", result);
 
         if result.exists() {
             let solution_name_ = solution_name.clone();
@@ -1426,7 +1401,6 @@ impl Receiver {
             }
         };
         
-        log::trace!("wait compile result program database path: {:?}", result);
         let origin = crate::compiler::msvc::repair_original_path(&solution_name, &origin_working_dir, &result);
 
         let slot = {
@@ -1436,7 +1410,6 @@ impl Receiver {
             .clone()
         };
         let compiled_gen_result = slot.blocking_read();
-        log::trace!("compile result program database path: {:?} offset: {} length: {}", result, compiled_gen_result.pdb.as_ref().map_or(0, |pdb| pdb.1), compiled_gen_result.pdb.as_ref().map_or(0, |pdb| pdb.2.len()));
 
         crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap().remove(&origin.to_string_lossy().to_string());
         
@@ -1458,7 +1431,7 @@ impl Receiver {
         let rx = self.transmmit_file_rx.clone();
         let mut handles = Vec::new();
         let worker = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8).min(32) / 2;
-        for i in 0..worker {
+        for _i in 0..worker {
             let rx_ = rx.clone();
 
             let handle = tokio::spawn(async move {
@@ -1495,7 +1468,7 @@ impl package::communicate_server::Communicate for Receiver {
 
     type transmit_fileStream = ResponseFileStream;
     async fn transmit_file(&self, request: tonic::Request<tonic::Streaming<package::FileTrRequest>>) -> core::result::Result<tonic::Response<Self::transmit_fileStream>, tonic::Status> {
-        log::debug!("sync request transmit file. from: {:?}", request.remote_addr());
+        log::info!("Received file transfer connection from: {:?}", request.remote_addr());
         let (tx, rx) = tokio::sync::mpsc::channel(512);
 
         let self_ = self.clone();
@@ -1511,8 +1484,8 @@ impl package::communicate_server::Communicate for Receiver {
     async fn transmit_task(&self, request: tonic::Request<package::CompileTrRequest>) -> core::result::Result<tonic::Response<Self::transmit_taskStream>, tonic::Status> {
         
         let rt_compile = request.into_inner();
-        log::debug!("sync request transmit compiler: {:?}", rt_compile.compiler);
-        log::debug!("commands: {:?}", rt_compile.commands);
+        log::info!("Received compile task request: project='{}', compiler='{}'", rt_compile.project, rt_compile.compiler);
+        log::debug!("Compile commands: {:?}", rt_compile.commands);
         
         let (tx, rx) = tokio::sync::mpsc::channel(512);
         let self_ = self.clone();
@@ -1526,7 +1499,7 @@ impl package::communicate_server::Communicate for Receiver {
 
     type transmit_syscallStream = RemoteRedirectStream;
     async fn transmit_syscall(&self, request: tonic::Request<tonic::Streaming<package::LocalSyscall>>) -> core::result::Result<tonic::Response<Self::transmit_syscallStream>, tonic::Status> {
-        log::debug!("sync request transmit redirect: {:?}", request.remote_addr());
+        log::info!("Received syscall redirect connection from: {:?}", request.remote_addr());
 
         let exist = { NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_rx.lock().await.is_some() };
 

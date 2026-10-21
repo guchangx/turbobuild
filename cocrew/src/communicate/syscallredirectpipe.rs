@@ -1,5 +1,4 @@
-
-use std::os::windows::io::AsRawHandle;
+﻿use std::os::windows::io::AsRawHandle;
 
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -20,11 +19,12 @@ pub static PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL: std::sync::LazyLock<std::sync::RwL
 pub fn compiler_redirect_syscall() {
 
     const PIPE_NAME: &str = r"\\.\pipe\os_operate_request_pipe";
+    log::info!("Starting compiler syscall redirect pipe server on {}", PIPE_NAME);
 
     let rt = {crate::common::COCREW_RUNTIME.lock().unwrap().handle().clone()};
     let rt_ = rt.clone();
     let _ = rt.spawn(async move {
-        let mut counter = 0;
+        let mut _counter = 0;
         let rt_ = rt_.clone();
         let makeserver = |first| { 
             tokio::net::windows::named_pipe::ServerOptions::new()
@@ -73,7 +73,7 @@ pub fn compiler_redirect_syscall() {
                     s
                 },
                 Err(e) => {
-                    log::error!("failed to create named pipe server: {}", e);
+                    log::error!("Failed to accept named pipe connection: {}", e);
                     joinset.spawn(async move {
                         let server = makeserver(false);
                         server.connect().await.expect("server failed to connect to named pipe");
@@ -87,10 +87,10 @@ pub fn compiler_redirect_syscall() {
             unsafe {
                 win::System::Pipes::GetNamedPipeClientProcessId(server.as_raw_handle() as _, &mut pid as *mut u32);
             }
+            log::debug!("Syscall named pipe client connected with pid: {}", pid);
             
             let (mut reader, mut writer) = tokio::io::split(server);
 
-            log::info!("namedpipe connected counter: {:?} success, client pid: {:?}", counter, pid);
             //return the syscall response to caller in func.rs
             let closed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
             let closed_ = closed.clone();
@@ -110,13 +110,12 @@ pub fn compiler_redirect_syscall() {
                                 Ok(_) => {
                                 },
                                 Err(err) => {
-                                    log::error!("failed to write mirror syscall response to namedpipe. {:?} err: {}", response, err);
+                                    log::error!("Failed to write mirror syscall response to named pipe for pid {}: err={}", pid, err);
                                     break;
                                 }
                             }
                         },
                         None => {
-                            log::warn!("mirror syscall response channel closed, dropped receiver.");
                             break;
                         }
                     }
@@ -134,13 +133,13 @@ pub fn compiler_redirect_syscall() {
                                 let message = String::from_utf8_lossy(&data[..size]);
                                 if let Ok(mirror_cmd) = crate::serde_json::from_str::<MirrorSysCall>(&message)
                                     .map_err(|e| {
-                                        log::error!("failed to parse mirror syscall: {}", e);
+                                        log::error!("Failed to parse mirror syscall JSON: {}, data='{}'", e, message);
                                     }) {
 
                                     if let Some(sender) = crate::communicate::unpackager::NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_tx.as_ref() {
                                         sender.try_send(mirror_cmd.clone()).inspect(|_|{
                                         }).unwrap_or_else(|e| {
-                                            log::error!("failed to try_send mirror syscall: {} {:?}", e, mirror_cmd);
+                                            log::warn!("Failed to forward mirror syscall to grpc channel: {} {:?}", e, mirror_cmd);
                                         });
                                     }
                                 }
@@ -150,7 +149,13 @@ pub fn compiler_redirect_syscall() {
                             }
                         },
                         Err(e) => {
-                            log::error!("failed to read from syscall namedpipe: {}", e);
+                            if e.kind() == std::io::ErrorKind::UnexpectedEof
+                                || e.kind() == std::io::ErrorKind::BrokenPipe
+                                || e.kind() == std::io::ErrorKind::ConnectionReset {
+                                log::debug!("Syscall named pipe client pid {} disconnected", pid);
+                            } else {
+                                log::error!("Failed to read from syscall named pipe for pid {}: {}", pid, e);
+                            }
                             break;
                         }
                     }
@@ -159,7 +164,7 @@ pub fn compiler_redirect_syscall() {
                 PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL.write().unwrap().remove(&pid);
             });
             
-            counter += 1;
+            _counter += 1;
         }
     });
 }
@@ -223,7 +228,7 @@ pub fn compiler_redirect_syscall_2() {
 
                 let mut pid: u32 = 0;
                 win::System::Pipes::GetNamedPipeClientProcessId(handle.get().to_owned() as _, &mut pid as *mut u32);
-                log::info!("namedpipe connected count {} success, client pid: {}", count, pid);
+                log::debug!("Named pipe client connected (count: {}, pid: {})", count, pid);
 
                 let _ = rt.spawn_blocking(move || {
 
@@ -242,7 +247,7 @@ pub fn compiler_redirect_syscall_2() {
 
                         if result == win::Foundation::FALSE {
                             let error = win::Foundation::GetLastError();
-                            log::warn!("peek pipe failed, error code: {}, message: {}, count: {} client pid: {}", error, tools::utils::get_winapi_error_message(error), count, pid);
+                            log::warn!("Peek pipe failed, error code: {}, message: {}, count: {} client pid: {}", error, tools::utils::get_winapi_error_message(error), count, pid);
                             break;
                         }
                         else if total_bytes_avail == 0 {
@@ -260,25 +265,23 @@ pub fn compiler_redirect_syscall_2() {
         
                         if result == win::Foundation::FALSE {
                             let error = win::Foundation::GetLastError();
-                            log::warn!("reaf pipe failed, error code: {}, message: {}, count: {}", error, tools::utils::get_winapi_error_message(error), count);
+                            log::warn!("Read pipe failed, error code: {}, message: {}, count: {}", error, tools::utils::get_winapi_error_message(error), count);
                             break;
                         }
                         else if bytes == 0 {
-                            log::warn!("read 0 bytes from pipe, client disconnected, count: {}", count);
+                            log::debug!("Client disconnected from pipe (0 bytes read, count: {})", count);
                             break;
                         }
                         else {
                             let message = String::from_utf8_lossy(&buffer[..bytes as usize]);
-                            log::info!("received mirror syscall: {}", message);
 
                             if let Ok(mirror_cmd) = crate::serde_json::from_str::<MirrorSysCall>(&message)
-                                .map_err(|e| { log::error!("failed to parse mirror syscall: {}", e); }) 
+                                .map_err(|e| { log::error!("Failed to parse mirror syscall JSON: {}, data='{}'", e, message); }) 
                             {
                                 if let Some(sender) = crate::communicate::unpackager::NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_tx.as_ref() {
                                     sender.try_send(mirror_cmd.clone()).inspect(|_|{
-                                        log::trace!("send mirror syscall to grpc: {:?}", mirror_cmd);
                                     }).unwrap_or_else(|e| {
-                                        log::error!("failed to try_send mirror syscall: {} {:?}", e, mirror_cmd);
+                                        log::warn!("Failed to forward mirror syscall to grpc channel: {} {:?}", e, mirror_cmd);
                                     });
                                 }
                             }
@@ -286,7 +289,7 @@ pub fn compiler_redirect_syscall_2() {
                     }
                     win::System::Pipes::DisconnectNamedPipe(handle.get().to_owned() as _);
                     win::Foundation::CloseHandle(handle.get().to_owned() as _);
-                    log::warn!("redirect syscall read named pipe message task exit. count: {} client pid: {}", count, pid);
+                    log::debug!("Redirect syscall read named pipe task exited (count: {}, client pid: {})", count, pid);
 
                     PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL.write().unwrap().remove(&pid);
                 });
@@ -313,7 +316,6 @@ pub fn compiler_redirect_syscall_2() {
                         PID_MAP_GRPC_TO_NAMEDPIPE_CHANNEL.write().unwrap().insert(pid, grpc_to_namedpipe_tx.clone());
                     }
 
-                    log::trace!("start mirror syscall response task for pid: {}", pid);
                     loop {
                         if let Some(response) = rx.blocking_recv() {
 
@@ -329,29 +331,28 @@ pub fn compiler_redirect_syscall_2() {
                             );
                             if result == win::Foundation::FALSE {
                                 let error = win::Foundation::GetLastError();
-                                log::error!("failed to write mirror syscall response to pipe. {:?} err: {}, message: {}", response, error, tools::utils::get_winapi_error_message(error));
+                                log::error!("Failed to write mirror syscall response to pipe. {:?} err: {}, message: {}", response, error, tools::utils::get_winapi_error_message(error));
                             }
                             else {
                             }
                         }
                         else {
-                            log::warn!("mirror syscall response channel closed, dropped receiver.");
+                            log::warn!("Mirror syscall response channel closed, dropped receiver for pid: {}", pid);
                             break;
                         }
                     }
-                    log::trace!("stop mirror syscall response task for pid: {}", pid);
                 });
             }
             else {
                 let error = win::Foundation::GetLastError();
-                log::debug!("connect named pipe failed. error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
+                log::debug!("Connect named pipe failed, error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
                 win::Foundation::CloseHandle(pipe as _);
                 break;
             }
         }
         else {
             let error = win::Foundation::GetLastError();
-            log::error!("connect named pipe failcreate named pipe failed. error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
+            log::error!("Create named pipe failed, error code: {}, message: {} count: {}", error, tools::utils::get_winapi_error_message(error), count);
             break;
         }
         count += 1;
@@ -385,7 +386,7 @@ mod tests {
         println!("test compiler_redirect_syscall");
         tools::logger::init_once_logger();
 
-        let namedpipe_tx = crate::communicate::unpackager::NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_tx.clone();
+        let _namedpipe_tx = crate::communicate::unpackager::NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_tx.clone();
         let mut namedpipe_rx = crate::communicate::unpackager::NAMEDPIPE_TO_GRPC_CHANNEL.namedpipe_to_grpc_rx.lock().await;
 
         compiler_redirect_syscall();
@@ -393,11 +394,11 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         let client = connect().await.unwrap();
-        let client = connect().await.unwrap();
-        let client = connect().await.unwrap();
-        let client = connect().await.unwrap();
-        let client = connect().await.unwrap();
-        let client = connect().await.unwrap();
+        let _c2 = connect().await.unwrap();
+        let _c3 = connect().await.unwrap();
+        let _c4 = connect().await.unwrap();
+        let _c5 = connect().await.unwrap();
+        let _c6 = connect().await.unwrap();
 
         redirectdll::syscallredirect::async_connect_syscall_namedpipe();
         redirectdll::syscallredirect::async_connect_syscall_namedpipe();
@@ -434,7 +435,7 @@ mod tests {
                 let message = rx.recv().await;
                 let command = message.unwrap();
                 println!("received command in test: {:?}", command);
-                let response = MirrorSysCall {
+                let _response = MirrorSysCall {
                     cid: command.cid,
                     api: "response".to_string(),
                     args: std::collections::HashMap::new(),
@@ -483,8 +484,8 @@ mod tests {
 
         println!("command: {}", json);
 
-
         let result = crate::serde_json::from_str::<MirrorSysCall>(&json);
         assert!(result.is_ok());
     }
 }
+

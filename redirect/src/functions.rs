@@ -2097,7 +2097,7 @@ pub unsafe fn nt_create_file(
                                 
                                 if nt_status == windows_sys::Win32::Foundation::STATUS_SUCCESS {
                                     NT_HANDLE_AND_PDB_ARTIFACTS.insert(*file_handle as i32, ArtifactInfo { name: std::sync::Arc::new(unmodified.clone()), offset: 0 , end: 0});
-                                    crate::log!(debug, "open pdb file for pdb file handle: {:?} path: {} unmodified: {} pdb: {:?}", *file_handle, name, unmodified, (*io_status_block).Information);
+                                    crate::log!(debug, "open pdb file for pdb file handle: {:?} path: {} unmodified: {}", *file_handle, name, unmodified);
                                 }
                                 else {
                                     crate::log!(error, "zw_create_file for pdb file path failed! error_code: {:#X} path: {} unmodified: {}", nt_status, name, unmodified);
@@ -2415,7 +2415,7 @@ pub unsafe fn nt_close(handle: windows_sys::Win32::Foundation::HANDLE) -> window
                     done: Some(tx),
                 }).unwrap();
                 rx.blocking_recv().unwrap();
-                log!(trace, "nt_close hook pdb end path: {:?}", artinfo.name);
+                log!(trace, "nt_close hook pdb end path: {:?} context length: {}", artinfo.name, artcontext.context.len());
             }
         }
     }

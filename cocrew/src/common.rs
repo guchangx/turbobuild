@@ -1,4 +1,3 @@
-
 #[derive(Default, Clone)]
 pub struct Common {
     pub receiver: std::option::Option<std::sync::Arc<std::sync::Mutex<crate::communicate::unpackager::Receiver>>>, // receive data form coew include zip&command. 
@@ -6,7 +5,6 @@ pub struct Common {
 
 impl Common {
     pub fn new() -> Self {
-        
         let common = Common {
             receiver: None,
         };
@@ -25,7 +23,7 @@ pub static COCREW_RUNTIME: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex::
 });
 
 pub fn init_common() {
-    log::info!("init cocrew");
+    log::info!("Initializing cocrew runtime and services");
 
     let common = Common::new();
     let common = std::sync::Arc::new(std::sync::Mutex::new(common));
@@ -35,8 +33,6 @@ pub fn init_common() {
     let receiver_ = receiver.clone();
     
     weak_common.upgrade().unwrap().lock().unwrap().receiver = Some(std::sync::Arc::new(std::sync::Mutex::new(receiver)));
-    
-    log::info!("common strang {} weak {}", weak_common.strong_count(), weak_common.weak_count());
     
     let handle = {
         let rt = COCREW_RUNTIME.lock().unwrap();
@@ -48,7 +44,6 @@ pub fn init_common() {
 
     let _guard = handle.enter();
     tokio::task::Builder::new().name("redirect_stdout_log_2_cocrew").spawn_blocking(|| {
-        log::info!("start redirect_stdout_log_2_cocrew");
         crate::compiler::msvc::redirect_stdout_log();
     }).unwrap();
 
@@ -56,5 +51,5 @@ pub fn init_common() {
         receiver_.init().await;
     });
 
-    log::info!("end cocrew");
+    log::info!("cocrew shutdown completed");
 }

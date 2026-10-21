@@ -1,4 +1,4 @@
-
+﻿
 use tokio::sync::mpsc::error;
 use windows_sys::Win32 as win;
 
@@ -28,11 +28,11 @@ unsafe impl Sync for HandleBox {}
 
 static REDIRECT_DLL_PATH: std::sync::LazyLock<Option<std::ffi::CString>> = std::sync::LazyLock::new(|| {
     if let Some(path) = tools::utils::access_working_path("redirect64.dll") {
-        log::debug!("access redirect64 path successful. {:?}", path);
+        log::debug!("Located redirect64.dll at {:?}", path);
         return Some(std::ffi::CString::new(path).unwrap());
     }
     else {
-        log::error!("access redirect64 path failed.");
+        log::error!("Failed to locate redirect64.dll in working directory");
         return None;
     }
 });
@@ -61,15 +61,13 @@ pub unsafe fn pass_params_to_redirect(handle: win::Foundation::HANDLE, solution:
     
         if ret == win::Foundation::FALSE || bytes == 0 {
             let error = win::Foundation::GetLastError();
-            log::error!("write pipe error, failed code: {}", error);
+            log::error!("Failed to write parameters to redirect pipe, error code: {}", error);
         }
         else {
-            //FlushFileBuffers(handle);
-            //log::trace!("send message by pipe {} {:?}", if bytes > 0 {"success."} else {"failed."}, arg);
         }
     }
     else {
-        log::warn!("don't pass solution name and project path, use current path and don't redirect.");
+        log::warn!("No solution name provided; skipping parameter redirection");
     }
     win::Foundation::CloseHandle(handle);
 }
@@ -91,7 +89,7 @@ pub unsafe fn pass_params_to_mspdbsrv(solution: &str) {
 
     if h_map.is_null() {
         let error = win::Foundation::GetLastError();
-        log::error!("CreateFileMappingW failed! error code: {}.", error);
+        log::error!("CreateFileMappingW failed for mspdbsrv shared memory, error code: {}", error);
         return;
     }
 
@@ -105,7 +103,7 @@ pub unsafe fn pass_params_to_mspdbsrv(solution: &str) {
 
     if buf.Value.is_null() {
         let error = win::Foundation::GetLastError();
-        log::error!("MapViewOfFile failed! error code: {}.", error);
+        log::error!("MapViewOfFile failed for mspdbsrv shared memory, error code: {}", error);
         win::Foundation::CloseHandle(h_map);
         return;
     }
@@ -252,7 +250,6 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
             VERSION_MAP_ENV.lock().unwrap().insert(version.unwrap(), env_block.clone());
         }
         else {
-            log::debug!("use cached env block for version {}.", app);
         }
 
         let lpEnvironment = env_block.as_mut_ptr() as *mut std::ffi::c_void;
@@ -280,7 +277,7 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
             let mut hStdInWrite: win::Foundation::HANDLE = std::ptr::null_mut();
             let ret = win::System::Pipes::CreatePipe(&mut hStdInRead, &mut hStdInWrite, &mut pipeAttributes, 1 * 1024 * 1024);
             if win::Foundation::FALSE == ret {
-                log::error!("create input pipe failed.")
+                log::error!("Failed to create stdin pipe, error code: {}", win::Foundation::GetLastError());
             }
             else {
                 win::Foundation::SetHandleInformation(hStdInWrite, win::Foundation::HANDLE_FLAG_INHERIT, 0);
@@ -290,7 +287,7 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
             let mut hStdOutputWrite: win::Foundation::HANDLE = std::ptr::null_mut();
             let ret = win::System::Pipes::CreatePipe( &mut hStdOutputRead, &mut hStdOutputWrite, &mut pipeAttributes, 1 * 1024 * 1024);
             if win::Foundation::FALSE == ret {
-                log::error!("create output pipe failed.")
+                log::error!("Failed to create stdout pipe, error code: {}", win::Foundation::GetLastError());
             }
             else {
                 win::Foundation::SetHandleInformation(hStdOutputRead, win::Foundation::HANDLE_FLAG_INHERIT, 0);
@@ -300,7 +297,7 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
             let mut hStdErrorWrite: win::Foundation::HANDLE = std::ptr::null_mut();
             let ret = win::System::Pipes::CreatePipe(&mut hStdErrorRead, &mut hStdErrorWrite, &mut pipeAttributes, 0);
             if win::Foundation::FALSE == ret {
-                log::error!("create error pipe failed.")
+                log::error!("Failed to create stderr pipe, error code: {}", win::Foundation::GetLastError());
             }
             else {
                 win::Foundation::SetHandleInformation(hStdErrorRead, win::Foundation::HANDLE_FLAG_INHERIT, 0);
@@ -376,9 +373,9 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                 pass_params_to_mspdbsrv(&solution);
 
                 let ret = win::System::Threading::ResumeThread(lpProcessInformation.hThread as _);
-                if ret == win::Foundation::FALSE as u32 {
+                if ret == u32::MAX {
                     let error_code = win::Foundation::GetLastError();
-                    log::error!("ResumeThread failed! error code: {}.", error_code);
+                    log::error!("ResumeThread failed, error code: {}", error_code);
                 }
 
                 let hProcessBox = HandleBox::new(lpProcessInformation.hProcess as win::Foundation::HANDLE);
@@ -407,7 +404,7 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                         if bStdOutputRead == win::Foundation::FALSE || bytesStdOuputRead == 0 {
                             let error = win::Foundation::GetLastError();
                             if error != win::Foundation::ERROR_BROKEN_PIPE && error != win::Foundation::ERROR_INVALID_HANDLE {
-                                log::error!("can't read stdout pipe. error code: {}", error);
+                                log::error!("Failed to read stdout pipe, error code: {}", error);
                             }
                             break;
                         }
@@ -415,13 +412,13 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                         if bytesStdOuputRead > 2 && chTmpStdOutputReadBuffer[(bytesStdOuputRead - 1) as usize] == b'\n' && chTmpStdOutputReadBuffer[(bytesStdOuputRead - 2) as usize] == b'\r' {
                             if line.is_empty() {
                                 stdoutstream.try_send(chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize].to_vec()).unwrap_or_else(|e| {
-                                    log::error!("try send stdout stream failed. error: {:?}", e);
+                                    log::warn!("Failed to send chunk to stdout stream: {:?}", e);
                                 });
                             }
                             else {
                                 line.extend_from_slice(&chTmpStdOutputReadBuffer[..bytesStdOuputRead as usize]);
                                 stdoutstream.try_send(line[..].to_vec()).unwrap_or_else(|e| {
-                                    log::error!("try send stdout stream failed. error: {:?}", e);
+                                    log::warn!("Failed to send line to stdout stream: {:?}", e);
                                 });
                                 line.clear();
                             }
@@ -456,14 +453,14 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                         if bStdErrorRead == win::Foundation::FALSE || bytesStdErrorRead == 0 {
                             let error = win::Foundation::GetLastError();
                             if error != win::Foundation::ERROR_BROKEN_PIPE && error != win::Foundation::ERROR_INVALID_HANDLE {
-                                log::error!("can't read stderr pipe. error code: {}", error);
+                                log::error!("Failed to read stderr pipe, error code: {}", error);
                             }
                             break;
                         }
                         
                         let stderrstream_ = stderrstream.clone();
-                        stderrstream_.try_send(chTmpStdErrorReadBuffer[..bytesStdErrorRead as usize].to_vec()).unwrap_or_else(|_| {
-                            log::error!("try send stderr stream failed.");
+                        stderrstream_.try_send(chTmpStdErrorReadBuffer[..bytesStdErrorRead as usize].to_vec()).unwrap_or_else(|e| {
+                            log::warn!("Failed to send chunk to stderr stream: {:?}", e);
                         });
 
                         stderr.extend_from_slice(&chTmpStdErrorReadBuffer[..bytesStdErrorRead as usize]);
@@ -477,7 +474,11 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                 
                 let mut code: u32 = 0;
                 win::System::Threading::GetExitCodeProcess(*hProcessBox.get(), &mut code as _);
-                log::info!("msvc detours: {} end with exit code: {:#x} pid: {:?}", project, code, lpProcessInformation.dwProcessId);
+                if code != 0 {
+                    log::warn!("msvc detours process pid={} exited with non-zero code {:#x} for project '{}'", lpProcessInformation.dwProcessId, code, project);
+                } else {
+                    log::debug!("msvc detours process pid={} exited with code 0 for project '{}'", lpProcessInformation.dwProcessId, project);
+                }
 
                 win::Foundation::CloseHandle(lpProcessInformation.hThread as _);
                 win::Foundation::CloseHandle(*hProcessBox.get());
@@ -508,10 +509,8 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
         }
         else
         {
-            log::error!("access redirect64.dll failed. {:?}", redirect_dll_path);
+            log::error!("Cannot execute detours: redirect64.dll is not available");
             return (1, std::sync::Arc::new(Vec::new()), std::sync::Arc::new(Vec::new()));
         }
     }
 }
-
-
