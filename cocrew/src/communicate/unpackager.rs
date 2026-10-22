@@ -228,15 +228,6 @@ impl Receiver {
                     project_ = std::sync::Arc::new(project.clone());
                     task_to_file_tx.clone()
                 });
-                
-                let mut reply = package::FileTrResponse {
-                    path: path.clone(),
-                    offset: -1,
-                    content: bytes::Bytes::new(),
-                    last: true,
-                    error_code: 0,
-                    error_message: "sync file success.".to_string(),
-                };
 
                 let file_type = request.file_type;
                 let solution = request.solution;
@@ -267,9 +258,20 @@ impl Receiver {
                 else if file_type == package::FileType::Precompiledsrcfiles as i32 {
                     let ret = Self::storage(&solution, &project, &path, &content).await;
                     if let Err(err) = ret {
-                        log::error!("Failed to save precompiled source file for project '{}': {}", project, err);
-                        reply.error_code = 1;
-                        reply.error_message = err;
+                        log::error!("transmit file handle save precompiled src files failed: {}", err);
+             
+                        let reply = package::FileTrResponse {
+                            path: path.clone(),
+                            offset: -1,
+                            content: bytes::Bytes::new(),
+                            last: true,
+                            error_code: 1,
+                            error_message: err,
+                        };
+                        if tx.send(Ok(reply.clone())).await.is_err() {
+                            log::error!("tx send error.");
+                            break;
+                        };
                     };
                 }
                 else if file_type == package::FileType::Kits as i32 {
@@ -317,11 +319,6 @@ impl Receiver {
                 else {
                     log::warn!("Received unrecognized file type {} for path '{}'", file_type, path);
                 }
-
-                if tx.send(Ok(reply.clone())).await.is_err() {
-                    log::error!("Failed to send file transfer response: stream channel closed");
-                    break;
-                };
             }
             else {
                 log::error!("Error reading file transfer request from stream");

@@ -1055,6 +1055,20 @@ impl Sender {
             return Err(error);
         }
 
+        let completion_modes = unsafe {
+            windows_sys::Win32::Storage::FileSystem::SetFileCompletionNotificationModes(
+                handle,
+                windows_sys::Win32::System::WindowsProgramming::FILE_SKIP_COMPLETION_PORT_ON_SUCCESS as u8,
+            )
+        };
+        if completion_modes == windows_sys::Win32::Foundation::FALSE {
+            let error = std::io::Error::last_os_error();
+            unsafe {
+                windows_sys::Win32::Foundation::CloseHandle(handle);
+            }
+            return Err(error);
+        }
+
         Ok(std::sync::Arc::new(HandleBox::new(handle)))
     }
 
@@ -1090,6 +1104,13 @@ impl Sender {
             )
         };
 
+        if result != windows_sys::Win32::Foundation::FALSE {
+            unsafe {
+                drop(Box::from_raw(requestptr));
+            }
+            return Ok(());
+        }
+
         if result == windows_sys::Win32::Foundation::FALSE {
             let error_code = unsafe { windows_sys::Win32::Foundation::GetLastError() };
             if error_code != windows_sys::Win32::Foundation::ERROR_IO_PENDING {
@@ -1105,45 +1126,53 @@ impl Sender {
 
     fn native_iocp_completion_loop(iocp: std::sync::Arc<HandleBox>) {
         loop {
-            let mut transferred = 0u32;
-            let mut completion_key = 0usize;
-            let mut overlapped = std::ptr::null_mut();
+            let mut entries = [windows_sys::Win32::System::IO::OVERLAPPED_ENTRY::default(); 64];
+            let mut removed = 0u32;
 
             let result = unsafe {
-                windows_sys::Win32::System::IO::GetQueuedCompletionStatus(
+                windows_sys::Win32::System::IO::GetQueuedCompletionStatusEx(
                     *iocp.get(),
-                    &mut transferred,
-                    &mut completion_key,
-                    &mut overlapped,
+                    entries.as_mut_ptr(),
+                    entries.len() as u32,
+                    &mut removed,
                     u32::MAX,
+                    windows_sys::Win32::Foundation::FALSE,
                 )
             };
 
-            if overlapped.is_null() {
+            if result == windows_sys::Win32::Foundation::FALSE {
                 log::error!(
-                    "native GetQueuedCompletionStatus returned without OVERLAPPED: {:?}",
+                    "native GetQueuedCompletionStatusEx failed: {:?}",
                     std::io::Error::last_os_error()
                 );
                 continue;
             }
 
-            let request = unsafe { Box::from_raw(overlapped as *mut NativeWriteRequest) };
-            if result == windows_sys::Win32::Foundation::FALSE {
-                log::error!(
-                    "native WriteFile completion failed at offset {}: {:?}",
-                    request.offset,
-                    std::io::Error::last_os_error()
-                );
-            } else if transferred as usize != request.content.len() {
-                log::error!(
-                    "native WriteFile short completion at offset {}: {} / {} bytes",
-                    request.offset,
-                    transferred,
-                    request.content.len()
-                );
+            for entry in entries.iter().take(removed as usize) {
+                if entry.lpOverlapped.is_null() {
+                    log::error!("native IOCP completion returned without OVERLAPPED");
+                    continue;
+                }
+
+                let request = unsafe {
+                    Box::from_raw(entry.lpOverlapped as *mut NativeWriteRequest)
+                };
+                if entry.Internal != 0 {
+                    log::error!(
+                        "native WriteFile completion failed at offset {}: status {:#X}",
+                        request.offset,
+                        entry.Internal
+                    );
+                } else if entry.dwNumberOfBytesTransferred as usize != request.content.len() {
+                    log::error!(
+                        "native WriteFile short completion at offset {}: {} / {} bytes",
+                        request.offset,
+                        entry.dwNumberOfBytesTransferred,
+                        request.content.len()
+                    );
+                }
+                drop(request);
             }
-            let filearc = request.file.clone();
-            drop(request);
         }
     }
     
