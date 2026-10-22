@@ -29,6 +29,10 @@ pub struct CrewRegister {
     pub memory: f32,
 }
 
+fn default()-> bool {
+    true
+}
+
 #[derive(serde::Deserialize, Clone, serde::Serialize, Debug, PartialEq)]
 pub struct Task {
     pub username: String,
@@ -38,8 +42,27 @@ pub struct Task {
     pub frequency: Vec<u64>,
     pub memory: f32,
     pub running: u32,
-    pub max: u32
+    pub max: u32,
+    #[serde(default = "default")]
+    pub online: bool,
 }
+
+impl Default for Task {
+    fn default() -> Self {
+        Self {
+            username: String::new(),
+            devicename: String::new(),
+            addr: String::new(),
+            core: 0,
+            frequency: Vec::new(),
+            memory: 0.0,
+            running: 0,
+            max: 0,
+            online: true,
+        }
+    }
+}
+
 
 pub struct TaskManager {
     tasks: Vec<Task>,
@@ -59,6 +82,8 @@ impl TaskManager {
             existing.running = task.running;
             existing.max = task.max;
             existing.addr = task.addr.clone();
+            existing.frequency = task.frequency.clone();
+            existing.online = task.online;
         } else {
             self.tasks.push(task.clone());
         }
@@ -75,8 +100,13 @@ impl TaskManager {
             memory: crew.memory,
             running: 0,
             max: crew.core * crew.core,
+            online: true,
         };
         self.add(task);
+    }
+
+    pub fn alls(&self) -> &Vec<Task> {
+        &self.tasks
     }
 
     pub fn check(&self, addr: &str, username: &str, devicename: &str) -> Vec<Task> {
@@ -93,10 +123,12 @@ impl TaskManager {
         }
     }
 
-    pub fn remove(&mut self, addr: &str, username: &str, devicename: &str) -> bool {
+    pub fn remove(&mut self, addr: &str, username: &str, devicename: &str) -> Option<Task> {
         let index = self.tasks.iter().position(|arg| {
-            if (username.is_empty() || arg.username == username) && (devicename.is_empty() || arg.devicename == devicename) && arg.addr == addr {
-                return true;
+            if (username.is_empty() || arg.username == username)
+                && (devicename.is_empty() || arg.devicename == devicename)
+                && (addr.is_empty() || arg.addr == addr) {
+                return arg.online;
             }
             else {
                 return false;
@@ -105,10 +137,12 @@ impl TaskManager {
 
         match index {
             Some(index) => {
-                self.tasks.remove(index);
-                true
+                let task = &mut self.tasks[index];
+                task.online = false;
+                task.running = 0;
+                Some(task.clone())
             },
-            None => false
+            None => None
         }
     }
 }
@@ -298,6 +332,7 @@ mod tests {
             memory: 16.0,
             running: 0,
             max: 64,
+            online: true,
         };
         let task2 = Task {
             username: "bob".to_string(),
@@ -308,6 +343,7 @@ mod tests {
             memory: 8.0,
             running: 1,
             max: 16,
+            online: true,
         };
 
         tm.add(task1.clone());
@@ -331,6 +367,7 @@ mod tests {
             memory: 16.0,
             running: 0,
             max: 64,
+            online: true,
         };
         tm.add(initial);
 
@@ -344,6 +381,7 @@ mod tests {
             memory: 32.0,
             running: 3,
             max: 128,
+            online: true,
         };
         tm.add(updated);
 
@@ -396,6 +434,7 @@ mod tests {
             memory: 8.0,
             running: 0,
             max: 16,
+            online: true,
         };
         tm.add(task.clone());
 
@@ -429,6 +468,7 @@ mod tests {
             memory: 8.0,
             running: 0,
             max: 16,
+            online: true,
         };
         let task2 = Task {
             username: "user2".to_string(),
@@ -439,23 +479,24 @@ mod tests {
             memory: 8.0,
             running: 0,
             max: 16,
+            online: true,
         };
         tm.add(task1);
         tm.add(task2);
 
         // Exact removal
-        assert!(tm.remove("192.168.1.1", "user1", "dev1"));
-        assert_eq!(tm.check("", "", "").len(), 1);
+        assert!(tm.remove("192.168.1.1", "user1", "dev1").is_some());
+        assert_eq!(tm.check("", "", "").iter().filter(|t| t.online).count(), 1);
 
-        // Removing already-removed task returns false
-        assert!(!tm.remove("192.168.1.1", "user1", "dev1"));
+        // Removing already-removed task returns None
+        assert!(tm.remove("192.168.1.1", "user1", "dev1").is_none());
 
         // Wildcard removal (empty username and devicename matches any on that addr)
-        assert!(tm.remove("192.168.1.2", "", ""));
-        assert_eq!(tm.check("", "", "").len(), 0);
+        assert!(tm.remove("192.168.1.2", "", "").is_some());
+        assert_eq!(tm.check("", "", "").iter().filter(|t| t.online).count(), 0);
 
-        // Remove from empty returns false
-        assert!(!tm.remove("192.168.1.2", "", ""));
+        // Remove from empty returns None
+        assert!(tm.remove("192.168.1.2", "", "").is_none());
     }
 
     #[test]
@@ -647,6 +688,7 @@ mod tests {
             memory: 16.0,
             running: 2,
             max: 64,
+            online: true,
         };
         let json = serde_json::to_string(&task).expect("serialize task");
         let deserialized: Task = serde_json::from_str(&json).expect("deserialize task");

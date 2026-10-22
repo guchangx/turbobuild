@@ -59,7 +59,8 @@ impl NotificationSender {
                                             Self::handle_register_response(tasks.clone(), message.as_str()).await;
                                         }
                                         else if response.r#type == notify::Type::Unregister as i32 {
-                                        
+                                            let message = response.message.clone();
+                                            Self::handle_unregister_response(tasks.clone(), message.as_str()).await;
                                         }
                                         else if response.r#type == notify::Type::Keepalive as i32 {
         
@@ -236,9 +237,32 @@ impl NotificationSender {
 
     pub async fn handle_register_response(manager: Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::TasksManager>>>, message: &str) {
         if !message.is_empty() {
-            let tasks: Vec<crate::roster::crews::Task> = serde_json::from_str(message).expect("serde from json failed.");
-            if let Some(manager) = manager {
-                manager.lock().unwrap().add(&tasks);
+            match serde_json::from_str::<Vec<crate::roster::crews::Task>>(message) {
+                Ok(tasks) => {
+                    if let Some(manager) = manager {
+                        manager.lock().unwrap().sync(&tasks);
+                    }
+                }
+                Err(err) => {
+                    log::error!("Failed to parse register response tasks: {}", err);
+                }
+            }
+        }
+    }
+
+    pub async fn handle_unregister_response(manager: Option<std::sync::Arc<std::sync::Mutex<crate::roster::crews::TasksManager>>>, message: &str) {
+        if !message.is_empty() {
+            let tasks = serde_json::from_str::<Vec<crate::roster::crews::Task>>(message)
+                .or_else(|_| serde_json::from_str::<crate::roster::crews::Task>(message).map(|t| vec![t]));
+            match tasks {
+                Ok(tasks) => {
+                    if let Some(manager) = manager {
+                        manager.lock().unwrap().remove(&tasks);
+                    }
+                }
+                Err(err) => {
+                    log::error!("Failed to parse unregister broadcast tasks: {}", err);
+                }
             }
         }
     }
@@ -264,5 +288,67 @@ impl NotificationSender {
         };
         let register = serde_json::to_string(&register_info).unwrap();
         return register;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+    use crate::roster::crews::{Task, TasksManager, Usage};
+
+    #[tokio::test]
+    async fn test_handle_register_and_unregister_response() {
+        let manager = Arc::new(Mutex::new(TasksManager::new()));
+
+        let task1 = Task {
+            username: "u1".to_string(),
+            devicename: "d1".to_string(),
+            addr: "192.168.1.10".to_string(),
+            core: 8,
+            frequency: vec![3000],
+            memory: 16.0,
+            running: 3,
+            max: 10,
+            usage: Usage::default(),
+            online: true,
+        };
+        let task2 = Task {
+            username: "u2".to_string(),
+            devicename: "d2".to_string(),
+            addr: "192.168.1.20".to_string(),
+            core: 8,
+            frequency: vec![3000],
+            memory: 16.0,
+            running: 1,
+            max: 10,
+            usage: Usage::default(),
+            online: true,
+        };
+
+        // 1. Simulate Register broadcast response (full snapshot)
+        let reg_json = serde_json::to_string(&vec![task1.clone(), task2.clone()]).unwrap();
+        NotificationSender::handle_register_response(Some(manager.clone()), &reg_json).await;
+
+        assert_eq!(manager.lock().unwrap().all().len(), 2);
+        assert_eq!(manager.lock().unwrap().alls().len(), 2);
+
+        // 2. Simulate Unregister broadcast response (single node Task in Vec)
+        let unreg_task = Task {
+            username: "u1".to_string(),
+            devicename: "d1".to_string(),
+            addr: "192.168.1.10".to_string(),
+            online: false,
+            ..Default::default()
+        };
+        let unreg_json = serde_json::to_string(&vec![unreg_task]).unwrap();
+        NotificationSender::handle_unregister_response(Some(manager.clone()), &unreg_json).await;
+
+        let locked = manager.lock().unwrap();
+        assert_eq!(locked.all().len(), 1); // Only u2 is online
+        assert_eq!(locked.alls().len(), 2); // Both slots preserved
+        assert!(!locked.alls()[0].online); // u1 is marked offline
+        assert_eq!(locked.alls()[0].running, 0); // u1 running reset
+        assert!(locked.alls()[1].online); // u2 remains online
     }
 }

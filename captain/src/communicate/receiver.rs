@@ -123,6 +123,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                             self_.broadcast(reply).await;
                         }
                         else if notify::Type::Unregister as i32 == notification.r#type {
+                            let mut task: Option<crate::roster::crews::Task> = None;
                             if let Some(addr) = addr {
                                 let common = common.lock().expect("common lock failed");
                                 match serde_json::from_str::<crate::roster::crews::CrewRegister>(&notification.message) {
@@ -138,7 +139,7 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                         }
                                         if let Some(tasks) = &common.tasks {
                                             let mut tasks = tasks.lock().unwrap();
-                                            tasks.remove(&crew.addr, &crew.username, &crew.devicename);
+                                            task = tasks.remove(&crew.addr, &crew.username, &crew.devicename);
                                         }
                                     }
                                     Err(err) => {
@@ -147,14 +148,17 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                                 }
                             }
                             
-                            let reply = notify::NotifyResponse {
-                                r#type: notify::Type::Unregister as i32,
-                                message: "unregister success".to_string(),
-                                sequence: notification.sequence,
-                                error_code: 0,
-                                error_message: "unregister success".to_string(),
-                            };
-                            let _ = tx.send(Ok(reply)).await.expect("tx send failed");
+                            if let Some(task) = task {
+                                let message = serde_json::to_string(&vec![task]).unwrap();
+                                let reply = notify::NotifyResponse {
+                                    r#type: notify::Type::Unregister as i32,
+                                    message,
+                                    sequence: notification.sequence,
+                                    error_code: 0,
+                                    error_message: "unregister success".to_string(),
+                                };
+                                self_.broadcast(reply).await;
+                            }
                         }
                         else if notify::Type::Checkresource as i32 == notification.r#type {
                             let mut message = String::new();
@@ -222,36 +226,48 @@ impl notify::communicate_server::Communicate for NotificationReceiver {
                         }
                     },
                     Err(err) => {
-                        let mut cleaned_up = false;
                         if let Some(source) = err.source() {
                             if let Some(hyper_source) = source.source() {
                                 if let Some(inner_source) = hyper_source.source() {
                                     if let Some(err) = inner_source.downcast_ref::<hyper::Error>() {
                                         if let Some(_source) = err.source() {
+                                            
+                                            let mut task: Option<crate::roster::crews::Task> = None;
                                             if let Some(addr) = addr {
-                                                let ip_str = addr.ip().to_string();
-                                                log::info!("Client disconnected, cleaned up crew resources: {}", ip_str);
-
-                                                let common = common.lock().expect("common lock failed");    
+                                                let ip = addr.ip().to_string();
+                                                let common = common.lock().expect("common lock failed");
                                                 if let Some(roster) = &common.resources {
                                                     let mut resourcelist = roster.lock().expect("roster lock failed");
-                                                    resourcelist.remove(&ip_str, "", "");
+                                                    resourcelist.remove(&ip, "", "");
                                                 }
-               
-                                                if let Some(tasks) = &common.tasks {
+
+                                                task = if let Some(tasks) = &common.tasks {
                                                     let mut tasks = tasks.lock().unwrap();
-                                                    let _ = tasks.remove(&ip_str, "", "");
+                                                    tasks.remove(&ip, "", "")
                                                 }
-                                                cleaned_up = true;
+                                                else {
+                                                    None
+                                                }
+                                            }
+
+                                            if let Some(task) = task {
+                                                let message = serde_json::to_string(&vec![task]).unwrap();
+                                                let reply = notify::NotifyResponse {
+                                                    r#type: notify::Type::Unregister as i32,
+                                                    message,
+                                                    sequence: 0,
+                                                    error_code: 0,
+                                                    error_message: "client disconnected".to_string(),
+                                                };
+                                                self_.broadcast(reply).await;
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                        if !cleaned_up {
-                            log::debug!("Client stream error from {:?}: {}", addr, err);
-                        }
+                        log::debug!("Client stream error from {:?}: {}", addr, err);
+                        break;
                     }
                 }
             }
@@ -632,9 +648,18 @@ mod tests {
             assert_eq!(unreg_resp.r#type, notify::Type::Unregister as i32);
             assert_eq!(unreg_resp.sequence, 2);
 
-            // Verify task was cleaned up from tasks
+            let unreg_tasks: Vec<crate::roster::crews::Task> = serde_json::from_str(&unreg_resp.message).unwrap();
+            assert_eq!(unreg_tasks.len(), 1);
+            assert_eq!(unreg_tasks[0].username, "stream_user");
+            assert_eq!(unreg_tasks[0].devicename, "stream_host");
+            assert!(!unreg_tasks[0].online);
+
+            // Verify task was marked offline
             let remaining_tasks = arc_tasks.lock().unwrap().check("", "", "");
-            assert!(remaining_tasks.is_empty());
+            assert_eq!(remaining_tasks.len(), 1);
+            assert!(!remaining_tasks[0].online);
+            assert_eq!(arc_tasks.lock().unwrap().alls().len(), 1);
+            assert!(!arc_tasks.lock().unwrap().alls()[0].online);
         });
     }
 

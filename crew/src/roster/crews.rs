@@ -82,16 +82,18 @@ impl ResourceList {
     
 }
 
-#[derive(serde::Deserialize, Clone, Debug, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug, Default, PartialEq)]
 pub struct Usage {
     pub cpu: f32,
     pub memory: f32,
 }
 
-#[derive(serde::Deserialize, Clone, Debug, Default)]
+fn default() -> bool {
+    true
+}
+
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug, Default, PartialEq)]
 pub struct Task {
-    #[serde(default)]
-    pub index: i32,
     pub username: String,
     pub devicename: String,
     pub addr: String,
@@ -103,6 +105,8 @@ pub struct Task {
     pub max: u32,
     #[serde(default)]
     pub usage: Usage,
+    #[serde(default = "default")]
+    pub online: bool,
 }
 
 #[derive(serde::Deserialize, Default, Clone, Debug)]
@@ -117,25 +121,33 @@ impl TasksManager {
         }
     }
     
-    pub fn add(&mut self, tasks: &Vec<Task>) {
+    pub fn sync(&mut self, tasks: &Vec<Task>) {
         for task in tasks {
-            if let Some(existing) = self.tasks.iter_mut().find(|t| t.username == task.username && t.devicename == task.devicename && t.addr == task.addr) {
+            let is_local = task.addr == "127.0.0.1" || task.addr == "localhost";
+            if let Some(existing) = self.tasks.iter_mut().find(|t| {
+                (is_local && (t.addr == "127.0.0.1" || t.addr == "localhost"))
+                    || (!is_local && t.username == task.username && t.devicename == task.devicename && t.addr == task.addr)
+            }) {
                 existing.core = task.core;
                 existing.memory = task.memory;
-                existing.running = task.running;
                 existing.max = task.max;
                 existing.addr = task.addr.clone();
+                existing.frequency = task.frequency.clone();
+                if !is_local {
+                    existing.usage = task.usage.clone();
+                }
+                existing.online = task.online;
+                if !existing.online {
+                    existing.running = 0;
+                }
             } else {
-                if task.addr == "127.0.0.1" || task.addr == "localhost" {
-                    self.tasks.insert(0, task.clone());
-                }
-                else {
-                    let mut task_ = task.clone();
-                    task_.index = self.tasks.len() as i32;
-                    self.tasks.push(task_);
-                }
+                self.tasks.push(task.clone());
             }
         }
+    }
+
+    pub fn add(&mut self, tasks: &Vec<Task>) {
+        self.sync(tasks);
     }
 
     fn weight_for_frequency(frequency: u64) -> f64 {
@@ -154,12 +166,19 @@ impl TasksManager {
     }
 
     pub fn schedule(&mut self) -> &str {
-        if self.tasks.len() == 1 {
-            self.tasks.first_mut().unwrap().running += 1;
-            return self.tasks.first().unwrap().addr.as_str();
+        let count = self.all().len();
+        if count == 0 {
+            return "";
+        }
+        else if count == 1 {
+            if let Some(item) = self.tasks.iter_mut().find(|item| item.online) {
+                item.running += 1;
+                return item.addr.as_str();
+            }
+            return "";
         }
         else {
-            let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= 95.00).min_by(|x, y| {
+            let iter = self.tasks.iter_mut().filter(|item| item.online && item.running < item.max && item.usage.cpu <= 95.00).min_by(|x, y| {
                 let xw = Self::weight_for_frequency(x.frequency.first().copied().unwrap_or(3000));
                 let yw = Self::weight_for_frequency(y.frequency.first().copied().unwrap_or(3000));
                 let x_ratio = x.running as f64 / (x.core as f64 * xw);
@@ -177,36 +196,41 @@ impl TasksManager {
     }
 
     pub fn schedule_for_sources(&mut self, size: u32) ->(&str, i32, u32) {
-        //features: limit by cpu usage
-        if self.tasks.len() == 1 as usize {
-            let item = self.tasks.first_mut().unwrap();
-            item.running += size;
-            return (item.addr.as_str(), item.index, size);
+        let count = self.all().len();
+        if count == 0 {
+            return ("", -1, 0);
+        }
+        else if count == 1 {
+            if let Some((idx, item)) = self.tasks.iter_mut().enumerate().find(|(_, item)| item.online) {
+                item.running += size;
+                return (item.addr.as_str(), idx as i32, size);
+            }
+            return ("", -1, 0);
         }
         else {
-            let iter = self.tasks.iter_mut().filter(|item| item.usage.cpu <= item.max as f32).min_by(|x, y| {
+            let iter = self.tasks.iter_mut().enumerate().filter(|(_, item)| item.online && item.usage.cpu <= item.max as f32).min_by(|(_, x), (_, y)| {
                 let xw = Self::weight_for_frequency(x.frequency.first().copied().unwrap_or(3000));
                 let yw = Self::weight_for_frequency(y.frequency.first().copied().unwrap_or(3000));
                 let x_ratio = x.running as f64 / (x.core as f64 * xw);
                 let y_ratio = y.running as f64 / (y.core as f64 * yw);
                 x_ratio.partial_cmp(&y_ratio).unwrap_or(std::cmp::Ordering::Equal)
             });
-            if let Some(item) = iter {
+            if let Some((idx, item)) = iter {
                 let weight = Self::weight_for_frequency(item.frequency.first().copied().unwrap_or(3000));
 
                 if size >= (item.core as f64 * weight) as u32 {
                     if size <= (item.core as f64 * (weight + 0.5)) as u32 {
                         item.running += size;
-                        return (item.addr.as_str(), item.index, size);
+                        return (item.addr.as_str(), idx as i32, size);
                     }
                     else {
                         item.running += (item.core as f64 * weight) as u32;
-                        return (item.addr.as_str(), item.index, (item.core as f64 * weight) as u32);
+                        return (item.addr.as_str(), idx as i32, (item.core as f64 * weight) as u32);
                     }
                 }
                 else {
                     item.running += size;
-                    return (item.addr.as_str(), item.index, size);
+                    return (item.addr.as_str(), idx as i32, size);
                 }            
             }
             else {
@@ -216,16 +240,22 @@ impl TasksManager {
     }
 
     pub fn schedule_by_specific_host(&mut self, addr: &str, size: u32, index: Option<u32>) -> (i32, u32) {
-        if self.tasks.len() == 1 as usize {
-            let item = self.tasks.first_mut().unwrap();
-            item.running += size;
-            return (item.index, size);
+        let online_count = self.tasks.iter().filter(|item| item.online).count();
+        if online_count == 0 {
+            return (-1, 0);
+        }
+        else if online_count == 1 {
+            if let Some((idx, item)) = self.tasks.iter_mut().enumerate().find(|(_, item)| item.online) {
+                item.running += size;
+                return (idx as i32, size);
+            }
+            return (-1, 0);
         }
         else if index.is_some() {
             if self.can_run(addr) {
-                if let Some(item) = self.tasks.iter_mut().find(|item| item.addr == addr) {
+                if let Some((idx, item)) = self.tasks.iter_mut().enumerate().find(|(_, item)| item.addr == addr && item.online) {
                     item.running += STEP;
-                    return (item.index, STEP);
+                    return (idx as i32, STEP);
                 }
                 else {
                     return (-1, 0);
@@ -236,23 +266,23 @@ impl TasksManager {
             }
         }
         else {
-            if let Some(item) = self.tasks.iter_mut().find(|item| item.addr == addr) {
+            if let Some((idx, item)) = self.tasks.iter_mut().enumerate().find(|(_, item)| item.addr == addr && item.online) {
                 
                 let weight = Self::weight_for_frequency(item.frequency.first().copied().unwrap_or(3000));
 
                 if size >= (item.core as f64 * weight) as u32  {
                     if size <= (item.core as f64 * (weight + 0.5)) as u32 {
                         item.running += size;
-                        return (item.index, size as u32);
+                        return (idx as i32, size as u32);
                     }
                     else {
                         item.running += (item.core as f64 * weight) as u32;
-                        return (item.index, (item.core as f64 * weight) as u32);
+                        return (idx as i32, (item.core as f64 * weight) as u32);
                     }
                 }
                 else {
                     item.running += size;
-                    return (item.index, size as u32);
+                    return (idx as i32, size as u32);
                 }
             }
             else {
@@ -267,25 +297,41 @@ impl TasksManager {
         }
     }
 
-    pub fn remove(&mut self, username: &str, devicename: &str) {
-        self.tasks.retain(|item| !(item.username == username && item.devicename == devicename));
+    pub fn remove(&mut self, tasks: &Vec<Task>) {
+        for task in tasks {
+            let is_local = task.addr == "127.0.0.1" || task.addr == "localhost";
+            if let Some((idx, existing)) = self.tasks.iter_mut().enumerate().find(|(_, t)| {
+                t.online && (
+                    (is_local && (t.addr == "127.0.0.1" || t.addr == "localhost"))
+                        || (!task.username.is_empty() && !task.devicename.is_empty() && t.username == task.username && t.devicename == task.devicename)
+                        || (!task.addr.is_empty() && t.addr == task.addr)
+                )
+            }) {
+                existing.online = false;
+                existing.running = 0;
+                log::info!("Crew node marked offline (slot {} preserved): {}@{}:{}", idx, existing.username, existing.devicename, existing.addr);
+            }
+        }
     }
 
     pub fn all(&self) -> Vec<Task> {
-        let tasks = self.tasks.clone();
+        let tasks = self.tasks.iter().filter(|item| item.online).cloned().collect();
         return tasks;
     }
 
+    pub fn alls(&self) -> &Vec<Task> {
+        &self.tasks
+    }
+
     pub fn usage(&mut self, cpu: f32, memory: f32) {
-        if let Some(task) = self.tasks.iter_mut().find(|item| item.addr == "127.0.0.1" || item.addr == "localhost") {
+        if let Some(task) = self.tasks.iter_mut().find(|item| (item.addr == "127.0.0.1" || item.addr == "localhost") && item.online) {
             task.usage.cpu = cpu;
             task.usage.memory = memory;
         }
     }
 
     pub fn can_run(&self, addr: &str) -> bool {
-        
-        if let Some(task) = self.tasks.iter().find(|item| item.addr == addr) {
+        if let Some(task) = self.tasks.iter().find(|item| item.addr == addr && item.online) {
             if task.running <= task.max {
                 return true;
             }
@@ -308,7 +354,6 @@ mod tests {
         println!("test schedule task");
         let mut tasks = TasksManager::new();
         let task = Task {
-            index: 0,
             username: "".to_string(),
             devicename: "".to_string(),
             addr: "192.168.0.1".to_string(),
@@ -321,11 +366,11 @@ mod tests {
                 cpu: 0.0,
                 memory: 0.0,
             },
+            online: true,
         };
         tasks.add(&vec![task]);
         
         let task = Task {
-            index: 1,
             username: "".to_string(),
             devicename: "".to_string(),
             addr: "192.168.0.2".to_string(),
@@ -338,6 +383,7 @@ mod tests {
                 cpu: 0.0,
                 memory: 0.0,
             },
+            online: true,
         };
         tasks.add(&vec![task]);
         
@@ -362,4 +408,231 @@ mod tests {
         let addr = tasks.schedule();
         assert_eq!(addr, "");
     }
+
+    #[test]
+    fn test_schedule_for_sources_vector_index() {
+        let mut tasks = TasksManager::new();
+        let task0 = Task {
+            username: "u0".to_string(),
+            devicename: "d0".to_string(),
+            addr: "192.168.0.10".to_string(),
+            core: 8,
+            frequency: vec![3000],
+            memory: 16.0,
+            running: 0,
+            max: 10,
+            usage: Usage::default(),
+            online: true,
+        };
+        let task1 = Task {
+            username: "u1".to_string(),
+            devicename: "d1".to_string(),
+            addr: "192.168.0.11".to_string(),
+            core: 8,
+            frequency: vec![3000],
+            memory: 16.0,
+            running: 0,
+            max: 10,
+            usage: Usage::default(),
+            online: true,
+        };
+        tasks.add(&vec![task0.clone(), task1.clone()]);
+
+        let (addr, idx, _count) = tasks.schedule_for_sources(1);
+        assert_eq!(idx, 0);
+        assert_eq!(addr, "192.168.0.10");
+
+        // Mark node 0 offline
+        tasks.remove(&vec![task0.clone()]);
+
+        // Next schedule should pick node 1 at vector index 1
+        let (addr, idx, _count) = tasks.schedule_for_sources(1);
+        assert_eq!(idx, 1);
+        assert_eq!(addr, "192.168.0.11");
+
+        // Schedule by specific host for node 1 should return vector index 1
+        let (idx, _count) = tasks.schedule_by_specific_host("192.168.0.11", 1, None);
+        assert_eq!(idx, 1);
+
+        // When only node 1 is online (online_count == 1), schedule_by_specific_host routes to the single online node (index 1)
+        let (idx, _count) = tasks.schedule_by_specific_host("192.168.0.10", 1, None);
+        assert_eq!(idx, 1);
+
+        // When all nodes are offline (online_count == 0), should return (-1, 0)
+        tasks.remove(&vec![task1.clone()]);
+        let (idx, _count) = tasks.schedule_by_specific_host("192.168.0.10", 1, None);
+        assert_eq!(idx, -1);
+    }
+
+    #[test]
+    fn test_schedule_by_specific_host_online_count_one() {
+        let mut tasks = TasksManager::new();
+        let task0 = Task {
+            username: "u0".to_string(),
+            devicename: "d0".to_string(),
+            addr: "192.168.0.10".to_string(),
+            core: 8,
+            frequency: vec![3000],
+            memory: 16.0,
+            running: 0,
+            max: 10,
+            usage: Usage::default(),
+            online: true,
+        };
+        let task1 = Task {
+            username: "u1".to_string(),
+            devicename: "d1".to_string(),
+            addr: "192.168.0.11".to_string(),
+            core: 8,
+            frequency: vec![3000],
+            memory: 16.0,
+            running: 0,
+            max: 10,
+            usage: Usage::default(),
+            online: true,
+        };
+        tasks.add(&vec![task0.clone(), task1.clone()]);
+
+        // When node 0 is marked offline, tasks.len() == 2, but online_count == 1
+        tasks.remove(&vec![task0.clone()]);
+
+        // schedule_by_specific_host should route directly to the single online node (node 1 at index 1)
+        let (idx, size) = tasks.schedule_by_specific_host("192.168.0.11", 5, None);
+        assert_eq!(idx, 1);
+        assert_eq!(size, 5);
+
+        // When all nodes offline, returns (-1, 0)
+        tasks.remove(&vec![task1.clone()]);
+        let (idx, size) = tasks.schedule_by_specific_host("192.168.0.11", 5, None);
+        assert_eq!(idx, -1);
+        assert_eq!(size, 0);
+    }
+
+    #[test]
+    fn test_usage_matching() {
+        let mut multi_tasks = TasksManager::new();
+        let remote_task = Task {
+            username: "remote_u".to_string(),
+            devicename: "remote_d".to_string(),
+            addr: "192.168.1.200".to_string(),
+            core: 8,
+            frequency: vec![3000],
+            memory: 16.0,
+            running: 0,
+            max: 10,
+            usage: Usage::default(),
+            online: true,
+        };
+        let local_task = Task {
+            username: "local_u".to_string(),
+            devicename: "local_d".to_string(),
+            addr: "127.0.0.1".to_string(),
+            core: 8,
+            frequency: vec![3000],
+            memory: 16.0,
+            running: 0,
+            max: 10,
+            usage: Usage::default(),
+            online: true,
+        };
+        multi_tasks.add(&vec![remote_task, local_task]);
+
+        multi_tasks.usage(88.0, 4096.0);
+        let all_multi = multi_tasks.all();
+        // remote node remains 0.0
+        assert_eq!(all_multi[0].usage.cpu, 0.0);
+        // local node (127.0.0.1) is updated to 88.0
+        assert_eq!(all_multi[1].usage.cpu, 88.0);
+        assert_eq!(all_multi[1].usage.memory, 4096.0);
+    }
+
+    #[test]
+    fn test_remove_by_addr_and_vector() {
+        let mut tasks = TasksManager::new();
+        let t1 = Task {
+            username: "user1".to_string(),
+            devicename: "dev1".to_string(),
+            addr: "192.168.1.50".to_string(),
+            core: 8,
+            frequency: vec![3000],
+            memory: 16.0,
+            running: 2,
+            max: 10,
+            usage: Usage::default(),
+            online: true,
+        };
+        let t2 = Task {
+            username: "user2".to_string(),
+            devicename: "dev2".to_string(),
+            addr: "127.0.0.1".to_string(),
+            core: 8,
+            frequency: vec![3000],
+            memory: 16.0,
+            running: 1,
+            max: 10,
+            usage: Usage::default(),
+            online: true,
+        };
+        tasks.add(&vec![t1.clone(), t2.clone()]);
+        assert_eq!(tasks.all().len(), 2);
+
+        // Remove by Task vector
+        tasks.remove(&vec![t1]);
+        assert_eq!(tasks.all().len(), 1);
+        assert_eq!(tasks.alls().len(), 2);
+        assert!(!tasks.alls()[0].online);
+        assert_eq!(tasks.alls()[0].running, 0);
+
+        // Remove local by Task vector
+        tasks.remove(&vec![t2]);
+        assert_eq!(tasks.all().len(), 0);
+        assert_eq!(tasks.alls().len(), 2);
+        assert!(!tasks.alls()[1].online);
+    }
+
+    #[test]
+    fn test_sync_preserves_local_usage_and_updates_state() {
+        let mut tasks = TasksManager::new();
+        let local = Task {
+            username: "myuser".to_string(),
+            devicename: "mydev".to_string(),
+            addr: "127.0.0.1".to_string(),
+            core: 8,
+            frequency: vec![3000],
+            memory: 16.0,
+            running: 0,
+            max: 10,
+            usage: Usage::default(),
+            online: true,
+        };
+        tasks.add(&vec![local]);
+
+        // Local task records real-time usage
+        tasks.usage(45.5, 8192.0);
+        assert_eq!(tasks.all()[0].usage.cpu, 45.5);
+
+        // Captain sends full snapshot with usage default (0.0)
+        let snapshot_task = Task {
+            username: "myuser".to_string(),
+            devicename: "mydev".to_string(),
+            addr: "127.0.0.1".to_string(),
+            core: 16, // upgraded cores
+            frequency: vec![3200],
+            memory: 32.0,
+            running: 0,
+            max: 20,
+            usage: Usage::default(), // 0.0 from captain
+            online: true,
+        };
+        tasks.sync(&vec![snapshot_task]);
+
+        // Verify cores updated but local usage is preserved
+        let all = tasks.all();
+        assert_eq!(all[0].core, 16);
+        assert_eq!(all[0].memory, 32.0);
+        assert_eq!(all[0].usage.cpu, 45.5);
+        assert_eq!(all[0].usage.memory, 8192.0);
+    }
 }
+
+
