@@ -1154,81 +1154,34 @@ impl MSVC {
         resolve_dependency_includes: std::sync::Arc<dashmap::DashMap::<String, std::sync::Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>>>,
         stream: tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs>) {
         
-        let path = path.replace('/', "\\");
-
-        let (rwlock, write) = match resolve_dependency_includes.entry(path.clone()) {
-            dashmap::mapref::entry::Entry::Occupied(entry) => {
-                // Handle the case where the entry already exists
-                (entry.get().clone(), None)
-            },
-            dashmap::mapref::entry::Entry::Vacant(entry) => {
-                // Handle the case where the entry does not exist
-                let rwlock = std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new()));
-                let guard = rwlock.clone().try_write_owned().expect("new lock must be free");
-                entry.insert(rwlock.clone());
-                (rwlock, Some(guard))
-            },
-        };
-
-        if let Some(mut _write_guard) = write {
-            
-            // returns true if the key was not already in the set.
-            if !cache.insert(path.clone()) {
-                log::info!("insert file already exists in cache, skip parser {:?}", path);
-                return;
+        let mut visited = std::collections::HashSet::new();
+        let mut stack = vec![path];
+        
+        while let Some(path) = stack.pop() {
+            let path = path.replace('/', "\\");
+            if !visited.insert(path.clone()) {
+                continue;
             }
-            
-            let content = bytes::Bytes::from(tokio::fs::read(&path).await.unwrap_or_else(|_| {
-                log::error!("failed to read file: {:?}", path);
-                Vec::new()
-            }));
-            
-            let p = std::path::Path::new(&path);
-            let name = p.file_name()
-                .and_then(std::ffi::OsStr::to_str)
-                .map(str::to_owned)
-                .unwrap_or_else(|| path.clone());
-    
-            let archive = crate::communicate::packager::ArchiveArgs {
-                file_type:  crate::communicate::packager::FileType::SourceFiles,
-                solution: solution.as_ref().clone(),
-                project: project.as_ref().clone(),
-                name: name,
-                path: path.clone(),
-                content: content.clone(),
+
+            let (rwlock, write) = match resolve_dependency_includes.entry(path.clone()) {
+                dashmap::mapref::entry::Entry::Occupied(entry) => {
+                    // Handle the case where the entry already exists
+                    (entry.get().clone(), None)
+                },
+                dashmap::mapref::entry::Entry::Vacant(entry) => {
+                    // Handle the case where the entry does not exist
+                    let rwlock = std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new()));
+                    let guard = rwlock.clone().try_write_owned().expect("new lock must be free");
+                    entry.insert(rwlock.clone());
+                    (rwlock, Some(guard))
+                },
             };
     
-            let _ = stream.send(archive).await;
-            
-            let parent = p.parent().unwrap_or_else(|| std::path::Path::new("")).to_path_buf();
+            if let Some(mut _write_guard) = write {
 
-            let dependency;
-            if !include_dirs.contains(&parent) {
-                let mut source_include_dirs_exten = Vec::with_capacity(include_dirs.len() + 1);
-                source_include_dirs_exten.push(parent.clone());
-                source_include_dirs_exten.extend_from_slice(include_dirs);
-                dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), &source_include_dirs_exten);
-            }
-            else {
-                dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), include_dirs);
-            }
-
-            *_write_guard = dependency.clone().into_iter().collect::<std::collections::HashSet<String>>();
-            drop(_write_guard);
-            
-            log::trace!("parsed source file {:?} {:?} dependencies: {:?}", project, path, dependency);
-            for dep in dependency.clone() {
-                Box::pin(async {
-                    self.parser_sourcefile_sync_dependency(dep, defines.clone(), include_dirs, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
-                }).await;
-            }
-        }
-        else {
-            // returns true if the key was not already in the set.
-            if !cache.insert(path.clone()) { //if exists.
-                log::warn!("file already exists in cache, skip parser {:?}", path);
-            }
-            else {
+                // returns true if the key was not already in the set.
+                cache.insert(path.clone());
+                
                 let content = bytes::Bytes::from(tokio::fs::read(&path).await.unwrap_or_else(|_| {
                     log::error!("failed to read file: {:?}", path);
                     Vec::new()
@@ -1246,24 +1199,65 @@ impl MSVC {
                     project: project.as_ref().clone(),
                     name: name,
                     path: path.clone(),
-                    content: content,
+                    content: content.clone(),
                 };
-                
+        
                 let _ = stream.send(archive).await;
-                log::trace!("additional send dependency archive: {:?}", path);
-            }
-
-            let reader = {
-                let r = rwlock.read().await;
-                r.clone()
-            };
-
-            for dep in reader.iter() {
-                if !cache.contains(dep) {
-                    Box::pin(async {
-                        self.parser_sourcefile_sync_dependency(dep.to_string(), defines.clone(), include_dirs, solution.clone(), project.clone(), cache.clone(), resolve_dependency_includes.clone(), stream.clone()).await;
-                    }).await;
+                
+                let parent = p.parent().unwrap_or_else(|| std::path::Path::new("")).to_path_buf();
+    
+                let dependency;
+                if !include_dirs.contains(&parent) {
+                    let mut source_include_dirs_exten = Vec::with_capacity(include_dirs.len() + 1);
+                    source_include_dirs_exten.push(parent.clone());
+                    source_include_dirs_exten.extend_from_slice(include_dirs);
+                    dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), &source_include_dirs_exten);
                 }
+                else {
+                    dependency = dependency::parser_sourcefile_dependency(&content, defines.clone(), include_dirs);
+                }
+    
+                *_write_guard = dependency.clone().into_iter().collect::<std::collections::HashSet<String>>();
+                drop(_write_guard);
+                
+                log::trace!("parsed source file {:?} {:?} dependencies: {:?}", project, path, dependency);
+                stack.extend(dependency);
+            }
+            else {
+                let reader = {
+                    let r = rwlock.read().await;
+                    r.clone()
+                };
+
+                // returns true if the key was not already in the set.
+                if !cache.insert(path.clone()) { //if exists.
+                    log::warn!("file already exists in cache, skip parser {:?}", path);
+                }
+                else {
+                    let content = bytes::Bytes::from(tokio::fs::read(&path).await.unwrap_or_else(|_| {
+                        log::error!("failed to read file: {:?}", path);
+                        Vec::new()
+                    }));
+                    
+                    let p = std::path::Path::new(&path);
+                    let name = p.file_name()
+                        .and_then(std::ffi::OsStr::to_str)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| path.clone());
+            
+                    let archive = crate::communicate::packager::ArchiveArgs {
+                        file_type:  crate::communicate::packager::FileType::SourceFiles,
+                        solution: solution.as_ref().clone(),
+                        project: project.as_ref().clone(),
+                        name: name,
+                        path: path.clone(),
+                        content: content,
+                    };
+                    
+                    let _ = stream.send(archive).await;
+                }
+    
+                stack.extend(reader);
             }
         }
     }
