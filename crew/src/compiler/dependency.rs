@@ -528,7 +528,7 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: std::sync::Arc<std:
 fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String, std::sync::Arc<std::collections::HashSet<String>>)>, dep: &str) -> Option<std::path::PathBuf> {
 
     for (dir, files) in include_dir_files.iter() {
-        if dep.starts_with("..") {
+        if dep.contains("..") {
             let p = tools::utils::normalize_lexical(dir.to_owned() + "\\" + dep).to_string_lossy().to_string();
             for file in files.iter() {
                 if dir.to_owned() + "\\" + file == p {
@@ -564,7 +564,7 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
     }
 
     #[allow(static_mut_refs)]
-    if dep.starts_with("..") {
+    if dep.contains("..") {
         let reader = unsafe { crate::compiler::model::WALK_FS_NODE.as_mut().unwrap() };
         for dir in include_dirs {
             let Some(dir) = dir.to_str() else { continue; };
@@ -583,9 +583,7 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
                         }
                     };
 
-                    if let Some(nodem) = reader.dir.get_mut(dir) {
-                        nodem.insnode(std::path::Path::new(dep), false, size);
-                    }
+                    reader.insfile(&p, size);
                     return Some(p);
                 }
             }
@@ -618,11 +616,7 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
                         }
                     };
 
-                    if let Some(dir) = dir.to_str() {
-                        if let Some(nodem) = reader.dir.get_mut(dir) {
-                            nodem.insnode(std::path::Path::new(dep), false, size);
-                        }
-                    }
+                    reader.insfile(&p, size);
                     return Some(p);
                 }
             }

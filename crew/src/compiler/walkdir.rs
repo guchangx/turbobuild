@@ -71,6 +71,26 @@ impl FsNode {
         }
     }
 
+    pub fn insfile(&mut self, path: &std::path::Path, size: u32) {
+        
+        for (k, v) in self.dir.iter_mut() {
+            if let Ok(rest) = path.strip_prefix(k) {
+                v.insnode(rest, false, size);
+                return;
+            }
+        }
+        if let (Some(parent), Some(file_name)) = (path.parent(), path.file_name()) {
+            let nodem = self
+                .dir
+                .entry(CompactString::new(parent.to_string_lossy()))
+                .or_insert_with(|| Box::new(FsNode::new()));
+            nodem
+                .files
+                .insert(CompactString::new(file_name.to_string_lossy()), size);
+        }
+        return;
+    }
+
     pub fn add(&mut self, dir: &std::ffi::OsString) {
         let nodea = self.dir
             .entry(CompactString::new(dir.to_string_lossy()))

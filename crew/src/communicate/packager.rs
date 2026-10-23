@@ -200,6 +200,7 @@ impl Sender {
         let channel = tonic::transport::Endpoint::from_shared(std::format!("http://{}:19302", host)).unwrap()
             .initial_stream_window_size(32 * 1024 * 1024)
             .initial_connection_window_size(64 * 1024 * 1024)
+            .tcp_nodelay(true)
             .connect_timeout(std::time::Duration::from_secs(30))
             .connect()
             .await
