@@ -1,4 +1,4 @@
-﻿
+
 use crew::compiler::model::{CompiledResult, CompiledResults, CompilerInput, CompilerOutput};
 use std::io::Read;
 use windows_sys::Win32 as win;
@@ -27,6 +27,7 @@ pub struct CompileTaskCount {
     pub pdb: ProgramDataBase,
     pub expected: usize,
     pub done: usize,
+    pub failed: usize,
 }
 
 pub static COMPILE_TASK_COUNT: std::sync::LazyLock<std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, CompileTaskCount>>>> =
@@ -304,19 +305,6 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
                 return_local_compile_result_object_files(unready_objfiles, &solution_name, &origin_working_dir, out_err_stream);
             }
         }
-
-        let mut synced_tasks = COMPILE_TASK_COUNT.lock().unwrap();
-        let task = synced_tasks.get_mut(&project_name.to_string_lossy().to_string());
-        if let Some(task) = task {
-            task.pdb = (*program_database).clone();
-            task.done += 1;
-            log::trace!("compile task expected count: {:?} done: {:?}, project: {:?}.", task.expected, task.done, &project_name);
-            if task.expected != 0 && task.done >= task.expected {
-                synced_tasks.remove(&project_name.to_string_lossy().to_string());
-                drop(synced_tasks);
-                wait_local_compile_result_pdb_files((*program_database).clone(), &solution_name, &origin_working_dir, out_err_stream);
-            }
-        }
     }
     else {
         let lines: Vec<&str> = compile_output.lines().collect();
@@ -324,6 +312,36 @@ fn request_local_compile(compiler_input: &CompilerInput, origin_working_dir: std
         let compiled_filename: Vec<_> = lines.iter().map(|item| std::ffi::OsString::from(item)).collect();
         let compiled_output: Vec<_> = errors.iter().map(|item| std::ffi::OsString::from(item)).collect();
         log::error!("Compilation failed for {:?}. Filenames: {:?}, Errors: {:?}, Stderr: {}", project_name_, compiled_filename, compiled_output, compile_error);
+    }
+
+    let project = project_name.to_string_lossy().to_string();
+    let mut tasks = COMPILE_TASK_COUNT.lock().unwrap();
+    let task = tasks.entry(project.clone()).or_insert_with(|| CompileTaskCount {
+        pdb: ProgramDataBase::NonePDBPath,
+        expected: 0,
+        done: 0,
+        failed: 0,
+    });
+    task.pdb = (*program_database).clone();
+    task.done += 1;
+    if status != 0 {
+        task.failed += 1;
+    }
+    log::trace!("compile task expected count: {:?} done: {:?} failed: {:?}, project: {:?}.", task.expected, task.done, task.failed, &project_name);
+    if task.expected != 0 && task.done >= task.expected {
+        let failed = task.failed;
+        let pdb = task.pdb.clone();
+        tasks.remove(&project);
+        drop(tasks);
+        if failed == 0 {
+            wait_local_compile_result_pdb_files(pdb, &solution_name, &origin_working_dir, out_err_stream);
+        }
+        else {
+            log::warn!("project {:?} has {} failed compile tasks, skip returning pdb file.", &project_name, failed);
+        }
+    }
+    else {
+        drop(tasks);
     }
 
     log::info!("Compiled project {:?} in {:?}, exit status: {}", project_name_, now.elapsed(), status);

@@ -7,6 +7,21 @@ pub static CONNECTED_ADDR_MAP_SENDER: std::sync::LazyLock<std::sync::Arc<tokio::
 pub struct Distributor {
     tasker: std::sync::Arc<std::sync::Mutex::<crate::roster::crews::TasksManager>>,
     resources: std::sync::Arc<std::sync::Mutex<crate::roster::crews::ResourceList>>,
+    /// Notified whenever running slots are released, wakes up `schedule_for_sources_wait`.
+    relslot: std::sync::Arc<tokio::sync::Notify>,
+}
+
+/// Releases the reserved running slots of a node on drop. See `Distributor::slot_guard`.
+pub struct SlotGuard {
+    distributor: Distributor,
+    addr: String,
+    count: u32,
+}
+
+impl Drop for SlotGuard {
+    fn drop(&mut self) {
+        self.distributor.done(&self.addr, self.count);
+    }
 }
 
 impl Distributor {
@@ -15,6 +30,7 @@ impl Distributor {
         return Self{
             tasker: manager,
             resources: resources,
+            relslot: std::sync::Arc::new(tokio::sync::Notify::new()),
         }
     }
     
@@ -142,9 +158,57 @@ impl Distributor {
         }
     }
     
+    pub async fn schedule_for_sources_wait(&self, sources: &Vec<std::ffi::OsString>) -> (String, i32, Vec<std::ffi::OsString>, Vec<std::ffi::OsString>) {
+
+        const INTERVAL: std::time::Duration = std::time::Duration::from_millis(500);
+
+        let mut waiting = false;
+        loop {
+            // Register interest before checking, so a `done` between the check and the await is not lost.
+            let notified = self.relslot.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+
+            let result = {
+                let mut manager = self.tasker.lock().unwrap();
+                manager.try_schedule_for_sources(sources.len() as u32)
+            };
+
+            match result {
+                crate::roster::crews::TryScheduleResult::Scheduled(addr, index, count) => {
+                    if waiting {
+                        log::debug!("remote node {} has free resources, schedule continue.", addr);
+                    }
+                    let take = (count as usize).min(sources.len());
+                    let left = sources.iter().take(take).cloned().collect::<Vec<_>>();
+                    let right = sources.iter().skip(take).cloned().collect::<Vec<_>>();
+                    return (addr, index, left, right);
+                },
+                crate::roster::crews::TryScheduleResult::NoNode
+                | crate::roster::crews::TryScheduleResult::Full => {},
+            }
+
+            if !waiting {
+                log::debug!("all remote nodes reached max running tasks or no node online, waiting for free resources.");
+                waiting = true;
+            }
+
+            tokio::select! {
+                _ = &mut notified => {},
+                _ = tokio::time::sleep(INTERVAL) => {},
+            }
+        }
+    }
+
     pub fn done(&self, addr: &str, count: u32) {
         let mut manager  = self.tasker.lock().unwrap();
         manager.done(addr, count);
+        drop(manager);
+        self.relslot.notify_waiters();
+    }
+
+    pub fn slot(&self, addr: &str, count: u32) -> SlotGuard {
+        SlotGuard { distributor: self.clone(), addr: addr.to_string(), count }
     }
 
     pub fn all(&self) -> Vec<(String, u32)> {

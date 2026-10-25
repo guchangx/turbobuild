@@ -281,11 +281,20 @@ impl Receiver {
                     let count_str = String::from_utf8_lossy(&content);
                     if let Ok(count) = count_str.parse::<usize>() {
                         let mut compile_task = crate::compiler::msvc::COMPILE_TASK_COUNT.lock().unwrap();
-                        let task = compile_task.get_mut(&project);
-                        if let Some(task) = task {
-                            if task.done >= count {
+                        let task = compile_task.entry(project.clone()).or_insert_with(|| crate::compiler::msvc::CompileTaskCount {
+                            pdb: crate::compiler::msvc::ProgramDataBase::NonePDBPath,
+                            expected: 0,
+                            done: 0,
+                            failed: 0,
+                        });
+                        task.expected = count;
+                        if count != 0 && task.done >= count {
+                            let failed = task.failed;
+                            let pdb = task.pdb.clone();
+                            compile_task.remove(&project);
+                            drop(compile_task);
+                            if failed == 0 {
                                 let tx_ = tx.clone();
-                                let pdb = task.pdb.clone();
                                 tokio::spawn(async move {
                                     Self::wait_local_compile_result_pdbfiles(pdb,
                                         &std::ffi::OsString::from(solution),
@@ -293,18 +302,10 @@ impl Receiver {
                                         tx_
                                     ).await;
                                 });
-                                compile_task.remove(&project);
                             }
                             else {
-                                task.expected = count;
+                                log::warn!("project '{}' has {} failed compile tasks, skip returning pdb file.", project, failed);
                             }
-                        }
-                        else {
-                            compile_task.insert(project.clone(), crate::compiler::msvc::CompileTaskCount {
-                                pdb: crate::compiler::msvc::ProgramDataBase::NonePDBPath,
-                                expected: count,
-                                done: 0,
-                            });
                         }
                     }
                     else {
@@ -327,6 +328,12 @@ impl Receiver {
         }
         log::info!("File transfer stream closed, cleaned up channel for project '{}'", &*project_);
         PROJECT_MAP_TASK_TO_FILE_CHANNEL.write().unwrap().remove(&*project_);
+
+        if !project_.is_empty() {
+            if let Some(task) = crate::compiler::msvc::COMPILE_TASK_COUNT.lock().unwrap().remove(&*project_) {
+                log::debug!("clean up compile task count {}: expected: {}, done: {}, failed: {}", &*project_, task.expected, task.done, task.failed);
+            }
+        }
     }
     
     async fn transmit_task_handle(&self, request: package::CompileTrRequest, tx: tokio::sync::mpsc::Sender<Result<package::CompileTrResponse, tonic::Status>>) {

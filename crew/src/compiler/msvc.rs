@@ -86,7 +86,7 @@ impl MSVC {
                 }
                 else {
                     //dist with source file and include file
-                    let output = self.request_dist_compile_with_source_and_include(&compiler_input).await;
+                    let output = self.request_dist_compile_with_source_and_include_wait(&compiler_input).await;
                     compiler_output.set(output);
                 }
             }
@@ -1144,6 +1144,243 @@ impl MSVC {
         return compiler_output.lock().unwrap().to_owned();
     }
 
+    async fn request_dist_compile_with_source_and_include_wait(&self, input: &CompilerInput) -> CompilerOutput {
+
+        let mut set = tokio::task::JoinSet::new();
+        
+        let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &input.compiler_commands, &input.compiler_working_dir);
+
+        let others = actions.compile_instruction;
+        
+        let totals = actions.compile_source_file.len();
+        
+        let mut sources = Vec::new();
+        let mut source_file_current_dir = Vec::new();
+        for (_, path) in actions.compile_source_file {
+            let dir = path.parent().unwrap_or_else(|| std::path::Path::new("")).to_path_buf();
+            if !source_file_current_dir.iter().rev().any(|d| d == &dir) {
+                source_file_current_dir.push(dir);
+            }
+            sources.push(path.into_os_string());
+        }
+        
+        let defines = std::sync::Arc::new(std::sync::RwLock::new(actions.defines));
+        let dependency_cache_by_addr = std::sync::Arc::new(dashmap::DashMap::<String, std::sync::Arc<dashmap::DashSet<String>>>::new());
+        let resolve_dependency_includes = std::sync::Arc::new(dashmap::DashMap::<String, std::sync::Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>>::new());
+
+        let extracted_pdb = actions.pdb_file;
+        
+        for item in actions.include_dir {
+            if !source_file_current_dir.contains(&item) {
+                source_file_current_dir.push(item);
+            }
+        }
+
+        let now = std::time::Instant::now();
+        unsafe {
+            #![allow(static_mut_refs)]
+            crate::compiler::model::WALK_FS_NODE.is_none().then(|| {
+                crate::compiler::model::WALK_FS_NODE = Some(crate::compiler::walkdir::FsNode::new());
+            });
+            
+            let roots = crate::compiler::model::WALK_FS_NODE.as_mut().unwrap().roots(&mut source_file_current_dir);
+
+            log::trace!("filter and sort include dir list: {:#?}", &roots);
+
+            for dir in roots {
+                crate::compiler::model::WALK_FS_NODE.as_mut().unwrap().add(&dir.into_os_string());
+            }
+
+            let filesystem = crate::compiler::model::WALK_FS_NODE.as_ref().unwrap();
+            sources.sort_by_key(|source| {
+                std::cmp::Reverse(
+                    filesystem
+                        .sourcefile_size(std::path::Path::new(source))
+                        .unwrap_or(0),
+                )
+            });
+        }
+
+        log::debug!("query include dir and files done. {:?} elapsed time: {:?}",  &input.project, now.elapsed());
+        
+        let local_include_dirs = std::sync::Arc::new(source_file_current_dir);
+        
+        
+        let solution = std::sync::Arc::new(input.solution.to_string_lossy().to_string());
+        let project = std::sync::Arc::new(input.project.to_string_lossy().to_string());
+        
+        let solution_ = std::sync::Arc::clone(&solution);
+        let project_ = std::sync::Arc::clone(&project);
+
+        let addr_map_archive_stream = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, Option<tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs>>>::new()));
+        let addr_map_task_count = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, usize>::new()));
+
+        let addr_map_archive_stream_notify = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, _>::new()));
+
+        for (i, source) in sources.into_iter().enumerate() {
+            let addr;
+            let index;
+            let left;
+            // blocks (asynchronously) while all remote nodes have reached their max running count.
+            let distributor = self.sender.lock().unwrap().clone();
+            (addr, index, left, _) = distributor.schedule_for_sources_wait(&vec![source]).await;
+            log::trace!("schedule source files for {} {:?} addr: {} {}/{}", &project, &left, addr, i + 1, totals);
+            
+            let stream = if let Some(stream) = addr_map_archive_stream.lock().await.get(&addr).cloned() {
+                stream
+            }
+            else {
+                let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
+                addr_map_archive_stream.lock().await.insert(addr.clone(), stream.clone());
+                addr_map_archive_stream_notify.lock().await.insert(addr.clone(), notify);
+                stream
+            };
+            let slot = distributor.slot(&addr, left.len() as u32);
+
+            let dependency_cache = dependency_cache_by_addr.entry(addr.clone()).or_insert_with(|| std::sync::Arc::new(dashmap::DashSet::new()));
+
+            *addr_map_task_count.lock().await.entry(addr.clone()).or_insert(0) += left.len();
+            if i + 1 == totals{ //last source file, sync task count to all addresses
+                for (addr, count) in addr_map_task_count.lock().await.iter() {
+                    let stream = addr_map_archive_stream.lock().await.get(addr).cloned().unwrap();
+                    if let Some(stream) = stream {
+                        let archive = crate::communicate::packager::ArchiveArgs {
+                            file_type: crate::communicate::packager::FileType::SyncTaskCount,
+                            solution: solution_.as_ref().clone(),
+                            project: project_.as_ref().clone(),
+                            name: "".to_string(),
+                            path: input.compiler_working_dir.to_string_lossy().to_string(),
+                            content: bytes::Bytes::from(count.to_string()),
+                        };
+                        let _ = stream.send(archive).await;
+                    }
+                }
+            }
+            let self_ = self.clone();
+
+            let input_ = input.clone();
+            let mut others_ = others.clone();
+            let extracted_pdb_ = extracted_pdb.clone();
+
+            let solution = solution.clone();
+            let project = project.clone();
+            let stream = stream.clone();
+
+            let defines_ = defines.clone();
+            let local_include_dirs_ = local_include_dirs.clone();
+            let dependency_cache_ = dependency_cache.clone();
+            let resolve_dependency_includes_ = resolve_dependency_includes.clone();
+
+            set.spawn(async move {
+                let _slot = slot;
+                
+                //sync source files and dependency header files.
+                if let Some(stream) = stream {
+
+                    let mut archive_stream_task = Vec::new();
+
+                    let now = std::time::Instant::now();
+                    for file in &left {
+                        let solution_ = solution.clone();
+                        let project_ = project.clone();
+
+                        let stream_ = stream.clone();
+
+                        let defines_ = defines_.clone();
+
+                        let local_include_dirs_ = local_include_dirs_.clone();
+                        let self__ = self_.clone();
+                        let dependency_cache_ = dependency_cache_.clone();
+                        let resolve_dependency_includes_ = resolve_dependency_includes_.clone();
+
+                        let path = file.to_string_lossy().to_string();
+                        let stask = self_.runtime.spawn(async move {
+                            self__.parser_sourcefile_sync_dependency(path, defines_, &local_include_dirs_, solution_,
+                                project_, dependency_cache_, resolve_dependency_includes_, stream_).await;
+                        });
+                        archive_stream_task.push(stask);
+                    }
+                    
+                    for task in archive_stream_task {
+                        let _ = task.await; 
+                    }
+                    log::debug!("sync source and header files {:?} to: {} done. elapsed time: {:?}, send files: {:#?}", &input_.project, &addr, now.elapsed(), &left);
+                }
+                
+                let requires = crate::compiler::model::PreSyncedDependency {
+                    paths: dependency_cache_.iter().map(|item| item.clone()).collect(),
+                };
+
+                match &extracted_pdb_ {
+                    crate::compiler::msvc::ProgramDataBase::PathWithPDBName(pdb) => {
+                        let path = std::path::PathBuf::from(&pdb);
+                        let pdb = std::ffi::OsString::from(format!("/Fd{}_tb_{}.pdb", path.with_extension("").display(), index + 1));
+                        others_.push(pdb);
+                    },
+                    crate::compiler::msvc::ProgramDataBase::PathWithoutPDBName(path) => {
+                        let pdb = std::ffi::OsString::from(format!("/Fd{}/v143_tb_{}.pdb", path.to_string_lossy(), index + 1));
+                        others_.push(pdb);
+                    },
+                    _ => {
+                        log::warn!("no parsed pdb file path found.");
+                    },
+                };
+
+                let dispatched = left.len() as u32;
+                let source = crate::compiler::model::SourceContent {
+                    contents: None,
+                    path: left.iter().map(|item| item.to_string_lossy().to_string()).collect::<Vec<_>>().join(";"),
+                };
+
+                let mut input = input_;
+                input.compiler_commands = others_;
+                input.compiler_commands.push(std::ffi::OsString::from("/FS"));
+                input.compiler_commands.push(std::ffi::OsString::from("/MP"));
+                input.compiler_commands.push(std::ffi::OsString::from("/Zf"));
+                input.compiler_commands.extend(left);
+                
+                let output = self_.request_dist_compile(&addr, &input, &source, &requires).await;
+                return (addr, dispatched, output);
+            });
+
+        }
+
+        let compiler_output = std::sync::Arc::new(std::sync::Mutex::new(CompilerOutput::default()));
+
+        while let Some(handle) = set.join_next().await {
+            match handle {
+                Ok((addr, _dispatched, output)) => {
+                    // slots already released by the task's SlotGuard when it ended.
+                    
+                    log::debug!("dist compile project: {:?} addr: {:?} output: {:?} error: {:?}", &project_, &addr, String::from_utf8_lossy(&output.out), String::from_utf8_lossy(&output.err));
+                    {
+                        let mut coutput = compiler_output.lock().unwrap();
+                        if coutput.status == 0 {
+                            coutput.status = output.status;
+                        }
+                        let mut all_out = (*coutput.out).to_owned();
+                        let mut all_err = (*coutput.err).to_owned();
+
+                        all_out.extend(output.out.as_ref());
+                        all_err.extend(output.err.as_ref());
+                        coutput.out = std::sync::Arc::new(all_out);
+                        coutput.err = std::sync::Arc::new(all_err);
+                    }
+                },
+                Err(error) => {
+                    log::error!("dist compile with source and include file error: {:?}", error);
+                }
+            }
+        }
+        log::debug!("clearing addr_map_archive_stream project: {:?}", &project);
+        addr_map_archive_stream.lock().await.clear();
+
+        for (_, notify) in addr_map_archive_stream_notify.lock().await.iter() {
+            notify.notified().await;
+        }
+
+        return compiler_output.lock().unwrap().to_owned();
+    }
 
     async fn parser_sourcefile_sync_dependency(&self, path: String, 
         defines: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>, 

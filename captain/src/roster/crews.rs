@@ -99,7 +99,7 @@ impl TaskManager {
             frequency: crew.frequency.clone(),
             memory: crew.memory,
             running: 0,
-            max: crew.core * crew.core,
+            max: max(crew.core, crew.frequency.first().copied().filter(|f| *f > 0).unwrap_or(3000) as f64),
             online: true,
         };
         self.add(task);
@@ -145,6 +145,14 @@ impl TaskManager {
             None => None
         }
     }
+}
+
+fn weight(frequency: f64) -> f64 {
+    frequency / 3000.0
+}
+
+pub fn max(core: u32, frequency: f64) -> u32 {
+    ((core as f64 * 1.5 * weight(frequency)) as u32).max(1) // max running tasks: core * 1.5 * (frequency / 3000), at least 1
 }
 
 pub struct ConstitutionList {
@@ -419,7 +427,35 @@ mod tests {
         assert_eq!(task.frequency, vec![3000, 3000]);
         assert_eq!(task.memory, 32.0);
         assert_eq!(task.running, 0);
-        assert_eq!(task.max, 36); // core * core = 6 * 6 = 36
+        assert_eq!(task.max, 9); // core * 1.5 * (3000 / 3000) = 6 * 1.5 = 9
+    }
+
+    #[test]
+    fn test_max_formula() {
+        assert_eq!(max(8, 3000.0), 12); // 8 * 1.5 * 1.0
+        assert_eq!(max(8, 2400.0), 9);  // 8 * 1.5 * 0.8 = 9.6 -> 9
+        assert_eq!(max(8, 6000.0), 24); // 8 * 1.5 * 2.0
+        assert_eq!(max(0, 3000.0), 1);  // at least 1
+
+        // frequency missing or 0 falls back to 3000 MHz
+        let mut tm = TaskManager::new();
+        let mut crew = CrewRegister {
+            username: "u".to_string(),
+            devicename: "d".to_string(),
+            addr: "10.0.0.1".to_string(),
+            passcode: "".to_string(),
+            core: 8,
+            frequency: vec![],
+            memory: 16.0,
+        };
+        tm.add_from_crew(&crew);
+        assert_eq!(tm.alls()[0].max, 12);
+        crew.frequency = vec![0];
+        tm.add_from_crew(&crew);
+        assert_eq!(tm.alls()[0].max, 12);
+        crew.frequency = vec![2400, 3200];
+        tm.add_from_crew(&crew);
+        assert_eq!(tm.alls()[0].max, 9); // first frequency is used
     }
 
     #[test]

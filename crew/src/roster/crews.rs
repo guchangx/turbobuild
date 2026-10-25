@@ -102,7 +102,7 @@ pub struct Task {
     pub frequency: Vec<u64>,
     pub memory: f32,
     pub running: u32,
-    pub max: u32,
+    pub max: u32, //max running tasks
     #[serde(default)]
     pub usage: Usage,
     #[serde(default = "default")]
@@ -112,6 +112,17 @@ pub struct Task {
 #[derive(serde::Deserialize, Default, Clone, Debug)]
 pub struct TasksManager {
     tasks: Vec<Task>,
+}
+
+/// Result of `TasksManager::try_schedule_for_sources`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TryScheduleResult {
+    /// (addr, vector index, reserved count)
+    Scheduled(String, i32, u32),
+    /// All online nodes reached their max running count, the caller should wait.
+    Full,
+    /// No online node is able to accept tasks.
+    NoNode,
 }
 
 impl TasksManager {
@@ -195,7 +206,7 @@ impl TasksManager {
         }
     }
 
-    pub fn schedule_for_sources(&mut self, size: u32) ->(&str, i32, u32) {
+    pub fn  schedule_for_sources(&mut self, size: u32) ->(&str, i32, u32) {
         let count = self.all().len();
         if count == 0 {
             return ("", -1, 0);
@@ -208,34 +219,36 @@ impl TasksManager {
             return ("", -1, 0);
         }
         else {
-            let iter = self.tasks.iter_mut().enumerate().filter(|(_, item)| item.online && item.usage.cpu <= item.max as f32).min_by(|(_, x), (_, y)| {
-                let xw = Self::weight_for_frequency(x.frequency.first().copied().unwrap_or(3000));
-                let yw = Self::weight_for_frequency(y.frequency.first().copied().unwrap_or(3000));
-                let x_ratio = x.running as f64 / (x.core as f64 * xw);
-                let y_ratio = y.running as f64 / (y.core as f64 * yw);
-                x_ratio.partial_cmp(&y_ratio).unwrap_or(std::cmp::Ordering::Equal)
+            let iter = self.tasks.iter_mut().enumerate().filter(|(_, item)| item.online && item.running <= item.max).min_by(|(_, x), (_, y)| {
+                x.running.cmp(&y.running)
             });
-            if let Some((idx, item)) = iter {
-                let weight = Self::weight_for_frequency(item.frequency.first().copied().unwrap_or(3000));
 
-                if size >= (item.core as f64 * weight) as u32 {
-                    if size <= (item.core as f64 * (weight + 0.5)) as u32 {
-                        item.running += size;
-                        return (item.addr.as_str(), idx as i32, size);
-                    }
-                    else {
-                        item.running += (item.core as f64 * weight) as u32;
-                        return (item.addr.as_str(), idx as i32, (item.core as f64 * weight) as u32);
-                    }
-                }
-                else {
-                    item.running += size;
-                    return (item.addr.as_str(), idx as i32, size);
-                }            
+            if let Some((idx, item)) = iter {
+                item.running += size;
+                return (item.addr.as_str(), idx as i32, size);      
             }
             else {
                 return ("", -1, 0);
             }
+        }
+    }
+
+
+    pub fn try_schedule_for_sources(&mut self, size: u32) -> TryScheduleResult {
+        if !self.tasks.iter().any(|item| item.online && item.max > 0) {
+            return TryScheduleResult::NoNode;
+        }
+
+        let candidate = self.tasks.iter_mut().enumerate()
+            .filter(|(_, item)| item.online && item.running < item.max)
+            .min_by(|(_, x), (_, y)| x.running.cmp(&y.running));
+
+        match candidate {
+            Some((idx, item)) => {
+                item.running += size;
+                TryScheduleResult::Scheduled(item.addr.clone(), idx as i32, size)
+            },
+            None => TryScheduleResult::Full,
         }
     }
 
@@ -506,6 +519,35 @@ mod tests {
         let (idx, size) = tasks.schedule_by_specific_host("192.168.0.11", 5, None);
         assert_eq!(idx, -1);
         assert_eq!(size, 0);
+    }
+
+    #[test]
+    fn test_try_schedule_for_sources_respects_max() {
+        let mk = |addr: &str, max: u32| Task {
+            username: addr.to_string(),
+            devicename: addr.to_string(),
+            addr: addr.to_string(),
+            core: 8,
+            frequency: vec![3000],
+            memory: 16.0,
+            running: 0,
+            max,
+            usage: Usage::default(),
+            online: true,
+        };
+        let mut tasks = TasksManager::new();
+        assert_eq!(tasks.try_schedule_for_sources(1), TryScheduleResult::NoNode);
+
+        tasks.add(&vec![mk("192.168.0.10", 1), mk("192.168.0.11", 1)]);
+        assert!(matches!(tasks.try_schedule_for_sources(1), TryScheduleResult::Scheduled(_, _, 1)));
+        assert!(matches!(tasks.try_schedule_for_sources(1), TryScheduleResult::Scheduled(_, _, 1)));
+        // running == max on every node: must report Full
+        assert_eq!(tasks.try_schedule_for_sources(1), TryScheduleResult::Full);
+
+        // releasing a slot makes that node available again
+        tasks.done("192.168.0.11", 1);
+        assert_eq!(tasks.try_schedule_for_sources(1), TryScheduleResult::Scheduled("192.168.0.11".to_string(), 1, 1));
+        assert_eq!(tasks.try_schedule_for_sources(1), TryScheduleResult::Full);
     }
 
     #[test]
