@@ -1185,8 +1185,6 @@ impl MSVC {
             
             let roots = crate::compiler::model::WALK_FS_NODE.as_mut().unwrap().roots(&mut source_file_current_dir);
 
-            log::trace!("filter and sort include dir list: {:#?}", &roots);
-
             for dir in roots {
                 crate::compiler::model::WALK_FS_NODE.as_mut().unwrap().add(&dir.into_os_string());
             }
@@ -1200,7 +1198,6 @@ impl MSVC {
                 )
             });
         }
-
         log::debug!("query include dir and files done. {:?} elapsed time: {:?}",  &input.project, now.elapsed());
         
         let local_include_dirs = std::sync::Arc::new(source_file_current_dir);
@@ -1224,20 +1221,23 @@ impl MSVC {
             // blocks (asynchronously) while all remote nodes have reached their max running count.
             let distributor = self.sender.lock().unwrap().clone();
             (addr, index, left, _) = distributor.schedule_for_sources_wait(&vec![source]).await;
-            log::trace!("schedule source files for {} {:?} addr: {} {}/{}", &project, &left, addr, i + 1, totals);
+            log::trace!("schedule source files for {} {:?} addr: {} index: {}/{}", &project, &left, addr, i + 1, totals);
             
-            let stream = if let Some(stream) = addr_map_archive_stream.lock().await.get(&addr).cloned() {
-                stream
-            }
-            else {
-                let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
-                addr_map_archive_stream.lock().await.insert(addr.clone(), stream.clone());
-                addr_map_archive_stream_notify.lock().await.insert(addr.clone(), notify);
-                stream
+            let exists = addr_map_archive_stream.lock().await.get(&addr).cloned();
+            let stream = match exists {
+                Some(stream) => {
+                    stream
+                }
+                None => {
+                    let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
+                    addr_map_archive_stream.lock().await.insert(addr.clone(), stream.clone());
+                    addr_map_archive_stream_notify.lock().await.insert(addr.clone(), notify);
+                    stream
+                }
             };
             let slot = distributor.slot(&addr, left.len() as u32);
 
-            let dependency_cache = dependency_cache_by_addr.entry(addr.clone()).or_insert_with(|| std::sync::Arc::new(dashmap::DashSet::new()));
+            let project_dependency_cache = dependency_cache_by_addr.entry(addr.clone()).or_insert_with(|| std::sync::Arc::new(dashmap::DashSet::new()));
 
             *addr_map_task_count.lock().await.entry(addr.clone()).or_insert(0) += left.len();
             if i + 1 == totals{ //last source file, sync task count to all addresses
@@ -1268,7 +1268,7 @@ impl MSVC {
 
             let defines_ = defines.clone();
             let local_include_dirs_ = local_include_dirs.clone();
-            let dependency_cache_ = dependency_cache.clone();
+            let project_dependency_cache_ = project_dependency_cache.clone();
             let resolve_dependency_includes_ = resolve_dependency_includes.clone();
 
             set.spawn(async move {
@@ -1290,13 +1290,13 @@ impl MSVC {
 
                         let local_include_dirs_ = local_include_dirs_.clone();
                         let self__ = self_.clone();
-                        let dependency_cache_ = dependency_cache_.clone();
+                        let project_dependency_cache_ = project_dependency_cache_.clone();
                         let resolve_dependency_includes_ = resolve_dependency_includes_.clone();
 
                         let path = file.to_string_lossy().to_string();
                         let stask = self_.runtime.spawn(async move {
                             self__.parser_sourcefile_sync_dependency(path, defines_, &local_include_dirs_, solution_,
-                                project_, dependency_cache_, resolve_dependency_includes_, stream_).await;
+                                project_, project_dependency_cache_, resolve_dependency_includes_, stream_).await;
                         });
                         archive_stream_task.push(stask);
                     }
@@ -1308,7 +1308,7 @@ impl MSVC {
                 }
                 
                 let requires = crate::compiler::model::PreSyncedDependency {
-                    paths: dependency_cache_.iter().map(|item| item.clone()).collect(),
+                    paths: project_dependency_cache_.iter().map(|item| item.clone()).collect(),
                 };
 
                 match &extracted_pdb_ {
