@@ -28,7 +28,13 @@ pub enum OutType {
     File(FileOut),
 }
 
-use std::{io::Read, ops::Index};
+#[derive(Debug, Clone)]
+struct CompileSourceTask {
+    path: std::ffi::OsString,
+    size: u32,
+}
+
+use std::{io::Read, ops::Index, path::PathBuf};
 use crate::{compiler::{dependency, model::{CompiledResults, CompilerInput, CompilerOutput}}, replica::project};
 use std::io::BufRead;
 
@@ -471,7 +477,6 @@ impl MSVC {
     async fn request_dist_compile(&self, addr: &str, input: &CompilerInput, source: &crate::compiler::model::SourceContent, presynced: &crate::compiler::model::PreSyncedDependency) -> CompilerOutput {
     
         let cversion = parse_version_from_path(input.compiler_path.as_os_str().to_str().unwrap()).unwrap();
-        log::debug!("{:?} in commands compiler version: {:?}, addr: {:?}", input.project, cversion, addr);
         if (addr == "127.0.0.1" || addr == "localhost") && !*crate::ENFORCE_ACTIVATE_LOCAL_COCREW {
             let mut output = CompilerOutput::default();
             let path = input.compiler_path.clone();
@@ -1150,19 +1155,10 @@ impl MSVC {
         
         let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &input.compiler_commands, &input.compiler_working_dir);
 
+        let (mut sources, mut source_file_current_dir) = extract_sources_and_include_dirs(&actions);
+
         let others = actions.compile_instruction;
-        
-        let totals = actions.compile_source_file.len();
-        
-        let mut sources = Vec::new();
-        let mut source_file_current_dir = Vec::new();
-        for (_, path) in actions.compile_source_file {
-            let dir = path.parent().unwrap_or_else(|| std::path::Path::new("")).to_path_buf();
-            if !source_file_current_dir.iter().rev().any(|d| d == &dir) {
-                source_file_current_dir.push(dir);
-            }
-            sources.push(path.into_os_string());
-        }
+        let totals = sources.len();
         
         let defines = std::sync::Arc::new(std::sync::RwLock::new(actions.defines));
         let dependency_cache_by_addr = std::sync::Arc::new(dashmap::DashMap::<String, std::sync::Arc<dashmap::DashSet<String>>>::new());
@@ -1170,12 +1166,6 @@ impl MSVC {
 
         let extracted_pdb = actions.pdb_file;
         
-        for item in actions.include_dir {
-            if !source_file_current_dir.contains(&item) {
-                source_file_current_dir.push(item);
-            }
-        }
-
         let now = std::time::Instant::now();
         unsafe {
             #![allow(static_mut_refs)]
@@ -1190,13 +1180,16 @@ impl MSVC {
             }
 
             let filesystem = crate::compiler::model::WALK_FS_NODE.as_ref().unwrap();
-            sources.sort_by_key(|source| {
-                std::cmp::Reverse(
-                    filesystem
-                        .sourcefile_size(std::path::Path::new(source))
-                        .unwrap_or(0),
-                )
-            });
+            for source in &mut sources {
+                let p = std::path::Path::new(&source.path);
+                source.size = filesystem
+                    .sourcefile_size(p)
+                    .map(|s| s)
+                    .or_else(|| std::fs::metadata(p).ok().map(|m| crate::compiler::walkdir::file_size_in_kib(m.len())))
+                    .unwrap_or(0);
+            }
+
+            sources.sort_unstable_by_key(|source| std::cmp::Reverse(source.size));
         }
         log::debug!("query include dir and files done. {:?} elapsed time: {:?}",  &input.project, now.elapsed());
         
@@ -1214,135 +1207,188 @@ impl MSVC {
 
         let addr_map_archive_stream_notify = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, _>::new()));
 
-        for (i, source) in sources.into_iter().enumerate() {
-            let addr;
-            let index;
-            let left;
-            // blocks (asynchronously) while all remote nodes have reached their max running count.
-            let distributor = self.sender.lock().unwrap().clone();
-            (addr, index, left, _) = distributor.schedule_for_sources_wait(&vec![source]).await;
-            log::trace!("schedule source files for {} {:?} addr: {} index: {}/{}", &project, &left, addr, i + 1, totals);
-            
-            let exists = addr_map_archive_stream.lock().await.get(&addr).cloned();
-            let stream = match exists {
-                Some(stream) => {
-                    stream
-                }
-                None => {
-                    let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
-                    addr_map_archive_stream.lock().await.insert(addr.clone(), stream.clone());
-                    addr_map_archive_stream_notify.lock().await.insert(addr.clone(), notify);
-                    stream
-                }
-            };
-            let slot = distributor.slot(&addr, left.len() as u32);
+        let mut iter = sources.into_iter().enumerate();
+        for (i, CompileSourceTask {path: source, size}) in &mut iter {
+            if size <= 3 { //sourcefile size is small, schedule for local compilation
+                let mut remaining = vec![source];
+                remaining.extend(iter.map(|(_, task)| task.path));
+                log::trace!("schedule small source files for {} {:?} remaining: {:?}", &project, &i, &remaining);
 
-            let project_dependency_cache = dependency_cache_by_addr.entry(addr.clone()).or_insert_with(|| std::sync::Arc::new(dashmap::DashSet::new()));
+                let self_ = self.clone();
+                let input_= input.clone();
+                let mut others_ = others.clone();
 
-            *addr_map_task_count.lock().await.entry(addr.clone()).or_insert(0) += left.len();
-            if i + 1 == totals{ //last source file, sync task count to all addresses
-                for (addr, count) in addr_map_task_count.lock().await.iter() {
-                    let stream = addr_map_archive_stream.lock().await.get(addr).cloned().unwrap();
-                    if let Some(stream) = stream {
-                        let archive = crate::communicate::packager::ArchiveArgs {
-                            file_type: crate::communicate::packager::FileType::SyncTaskCount,
-                            solution: solution_.as_ref().clone(),
-                            project: project_.as_ref().clone(),
-                            name: "".to_string(),
-                            path: input.compiler_working_dir.to_string_lossy().to_string(),
-                            content: bytes::Bytes::from(count.to_string()),
-                        };
-                        let _ = stream.send(archive).await;
+                set.spawn(async move {
+                    let addr = "127.0.0.1".to_string();
+                    let requires = crate::compiler::model::PreSyncedDependency {
+                        paths: Vec::new(),
+                    };
+    
+                    match &extracted_pdb {
+                        crate::compiler::msvc::ProgramDataBase::PathWithPDBName(pdb) => {
+                            let path = std::path::PathBuf::from(&pdb);
+                            let pdb = std::ffi::OsString::from(format!("/Fd{}_tb_{}.pdb", path.with_extension("").display(), 1));
+                            others_.push(pdb);
+                        },
+                        crate::compiler::msvc::ProgramDataBase::PathWithoutPDBName(path) => {
+                            let pdb = std::ffi::OsString::from(format!("/Fd{}/v143_tb_{}.pdb", path.to_string_lossy(), 1));
+                            others_.push(pdb);
+                        },
+                        _ => {
+                            log::warn!("no parsed pdb file path found.");
+                        },
+                    };
+    
+                    let dispatched = remaining.len() as u32;
+                    let source = crate::compiler::model::SourceContent {
+                        contents: None,
+                        path: remaining.iter().map(|item| item.to_string_lossy().to_string()).collect::<Vec<_>>().join(";"),
+                    };
+    
+                    let mut input = input_;
+                    input.compiler_commands = others;
+                    input.compiler_commands.push(std::ffi::OsString::from("/FS"));
+                    input.compiler_commands.push(std::ffi::OsString::from("/MP"));
+                    input.compiler_commands.push(std::ffi::OsString::from("/Zf"));
+                    input.compiler_commands.extend(remaining);
+                    
+                    let output = self_.request_dist_compile(&addr, &input, &source, &requires).await;
+                    return (addr, dispatched, output);
+                });
+                break;
+            }
+            else {
+
+                let addr;
+                let index;
+                let left;
+                // blocks (asynchronously) while all remote nodes have reached their max running count.
+                let distributor = self.sender.lock().unwrap().clone();
+                (addr, index, left, _) = distributor.schedule_for_sources_wait(&vec![source]).await;
+                log::trace!("schedule source files for {} {:?} addr: {} index: {}/{}", &project, &left, addr, i + 1, totals);
+                
+                let exists = addr_map_archive_stream.lock().await.get(&addr).cloned();
+                let stream = match exists {
+                    Some(stream) => {
+                        stream
+                    }
+                    None => {
+                        let (stream, notify) = crate::communicate::distributor::Distributor::archive_stream(&addr, &self.runtime).await;
+                        addr_map_archive_stream.lock().await.insert(addr.clone(), stream.clone());
+                        addr_map_archive_stream_notify.lock().await.insert(addr.clone(), notify);
+                        stream
+                    }
+                };
+                let slot = distributor.slot(&addr, left.len() as u32);
+
+                let project_dependency_cache = dependency_cache_by_addr.entry(addr.clone()).or_insert_with(|| std::sync::Arc::new(dashmap::DashSet::new()));
+
+                *addr_map_task_count.lock().await.entry(addr.clone()).or_insert(0) += left.len();
+                if i + 1 == totals{ //last source file, sync task count to all addresses
+                    for (addr, count) in addr_map_task_count.lock().await.iter() {
+                        let stream = addr_map_archive_stream.lock().await.get(addr).cloned().unwrap();
+                        if let Some(stream) = stream {
+                            let archive = crate::communicate::packager::ArchiveArgs {
+                                file_type: crate::communicate::packager::FileType::SyncTaskCount,
+                                solution: solution_.as_ref().clone(),
+                                project: project_.as_ref().clone(),
+                                name: "".to_string(),
+                                path: input.compiler_working_dir.to_string_lossy().to_string(),
+                                content: bytes::Bytes::from(count.to_string()),
+                            };
+                            let _ = stream.send(archive).await;
+                        }
                     }
                 }
-            }
-            let self_ = self.clone();
+                let self_ = self.clone();
 
-            let input_ = input.clone();
-            let mut others_ = others.clone();
-            let extracted_pdb_ = extracted_pdb.clone();
+                let mut input_ = input.clone();
+                input_.compiler_commands.clear();
 
-            let solution = solution.clone();
-            let project = project.clone();
-            let stream = stream.clone();
+                let mut others_ = others.clone();
+                let extracted_pdb_ = extracted_pdb.clone();
 
-            let defines_ = defines.clone();
-            let local_include_dirs_ = local_include_dirs.clone();
-            let project_dependency_cache_ = project_dependency_cache.clone();
-            let resolve_dependency_includes_ = resolve_dependency_includes.clone();
+                let solution = solution.clone();
+                let project = project.clone();
+                let stream = stream.clone();
 
-            set.spawn(async move {
-                let _slot = slot;
-                
-                //sync source files and dependency header files.
-                if let Some(stream) = stream {
+                let defines_ = defines.clone();
+                let local_include_dirs_ = local_include_dirs.clone();
+                let project_dependency_cache_ = project_dependency_cache.clone();
+                let resolve_dependency_includes_ = resolve_dependency_includes.clone();
 
-                    let mut archive_stream_task = Vec::new();
+                set.spawn(async move {
+                    let _slot = slot;
+                    
+                    //sync source files and dependency header files.
+                    if let Some(stream) = stream {
 
-                    let now = std::time::Instant::now();
-                    for file in &left {
-                        let solution_ = solution.clone();
-                        let project_ = project.clone();
+                        let mut archive_stream_task = Vec::new();
 
-                        let stream_ = stream.clone();
+                        let now = std::time::Instant::now();
+                        for file in &left {
+                            let solution_ = solution.clone();
+                            let project_ = project.clone();
 
-                        let defines_ = defines_.clone();
+                            let stream_ = stream.clone();
 
-                        let local_include_dirs_ = local_include_dirs_.clone();
-                        let self__ = self_.clone();
-                        let project_dependency_cache_ = project_dependency_cache_.clone();
-                        let resolve_dependency_includes_ = resolve_dependency_includes_.clone();
+                            let defines_ = defines_.clone();
 
-                        let path = file.to_string_lossy().to_string();
-                        let stask = self_.runtime.spawn(async move {
-                            self__.parser_sourcefile_sync_dependency(path, defines_, &local_include_dirs_, solution_,
-                                project_, project_dependency_cache_, resolve_dependency_includes_, stream_).await;
-                        });
-                        archive_stream_task.push(stask);
+                            let local_include_dirs_ = local_include_dirs_.clone();
+                            let self__ = self_.clone();
+                            let project_dependency_cache_ = project_dependency_cache_.clone();
+                            let resolve_dependency_includes_ = resolve_dependency_includes_.clone();
+
+                            let path = file.to_string_lossy().to_string();
+                            let stask = self_.runtime.spawn(async move {
+                                self__.parser_sourcefile_sync_dependency(path, defines_, &local_include_dirs_, solution_,
+                                    project_, project_dependency_cache_, resolve_dependency_includes_, stream_).await;
+                            });
+                            archive_stream_task.push(stask);
+                        }
+                        
+                        for task in archive_stream_task {
+                            let _ = task.await; 
+                        }
+                        log::debug!("sync source and header files {:?} to: {} done. elapsed time: {:?}, send files: {:#?}", &input_.project, &addr, now.elapsed(), &left);
                     }
                     
-                    for task in archive_stream_task {
-                        let _ = task.await; 
-                    }
-                    log::debug!("sync source and header files {:?} to: {} done. elapsed time: {:?}, send files: {:#?}", &input_.project, &addr, now.elapsed(), &left);
-                }
-                
-                let requires = crate::compiler::model::PreSyncedDependency {
-                    paths: project_dependency_cache_.iter().map(|item| item.clone()).collect(),
-                };
+                    let requires = crate::compiler::model::PreSyncedDependency {
+                        paths: project_dependency_cache_.iter().map(|item| item.clone()).collect(),
+                    };
 
-                match &extracted_pdb_ {
-                    crate::compiler::msvc::ProgramDataBase::PathWithPDBName(pdb) => {
-                        let path = std::path::PathBuf::from(&pdb);
-                        let pdb = std::ffi::OsString::from(format!("/Fd{}_tb_{}.pdb", path.with_extension("").display(), index + 1));
-                        others_.push(pdb);
-                    },
-                    crate::compiler::msvc::ProgramDataBase::PathWithoutPDBName(path) => {
-                        let pdb = std::ffi::OsString::from(format!("/Fd{}/v143_tb_{}.pdb", path.to_string_lossy(), index + 1));
-                        others_.push(pdb);
-                    },
-                    _ => {
-                        log::warn!("no parsed pdb file path found.");
-                    },
-                };
+                    match &extracted_pdb_ {
+                        crate::compiler::msvc::ProgramDataBase::PathWithPDBName(pdb) => {
+                            let path = std::path::PathBuf::from(&pdb);
+                            let pdb = std::ffi::OsString::from(format!("/Fd{}_tb_{}.pdb", path.with_extension("").display(), index + 1));
+                            others_.push(pdb);
+                        },
+                        crate::compiler::msvc::ProgramDataBase::PathWithoutPDBName(path) => {
+                            let pdb = std::ffi::OsString::from(format!("/Fd{}/v143_tb_{}.pdb", path.to_string_lossy(), index + 1));
+                            others_.push(pdb);
+                        },
+                        _ => {
+                            log::warn!("no parsed pdb file path found.");
+                        },
+                    };
 
-                let dispatched = left.len() as u32;
-                let source = crate::compiler::model::SourceContent {
-                    contents: None,
-                    path: left.iter().map(|item| item.to_string_lossy().to_string()).collect::<Vec<_>>().join(";"),
-                };
+                    let dispatched = left.len() as u32;
+                    let source = crate::compiler::model::SourceContent {
+                        contents: None,
+                        path: left.iter().map(|item| item.to_string_lossy().to_string()).collect::<Vec<_>>().join(";"),
+                    };
 
-                let mut input = input_;
-                input.compiler_commands = others_;
-                input.compiler_commands.push(std::ffi::OsString::from("/FS"));
-                input.compiler_commands.push(std::ffi::OsString::from("/MP"));
-                input.compiler_commands.push(std::ffi::OsString::from("/Zf"));
-                input.compiler_commands.extend(left);
-                
-                let output = self_.request_dist_compile(&addr, &input, &source, &requires).await;
-                return (addr, dispatched, output);
-            });
-
+                    let mut input = input_;
+                    input.compiler_commands = others_;
+                    input.compiler_commands.push(std::ffi::OsString::from("/FS"));
+                    input.compiler_commands.push(std::ffi::OsString::from("/MP"));
+                    input.compiler_commands.push(std::ffi::OsString::from("/Zf"));
+                    input.compiler_commands.extend(left);
+                    
+                    let output = self_.request_dist_compile(&addr, &input, &source, &requires).await;
+                    return (addr, dispatched, output);
+                });
+            }
         }
 
         let compiler_output = std::sync::Arc::new(std::sync::Mutex::new(CompilerOutput::default()));
@@ -2575,6 +2621,28 @@ fn filter_compiler_warning_and_error(lines: Vec<&str>) -> (Vec<&str>, Vec<&str>)
 
     let (files, warning):(Vec<_>, Vec<_>) = lines.into_iter().partition(|item| item.ends_with(".i") || item.ends_with(".cpp") || item.ends_with(".c") || item.ends_with(".cc") || item.ends_with(".cxx"));
     return (files, warning);
+}
+
+fn extract_sources_and_include_dirs(actions: &CompileAction) -> (Vec<CompileSourceTask>, Vec<PathBuf>) {
+    let totals = actions.compile_source_file.len();
+
+    let mut sources = Vec::with_capacity(totals);
+    let mut source_file_current_dir = Vec::new();
+    for (_, path) in &actions.compile_source_file {
+        let dir = path.parent().unwrap_or_else(|| std::path::Path::new("")).to_path_buf();
+        if !source_file_current_dir.iter().rev().any(|d| d == &dir) {
+            source_file_current_dir.push(dir);
+        }
+        sources.push(CompileSourceTask { path: path.clone().into_os_string(), size: 0 });
+    }
+    
+    for item in &actions.include_dir {
+        if !source_file_current_dir.contains(&item) {
+            source_file_current_dir.push(item.clone());
+        }
+    }
+
+    (sources, source_file_current_dir)
 }
 
 #[derive(Debug)]
