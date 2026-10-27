@@ -1208,23 +1208,39 @@ impl MSVC {
         let addr_map_archive_stream_notify = std::sync::Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::<String, _>::new()));
 
         let mut iter = sources.into_iter().enumerate();
-        for (i, CompileSourceTask {path: source, size}) in &mut iter {
+        while let Some((i, CompileSourceTask {path: source, size})) = iter.next() {
             if size <= 3 { //sourcefile size is small, schedule for local compilation
                 let mut remaining = vec![source];
-                remaining.extend(iter.map(|(_, task)| task.path));
-                log::trace!("schedule small source files for {} {:?} remaining: {:?}", &project, &i, &remaining);
+                remaining.extend(iter.by_ref().map(|(_, task)| task.path));
+                log::trace!("schedule small source files for {} at {:?} remaining: {:?}", &project, &i, &remaining);
 
+                for (addr, count) in addr_map_task_count.lock().await.iter() {
+                    let stream = addr_map_archive_stream.lock().await.get(addr).cloned().unwrap();
+                    if let Some(stream) = stream {
+                        let archive = crate::communicate::packager::ArchiveArgs {
+                            file_type: crate::communicate::packager::FileType::SyncTaskCount,
+                            solution: solution_.as_ref().clone(),
+                            project: project_.as_ref().clone(),
+                            name: "".to_string(),
+                            path: input.compiler_working_dir.to_string_lossy().to_string(),
+                            content: bytes::Bytes::from(count.to_string()),
+                        };
+                        let _ = stream.send(archive).await;
+                    }
+                }
+                
                 let self_ = self.clone();
                 let input_= input.clone();
                 let mut others_ = others.clone();
 
+                let extracted_pdb_ = extracted_pdb.clone();
                 set.spawn(async move {
                     let addr = "127.0.0.1".to_string();
                     let requires = crate::compiler::model::PreSyncedDependency {
                         paths: Vec::new(),
                     };
     
-                    match &extracted_pdb {
+                    match &extracted_pdb_ {
                         crate::compiler::msvc::ProgramDataBase::PathWithPDBName(pdb) => {
                             let path = std::path::PathBuf::from(&pdb);
                             let pdb = std::ffi::OsString::from(format!("/Fd{}_tb_{}.pdb", path.with_extension("").display(), 1));
@@ -1246,7 +1262,7 @@ impl MSVC {
                     };
     
                     let mut input = input_;
-                    input.compiler_commands = others;
+                    input.compiler_commands = others_;
                     input.compiler_commands.push(std::ffi::OsString::from("/FS"));
                     input.compiler_commands.push(std::ffi::OsString::from("/MP"));
                     input.compiler_commands.push(std::ffi::OsString::from("/Zf"));
@@ -1255,17 +1271,15 @@ impl MSVC {
                     let output = self_.request_dist_compile(&addr, &input, &source, &requires).await;
                     return (addr, dispatched, output);
                 });
-                break;
             }
             else {
-
                 let addr;
                 let index;
                 let left;
                 // blocks (asynchronously) while all remote nodes have reached their max running count.
                 let distributor = self.sender.lock().unwrap().clone();
                 (addr, index, left, _) = distributor.schedule_for_sources_wait(&vec![source]).await;
-                log::trace!("schedule source files for {} {:?} addr: {} index: {}/{}", &project, &left, addr, i + 1, totals);
+                log::trace!("schedule source files for {} {:?} addr: {} at: {}/{}", &project, &left, addr, i + 1, totals);
                 
                 let exists = addr_map_archive_stream.lock().await.get(&addr).cloned();
                 let stream = match exists {
