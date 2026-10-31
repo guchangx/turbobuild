@@ -507,8 +507,14 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: std::sync::Arc<std:
                     } else {
                         let macro_name = s.split(|c: char| c.is_whitespace() || c == '/')
                             .next().unwrap_or("").trim();
-                        if let Some(Some(expanded)) = defines.read().unwrap().get(macro_name) {
-                            check_local_include_dir_and_files_2(include_dirs, expanded)
+                        if let Some(Some(expand)) = defines.read().unwrap().get(macro_name) {
+                            let expand = expand.trim();
+                            let clean = if expand.starts_with('<') || expand.starts_with('"') {
+                                &expand[1..expand.len() - 1]
+                            } else {
+                                expand
+                            };
+                            check_local_include_dir_and_files_2(include_dirs, clean)
                         } else {
                             None
                         }
@@ -591,13 +597,17 @@ fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path:
     }
     else {
         let reader = unsafe { crate::compiler::model::WALK_FS_NODE.as_mut().unwrap() };
+        
+        let dep = if dep.contains("/") {
+            &dep.replace("/", std::path::MAIN_SEPARATOR_STR)
+        } else {
+            dep
+        };
+
         for dir in include_dirs {
             let p;
-            if dep.starts_with("./") {
+            if dep.starts_with(".\\") {
                 p = dir.join(&dep[2..]);
-            }
-            else if dep.contains("/") {
-                p = dir.join(dep.replace("/", std::path::MAIN_SEPARATOR_STR));
             }
             else {
                 p = dir.join(dep);
