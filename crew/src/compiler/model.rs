@@ -78,4 +78,5 @@ pub type OutputCallback = std::sync::Arc<dyn Fn(crate::compiler::model::Compiler
             + Send + Sync>;
 
 
-pub static mut WALK_FS_NODE: std::option::Option<crate::compiler::walkdir::FsNode> = None;
+pub static WALK_FS_NODE: std::sync::LazyLock<std::sync::RwLock<Option<crate::compiler::walkdir::FsNode>>> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(None));

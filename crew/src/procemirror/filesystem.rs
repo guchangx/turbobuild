@@ -109,23 +109,16 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
 }
 
 fn check_path_in_cache(dir: &String) -> bool {
-    unsafe {
-        #[allow(static_mut_refs)]
-        if crate::compiler::model::WALK_FS_NODE.is_none() {
-            return false;
-        }
-        else {
-            if dir.starts_with("\\??\\") {
-                return crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().exists(&dir["\\??\\".len()..],  crate::compiler::walkdir::NodeKind::Directory);
-            }
-            else if dir.starts_with("\\\\?\\") {
-                return crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().exists(&dir["\\\\?\\".len()..], crate::compiler::walkdir::NodeKind::Directory);
-            }
-            else {
-                return crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().exists(&dir, crate::compiler::walkdir::NodeKind::Directory);
-            }
-        }
-    }
+    let index = crate::compiler::model::WALK_FS_NODE.read().unwrap();
+    let Some(filesystem) = index.as_ref() else { return false; };
+    let path = if dir.starts_with("\\??\\") {
+        &dir["\\??\\".len()..]
+    } else if dir.starts_with("\\\\?\\") {
+        &dir["\\\\?\\".len()..]
+    } else {
+        dir.as_str()
+    };
+    filesystem.exists(&path, crate::compiler::walkdir::NodeKind::Directory)
 }
 
 fn query_dir_in_cache(dir: &String) -> Option<String> {
@@ -136,7 +129,8 @@ fn query_dir_in_cache(dir: &String) -> Option<String> {
         dir.as_str()
     };
 
-    let dirfiles = unsafe { if crate::compiler::model::WALK_FS_NODE.is_none() { None } else { crate::compiler::model::WALK_FS_NODE.as_ref().unwrap().query(stripped) } };
+    let dirfiles = crate::compiler::model::WALK_FS_NODE.read().unwrap().as_ref()
+        .and_then(|filesystem| filesystem.query(stripped));
     if let Some((dirs, files)) = dirfiles {
         let mut result = String::new();
         let filesize = files.len();

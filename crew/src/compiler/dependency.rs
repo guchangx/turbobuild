@@ -93,6 +93,16 @@ fn split_directive(b: &[u8]) -> (&[u8], &[u8]) {
     (&b[..end], if end < b.len() { trim(&b[end..]) } else { b"" })
 }
 
+fn literal_include_operand(s: &str) -> Option<&str> {
+    let closing = match s.as_bytes().first().copied()? {
+        b'"' => '"',
+        b'<' => '>',
+        _ => return None,
+    };
+    let operand = &s[1..];
+    Some(&operand[..operand.find(closing)?])
+}
+
 fn expand_has_include(
     expr: &str,
     current_file: &std::path::Path,
@@ -345,7 +355,7 @@ mod expr_eval {
     }
 }
 
-fn parse_define(s: &str, defines: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>) {
+fn parse_define(s: &str, defines: &std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>) {
     let s = s.trim();
     let (name, val) = if let Some(paren) = s.find('(') {
         let space = s.find(char::is_whitespace).unwrap_or(s.len());
@@ -364,20 +374,173 @@ fn parse_define(s: &str, defines: std::sync::Arc<std::sync::RwLock<std::collecti
     defines.write().unwrap().insert(name.to_string(), val.map(|s| s.to_string()));
 }
 
+// Includes is a resolved literal include outside a conditional group.
+// Define stores a standalone directive or one complete conditional group.
+#[derive(Debug, PartialEq, Eq)]
+pub enum StripIncludeItem {
+    Includes(String),
+    Define(String),
+}
+
+// 兼容原始文件接口和缓存接口：这里只借用行或已解析路径，不复制缓存内容。
+enum SourceItem<'a> {
+    RawLine(&'a [u8]),
+    IncludeLine(&'a str),
+}
+
+/// 提取与当前编译单元的宏状态无关的指令，保留原始顺序供每个编译单元重新执行。
+/// 没有 include、宏变更或 #pragma once 的完整条件块不影响依赖，可以整体丢弃。
+pub fn strip_sourcefile_includes(content: &[u8], include_dirs: &Vec<std::path::PathBuf>) -> Vec<StripIncludeItem> {
+    struct ConditionalGroup { start: usize, has_effect: bool }
+
+    // 先只保存原文件中的切片；被裁掉的条件块不会分配 String 或查找头文件。
+    let mut relevant_lines: Vec<&[u8]> = Vec::new();
+    let mut groups: Vec<ConditionalGroup> = Vec::new();
+    let mut comment_stack_depth = 0;
+    for line in content.split(|&b| b == b'\n').take(36000) {
+        if line.is_empty() || line[0] == b'\r' { continue; }
+        let trimmed = trim(line);
+        if trimmed.is_empty() { continue; }
+        if trimmed[0] != b'#' {
+            if trimmed.starts_with(b"/*") {
+                if !trimmed.ends_with(b"*/") { comment_stack_depth += 1; }
+            } else if trimmed.ends_with(b"*/") && comment_stack_depth > 0 {
+                comment_stack_depth -= 1;
+            }
+            continue;
+        }
+        if comment_stack_depth > 0 { continue; }
+
+        let (dir, rest) = split_directive(trim(&trimmed[1..]));
+        match dir {
+            b"if" | b"ifdef" | b"ifndef" => {
+                groups.push(ConditionalGroup { start: relevant_lines.len(), has_effect: false });
+                relevant_lines.push(trimmed);
+            }
+            b"elif" | b"else" if !groups.is_empty() => relevant_lines.push(trimmed),
+            b"endif" => {
+                if let Some(group) = groups.pop() {
+                    if group.has_effect {
+                        relevant_lines.push(trimmed);
+                        if let Some(parent) = groups.last_mut() { parent.has_effect = true; }
+                    } else {
+                        relevant_lines.truncate(group.start);
+                    }
+                }
+            }
+            b"include" | b"define" | b"undef" => {
+                relevant_lines.push(trimmed);
+                if let Some(group) = groups.last_mut() { group.has_effect = true; }
+            }
+            b"pragma" if rest.split(|b| b.is_ascii_whitespace()).next() == Some(&b"once"[..]) => {
+                relevant_lines.push(trimmed);
+                if let Some(group) = groups.last_mut() { group.has_effect = true; }
+            }
+            _ => {}
+        }
+    }
+
+    // 对缺少 #endif 的文件也按同一规则处理，不改变仍有作用的指令顺序。
+    while let Some(group) = groups.pop() {
+        if group.has_effect {
+            if let Some(parent) = groups.last_mut() { parent.has_effect = true; }
+        } else {
+            relevant_lines.truncate(group.start);
+        }
+    }
+
+    let mut items = Vec::new();
+    let mut index = 0;
+    while index < relevant_lines.len() {
+        let line = relevant_lines[index];
+        index += 1;
+        let (dir, rest) = split_directive(trim(&line[1..]));
+        if matches!(dir, b"if" | b"ifdef" | b"ifndef") {
+            let start = index - 1;
+            let mut depth = 1;
+            while index < relevant_lines.len() && depth > 0 {
+                let (nested_dir, _) = split_directive(trim(&relevant_lines[index][1..]));
+                match nested_dir {
+                    b"if" | b"ifdef" | b"ifndef" => depth += 1,
+                    b"endif" => depth -= 1,
+                    _ => {}
+                }
+                index += 1;
+            }
+            let group_lines = &relevant_lines[start..index];
+            let capacity = group_lines.iter().map(|line| line.len() + 1).sum();
+            let mut group = String::with_capacity(capacity);
+            for (position, line) in group_lines.iter().enumerate() {
+                if position > 0 { group.push('\n'); }
+                group.push_str(&String::from_utf8_lossy(line));
+            }
+            items.push(StripIncludeItem::Define(group));
+            continue;
+        }
+        if dir == b"include" {
+            if let Ok(s) = std::str::from_utf8(rest) {
+                if let Some(operand) = literal_include_operand(s) {
+                    if let Some(path) = check_local_include_dir_and_files_2(include_dirs, operand) {
+                        items.push(StripIncludeItem::Includes(path.to_string_lossy().to_string()));
+                        continue;
+                    }
+                }
+            }
+        }
+        items.push(StripIncludeItem::Define(String::from_utf8_lossy(line).into_owned()));
+    }
+    items
+}
+
 pub fn parser_sourcefile_dependency(content: &[u8], defines: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>,
         include_dirs: &std::vec::Vec::<std::path::PathBuf>
     ) -> std::vec::Vec<String> {
+    // 原有直接解析入口；串行缓存路径使用下面的 visit_stripped。
+    parser_sourcefile_dependency_impl::<true, _, _>(content.split(|&b| b == b'\n').take(36000).map(SourceItem::RawLine), &defines, include_dirs, |_| {}).0
+}
 
-    #[derive(Clone, PartialEq)]
-    enum Branch { Active, SkipToElse, SkipToEndif }
-    let mut condition_stack: Vec<Branch> = Vec::new();
-    let mut inactive_depth: i32 = 0;
+/// Visits includes in source order without retaining a second list of paths.
+pub fn parser_sourcefile_dependency_visit_stripped<F>(items: &[StripIncludeItem], defines: &std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>,
+        include_dirs: &std::vec::Vec::<std::path::PathBuf>, on_include: F
+    ) -> bool where F: FnMut(&str) {
+    // 一个条件块虽是一个 String，执行时仍按行推进，包含回调保持原始顺序。
+    parser_sourcefile_dependency_impl::<false, _, _>(items.iter().flat_map(|item| {
+        let (raw, fixed) = match item {
+            StripIncludeItem::Includes(path) => (None, Some(path.as_str())),
+            StripIncludeItem::Define(text) => (Some(text.as_bytes()), None),
+        };
+        raw.into_iter()
+            .flat_map(|bytes| bytes.split(|&b| b == b'\n'))
+            .map(SourceItem::RawLine)
+            .chain(fixed.into_iter().map(SourceItem::IncludeLine))
+    }), defines, include_dirs, on_include).1
+}
+
+fn parser_sourcefile_dependency_impl<'a, const COLLECT: bool, F, I>(lines: I, defines: &std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>,
+        include_dirs: &std::vec::Vec::<std::path::PathBuf>, mut on_include: F
+    ) -> (std::vec::Vec<String>, bool) where F: FnMut(&str), I: Iterator<Item = SourceItem<'a>> {
+
+    // parent_active 恢复外层状态；branch_taken 防止 #elif/#else 重复命中。
+    struct ConditionFrame { parent_active: bool, branch_taken: bool }
+    let mut condition_stack: Vec<ConditionFrame> = Vec::new();
+    let mut active = true;
 
     let mut comment_stack_depth = 0;
 
     let mut includes = std::vec::Vec::new();
+    let mut pragma_once = false;
 
-    for line in content.split(|&b| b == b'\n').take(36000) {
+    for item in lines {
+        let line = match item {
+            SourceItem::RawLine(line) => line,
+            SourceItem::IncludeLine(path) => {
+                if active {
+                    on_include(path);
+                    if COLLECT { includes.push(path.to_string()); }
+                }
+                continue;
+            }
+        };
 
         if line.is_empty() || line[0] == b'\r' { continue; }
         let trimmed = trim(line);
@@ -401,109 +564,63 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: std::sync::Arc<std:
         let (dir, rest) = split_directive(after);
 
         match dir {
-            b"ifdef" => {
-                let name = std::str::from_utf8(rest).unwrap();
-                if inactive_depth > 0 {
-                    condition_stack.push(Branch::SkipToEndif);
-                    inactive_depth += 1;
-                } else if defines.read().unwrap().contains_key(name) {
-                    condition_stack.push(Branch::Active);
-                } else {
-                    condition_stack.push(Branch::SkipToElse);
-                    inactive_depth += 1;
-                }
-            }
-            b"ifndef" => {
-                let name = std::str::from_utf8(rest).unwrap();
-                if inactive_depth > 0 {
-                    condition_stack.push(Branch::SkipToEndif);
-                    inactive_depth += 1;
-                } else if !defines.read().unwrap().contains_key(name) {
-                    condition_stack.push(Branch::Active);
-                } else {
-                    condition_stack.push(Branch::SkipToElse);
-                    inactive_depth += 1;
-                }
-            }
-            b"if" => {
-                if inactive_depth > 0 {
-                    condition_stack.push(Branch::SkipToEndif);
-                    inactive_depth += 1;
+            b"ifdef" | b"ifndef" | b"if" => {
+                let selected = if !active {
+                    false
+                } else if dir == b"ifdef" || dir == b"ifndef" {
+                    let name = std::str::from_utf8(rest).unwrap_or("");
+                    let defined = defines.read().unwrap().contains_key(name);
+                    if dir == b"ifdef" { defined } else { !defined }
                 } else {
                     let expr = std::str::from_utf8(rest).unwrap_or("");
                     let expanded = expand_has_include(expr, std::path::Path::new(""), &[], &[]);
-                    let val = expr_eval::eval(&expanded, &defines.read().unwrap());
-                    if val != 0 {
-                        condition_stack.push(Branch::Active);
-                    } else {
-                        condition_stack.push(Branch::SkipToElse);
-                        inactive_depth += 1;
-                    }
-                }
+                    expr_eval::eval(&expanded, &defines.read().unwrap()) != 0
+                };
+                condition_stack.push(ConditionFrame { parent_active: active, branch_taken: selected });
+                active = selected;
             }
             b"elif" => {
-                let outer_ok = match condition_stack.last() {
-                    None => true,
-                    Some(Branch::Active) => inactive_depth == 0,
-                    Some(_) => inactive_depth == 1,
-                };
-                match condition_stack.last_mut() {
-                    Some(b) if *b == Branch::Active => {
-                        *b = Branch::SkipToEndif;
-                        inactive_depth += 1;
-                    }
-                    Some(b) if *b == Branch::SkipToElse && outer_ok => {
+                if let Some(frame) = condition_stack.last_mut() {
+                    active = if frame.parent_active && !frame.branch_taken {
                         let expr = std::str::from_utf8(rest).unwrap_or("");
                         let expanded = expand_has_include(expr, std::path::Path::new(""), &[], &[]);
-                        if expr_eval::eval(&expanded, &defines.read().unwrap()) != 0 {
-                            *b = Branch::Active;
-                            inactive_depth -= 1;
-                        }
-                    }
-                    _ => {}
+                        expr_eval::eval(&expanded, &defines.read().unwrap()) != 0
+                    } else {
+                        false
+                    };
+                    frame.branch_taken |= active;
                 }
             }
             b"else" => {
-                let outer_ok = match condition_stack.last() {
-                    None => true,
-                    Some(Branch::Active) => inactive_depth == 0,
-                    Some(_) => inactive_depth == 1,
-                };
-                match condition_stack.last_mut() {
-                    Some(b) if *b == Branch::Active => {
-                        *b = Branch::SkipToEndif;
-                        inactive_depth += 1;
-                    }
-                    Some(b) if *b == Branch::SkipToElse && outer_ok => {
-                        *b = Branch::Active;
-                        inactive_depth -= 1;
-                    }
-                    _ => {}
+                if let Some(frame) = condition_stack.last_mut() {
+                    active = frame.parent_active && !frame.branch_taken;
+                    frame.branch_taken = true;
                 }
             }
             b"endif" => {
-                if let Some(old) = condition_stack.pop() {
-                    if old != Branch::Active { inactive_depth -= 1; }
+                if let Some(frame) = condition_stack.pop() { active = frame.parent_active; }
+            }
+            b"pragma" if active => {
+                if rest.split(|b| b.is_ascii_whitespace()).next() == Some(&b"once"[..]) {
+                    pragma_once = true;
                 }
             }
-            b"pragma" if inactive_depth == 0 => {
-
-            }
-            b"define" if inactive_depth == 0 => {
+            b"define" if active => {
                 if let Ok(s) = std::str::from_utf8(rest) {
-                    parse_define(s, defines.clone());
+                    parse_define(s, defines);
                 }
             }
-            b"undef" if inactive_depth == 0 => {
+            b"undef" if active => {
                 if let Ok(s) = std::str::from_utf8(rest) {
                     defines.write().unwrap().remove(s.split_whitespace().next().unwrap_or(""));
                 }
             }
-            b"include" if inactive_depth == 0 => {
+            b"include" if active => {
                 if let Ok(s) = std::str::from_utf8(rest) {
-                    let resolved = if s.starts_with('"') || s.starts_with('<') {
-                        let pos = s.rfind('"').unwrap_or(s.rfind('>').unwrap_or(s.len())) + 1;
-                        check_local_include_dir_and_files_2(include_dirs, &s[1..pos-1])
+                    let resolved = if let Some(operand) = literal_include_operand(s) {
+                        check_local_include_dir_and_files_2(include_dirs, operand)
+                    } else if s.starts_with('"') || s.starts_with('<') {
+                        None
                     } else {
                         let macro_name = s.split(|c: char| c.is_whitespace() || c == '/')
                             .next().unwrap_or("").trim();
@@ -515,14 +632,18 @@ pub fn parser_sourcefile_dependency(content: &[u8], defines: std::sync::Arc<std:
                     };
 
                     if let Some(p) = resolved {
-                        includes.push(p.to_string_lossy().to_string());
+                        let include = p.to_string_lossy().to_string();
+                        on_include(&include);
+                        if COLLECT {
+                            includes.push(include);
+                        }
                     }
                 }
             }
             _ => {}
         }
     }
-    return includes;
+    (includes, pragma_once)
 }
 
 fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String, std::sync::Arc<std::collections::HashSet<String>>)>, dep: &str) -> Option<std::path::PathBuf> {
@@ -558,71 +679,39 @@ fn check_local_include_dir_and_files(include_dir_files: &std::vec::Vec::<(String
 }
 
 fn check_local_include_dir_and_files_2(include_dirs: &std::vec::Vec::<std::path::PathBuf>, dep: &str) -> Option<std::path::PathBuf> {
-    
     if include_dirs.is_empty() {
         return Some(std::path::PathBuf::from(dep));
     }
 
-    #[allow(static_mut_refs)]
-    if dep.contains("..") {
-        let reader = unsafe { crate::compiler::model::WALK_FS_NODE.as_mut().unwrap() };
-        for dir in include_dirs {
+    for dir in include_dirs {
+        let p = if dep.contains("..") {
             let Some(dir) = dir.to_str() else { continue; };
-            let p = tools::utils::normalize_lexical(format!("{}\\{}", dir, dep));
+            tools::utils::normalize_lexical(format!("{}\\{}", dir, dep))
+        } else if dep.starts_with("./") {
+            dir.join(&dep[2..])
+        } else if dep.contains("/") {
+            dir.join(dep.replace("/", std::path::MAIN_SEPARATOR_STR))
+        } else {
+            dir.join(dep)
+        };
 
-            if reader.exists(&p, crate::compiler::walkdir::NodeKind::File) {
-                return Some(p);
-            }
-            else {
-                if p.is_file() {
-                    let size = match std::fs::metadata(&p) {
-                        Ok(metadata) => crate::compiler::walkdir::file_size_in_kib(metadata.len()),
-                        Err(error) => {
-                            log::warn!("failed to read metadata for {:?}: {:?}", p, error);
-                            return Some(p);
-                        }
-                    };
-
-                    reader.insfile(&p, size);
-                    return Some(p);
+        let indexed = crate::compiler::model::WALK_FS_NODE.read().unwrap().as_ref()
+            .is_some_and(|reader| reader.exists(&p, crate::compiler::walkdir::NodeKind::File));
+        if indexed {
+            return Some(p);
+        }
+        if p.is_file() {
+            let mut index = crate::compiler::model::WALK_FS_NODE.write().unwrap();
+            if let Some(reader) = index.as_mut() {
+                match std::fs::metadata(&p) {
+                    Ok(metadata) => reader.insfile(&p, crate::compiler::walkdir::file_size_in_kib(metadata.len())),
+                    Err(error) => log::warn!("failed to read metadata for {:?}: {:?}", p, error),
                 }
             }
+            return Some(p);
         }
     }
-    else {
-        let reader = unsafe { crate::compiler::model::WALK_FS_NODE.as_mut().unwrap() };
-        for dir in include_dirs {
-            let p;
-            if dep.starts_with("./") {
-                p = dir.join(&dep[2..]);
-            }
-            else if dep.contains("/") {
-                p = dir.join(dep.replace("/", std::path::MAIN_SEPARATOR_STR));
-            }
-            else {
-                p = dir.join(dep);
-            }
-            
-            if reader.exists(&p, crate::compiler::walkdir::NodeKind::File) {
-                return Some(p);
-            }
-            else {
-                if p.is_file() {
-                    let size = match std::fs::metadata(&p) {
-                        Ok(metadata) => crate::compiler::walkdir::file_size_in_kib(metadata.len()),
-                        Err(error) => {
-                            log::warn!("failed to read metadata for {:?}: {:?}", p, error);
-                            return Some(p);
-                        }
-                    };
-
-                    reader.insfile(&p, size);
-                    return Some(p);
-                }
-            }
-        }
-    }
-    return None;
+    None
 }
 
 //.inc;.rc;.resx;.idl;.rc2;.def
@@ -723,6 +812,204 @@ fn query_include_dir_recursive(dir: std::path::PathBuf, start: &std::path::PathB
 mod tests {
 
 use super::*;
+    #[test]
+    fn test_nested_includes_update_macros_before_later_lines() {
+        let files = std::collections::HashMap::from([
+            ("a.h", strip_sourcefile_includes(b"#define FROM_A\n#include \"c.h\"\n", &Vec::new())),
+            ("c.h", strip_sourcefile_includes(b"#define FROM_C\n", &Vec::new())),
+            ("b.h", strip_sourcefile_includes(b"#ifdef FROM_A\n#include \"nested.h\"\n#endif\n", &Vec::new())),
+        ]);
+        let defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        let mut visited = Vec::new();
+
+        fn scan(
+            source: &[StripIncludeItem],
+            files: &std::collections::HashMap<&str, Vec<StripIncludeItem>>,
+            defines: &std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>,
+            visited: &mut Vec<String>,
+        ) {
+            parser_sourcefile_dependency_visit_stripped(source, defines, &Vec::new(), |path| {
+                visited.push(path.to_string());
+                if let Some(header) = files.get(path) {
+                    scan(header, files, defines, visited);
+                }
+            });
+        }
+
+        let source = strip_sourcefile_includes(
+            b"#include \"a.h\"\n#ifdef FROM_C\n#include \"after.h\"\n#endif\n#include \"b.h\"\n",
+            &Vec::new(),
+        );
+        scan(
+            &source, &files, &defines, &mut visited,
+        );
+        assert_eq!(visited, ["a.h", "c.h", "after.h", "b.h", "nested.h"]);
+    }
+
+    #[test]
+    fn test_stripped_source_keeps_macro_context_separate() {
+        let content = b"/*\n#include \"ignored.h\"\n*/\n#ifdef FEATURE\n#include \"enabled.h\"\n#else\n#include \"disabled.h\"\n#endif\n";
+        let include_dirs = Vec::new();
+        let source = strip_sourcefile_includes(content, &include_dirs);
+        let off = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        let on = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::from([
+            ("FEATURE".to_string(), None),
+        ])));
+        let mut off_includes = Vec::new();
+        let mut on_includes = Vec::new();
+        parser_sourcefile_dependency_visit_stripped(&source, &off, &include_dirs, |path| off_includes.push(path.to_string()));
+        parser_sourcefile_dependency_visit_stripped(&source, &on, &include_dirs, |path| on_includes.push(path.to_string()));
+        assert_eq!(off_includes, ["disabled.h"]);
+        assert_eq!(on_includes, ["enabled.h"]);
+        let raw_off = parser_sourcefile_dependency(
+            content,
+            std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            &include_dirs,
+        );
+        assert_eq!(off_includes, raw_off);
+    }
+
+    #[test]
+    fn test_stripped_source_replays_macro_include_and_undef_in_order() {
+        let content = b"#define HEADER first.h\n#include HEADER\n#undef HEADER\n#ifdef HEADER\n#include \"wrong.h\"\n#else\n#include \"second.h\"\n#endif\n";
+        let include_dirs = Vec::new();
+        let source = strip_sourcefile_includes(content, &include_dirs);
+        let defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        let mut includes = Vec::new();
+        parser_sourcefile_dependency_visit_stripped(&source, &defines, &include_dirs, |path| includes.push(path.to_string()));
+        assert_eq!(includes, ["first.h", "second.h"]);
+        assert!(!defines.read().unwrap().contains_key("HEADER"));
+
+        let raw = parser_sourcefile_dependency(
+            content,
+            std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            &include_dirs,
+        );
+        assert_eq!(includes, raw);
+    }
+
+    #[test]
+    fn test_stripped_source_fixed_includes_keep_order() {
+        let source = strip_sourcefile_includes(
+            b"#include \"first.h\"\n#include \"second.h\"\n",
+            &Vec::new(),
+        );
+        assert!(source.iter().all(|item| matches!(item, StripIncludeItem::Includes(_))));
+        let defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        let mut includes = Vec::new();
+        parser_sourcefile_dependency_visit_stripped(&source, &defines, &Vec::new(), |path| includes.push(path.to_string()));
+        assert_eq!(includes, ["first.h", "second.h"]);
+    }
+
+    #[test]
+    fn test_strip_discards_condition_groups_without_dependency_effects() {
+        let content = b"#if UNUSED\n#pragma message(ignored)\n#if NESTED\n#pragma warning(disable: 1)\n#endif\n#else\n#pragma message(also_ignored)\n#endif\n#include \"needed.h\"\n";
+        let items = strip_sourcefile_includes(content, &Vec::new());
+        assert_eq!(items, [StripIncludeItem::Includes("needed.h".to_string())]);
+    }
+
+    #[test]
+    fn test_strip_keeps_nested_conditions_around_includes() {
+        let content = b"#if OUTER\n#if UNUSED\n#pragma message(ignored)\n#endif\n#if INNER\n#include \"nested.h\"\n#endif\n#else\n#include \"other.h\"\n#endif\n";
+        let items = strip_sourcefile_includes(content, &Vec::new());
+        assert!(!items.iter().any(|item| matches!(item, StripIncludeItem::Define(line) if line.contains("UNUSED"))));
+        let off = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        let on = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::from([
+            ("OUTER".to_string(), Some("1".to_string())),
+            ("INNER".to_string(), Some("1".to_string())),
+        ])));
+        let mut off_includes = Vec::new();
+        let mut on_includes = Vec::new();
+        parser_sourcefile_dependency_visit_stripped(&items, &off, &Vec::new(), |path| off_includes.push(path.to_string()));
+        parser_sourcefile_dependency_visit_stripped(&items, &on, &Vec::new(), |path| on_includes.push(path.to_string()));
+        assert_eq!(off_includes, ["other.h"]);
+        assert_eq!(on_includes, ["nested.h"]);
+    }
+
+    #[test]
+    fn test_strip_stores_each_conditional_group_as_one_item() {
+        let content = b"#define FEATURE 1\n#if FEATURE\n#include \"set.h\"\n#if FROM_SET\n#include \"next.h\"\n#endif\n#else\n#include \"other.h\"\n#endif\n#include \"tail.h\"\n";
+        let items = strip_sourcefile_includes(content, &Vec::new());
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0], StripIncludeItem::Define("#define FEATURE 1".to_string()));
+        assert!(matches!(&items[1], StripIncludeItem::Define(group)
+            if group.starts_with("#if FEATURE\n") && group.ends_with("#endif") && group.contains("#if FROM_SET\n")));
+        assert_eq!(items[2], StripIncludeItem::Includes("tail.h".to_string()));
+
+        let defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        let mut included = Vec::new();
+        parser_sourcefile_dependency_visit_stripped(&items, &defines, &Vec::new(), |path| {
+            included.push(path.to_string());
+            if path == "set.h" {
+                defines.write().unwrap().insert("FROM_SET".to_string(), Some("1".to_string()));
+            }
+        });
+        assert_eq!(included, ["set.h", "next.h", "tail.h"]);
+    }
+
+    #[test]
+    fn test_stripped_conditions_select_one_branch_for_each_macro_state() {
+        let items = strip_sourcefile_includes(
+            b"#if A && !B || C\n#include \"first.h\"\n#elif D\n#include \"second.h\"\n#else\n#include \"fallback.h\"\n#endif\n#include \"after.h\"\n",
+            &Vec::new(),
+        );
+        for (macros, expected) in [
+            ([("A", "1"), ("D", "1")].as_slice(), ["first.h", "after.h"]),
+            ([("A", "1"), ("B", "1"), ("D", "1")].as_slice(), ["second.h", "after.h"]),
+            ([].as_slice(), ["fallback.h", "after.h"]),
+        ] {
+            let defines = std::sync::Arc::new(std::sync::RwLock::new(macros.iter().map(|(name, value)| {
+                (name.to_string(), Some(value.to_string()))
+            }).collect()));
+            let mut includes = Vec::new();
+            parser_sourcefile_dependency_visit_stripped(&items, &defines, &Vec::new(), |path| includes.push(path.to_string()));
+            assert_eq!(includes, expected);
+        }
+    }
+
+    #[test]
+    fn test_strip_keeps_macro_changes_for_later_files() {
+        let content = b"#if FLAG\n#define SHARED 1\n#else\n#undef SHARED\n#endif\n";
+        let items = strip_sourcefile_includes(content, &Vec::new());
+        let defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::from([
+            ("FLAG".to_string(), Some("1".to_string())),
+        ])));
+        parser_sourcefile_dependency_visit_stripped(&items, &defines, &Vec::new(), |_| {});
+        assert_eq!(defines.read().unwrap().get("SHARED"), Some(&Some("1".to_string())));
+    }
+
+    #[test]
+    fn test_stripped_source_ignores_incomplete_include_in_inactive_branch() {
+        let content = b"#if 0\n#include \"\n#endif\n#include \"valid.h\"\n";
+        let include_dirs = Vec::new();
+        let items = strip_sourcefile_includes(content, &include_dirs);
+        let defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        let mut includes = Vec::new();
+        parser_sourcefile_dependency_visit_stripped(&items, &defines, &include_dirs, |path| includes.push(path.to_string()));
+        assert_eq!(includes, ["valid.h"]);
+    }
+
+    #[test]
+    fn test_stripped_source_ignores_quotes_in_include_comments() {
+        let content = b"#include \"valid.h\" // \"comment\"\n#include <system.h> // >\n";
+        let include_dirs = Vec::new();
+        let items = strip_sourcefile_includes(content, &include_dirs);
+        let defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        let mut includes = Vec::new();
+        parser_sourcefile_dependency_visit_stripped(&items, &defines, &include_dirs, |path| includes.push(path.to_string()));
+        assert_eq!(includes, ["valid.h", "system.h"]);
+    }
+
+    #[test]
+    fn test_pragma_once_only_applies_in_active_branch() {
+        let include_dirs = Vec::new();
+        let defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+        let inactive = strip_sourcefile_includes(b"#if 0\n#pragma once\n#endif\n", &include_dirs);
+        assert!(!parser_sourcefile_dependency_visit_stripped(&inactive, &defines, &include_dirs, |_| {}));
+        let active = strip_sourcefile_includes(b"#pragma once // comment\n", &include_dirs);
+        assert!(parser_sourcefile_dependency_visit_stripped(&active, &defines, &include_dirs, |_| {}));
+    }
+
     #[test]
     fn test_parser_sourcefile_dependency() {
         let content = b"// This is a comment\n#include <stdio.h>\n#include \"myheader.h\"\nint main() { return 0; }";
