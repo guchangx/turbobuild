@@ -24,7 +24,7 @@ impl FsNode {
         }
     }
 
-    pub fn roots(&mut self, dirs: &mut Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
+    pub fn roots(&mut self, mut dirs: Vec<std::path::PathBuf>) -> Vec<std::path::PathBuf> {
         dirs.sort();
 
         let mut result = Vec::new();

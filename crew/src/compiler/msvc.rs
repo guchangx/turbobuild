@@ -40,82 +40,10 @@ use std::io::BufRead;
 
 use windows_sys::Win32 as win;
 
-type DependencyIncludes = std::sync::Arc<dashmap::DashMap<
-    String,
-    std::sync::Arc<tokio::sync::RwLock<Vec<dependency::StripIncludeItem>>>,
->>;
 
-fn extract_include_entry(path: &str, includes: &DependencyIncludes) -> (
-    std::sync::Arc<tokio::sync::RwLock<Vec<dependency::StripIncludeItem>>>,
-    Option<tokio::sync::OwnedRwLockWriteGuard<Vec<dependency::StripIncludeItem>>>,
-) {
-    match includes.entry(path.to_string()) {
-        dashmap::mapref::entry::Entry::Occupied(entry) => (entry.get().clone(), None),
-        dashmap::mapref::entry::Entry::Vacant(entry) => {
-            let lock = std::sync::Arc::new(tokio::sync::RwLock::new(Vec::new()));
-            // 写锁在发布条目前取得；读者必须等文件指令全部提取完毕。
-            let writer = lock.clone().try_write_owned().expect("new lock must be free");
-            entry.insert(lock.clone());
-            (lock, Some(writer))
-        }
-    }
-}
+const PREPARE_WORKER_LIMIT: usize = 2;
 
-fn extract_include_entry_is_current(
-    path: &str,
-    includes: &DependencyIncludes,
-    lock: &std::sync::Arc<tokio::sync::RwLock<Vec<dependency::StripIncludeItem>>>,
-) -> bool {
-    includes.get(path).is_some_and(|entry| std::sync::Arc::ptr_eq(entry.value(), lock))
-}
 
-fn include_dirs_with_parent<'a>(
-    path: &std::path::Path,
-    include_dirs: &'a Vec<std::path::PathBuf>,
-) -> std::borrow::Cow<'a, Vec<std::path::PathBuf>> {
-    let parent = path.parent().unwrap_or_else(|| std::path::Path::new(""));
-    if include_dirs.first().is_some_and(|dir| dir == parent) {
-        return std::borrow::Cow::Borrowed(include_dirs);
-    }
-
-    // 当前文件的目录优先；若它已在固定目录中，只调整顺序，避免重复查找。
-    let mut dirs = Vec::with_capacity(include_dirs.len() + 1);
-    dirs.push(parent.to_path_buf());
-    dirs.extend(include_dirs.iter().filter(|dir| dir.as_path() != parent).cloned());
-    std::borrow::Cow::Owned(dirs)
-}
-
-// 只把已确定的无条件 include 交给准备线程；条件块仍由宏解析线程决定。
-struct DependencyPrepareRequest {
-    path: String,
-    writer: tokio::sync::OwnedRwLockWriteGuard<Vec<dependency::StripIncludeItem>>,
-}
-
-fn prefetch_unconditional_includes(
-    items: &[dependency::StripIncludeItem],
-    includes: &DependencyIncludes,
-    queue: &std::sync::mpsc::SyncSender<DependencyPrepareRequest>,
-    active: &std::collections::HashSet<String>,
-    pragma_once: &std::collections::HashSet<String>,
-) {
-    for item in items {
-        let dependency::StripIncludeItem::Includes(path) = item else { continue; };
-        let path = path.replace('/', "\\");
-        if active.contains(&path) || pragma_once.contains(&path) { continue; }
-        let (entry, writer) = extract_include_entry(&path, includes);
-        let Some(writer) = writer else { continue; };
-        let request = DependencyPrepareRequest { path: path.clone(), writer };
-        if let Err(error) = queue.try_send(request) {
-            // 队列满时交给正常递归路径处理，不能留下永远持有写锁的空条目。
-            includes.remove(&path);
-            drop(entry);
-            match error {
-                std::sync::mpsc::TrySendError::Full(request)
-                | std::sync::mpsc::TrySendError::Disconnected(request) => drop(request),
-            }
-        }
-    }
-}
 
 impl crate::compiler::interface::Compiler for MSVC {
     async fn request_compile(&self, compiler_input: CompilerInput) -> CompilerOutput {
@@ -845,8 +773,8 @@ impl MSVC {
         
         let defines = std::sync::Arc::new(std::sync::RwLock::new(actions.defines));
         let dependency_cache_by_addr = std::sync::Arc::new(dashmap::DashMap::<String, std::sync::Arc<dashmap::DashSet<String>>>::new());
-        // 同一路径只提取一次有序指令；宏相关的最终依赖不能只按路径缓存。
-        let resolve_dependency_includes: DependencyIncludes = std::sync::Arc::new(dashmap::DashMap::new());
+
+        let resolve_dependency_includes: dependency::ExtractedDependencyCode = std::sync::Arc::new(dashmap::DashMap::new());
 
         let extracted_pdb = actions.pdb_file.clone();
         let mut source_file_current_dir_set = std::collections::HashSet::<std::path::PathBuf>::from_iter(source_file_current_dir.iter().cloned());
@@ -856,7 +784,7 @@ impl MSVC {
         {
             let mut index = crate::compiler::model::WALK_FS_NODE.write().unwrap();
             let filesystem = index.get_or_insert_with(crate::compiler::walkdir::FsNode::new);
-            let roots = filesystem.roots(&mut source_file_current_dir);
+            let roots = filesystem.roots(source_file_current_dir.clone());
 
             log::trace!("filter and sort include dir list: {:#?}", &roots);
 
@@ -1229,7 +1157,7 @@ impl MSVC {
         
         let actions = parse_action_from_commands(&std::ffi::OsString::from("msbuild"), &input.compiler_commands, &input.compiler_working_dir);
 
-        let (mut sources, mut source_file_current_dir) = extract_sources_and_include_dirs(&actions);
+        let (mut sources, source_file_current_dir) = extract_sources_and_include_dirs(&actions);
 
         let others = actions.compile_instruction;
         let totals = sources.len();
@@ -1237,7 +1165,7 @@ impl MSVC {
         let defines = std::sync::Arc::new(std::sync::RwLock::new(actions.defines));
         let dependency_cache_by_addr = std::sync::Arc::new(dashmap::DashMap::<String, std::sync::Arc<dashmap::DashSet<String>>>::new());
         //let resolve_dependency_includes = std::sync::Arc::new(dashmap::DashMap::<String, std::sync::Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>>::new());
-        let resolve_dependency_includes: DependencyIncludes = std::sync::Arc::new(dashmap::DashMap::new());
+        let resolve_dependency_includes: dependency::ExtractedDependencyCode = std::sync::Arc::new(dashmap::DashMap::new());
 
         let extracted_pdb = actions.pdb_file;
         
@@ -1245,7 +1173,7 @@ impl MSVC {
         {
             let mut index = crate::compiler::model::WALK_FS_NODE.write().unwrap();
             let filesystem = index.get_or_insert_with(crate::compiler::walkdir::FsNode::new);
-            let roots = filesystem.roots(&mut source_file_current_dir);
+            let roots = filesystem.roots(source_file_current_dir.clone());
 
             for dir in roots {
                 filesystem.add(&dir.into_os_string());
@@ -1519,183 +1447,67 @@ impl MSVC {
         solution: std::sync::Arc<String>,
         project: std::sync::Arc<String>, 
         cache: std::sync::Arc<dashmap::DashSet::<String>>,
-        resolve_dependency_includes: std::sync::Arc<dashmap::DashMap::<String, std::sync::Arc<tokio::sync::RwLock<std::vec::Vec<crate::compiler::dependency::StripIncludeItem>>>>>,
+        resolve_dependency_includes: std::sync::Arc<dashmap::DashMap::<String, std::sync::Arc<tokio::sync::RwLock<std::vec::Vec<crate::compiler::dependency::ExtractIncludeItem>>>>>,
         stream: tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs>) {
 
         let current_defines = std::sync::Arc::new(std::sync::RwLock::new(defines.read().unwrap().clone()));
-        // 每个 .cpp 只有一个宏解析任务和一个文件准备任务；原有 stream 已有接收端。
-        let (prepare_queue, prepare_receiver) = std::sync::mpsc::sync_channel::<DependencyPrepareRequest>(2);
-        let prepare_includes = resolve_dependency_includes.clone();
-        let prepare_dirs = include_dirs.clone();
-        let prepare_solution = solution.clone();
-        let prepare_project = project.clone();
-        let prepare_cache = cache.clone();
-        let prepare_stream = stream.clone();
-        let prepare_task = tokio::task::spawn_blocking(move || {
-            while let Ok(request) = prepare_receiver.recv() {
-                let dirs = include_dirs_with_parent(std::path::Path::new(&request.path), &prepare_dirs);
-                Self::read_strip_and_send_dependency_source(
-                    &request.path, request.writer, dirs.as_ref(), &prepare_solution,
-                    &prepare_project, &prepare_cache, &prepare_includes, &prepare_stream,
-                );
-            }
-        });
+
+        let prepare_queue = dependency::PrepareQueue::new();
+        let mut prepare_tasks = Vec::with_capacity(PREPARE_WORKER_LIMIT);
+        for _ in 0..PREPARE_WORKER_LIMIT {
+            let prepare_queue = prepare_queue.clone();
+            let prepare_includes = resolve_dependency_includes.clone();
+            let dirs = include_dirs.clone();
+            let solution = solution.clone();
+            let project = project.clone();
+            let cache = cache.clone();
+            let stream = stream.clone();
+            prepare_tasks.push(tokio::task::spawn_blocking(move || {
+                while let Some(request) = prepare_queue.pop() {
+                    let ok = if let Some(writer) = request.writer {
+                        let dirs_ = dependency::include_dirs_with_parent(std::path::Path::new(&request.path), &dirs);
+                        dependency::extract_sourcefile_and_sync_dependency(
+                            &request.path, writer, dirs_.as_ref(), &solution,
+                            &project, &cache, &prepare_includes, &stream,
+                        )
+                    }
+                    else {
+                        dependency::enqueue_dependency_source(
+                            &request.path, &solution, &project, &cache, &stream,
+                        )
+                    };
+                    if ok && !prepare_queue.is_closed() {
+                        let items = request.items.blocking_read();
+                        dependency::prefetch_unconditional_includes(
+                            &items, &prepare_includes, Some(&cache), &prepare_queue,
+                            &std::collections::HashSet::new(),
+                        );
+                    }
+                }
+            }));
+        }
+
+        let parser_queue = prepare_queue.clone();
         let result = tokio::task::spawn_blocking(move || {
-            let mut active = std::collections::HashSet::new();
-            let mut pragma_once = std::collections::HashSet::new();
-            Self::parser_sourcefile_sync_dependency_file(
+            let mut visited = std::collections::HashSet::new();
+            let headers = dependency::parser_sourcefile_with_macro_definition(
                 &path, &current_defines, &include_dirs, &solution, &project, &cache,
-                &resolve_dependency_includes, &stream, Some(&prepare_queue), &mut active, &mut pragma_once
+                &resolve_dependency_includes, &stream, Some(&parser_queue), &mut visited
             );
+            parser_queue.close();
+            log::info!("Recursive parsed sourcefile {} len: {} headers: \n{}", path, headers.len() , headers.join("\n"));
         }).await;
+
         if let Err(error) = result {
+            prepare_queue.close();
             log::error!("dependency parser task failed: {:?}", error);
         }
-        // 等准备线程完成所有预读和发送入流，再允许发起该 .cpp 的编译。
-        if let Err(error) = prepare_task.await {
-            log::error!("dependency preparer task failed: {:?}", error);
-        }
-    }
 
-    fn enqueue_dependency_source(
-        path: &str,
-        solution: &std::sync::Arc<String>,
-        project: &std::sync::Arc<String>,
-        cache: &std::sync::Arc<dashmap::DashSet<String>>,
-        stream: &tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs>,
-    ) -> bool {
-        if !cache.insert(path.to_string()) { return true; }
-        let content = match std::fs::read(path) {
-            Ok(content) => bytes::Bytes::from(content),
-            Err(error) => {
-                log::error!("failed to read file {:?}: {:?}", path, error);
-                cache.remove(path);
-                return false;
+        for prepare_task in prepare_tasks {
+            if let Err(error) = prepare_task.await {
+                log::error!("dependency preparer task failed: {:?}", error);
             }
-        };
-        Self::send_reserved_dependency_source(path, content, solution, project, cache, stream);
-        true
-    }
-
-    fn send_reserved_dependency_source(
-        path: &str,
-        content: bytes::Bytes,
-        solution: &std::sync::Arc<String>,
-        project: &std::sync::Arc<String>,
-        cache: &std::sync::Arc<dashmap::DashSet<String>>,
-        stream: &tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs>,
-    ) {
-        let name = std::path::Path::new(path).file_name()
-            .and_then(std::ffi::OsStr::to_str)
-            .map(str::to_owned)
-            .unwrap_or_else(|| path.to_string());
-        let archive = crate::communicate::packager::ArchiveArgs {
-            file_type: crate::communicate::packager::FileType::SourceFiles,
-            solution: solution.as_ref().clone(),
-            project: project.as_ref().clone(),
-            name,
-            path: path.to_string(),
-            content,
-        };
-        if let Err(error) = stream.blocking_send(archive) {
-            log::error!("failed to send source file {:?}: {:?}", path, error);
-            cache.remove(path);
         }
-    }
-
-    fn read_strip_and_send_dependency_source(
-        path: &str,
-        mut writer: tokio::sync::OwnedRwLockWriteGuard<Vec<dependency::StripIncludeItem>>,
-        search_dirs: &Vec<std::path::PathBuf>,
-        solution: &std::sync::Arc<String>,
-        project: &std::sync::Arc<String>,
-        cache: &std::sync::Arc<dashmap::DashSet<String>>,
-        includes: &DependencyIncludes,
-        stream: &tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs>,
-    ) -> bool {
-        let content = match std::fs::read(path) {
-            Ok(content) => bytes::Bytes::from(content),
-            Err(error) => {
-                log::error!("failed to read file {:?}: {:?}", path, error);
-                includes.remove(path);
-                return false;
-            }
-        };
-        *writer = dependency::strip_sourcefile_includes(&content, search_dirs);
-        // 先占用此目标的发送标记，再发布缓存，避免等待者重复读取并发送。
-        let should_send = cache.insert(path.to_string());
-        drop(writer);
-        if should_send {
-            Self::send_reserved_dependency_source(path, content, solution, project, cache, stream);
-        }
-        true
-    }
-
-    fn parser_sourcefile_sync_dependency_file(
-        path: &str,
-        defines: &std::sync::Arc<std::sync::RwLock<std::collections::HashMap<String, Option<String>>>>,
-        include_dirs: &std::vec::Vec<std::path::PathBuf>,
-        solution: &std::sync::Arc<String>,
-        project: &std::sync::Arc<String>,
-        cache: &std::sync::Arc<dashmap::DashSet<String>>,
-        resolve_dependency_includes: &DependencyIncludes,
-        stream: &tokio::sync::mpsc::Sender<crate::communicate::packager::ArchiveArgs>,
-        prepare_queue: Option<&std::sync::mpsc::SyncSender<DependencyPrepareRequest>>,
-        active: &mut std::collections::HashSet<String>,
-        pragma_once: &mut std::collections::HashSet<String>,
-    ) {
-        let path = path.replace('/', "\\");
-        if pragma_once.contains(&path) { return; }
-        // 只阻止当前包含链中的环；同一头文件以后仍可能在不同宏状态下再次被包含。
-        if !active.insert(path.clone()) {
-            return;
-        }
-        let p = std::path::Path::new(&path);
-        let search_dirs = include_dirs_with_parent(p, include_dirs);
-
-        let items = loop {
-            let (items, writer) = extract_include_entry(&path, resolve_dependency_includes);
-            if let Some(writer) = writer {
-                if !Self::read_strip_and_send_dependency_source(
-                    &path, writer, search_dirs.as_ref(), solution, project, cache,
-                    resolve_dependency_includes, stream,
-                ) {
-                    active.remove(&path);
-                    return;
-                }
-                break items;
-            }
-            // 读锁等待首次提取结束；若该次读取失败且条目被移除，就重新取缓存。
-            drop(items.blocking_read());
-            if extract_include_entry_is_current(&path, resolve_dependency_includes, &items) {
-                break items;
-            }
-        };
-        if !Self::enqueue_dependency_source(
-            &path, solution, project, cache, stream,
-        ) {
-            active.remove(&path);
-            return;
-        }
-
-        // 每层包含优先搜索当前文件的目录，再搜索上游固定目录。
-        // 在 #include 处立即进入头文件，返回后才继续当前文件的下一行。
-        // 共享的是宏无关的有序指令；条件判断和宏效果仍按编译单元分别执行。
-        let items = items.blocking_read();
-        if let Some(queue) = prepare_queue {
-            prefetch_unconditional_includes(&items, resolve_dependency_includes, queue, active, pragma_once);
-        }
-        let once = dependency::parser_sourcefile_dependency_visit_stripped(
-            &items, defines, search_dirs.as_ref(), |dependency| {
-                Self::parser_sourcefile_sync_dependency_file(
-                    dependency, defines, include_dirs, solution, project, cache,
-                    resolve_dependency_includes, stream, prepare_queue, active, pragma_once
-                );
-            }
-        );
-        if once { pragma_once.insert(path.clone()); }
-        log::trace!("parsed source file {:?} {:?}", project, path);
-        active.remove(&path);
     }
 
     async fn parser_sourcefile_sync_dependency_parallel(&self, 
@@ -3397,26 +3209,7 @@ fn determine_whether_need_compile(compiler_commands: Vec<std::ffi::OsString>) ->
 mod tests {
 
     use super::*;
-    #[test]
-    fn test_prefetch_only_unconditional_includes_and_drops_full_queue_entry() {
-        let includes: DependencyIncludes = std::sync::Arc::new(dashmap::DashMap::new());
-        let items = vec![
-            dependency::StripIncludeItem::Includes("first.h".to_string()),
-            dependency::StripIncludeItem::Define("#if FEATURE\n#include \"conditional.h\"\n#endif".to_string()),
-            dependency::StripIncludeItem::Includes("second.h".to_string()),
-        ];
-        let (queue, receiver) = std::sync::mpsc::sync_channel(1);
-        prefetch_unconditional_includes(
-            &items, &includes, &queue, &std::collections::HashSet::new(),
-            &std::collections::HashSet::new(),
-        );
-        let request = receiver.try_recv().unwrap();
-        assert_eq!(request.path, "first.h");
-        assert!(includes.contains_key("first.h"));
-        assert!(!includes.contains_key("conditional.h"));
-        assert!(!includes.contains_key("second.h"));
-        drop(request);
-    }
+
 
     #[test]
     fn test_shared_header_cache_keeps_each_source_macros_and_drains_sends() {
@@ -3447,7 +3240,7 @@ mod tests {
                 sender: std::sync::Arc::new(std::sync::Mutex::new(crate::communicate::distributor::Distributor::default())),
                 output_callback: std::sync::Arc::new(|_| Box::new(async {})),
             };
-            let dependency: DependencyIncludes = std::sync::Arc::new(dashmap::DashMap::new());
+            let dependency: dependency::ExtractedDependencyCode = std::sync::Arc::new(dashmap::DashMap::new());
             let initial_defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
             let include_dirs = std::sync::Arc::new(vec![dir.clone()]);
             let solution = std::sync::Arc::new(String::new());
@@ -3487,128 +3280,77 @@ mod tests {
     }
 
     #[test]
-    fn test_include_dirs_with_parent_prefers_current_header_directory() {
-        let parent = std::path::PathBuf::from("project").join("sub");
-        let path = parent.join("header.h");
-        let fixed = vec![std::path::PathBuf::from("project"), parent.clone(), std::path::PathBuf::from("sdk")];
-        let search = include_dirs_with_parent(&path, &fixed);
-        assert_eq!(search.as_ref(), &vec![parent.clone(), std::path::PathBuf::from("project"), std::path::PathBuf::from("sdk")]);
+    fn test_concurrent_prepare_workers_prefetch_transitive_unconditional_headers_and_preserve_macro_order() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4).enable_all().build().unwrap();
+        runtime.block_on(async {
+            let unique = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            let dir = std::env::temp_dir().join(format!("crew-concurrent-prefetch-{}-{unique}", std::process::id()));
+            std::fs::create_dir(&dir).unwrap();
 
-        let already_first = vec![parent, std::path::PathBuf::from("sdk")];
-        assert!(matches!(include_dirs_with_parent(&path, &already_first), std::borrow::Cow::Borrowed(_)));
-    }
+            let source = dir.join("main.cpp");
+            let h1 = dir.join("h1.h");
+            let h1_nested = dir.join("h1_nested.h");
+            let h2 = dir.join("h2.h");
+            let h3 = dir.join("h3.h");
+            let cond_yes = dir.join("cond_yes.h");
+            let cond_no = dir.join("cond_no.h");
 
-    #[test]
-    fn test_strip_include_cache_waits_for_one_initializer() {
-        let cache: DependencyIncludes = std::sync::Arc::new(dashmap::DashMap::new());
-        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
-        let initializations = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let mut threads = Vec::new();
-        for _ in 0..8 {
-            let cache = cache.clone();
-            let barrier = barrier.clone();
-            let initializations = initializations.clone();
-            threads.push(std::thread::spawn(move || {
-                barrier.wait();
-                let (items, writer) = extract_include_entry("shared.h", &cache);
-                if let Some(mut writer) = writer {
-                    initializations.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                    std::thread::sleep(std::time::Duration::from_millis(20));
-                    *writer = dependency::strip_sourcefile_includes(b"#define SHARED\n", &Vec::new());
-                }
-                let items = items.blocking_read();
-                assert_eq!(items.as_slice(), &[dependency::StripIncludeItem::Define("#define SHARED".to_string())]);
-            }));
-        }
-        for thread in threads {
-            thread.join().unwrap();
-        }
-        assert_eq!(initializations.load(std::sync::atomic::Ordering::SeqCst), 1);
-        assert_eq!(cache.len(), 1);
-    }
+            // main.cpp starts with UTF-8 BOM, includes h1.h, then checks macro defined in h1_nested.h, then includes h2.h.
+            std::fs::write(&source, b"\xEF\xBB\xBF#include \"h1.h\"\n#ifdef ENABLE_COND\n#include \"cond_yes.h\"\n#else\n#include \"cond_no.h\"\n#endif\n#include \"h2.h\"\n").unwrap();
+            // h1.h uses classic #ifndef guard and includes h1_nested.h + h3.h unconditionally.
+            std::fs::write(&h1, b"#ifndef H1_GUARD_H\n#define H1_GUARD_H\n#include \"h1_nested.h\"\n#include \"h3.h\"\n#endif\n").unwrap();
+            std::fs::write(&h1_nested, b"#ifndef H1_NESTED_H\n#define H1_NESTED_H\n#define ENABLE_COND 1\n#endif\n").unwrap();
+            std::fs::write(&h2, b"#ifndef H2_GUARD_H\n#define H2_GUARD_H\n#include \"h3.h\"\n#endif\n").unwrap();
+            std::fs::write(&h3, b"#ifndef H3_GUARD_H\n#define H3_GUARD_H\n#endif\n").unwrap();
+            std::fs::write(&cond_yes, b"#pragma once\n").unwrap();
+            std::fs::write(&cond_no, b"#pragma once\n").unwrap();
 
-    #[test]
-    fn test_waiter_rejects_removed_cache_entry_after_read_failure() {
-        let dependency: DependencyIncludes = std::sync::Arc::new(dashmap::DashMap::new());
-        let (_stale, writer) = extract_include_entry("missing.h", &dependency);
-        let writer = writer.unwrap();
-        let (ready, received) = std::sync::mpsc::channel();
-        let cache_for_reader = dependency.clone();
-        let reader = std::thread::spawn(move || {
-            let (items, pending_writer) = extract_include_entry("missing.h", &cache_for_reader);
-            assert!(pending_writer.is_none());
-            ready.send(()).unwrap();
-            drop(items.blocking_read());
-            extract_include_entry_is_current("missing.h", &cache_for_reader, &items)
+            let compiler = MSVC {
+                work_env: crate::platform::windows::WindowsCompilerEnv {
+                    winkits_includes_path: Vec::new(), compiler_path: std::path::PathBuf::new(),
+                    msvc_includes_path: Vec::new(), msvc_version: String::new(), env_args: String::new(),
+                },
+                runtime: std::sync::Arc::new(tokio::runtime::Handle::current()),
+                sender: std::sync::Arc::new(std::sync::Mutex::new(crate::communicate::distributor::Distributor::default())),
+                output_callback: std::sync::Arc::new(|_| Box::new(async {})),
+            };
+            let dependency: dependency::ExtractedDependencyCode = std::sync::Arc::new(dashmap::DashMap::new());
+            let initial_defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+            let include_dirs = std::sync::Arc::new(vec![dir.clone()]);
+            let solution = std::sync::Arc::new(String::new());
+            let project = std::sync::Arc::new(String::new());
+            let sent = std::sync::Arc::new(dashmap::DashSet::new());
+            let (stream, mut received) = tokio::sync::mpsc::channel(16);
+
+            compiler.parser_sourcefile_sync_dependency(
+                source.to_string_lossy().into_owned(),
+                initial_defines,
+                include_dirs,
+                solution,
+                project,
+                sent.clone(),
+                dependency,
+                stream,
+            ).await;
+
+            let mut paths = std::collections::HashSet::new();
+            while let Ok(archive) = received.try_recv() {
+                paths.insert(archive.path);
+            }
+            let normalized = |p: &std::path::Path| p.to_string_lossy().replace('/', "\\");
+            assert_eq!(paths.len(), 6);
+            assert!(paths.contains(&normalized(&source)));
+            assert!(paths.contains(&normalized(&h1)));
+            assert!(paths.contains(&normalized(&h1_nested)));
+            assert!(paths.contains(&normalized(&h2)));
+            assert!(paths.contains(&normalized(&h3)));
+            assert!(paths.contains(&normalized(&cond_yes)));
+            assert!(!paths.contains(&normalized(&cond_no)));
+
+            std::fs::remove_dir_all(dir).unwrap();
         });
-        received.recv().unwrap();
-        dependency.remove("missing.h");
-        drop(writer);
-        assert!(!reader.join().unwrap());
-    }
-
-    #[test]
-    fn test_failed_source_send_does_not_mark_file_as_sent() {
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let source = std::env::temp_dir().join(format!("crew-send-{}-{unique}.cpp", std::process::id()));
-        std::fs::write(&source, b"#define PRESENT\n").unwrap();
-        let defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
-        let sent = std::sync::Arc::new(dashmap::DashSet::new());
-        let dependency: DependencyIncludes = std::sync::Arc::new(dashmap::DashMap::new());
-        let (stream, receiver) = tokio::sync::mpsc::channel(1);
-        drop(receiver);
-        MSVC::parser_sourcefile_sync_dependency_file(
-            source.to_str().unwrap(), &defines, &Vec::new(),
-            &std::sync::Arc::new(String::new()), &std::sync::Arc::new(String::new()),
-            &sent, &dependency, &stream, None,
-            &mut std::collections::HashSet::new(), &mut std::collections::HashSet::new(),
-        );
-        assert!(sent.is_empty());
-        assert!(defines.read().unwrap().contains_key("PRESENT"));
-        std::fs::remove_file(source).unwrap();
-    }
-
-    #[test]
-    fn test_pragma_once_skips_repeated_header_after_macro_changes() {
-        let unique = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-        let dir = std::env::temp_dir().join(format!("crew-pragma-once-{}-{unique}", std::process::id()));
-        std::fs::create_dir(&dir).unwrap();
-        let source = dir.join("source.cpp");
-        let header = dir.join("once.h");
-        let unexpected = dir.join("unexpected.h");
-        std::fs::write(&unexpected, b"").unwrap();
-        std::fs::write(&header, format!(
-            "#pragma once\n#ifdef INCLUDED\n#include \"{}\"\n#endif\n#define INCLUDED\n",
-            unexpected.display(),
-        )).unwrap();
-        std::fs::write(&source, format!(
-            "#include \"{}\"\n#include \"{}\"\n",
-            header.display(), header.display(),
-        )).unwrap();
-
-        let defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
-        let sent = std::sync::Arc::new(dashmap::DashSet::new());
-        let dependency: DependencyIncludes = std::sync::Arc::new(dashmap::DashMap::new());
-        let (stream, mut receiver) = tokio::sync::mpsc::channel(8);
-        MSVC::parser_sourcefile_sync_dependency_file(
-            source.to_str().unwrap(), &defines, &Vec::new(),
-            &std::sync::Arc::new(String::new()), &std::sync::Arc::new(String::new()),
-            &sent, &dependency, &stream, None,
-            &mut std::collections::HashSet::new(), &mut std::collections::HashSet::new(),
-        );
-        drop(stream);
-        let mut paths = Vec::new();
-        while let Ok(archive) = receiver.try_recv() { paths.push(archive.path); }
-        assert_eq!(paths.len(), 2);
-        assert!(!paths.contains(&unexpected.to_string_lossy().replace('/', "\\")));
-        assert!(defines.read().unwrap().contains_key("INCLUDED"));
-
-        std::fs::remove_file(source).unwrap();
-        std::fs::remove_file(header).unwrap();
-        std::fs::remove_file(unexpected).unwrap();
-        std::fs::remove_dir(dir).unwrap();
     }
 
     #[test]
@@ -4200,4 +3942,122 @@ mod tests {
         let _ = request_local_compile(&complier_path.into_os_string(), &current_crate_dir.into_os_string(), &compiler_commands, std::ffi::OsString::from(""), false);
     }
 
+    #[test]
+    fn parser_sourcefile_sync_dependency_test() {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .enable_all()
+            .build()
+            .unwrap();
+
+        runtime.block_on(async {
+            let unique = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let dir = std::env::temp_dir().join(format!("crew-sync-dep-test-{}-{unique}", std::process::id()));
+            std::fs::create_dir(&dir).unwrap();
+
+            let source = dir.join("main.cpp");
+            let config_h = dir.join("config.h");
+            let common_h = dir.join("common.h");
+            let types_h = dir.join("types.h");
+            let module_a_h = dir.join("module_a.h");
+            let sub_a_h = dir.join("sub_a.h");
+            let module_unused_h = dir.join("module_unused.h");
+
+            // main.cpp: 包含 config.h，并根据其中定义的宏选择性包含 module_a.h
+            std::fs::write(
+                &source,
+                b"#include \"config.h\"\n#ifdef ENABLE_MODULE_A\n#include \"module_a.h\"\n#else\n#include \"module_unused.h\"\n#endif\n",
+            ).unwrap();
+
+            // config.h: 经典 ifndef guard，定义 ENABLE_MODULE_A 并递归包含 common.h
+            std::fs::write(
+                &config_h,
+                b"#ifndef CONFIG_H\n#define CONFIG_H\n#define ENABLE_MODULE_A 1\n#include \"common.h\"\n#endif\n",
+            ).unwrap();
+
+            // common.h: pragma once，继续包含 types.h
+            std::fs::write(&common_h, b"#pragma once\n#include \"types.h\"\n").unwrap();
+            std::fs::write(&types_h, b"#pragma once\n").unwrap();
+
+            // module_a.h: 被条件宏命中的分支，包含 sub_a.h
+            std::fs::write(&module_a_h, b"#pragma once\n#include \"sub_a.h\"\n").unwrap();
+            std::fs::write(&sub_a_h, b"#pragma once\n").unwrap();
+
+            // module_unused.h: 未被命中的 else 分支，不应被同步
+            std::fs::write(&module_unused_h, b"#pragma once\n").unwrap();
+
+            let compiler = MSVC {
+                work_env: crate::platform::windows::WindowsCompilerEnv {
+                    winkits_includes_path: Vec::new(),
+                    compiler_path: std::path::PathBuf::new(),
+                    msvc_includes_path: Vec::new(),
+                    msvc_version: String::new(),
+                    env_args: String::new(),
+                },
+                runtime: std::sync::Arc::new(tokio::runtime::Handle::current()),
+                sender: std::sync::Arc::new(std::sync::Mutex::new(crate::communicate::distributor::Distributor::default())),
+                output_callback: std::sync::Arc::new(|_| Box::new(async {})),
+            };
+
+            let dependency: dependency::ExtractedDependencyCode = std::sync::Arc::new(dashmap::DashMap::new());
+            let initial_defines = std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()));
+            let include_dirs = std::sync::Arc::new(vec![dir.clone()]);
+            let solution = std::sync::Arc::new("TestSolution".to_string());
+            let project = std::sync::Arc::new("TestProject".to_string());
+            let cache = std::sync::Arc::new(dashmap::DashSet::new());
+            let (stream, mut received) = tokio::sync::mpsc::channel(32);
+
+            compiler.parser_sourcefile_sync_dependency(
+                source.to_string_lossy().into_owned(),
+                initial_defines.clone(),
+                include_dirs,
+                solution.clone(),
+                project.clone(),
+                cache.clone(),
+                dependency.clone(),
+                stream,
+            ).await;
+
+            let mut received_paths = std::collections::HashSet::new();
+            while let Ok(archive) = received.try_recv() {
+                assert_eq!(archive.solution, *solution);
+                assert_eq!(archive.project, *project);
+                assert!(!archive.content.is_empty());
+                received_paths.insert(archive.path);
+            }
+
+            let normalized = |p: &std::path::Path| p.to_string_lossy().replace('/', "\\");
+
+            // 验证命中分支与递归包含链全部被同步
+            assert!(received_paths.contains(&normalized(&source)));
+            assert!(received_paths.contains(&normalized(&config_h)));
+            assert!(received_paths.contains(&normalized(&common_h)));
+            assert!(received_paths.contains(&normalized(&types_h)));
+            assert!(received_paths.contains(&normalized(&module_a_h)));
+            assert!(received_paths.contains(&normalized(&sub_a_h)));
+
+            // 验证未命中的条件分支文件未被同步
+            assert!(!received_paths.contains(&normalized(&module_unused_h)));
+            assert_eq!(received_paths.len(), 6);
+
+            // 验证 cache (DashSet) 状态一致
+            assert!(cache.contains(&normalized(&source)));
+            assert!(cache.contains(&normalized(&config_h)));
+            assert!(cache.contains(&normalized(&common_h)));
+            assert!(cache.contains(&normalized(&types_h)));
+            assert!(cache.contains(&normalized(&module_a_h)));
+            assert!(cache.contains(&normalized(&sub_a_h)));
+            assert!(!cache.contains(&normalized(&module_unused_h)));
+            assert_eq!(cache.len(), 6);
+
+            // 验证外部 initial_defines 未被子作用域宏污染
+            assert!(initial_defines.read().unwrap().is_empty());
+
+            // 清理测试临时目录
+            std::fs::remove_dir_all(dir).unwrap();
+        });
+    }
 }
