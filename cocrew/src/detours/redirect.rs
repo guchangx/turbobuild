@@ -73,9 +73,44 @@ pub unsafe fn pass_params_to_redirect(handle: win::Foundation::HANDLE, solution:
 }
 
 const SHARED_MEM_NAME: &str = "Local\\MspdbsrvRedirectSharedMem";
-const SHARED_MEM_SIZE: usize = 256;
+const SHARED_MEM_SIZE: usize = 512;
 
-pub unsafe fn pass_params_to_mspdbsrv(solution: &str) {
+
+pub struct MemoryViewBox {
+    view: windows_sys::Win32::System::Memory::MEMORY_MAPPED_VIEW_ADDRESS,
+    handle: windows_sys::Win32::Foundation::HANDLE,
+    data: String,
+}
+ 
+impl MemoryViewBox {
+    pub fn new(h: windows_sys::Win32::System::Memory::MEMORY_MAPPED_VIEW_ADDRESS, handle: windows_sys::Win32::Foundation::HANDLE) -> Self {
+        Self { view: h, handle, data: String::new() }
+    }
+ 
+    pub fn get_view(&self) -> &windows_sys::Win32::System::Memory::MEMORY_MAPPED_VIEW_ADDRESS {
+        &self.view
+    }
+}
+ 
+unsafe impl Send for MemoryViewBox {}
+unsafe impl Sync for MemoryViewBox {}
+impl Drop for MemoryViewBox {
+    fn drop(&mut self) {
+        if !self.view.Value.is_null() {
+            unsafe {
+                win::System::Memory::UnmapViewOfFile(self.view);
+            }
+        }
+        if !self.handle.is_null() {
+            unsafe {
+                win::Foundation::CloseHandle(self.handle);
+            }
+        }
+    }
+}
+
+static SHARED_MEM_VIEW: std::sync::LazyLock<std::sync::Mutex<Option<MemoryViewBox>>> 
+    = std::sync::LazyLock::new(|| unsafe {
     let name = SHARED_MEM_NAME.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
 
     let h_map = win::System::Memory::CreateFileMappingW(
@@ -90,33 +125,49 @@ pub unsafe fn pass_params_to_mspdbsrv(solution: &str) {
     if h_map.is_null() {
         let error = win::Foundation::GetLastError();
         log::error!("CreateFileMappingW failed for mspdbsrv shared memory, error code: {}", error);
-        return;
+        std::sync::Mutex::new(None)
     }
-
-    let buf = win::System::Memory::MapViewOfFile(
-        h_map,
-        win::System::Memory::FILE_MAP_ALL_ACCESS,
-        0,
-        0,
-        SHARED_MEM_SIZE as usize
-    );
-
-    if buf.Value.is_null() {
-        let error = win::Foundation::GetLastError();
-        log::error!("MapViewOfFile failed for mspdbsrv shared memory, error code: {}", error);
-        win::Foundation::CloseHandle(h_map);
-        return;
+    else {
+        let buf = win::System::Memory::MapViewOfFile(
+            h_map,
+            win::System::Memory::FILE_MAP_ALL_ACCESS,
+            0,
+            0,
+            SHARED_MEM_SIZE as usize
+        );
+    
+        if buf.Value.is_null() {
+            let error = win::Foundation::GetLastError();
+            log::error!("MapViewOfFile failed for mspdbsrv shared memory, error code: {}", error);
+            win::Foundation::CloseHandle(h_map);
+            std::sync::Mutex::new(None)
+        } else {
+            std::sync::Mutex::new(Some(MemoryViewBox::new(buf, h_map)))
+        }
     }
+});
 
-    let data = format!("solution:{}\r\nreplica:{}\r\n", solution, tools::utils::access_replica_dir());
-    let bytes = data.as_bytes();
-    std::ptr::copy_nonoverlapping(bytes.as_ptr(), buf.Value as *mut u8, bytes.len());
+pub unsafe fn pass_params_to_mspdbsrv(solution: &str) {
 
-    let _ = windows_sys::Win32::System::Memory::FlushViewOfFile(buf.Value as *const std::ffi::c_void, data.len() as usize);
-    win::System::Memory::UnmapViewOfFile(buf);
-
-    //can not close immediately after mapping, as the view might still be in use
-    //win::Foundation::CloseHandle(h_map);
+    let mut guard = SHARED_MEM_VIEW.lock().unwrap();
+    if let Some(ref mut view) = *guard {
+        let buf = view.get_view();
+        let data = format!("solution:{}\r\nreplica:{}\r\n", solution, tools::utils::access_replica_dir());
+        if view.data == data {
+           
+        }
+        else {
+            let dst = std::slice::from_raw_parts_mut(buf.Value as *mut u8, SHARED_MEM_SIZE);
+            dst.fill(0);
+    
+            let bytes = data.as_bytes();
+    
+            dst[..bytes.len()].copy_from_slice(bytes);
+            let _ = windows_sys::Win32::System::Memory::FlushViewOfFile(buf.Value as *const std::ffi::c_void, SHARED_MEM_SIZE as usize);
+            
+            view.data = data.clone();
+        }
+    }
 }
 
 fn replace_includes_path_by_replica(includes: &std::ffi::OsString) -> std::borrow::Cow<'_, std::ffi::OsString> {
@@ -499,6 +550,9 @@ pub fn msvc_detours(solution: String, project: String, app: String, command: Str
                 }
                 if !hStdErrorRead.is_null() {
                     win::Foundation::CloseHandle(hStdErrorRead);
+                }
+                if !hStdInWrite.is_null() {
+                    win::Foundation::CloseHandle(hStdInWrite);
                 }
 
                 let code = win::Foundation::GetLastError();
