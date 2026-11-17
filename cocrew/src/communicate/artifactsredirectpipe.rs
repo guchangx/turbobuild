@@ -1,4 +1,4 @@
-﻿use std::{io, os::windows::io::AsRawHandle};
+﻿use std::{io::{self, Write}, os::windows::io::AsRawHandle};
 use prost::bytes;
 use tokio::io::AsyncReadExt;
 
@@ -140,7 +140,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                     }
                     else if offset == 0 && clength != arti.offset as u64 {
                         let content = std::mem::take(&mut arti.content); //move ownership
-                        let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), false);
+                        let compiled_gen_result = generate_artifact(&path, arti.offset, arti.length, bytes::Bytes::from(content), false);
                         if compiled_gen_result.obj.is_some() {
                             let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).cloned();
                             if let Some(tx) = tx {
@@ -162,7 +162,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                             slot.write(compiled_gen_result);
                         }
                         if iscontinue == 0 {
-                            let last_result = generate_artifact(&path, offset, bytes::Bytes::copy_from_slice(&buffer[16..(16 + clength as usize)]), true);
+                            let last_result = generate_artifact(&path, offset, clength, bytes::Bytes::copy_from_slice(&buffer[16..(16 + clength as usize)]), true);
                             if last_result.obj.is_some() {
                                 let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).cloned();
                                 if let Some(tx) = tx {
@@ -195,7 +195,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
 
                         if arti.length > 2097152 /*2 * 1024 * 1024*/ || iscontinue.eq(&0) {
                             let content = std::mem::take(&mut arti.content); //move ownership
-                            let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), if iscontinue == 0 { true } else { false });
+                            let compiled_gen_result = generate_artifact(&path, arti.offset, arti.length, bytes::Bytes::from(content), if iscontinue == 0 { true } else { false });
 
                             if compiled_gen_result.obj.is_some() {
                                 let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap()
@@ -228,7 +228,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                     else {
                         if !arti.content.is_empty() {
                             let content = std::mem::take(&mut arti.content); //move ownership
-                            let compiled_gen_result = generate_artifact(&path, arti.offset, bytes::Bytes::from(content), false);
+                            let compiled_gen_result = generate_artifact(&path, arti.offset, arti.length, bytes::Bytes::from(content), false);
     
                             if compiled_gen_result.obj.is_some() {
                                 let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).cloned();
@@ -253,7 +253,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                         }
                         
                         if iscontinue == 0 {
-                            let compiled_gen_result = generate_artifact(&path, offset, bytes::Bytes::copy_from_slice(&buffer[16..(16 + clength as usize)]), true);
+                            let compiled_gen_result = generate_artifact(&path, offset, clength, bytes::Bytes::copy_from_slice(&buffer[16..(16 + clength as usize)]), true);
                             
                             if compiled_gen_result.obj.is_some() {
                                 let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).cloned();
@@ -290,7 +290,7 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
                 }
                 else {
                     if iscontinue.eq(&0) {
-                        let compiled_gen_result = generate_artifact(&path, offset, bytes::Bytes::from(buffer[16..(16 + clength as usize)].to_vec()), if iscontinue == 0 { true } else { false });
+                        let compiled_gen_result = generate_artifact(&path, offset, clength, bytes::Bytes::from(buffer[16..(16 + clength as usize)].to_vec()), if iscontinue == 0 { true } else { false });
                         if compiled_gen_result.obj.is_some() {
                             let tx = crate::communicate::unpackager::PROJECT_MAP_TASK_TO_FILE_CHANNEL.read().unwrap().get(project.as_ref()).cloned();
                             if let Some(tx) = tx {
@@ -332,13 +332,20 @@ async fn handle(pipe: &mut tokio::net::windows::named_pipe::NamedPipeServer) -> 
     Ok(())
 }
 
-fn generate_artifact(path: &std::borrow::Cow<str>, offset: i64, context: bytes::Bytes, last: bool) -> crew::compiler::model::CompiledResult {
+fn generate_artifact(path: &std::borrow::Cow<str>, offset: i64, length: u64, context: bytes::Bytes, last: bool) -> crew::compiler::model::CompiledResult {
     let ospath = std::ffi::OsString::from(path.to_string());
+
+    let context = if length > const { 512 *1024 } {
+        compress(context).unwrap()
+    }
+    else {
+        context
+    };
     
     let compiled_gen_result = if path.ends_with(".obj") {
         crew::compiler::model::CompiledResult {
             source_file: ospath.clone(),
-            obj: Some((ospath, offset, context, last)),
+            obj: Some((ospath, offset, length, context, last)),
             pdb: None,
             idb: None,
         }
@@ -347,7 +354,7 @@ fn generate_artifact(path: &std::borrow::Cow<str>, offset: i64, context: bytes::
         crew::compiler::model::CompiledResult {
             source_file: ospath.clone(),
             obj: None,
-            pdb: Some((ospath, offset, context, last)),
+            pdb: Some((ospath, offset, length, context, last)),
             idb: None,
         }
     }
@@ -356,7 +363,7 @@ fn generate_artifact(path: &std::borrow::Cow<str>, offset: i64, context: bytes::
             source_file: ospath.clone(),
             obj: None,
             pdb: None,
-            idb: Some((ospath, offset, context, last)),
+            idb: Some((ospath, offset, length, context, last)),
         }
     }
     else {
@@ -370,3 +377,15 @@ fn generate_artifact(path: &std::borrow::Cow<str>, offset: i64, context: bytes::
     return compiled_gen_result;
 }
 
+thread_local! {
+    static ZSTD_COMPRESSOR: std::cell::RefCell<zstd::bulk::Compressor<'static>> =
+        std::cell::RefCell::new(zstd::bulk::Compressor::new(1).expect("failed to create zstd compressor"));
+}
+
+fn compress(context: bytes::Bytes) -> std::io::Result<bytes::Bytes> {
+    ZSTD_COMPRESSOR.with(|cell| {
+        let mut compressor = cell.borrow_mut();
+        let compressed = compressor.compress(&context[..])?;
+        Ok(bytes::Bytes::from(compressed))
+    })
+}

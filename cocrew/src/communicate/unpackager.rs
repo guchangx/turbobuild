@@ -171,10 +171,12 @@ impl Receiver {
                     result = task_to_file_rx.recv() => {
                         match result {
                             Some(result) => {
-                                if let Some((file, offset, context, last)) = result.obj {
+                                if let Some((file, offset, length, context, last)) = result.obj {
+
                                     let reply = package::FileTrResponse {
                                         path: file.to_string_lossy().to_string(),
                                         offset: offset,
+                                        length: length,
                                         content: context,
                                         last: last,
                                         error_code: 0,
@@ -183,10 +185,11 @@ impl Receiver {
                                     tx_.send(Ok(reply)).await.unwrap();
                                 }
 
-                                if let Some((file, offset, context, last)) = result.pdb {
+                                if let Some((file, offset, length, context, last)) = result.pdb {
                                     let reply = package::FileTrResponse {
                                         path: file.to_string_lossy().to_string(),
                                         offset: offset,
+                                        length: length,
                                         content: context,
                                         last: last,
                                         error_code: 0,
@@ -195,10 +198,11 @@ impl Receiver {
                                     tx_.send(Ok(reply)).await.unwrap();
                                 }
 
-                                if let Some((file, offset, context, last)) = result.idb {
+                                if let Some((file, offset, length, context, last)) = result.idb {
                                     let reply = package::FileTrResponse {
                                         path: file.to_string_lossy().to_string(),
                                         offset: offset,
+                                        length: length,
                                         content: context,
                                         last: last,
                                         error_code: 0,
@@ -264,6 +268,7 @@ impl Receiver {
                             path: path.clone(),
                             offset: -1,
                             content: bytes::Bytes::new(),
+                            length: 0 as u64,
                             last: true,
                             error_code: 1,
                             error_message: err,
@@ -1089,28 +1094,33 @@ impl Receiver {
                     if let Some(obj) = result.obj {
                         let file = obj.0;
                         //let offset = obj.1;
-                        let content = obj.2;
+                        //let length = obj.2;
                         let intermediate = package::IntermediateResult {
                             file: file.to_string_lossy().into(),
-                            content: content,
+                            length: 0,
+                            content: bytes::Bytes::new(),
                         };
                         intermediates.push(intermediate);
                     }
 
                     if let Some(idb) = result.idb {
                         let file = idb.0;
-                        let content = idb.2;
+                        let length = idb.2;
+                        let content = idb.3;
                         let intermediate = package::IntermediateResult {
                             file: file.to_string_lossy().into(),
+                            length: length,
                             content: content,
                         };
                         intermediates.push(intermediate);
                     }
                     if let Some(pdb) = result.pdb {
                         let file = pdb.0;
-                        let content = pdb.2;
+                        let length = pdb.2;
+                        let content = pdb.3;
                         let intermediate = package::IntermediateResult {
                             file: file.to_string_lossy().into(),
+                            length: length,
                             content: content,
                         };
                         intermediates.push(intermediate);
@@ -1327,10 +1337,12 @@ impl Receiver {
                         let _ = file.read_to_end(&mut contents).await.unwrap();
 
                         let origin = crate::compiler::msvc::repair_original_path(&solution_name_, &origin_working_dir_, &result);
-
+                        
+                        let length = contents.len();
                         let reply = package::FileTrResponse {
                             path: origin.into_string().unwrap(),
                             offset: -1,
+                            length: length as u64,
                             content: bytes::Bytes::from(contents),
                             last: true,
                             error_code: 0,
@@ -1362,9 +1374,11 @@ impl Receiver {
                         let _ = file.read_to_end(&mut contents).await.unwrap();
                         let origin = crate::compiler::msvc::repair_original_path(&solution_name_, &origin_working_dir_, &result_);     
     
+                        let length = contents.len();
                         let reply = package::FileTrResponse {
                             path: origin.into_string().unwrap(),
                             offset: -1,
+                            length: length as u64,
                             content: bytes::Bytes::from(contents),
                             last: true,
                             error_code: 0,
@@ -1417,11 +1431,12 @@ impl Receiver {
 
         crate::compiler::msvc::PATH_MAP_PDB_ARTIFACT_ONESHOT.lock().unwrap().remove(&origin.to_string_lossy().to_string());
         
-        if let Some((_, _, contents, last)) = &compiled_gen_result.pdb {
+        if let Some((_, _, length, contents, last)) = &compiled_gen_result.pdb {
             // .ilk .res .asm
             let reply = package::FileTrResponse {
                 path: origin.into_string().unwrap(),
                 offset: -1,
+                length: *length,
                 content: contents.clone(),
                 last: *last,
                 error_code: 0,

@@ -45,7 +45,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
                                 key: k.clone(),
                                 value: v.clone(),
                             }).collect(),
-                            files: vec![crate::communicate::packager::pack::IntermediateResult{file: expect.clone(), content: data.clone()}],
+                            files: vec![crate::communicate::packager::pack::IntermediateResult{file: expect.clone(), length: data.len() as u64, content: data.clone()}],
                         };
                         return local;
                     }   
@@ -76,7 +76,7 @@ pub fn route_file_system_operation(redirect: crate::communicate::packager::pack:
                             key: k.clone(),
                             value: v.clone(),
                         }).collect(),
-                        files: vec![crate::communicate::packager::pack::IntermediateResult{file: expect.clone(), content: data}],
+                        files: vec![crate::communicate::packager::pack::IntermediateResult{file: expect.clone(), length: data.len() as u64, content: data}],
                     };
                     return local;
                 },
@@ -316,7 +316,7 @@ unsafe fn redirect_nt_query_directory_file(params: std::collections::HashMap<Str
     }
 }
 
-unsafe fn redirect_nt_create_file(params: &mut std::collections::HashMap<String, String>) -> std::io::Result<(String, Vec<u8>)> {
+unsafe fn redirect_nt_create_file(params: &mut std::collections::HashMap<String, String>) -> std::io::Result<(String,bytes::Bytes)> {
 
     let objectname = params.get("objectname").unwrap().to_owned();
     if objectname.is_empty() {
@@ -327,7 +327,7 @@ unsafe fn redirect_nt_create_file(params: &mut std::collections::HashMap<String,
     if let Some(expect) = params.get("expect") {
         match std::fs::read(&objectname) {
             Ok(data) => {
-                return Ok((expect.clone(), data));
+                return Ok((expect.clone(), bytes::Bytes::from(data)));
             },
             Err(err) => {
                 return Err(err);
@@ -338,17 +338,17 @@ unsafe fn redirect_nt_create_file(params: &mut std::collections::HashMap<String,
         //TODO: called multiple times with same params
         if check_path_in_cache(&objectname) {
             *value = "true".to_string();
-            return Ok(("exists".to_string(), "true".as_bytes().to_vec()));
+            return Ok(("exists".to_string(), bytes::Bytes::from("true")));
         }
         else {
             let path = std::path::Path::new(&objectname);
             if path.exists() {
                 *value = "true".to_string();
-                return Ok(("exists".to_string(), "true".as_bytes().to_vec()));
+                return Ok(("exists".to_string(), bytes::Bytes::from("true")));
             }
             else {
                 *value = "false".to_string();
-                return Ok(("exists".to_string(), "false".as_bytes().to_vec()));
+                return Ok(("exists".to_string(), bytes::Bytes::from("false")));
             }
         }
     }
@@ -359,13 +359,13 @@ unsafe fn redirect_nt_create_file(params: &mut std::collections::HashMap<String,
     }
 }
 
-unsafe fn redirect_create_file_w(params: &std::collections::HashMap<String, String>) -> std::io::Result<(String, Vec<u8>)> {
+unsafe fn redirect_create_file_w(params: &std::collections::HashMap<String, String>) -> std::io::Result<(String, bytes::Bytes)> {
     let filename = params.get("filename").unwrap().to_owned();
 
     match std::fs::read(filename) {
         Ok(data) => {
             let expect = params.get("expect").unwrap().to_owned();
-            return Ok((expect, data));
+            return Ok((expect, bytes::Bytes::from(data)));
         },
         Err(err) => {
             return Err(err);

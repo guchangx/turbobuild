@@ -15,6 +15,7 @@ fn main()  {
     let res = tonic_prost_build::configure()
         .bytes(".pack.FileTrRequest.content")
         .bytes(".pack.FileTrResponse.content")
+        .bytes(".pack.IntermediateResult.content")
         .extern_path(".prost", "::prost")
         .build_server(false)
         .build_client(true)

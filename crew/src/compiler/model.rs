@@ -65,9 +65,9 @@ impl CompilerOutput {
 pub struct CompiledResult {
     pub source_file: std::ffi::OsString,
     //path offset content last
-    pub obj: Option<(std::ffi::OsString, i64, bytes::Bytes, bool)>,
-    pub pdb: Option<(std::ffi::OsString, i64, bytes::Bytes, bool)>,
-    pub idb: Option<(std::ffi::OsString, i64, bytes::Bytes, bool)>,
+    pub obj: Option<(std::ffi::OsString, i64, u64, bytes::Bytes, bool)>,
+    pub pdb: Option<(std::ffi::OsString, i64, u64, bytes::Bytes, bool)>,
+    pub idb: Option<(std::ffi::OsString, i64, u64, bytes::Bytes, bool)>,
 }
 
 pub type CompiledResults = Vec<CompiledResult>;

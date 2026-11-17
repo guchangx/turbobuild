@@ -32,7 +32,8 @@ enum CompileProgress {
 
 message IntermediateResult {
     string file = 1;
-    bytes content = 2;
+    uint64 length = 2;
+    bytes content = 3;
 }
 
 message CompileTrResponse {
@@ -66,10 +67,11 @@ message FileTrRequest {
 message FileTrResponse {
     string path = 1;
     int64 offset = 2;
-    bytes content = 3;
-    bool last = 4;
-    int32 error_code = 5;
-    string error_message = 6;
+    uint64 length = 3;
+    bytes content = 4;
+    bool last = 5;
+    int32 error_code = 6;
+    string error_message = 7;
 }
 
 message Params {

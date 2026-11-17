@@ -2173,9 +2173,9 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
             let line = line.replace(r#"""#, "");
             if line.ends_with(".cpp") || line.ends_with(".c") || line.ends_with(".cc") || line.ends_with(".cxx") || line.ends_with(".i") {
                 if sync_compile_result {
-                    let mut obj: Option<(std::ffi::OsString, i64, bytes::Bytes, bool)> = None;
-                    let mut pdb: Option<(std::ffi::OsString, i64, bytes::Bytes, bool)> = None;
-                    let mut idb: Option<(std::ffi::OsString, i64, bytes::Bytes, bool)> = None;
+                    let mut obj: Option<(std::ffi::OsString, i64, u64, bytes::Bytes, bool)> = None;
+                    let mut pdb: Option<(std::ffi::OsString, i64, u64, bytes::Bytes, bool)> = None;
+                    let mut idb: Option<(std::ffi::OsString, i64, u64, bytes::Bytes, bool)> = None;
     
                     let mut result_path = std::path::PathBuf::from("");
                     let object = fetch_compile_object_file(&build_and_compiler_type, compiler_commands, compiler_working_dir);
@@ -2198,7 +2198,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
                             let mut contents = Vec::new();
                             let mut file = std::io::BufReader::new(file);
                             let _ = file.read_to_end(&mut contents).unwrap();
-                            obj = Some((result_path.clone().into_os_string(), -1, bytes::Bytes::from(contents), true));
+                            obj = Some((result_path.clone().into_os_string(), -1, contents.len() as u64, bytes::Bytes::from(contents), true));
                         },
                         Err(error) => {
                             if error.kind() == std::io::ErrorKind::NotFound {
@@ -2212,8 +2212,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
     
                     result_path.clear();
 
-                    if last == Some(&line)
-                    {
+                    if last == Some(&line) {
                         let pdb_path = pdb_path.clone();
                         match &*pdb_path {
                             ProgramDataBase::PathWithPDBName(path) => {
@@ -2234,7 +2233,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
                                 let mut contents = Vec::new();
                                 let mut file = std::io::BufReader::new(file);
                                 let _ = file.read_to_end(&mut contents).unwrap();
-                                pdb = Some((result_path.clone().into_os_string(), -1, bytes::Bytes::from(contents), true));
+                                pdb = Some((result_path.clone().into_os_string(), -1, contents.len() as u64, bytes::Bytes::from(contents), true));
                             },
                             Err(error) => {
                                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -2252,7 +2251,7 @@ fn request_local_compile(compiler_path: &std::ffi::OsString, compiler_working_di
                                 let mut contents = Vec::new();
                                 let mut file = std::io::BufReader::new(file);
                                 let _ = file.read_to_end(&mut contents).unwrap();
-                                idb = Some((result_path.into_os_string(), -1, bytes::Bytes::from(contents), true));
+                                idb = Some((result_path.into_os_string(), -1, contents.len() as u64, bytes::Bytes::from(contents), true));
                             },
                             Err(error) => {
                                 if error.kind() == std::io::ErrorKind::NotFound {

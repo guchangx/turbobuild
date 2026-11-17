@@ -408,7 +408,7 @@ async fn pre_return_local_compile_result_object_files(line: &std::borrow::Cow<'_
 
                 let compiled_gen_result = crew::compiler::model::CompiledResult {
                     source_file: std::ffi::OsString::from(&line),
-                    obj: Some((origin, -1, bytes::Bytes::from(contents), true)),
+                    obj: Some((origin, -1, contents.len() as u64, bytes::Bytes::from(contents), true)),
                     pdb: None,
                     idb: None,
                 };
@@ -468,7 +468,7 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
 
                     let compiled_gen_result = crew::compiler::model::CompiledResult {
                         source_file: std::ffi::OsString::from(&line),
-                        obj: Some((origin, -1,  bytes::Bytes::from(contents), true)),
+                        obj: Some((origin, -1, contents.len() as u64, bytes::Bytes::from(contents), true)),
                         pdb: None,
                         idb: None,
                     };
@@ -505,8 +505,8 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
     
     let mut compiled_results: CompiledResults = Vec::new();
 
-    let mut pdb: Option<(std::ffi::OsString, i64, bytes::Bytes, bool)> = None;
-    let mut idb: Option<(std::ffi::OsString, i64, bytes::Bytes, bool)> = None;
+    let mut pdb: Option<(std::ffi::OsString, i64, u64, bytes::Bytes, bool)> = None;
+    let mut idb: Option<(std::ffi::OsString, i64, u64, bytes::Bytes, bool)> = None;
 
     if result.exists() {
         match std::fs::File::open(&result) {
@@ -515,7 +515,7 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
                 let mut file = std::io::BufReader::new(file);
                 let _ = file.read_to_end(&mut contents).unwrap();
                 let origin = repair_original_path(&solution_name, &origin_working_dir, &result);        
-                pdb = Some((origin, -1, bytes::Bytes::from(contents), true));
+                pdb = Some((origin, -1, contents.len() as u64, bytes::Bytes::from(contents), true));
             },
             Err(error) => {
                 if error.kind() == std::io::ErrorKind::NotFound {
@@ -534,7 +534,7 @@ fn return_local_compile_result_object_files(objfiles: std::sync::Arc<std::sync::
                 let mut file = std::io::BufReader::new(file);
                 let _ = file.read_to_end(&mut contents).unwrap();
                 let origin = repair_original_path(&solution_name, &origin_working_dir, &result);     
-                idb = Some((origin, -1, bytes::Bytes::from(contents), true));
+                idb = Some((origin, -1, contents.len() as u64, bytes::Bytes::from(contents), true));
             },
             Err(error) => {
                 if error.kind() == std::io::ErrorKind::NotFound {

@@ -1,4 +1,6 @@
 
+use std::os::windows::fs::OpenOptionsExt;
+
 use tokio::io::AsyncWriteExt;
 use tokio_stream::StreamExt;
 use tokio::io::AsyncSeekExt;
@@ -11,6 +13,7 @@ pub mod pack {
 pub struct TransmitArchive {
     pub path: String,
     pub offset: i64,
+    pub length: u64,
     pub last: bool,
     pub content: bytes::Bytes,
     #[cfg(target_os = "windows")]
@@ -186,6 +189,11 @@ pub enum ReceiverType {
     Archive(ArchiveRecv),
     Compile(CompileRecv),
     None,
+}
+
+thread_local! {
+    static ZSTD_DECOMPRESSOR: std::cell::RefCell<zstd::bulk::Decompressor<'static>> =
+        std::cell::RefCell::new(zstd::bulk::Decompressor::new().expect("failed to create zstd decompressor"));
 }
 
 static TRANSMIT_ARCHIVE_CHANNEL: std::sync::OnceLock<tokio::sync::mpsc::Sender<TransmitArchive>> = std::sync::OnceLock::new();
@@ -405,6 +413,7 @@ impl Sender {
                                 let file = TransmitArchive {
                                     path: stream.path,
                                     offset: stream.offset,
+                                    length: stream.length,
                                     last: stream.last,
                                     content: stream.content,
                                     fshandle: self.fshandle.clone(),
@@ -605,25 +614,36 @@ impl Sender {
     }
 
     async fn save_compile_ouput_form_channel(&mut self, mut stream: tokio::sync::mpsc::Receiver<Vec<pack::IntermediateResult>>, project: &str) {
-        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(64));
+        use std::io::Write;
+        const FILE_ATTRIBUTE_TEMPORARY: u32 = 0x00000100;
+        let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(8));
         while let Some(results) = stream.recv().await {
             for result in results {
                 log::debug!("save compile result: {:?}", result.file);
                 let permit = semaphore.clone().acquire_owned().await;
 
                 self.runtime.as_ref().map(|runtime| {
-
-                    let _handle = runtime.spawn(async move {
+                    runtime.spawn_blocking(move || {
                         let _permit = permit;
-                        match tokio::fs::OpenOptions::new().write(true).create(true).open(&result.file).await {
+                        let contxt = if result.length >= const { 512 * 1024 } {
+                            Self::decompress(&result.content, result.length as usize).unwrap()
+                        }
+                        else {
+                            result.content
+                        };
+                        
+                        let mut options = std::fs::OpenOptions::new();
+                        options.write(true).create(true).truncate(true);
+                        options.custom_flags(FILE_ATTRIBUTE_TEMPORARY);
+                        match options.open(&result.file) {
                             Ok(mut file) => {
-                                file.write_all(&result.content).await.unwrap();
+                                file.write_all(&contxt).unwrap();
                             },
                             Err(err) => {
                                 log::error!("save compile output create file failed: {}, path: {}", err, result.file);
                             }
                         }
-                    });
+                    })
                 });
 
             }
@@ -897,6 +917,7 @@ impl Sender {
             .clone()
     }
 
+    const COMPRESS_THRESHOLD: usize = 512 * 1024;
     fn multiworker_save_transmit_archives_win_native(
         receiver: std::sync::Arc<
             tokio::sync::Mutex<tokio::sync::mpsc::Receiver<TransmitArchive>>,
@@ -935,7 +956,15 @@ impl Sender {
                     ) {
                         Ok(file) => {
                             log::info!("submitting native write for complete file {} with content length {}", transmit_file.path, transmit_file.content.len());
-                            if let Err(error) = Self::submit_native_write(file, 0, transmit_file.content) {
+                            let length = transmit_file.length as usize;
+                            let context = if length >= Self::COMPRESS_THRESHOLD {
+                                Self::decompress(&transmit_file.content, length).unwrap()
+                            }
+                            else {
+                                transmit_file.content
+                            };
+
+                            if let Err(error) = Self::submit_native_write(file, 0, context) {
                                 log::error!("native write complete file {} failed: {:?}", transmit_file.path, error);
                             }
                         }
@@ -950,7 +979,15 @@ impl Sender {
                     match Self::get_or_open_transmit_file_win_native(&fshandle, &iocp, &path).await {
                         Ok(file) => {
                             log::info!("submitting native write for file {} at offset {} with content length {}, last: {}", path, transmit_file.offset, transmit_file.content.len(), transmit_file.last);
-                            if let Err(error) = Self::submit_native_write(file, transmit_file.offset as u64, transmit_file.content) {
+                            let length = transmit_file.length as usize;
+                            let contxt = if length >= Self::COMPRESS_THRESHOLD {
+                                Self::decompress(&transmit_file.content, length).unwrap()
+                            }
+                            else {
+                                transmit_file.content
+                            };
+
+                            if let Err(error) = Self::submit_native_write(file, transmit_file.offset as u64, contxt) {
                                 log::error!("native write file {} at offset {} failed: {:?}", path, transmit_file.offset, error);
                             }
                         }
@@ -1175,6 +1212,14 @@ impl Sender {
                 drop(request);
             }
         }
+    }
+
+    fn decompress(context: &[u8], length: usize) -> std::io::Result<bytes::Bytes> {
+        ZSTD_DECOMPRESSOR.with(|cell| {
+            let mut decompressor = cell.borrow_mut();
+            let c = decompressor.decompress(context, length).unwrap();
+            Ok(bytes::Bytes::from(c))
+        })
     }
     
 }
