@@ -1,4 +1,5 @@
 
+#[derive(Clone)]
 pub struct CompilerInput {
     pub solution: std::ffi::OsString,
     pub project: std::ffi::OsString,

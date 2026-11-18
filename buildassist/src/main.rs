@@ -10,7 +10,7 @@ fn main() -> std::process::ExitCode {
                 return std::process::ExitCode::SUCCESS;
             },
             Err(_) => {
-            return std::process::ExitCode::FAILURE;
+                return std::process::ExitCode::FAILURE;
             },
         }
     }
@@ -18,8 +18,13 @@ fn main() -> std::process::ExitCode {
         println!("Crew system not running, fallback to local compile.");
         let commandline = std::env::args_os();
         let commands: Vec<std::ffi::OsString> = commandline.collect();
-        local_direct(commands);
-        return std::process::ExitCode::SUCCESS;
+        let ret = local_direct(commands);
+        if ret.success() {
+            return std::process::ExitCode::SUCCESS;
+        }
+        else {
+            return std::process::ExitCode::FAILURE;
+        }
     }
 }
 
@@ -27,7 +32,7 @@ fn fetch_and_dist_compiler_commands() -> std::result::Result<(), ()> {
     
     let start = std::time::Instant::now();
 
-    let handle = std::thread::spawn(||{
+    let handle = std::thread::spawn( || {
         compileripc::SocketClient::new()
     });
 
@@ -48,12 +53,12 @@ fn fetch_and_dist_compiler_commands() -> std::result::Result<(), ()> {
                                 result = Ok(());
                             },
                             Err(_) => {
-                                local_retry(&input);
+                                result = Err(());
                             },
                         }
                     }
                     else {
-                        local_retry(&input);
+                        result = Err(());
                     }
                 },
                 Err(_) => {
@@ -71,9 +76,9 @@ fn fetch_and_dist_compiler_commands() -> std::result::Result<(), ()> {
     return result;
 }
 
-fn local_retry(input: &commands::CompilerInput) {
+fn local_retry(input: &commands::CompilerInput) -> std::process::ExitStatus {
     use std::os::windows::process::CommandExt;
-
+   
     let exec = &input.compiler_path;
     let working_dir = &input.compiler_working_dir;
 
@@ -84,14 +89,26 @@ fn local_retry(input: &commands::CompilerInput) {
 
     let mut child = process
         .current_dir(working_dir)
+        .stdout(std::process::Stdio::piped())
         .spawn()
         .expect("failed to execute compile.");
 
-    child.wait()
+    if let Some(stdout) = child.stdout.take() {
+        let reader = std::io::BufReader::new(stdout);
+        for line in reader.lines() {
+            match line {
+                Ok(l) => println!("retry: {}", l),
+                Err(e) => eprintln!("retry: {:?}", e),
+            }
+        }
+    }
+
+    let ret = child.wait()
         .expect("failed to wait on child.");
+    ret
 }
 
-fn local_direct(commands: Vec<std::ffi::OsString>) {
+fn local_direct(commands: Vec<std::ffi::OsString>) -> std::process::ExitStatus {
     
     let (_, _, _, compiler, _) = commands::fetch_compiler_args_path_from_envs();
 
@@ -111,7 +128,8 @@ fn local_direct(commands: Vec<std::ffi::OsString>) {
         }
     }
 
-    child.wait().expect("failed to execute compile.");
+    let ret = child.wait().expect("failed to execute compile.");
+    return ret;
 }
 
 fn get_system_mark() -> bool {

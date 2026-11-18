@@ -1,5 +1,4 @@
 use std::io::{BufRead, Read, Write};
-use std::net::ToSocketAddrs;
 
 pub struct SocketClient {
     pub stream: std::option::Option<std::net::TcpStream>,
@@ -64,7 +63,9 @@ impl SocketClient {
                 stream.flush().unwrap();
 
                 let mut data = Vec::new();
-                let ret = Ok(0);
+                let mut ret = Ok(0);
+
+                let mut errors = Vec::new();
                 loop {
                     let mut buffer = [0 as u8; 256];
                     match stream.read(&mut buffer) {
@@ -88,7 +89,12 @@ impl SocketClient {
                                                 println!("{}", file);
                                             }
                                             else {
-                                                eprintln!("{}", file);
+                                                if file.contains("fatal") {
+                                                    errors.push(file);
+                                                }
+                                                else {
+                                                    eprintln!("{}", file);
+                                                }
                                             }
                                         }
                                     });
@@ -104,10 +110,16 @@ impl SocketClient {
                                                 println!("{}", file);
                                             }
                                             else {
-                                                eprintln!("{}", file);
+                                                if file.contains("fatal") {
+                                                    errors.push(file);
+                                                }
+                                                else {
+                                                    eprintln!("{}", file);
+                                                }
                                             }
                                         }
                                     });
+                                    data.clear();
                                 }
                             }
                         },
@@ -121,6 +133,19 @@ impl SocketClient {
                     }
                 }
                 stream.shutdown(std::net::Shutdown::Both).unwrap();
+                
+                //retry compilation
+                if !errors.is_empty() {
+                    let handle = local_retry_singlefile(compiler_input, errors.clone());
+                    if handle.join().unwrap() {
+                        ret = Ok(0);
+                    }
+                    else {
+                        errors.iter().for_each(|item| eprintln!("{}", item));
+                        ret = Err(());
+                    }                    
+                }
+
                 return ret;
             },
             None => {
@@ -142,6 +167,69 @@ pub fn current_datetime() -> String {
     let hours = (total_seconds / 3600) % 24;
 
     return format!("{:02}:{:02}:{:02}.{:03}", hours, minutes, seconds, milliseconds);
+}
+
+pub fn extract_sourcefile_from_multiple_fatalerrors(errors: Vec<String>) -> Vec<String> {
+    let mut files = std::collections::HashSet::new();
+    for line in errors {
+        let file = extract_sourcefile_from_fatalerror(&line);
+        if !file.is_empty() {
+            files.insert(file);
+        }
+    }
+    files.into_iter().collect()
+}
+
+pub fn extract_sourcefile_from_fatalerror(line: &str) -> String {
+    if let Some(pos) = line.find("(") {
+        if !line[..pos].is_empty() {
+            return line[..pos].to_string();
+        }
+    }
+    else if let Some(pos) = line.find("'") {
+        if let Some(end) = line[pos+1..].find("'") {
+            return line[pos+1..pos+1+end].to_string();
+        }
+    }
+    String::new()
+}
+
+pub fn local_retry_singlefile(compiler_input: &crate::commands::CompilerInput, lines: Vec<String>) -> std::thread::JoinHandle<bool> {
+    
+    let files = extract_sourcefile_from_multiple_fatalerrors(lines);
+
+    if files.is_empty() {
+        return std::thread::spawn(|| false);
+    }
+
+    let mut input = compiler_input.clone();
+    
+    let handle = std::thread::spawn(move || {
+        let mut args = Vec::new();
+        let mut run = false;
+        for command in input.compiler_commands {
+            let item = command.to_string_lossy().to_lowercase();
+            if item.ends_with(".c") || item.ends_with(".cpp") || item.ends_with(".cc") || item.ends_with(".cxx") {
+                if files.contains(&command.clone().into_string().unwrap()) {
+                    args.push(command);
+                    run = true;
+                }
+            }
+            else {
+                args.push(command);
+            }
+        }
+
+        if !run {
+            return false;
+        }
+
+        input.compiler_commands = args;
+        let ret = crate::local_retry(&input);
+        return ret.success();
+    });
+
+    return handle;
 }
 
 #[cfg(test)]
@@ -176,5 +264,12 @@ mod tests {
         assert!(input["compiler_working_dir"].as_str().is_some());
         assert!(input["compiler_commands"].as_array().is_some());
         assert!(input["type"].as_str().is_some());
+    }
+
+    #[test]
+    fn extract_sourcefile_from_fatalerror_test() {
+        let line = "c1xx : fatal  error C1083: Cannot open source file: 'D:\\WorkSpace\\OpenSource\\ZLMediaKit\\srt\\Statistic.cpp': Permission denied";
+        let file = super::extract_sourcefile_from_fatalerror(line);
+        assert_eq!(file, "D:\\WorkSpace\\OpenSource\\ZLMediaKit\\srt\\Statistic.cpp");
     }
 }
