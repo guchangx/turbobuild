@@ -46,6 +46,18 @@ pub static PROJECT_MAP_TASK_TO_FILE_CHANNEL: std::sync::LazyLock<std::sync::Arc<
     std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()))
 });
 
+#[derive(Eq, Hash, PartialEq)]
+struct ProjectAndFile {
+    pub project: String,
+    pub files: Vec<String>,
+}
+
+static PROJECT_SOURCEFILES_SAVED_NOTIFIER: std::sync::LazyLock<std::sync::Arc<std::sync::RwLock
+    <std::collections::HashMap<ProjectAndFile, std::sync::Arc<tokio::sync::Notify>>>>>
+    = std::sync::LazyLock::new(|| {
+    std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()))
+});
+
 #[derive(Default, Clone)] 
 pub struct TransmitFile {
     pub sln: String,
@@ -384,7 +396,7 @@ impl Receiver {
 
         if !compiler.is_empty() && !commands.is_empty() {
             
-            let handle = Self::check_dir_exists(&solution, &request.working_dir, &commands).await;
+            let handle = Self::check_dir_exists(&solution, &project, &request.working_dir, &commands).await;
             
             let compiler_input = crew::compiler::model::CompilerInput {
                 solution: std::ffi::OsString::from(solution),
@@ -1024,6 +1036,13 @@ impl Receiver {
                     }
                     drop(file);
                 }
+                if path.ends_with(".cpp") || path.ends_with(".c") || path.ends_with(".cc") || path.ends_with(".cxx") {
+                    log::info!("notify source file saved: {} {}", project, path);
+                    PROJECT_SOURCEFILES_SAVED_NOTIFIER.write().unwrap()
+                        .entry(ProjectAndFile { project: project.to_string(), files: vec![path.to_string()] })
+                        .or_insert_with(|| std::sync::Arc::new(tokio::sync::Notify::new()))
+                        .notify_one();
+                }
             }
             return Ok(repath.to_string_lossy().to_string());   
         }
@@ -1188,10 +1207,11 @@ impl Receiver {
     }
 
     //create dir for .pdb and .obj, if parent dir not exist, .pdb and .obj file can not be generated.
-    pub async fn check_dir_exists(solution: &String, working_dir: &String, commands: &Vec<String>) -> tokio::task::JoinHandle<()> {
+    pub async fn check_dir_exists(solution: &String, project: &String, working_dir: &String, commands: &Vec<String>) -> tokio::task::JoinHandle<()> {
 
         let solution = solution.clone();
         let commands = commands.clone();
+        let project = project.clone();
         let working_dir = working_dir.clone();
 
         let handel = tokio::spawn(async move {
@@ -1223,7 +1243,6 @@ impl Receiver {
             };
 
             let path = commands.iter().find(|&item| item.starts_with("/Fd")).map(|item| item.clone());
-
             match path {
                 Some(mut path) => {
                     let pdb = path.split_off(3);
@@ -1263,7 +1282,6 @@ impl Receiver {
             }
 
             let path = commands.iter().find(|&item| item.starts_with("/Fo")).map(|item| item.clone());
-
             match path {
                 Some(mut path) => {
                     let obj = path.split_off(3);
@@ -1297,6 +1315,26 @@ impl Receiver {
                         else {
                             log::error!("split path failed, so not create obj dir.");
                         }
+                    }
+                },
+                None => {},
+            }
+
+            let path = commands.iter().find(|&item| item.ends_with(".c") || item.ends_with(".cc")
+                    || item.ends_with(".cpp") || item.ends_with(".cxx")).map(|item| item.clone());
+            match path {
+                Some(path) => {
+                    log::info!("wait source file saved: {} {}", project, path);
+
+                    let notify = { PROJECT_SOURCEFILES_SAVED_NOTIFIER.write().unwrap()
+                        .entry(ProjectAndFile { project: project.clone(), files: vec![path.clone()] })
+                        .or_insert_with(|| std::sync::Arc::new(tokio::sync::Notify::new())).clone()
+                    };
+
+                    let _ = notify.notified().await;
+
+                    {
+                        PROJECT_SOURCEFILES_SAVED_NOTIFIER.write().unwrap().remove(&ProjectAndFile { project: project.clone(), files: vec![path.clone()] });
                     }
                 },
                 None => {},
@@ -1539,6 +1577,8 @@ impl package::communicate_server::Communicate for Receiver {
 
 #[cfg(test)]
 mod tests {
+    use crate::communicate::unpackager::PROJECT_SOURCEFILES_SAVED_NOTIFIER;
+
 
     #[test]
     fn check_dir_exists_test() {
@@ -1551,7 +1591,7 @@ mod tests {
 
         handle.spawn(async move {
             println!("run check_dir_exists test in runtime.");
-            crate::communicate::unpackager::Receiver::check_dir_exists(&"test_dir".to_string(), &"".to_string(), &commands).await;
+            crate::communicate::unpackager::Receiver::check_dir_exists(&"test_dir".to_string(), &"".to_string(), &"".to_string(), &commands).await;
         });
     }
 
@@ -1625,7 +1665,7 @@ mod tests {
 
         handle.spawn(async move {
             println!("run check_dir_exists test in runtime.");
-            crate::communicate::unpackager::Receiver::check_dir_exists(&"llvm-project".to_string(), &"".to_string(), &commands).await;
+            crate::communicate::unpackager::Receiver::check_dir_exists(&"llvm-project".to_string(), &"".to_string(), &"".to_string(), &commands).await;
         });
 
     }
