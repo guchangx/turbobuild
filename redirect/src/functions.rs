@@ -1369,37 +1369,52 @@ pub unsafe fn nt_query_directory_file(
 
             if let Some(path) = file_path {
 
-                let (tx, rx) = tokio::sync::oneshot::channel();
-                let mut args =  std::collections::HashMap::<String, String>::new();
-                args.insert("filehandle".to_string(), path.clone());
-                args.insert("length".to_string(), length.to_string());
-
-                if !file_name.is_null() {
-                    let buffer = (*file_name).Buffer;
-                    let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
-                    crate::log!(trace, "nt_query_directory_file path: {:?}", name);
-
-                    args.insert("filename".to_string(), name);
+                let fileinformation =  if true {
+                    let files = fetch_directory_file_information(&path);
+                    Some(files)
                 }
-                let call = {
-                    let mut cid = SYS_CALL_ID.lock().unwrap();
-                    let call = crate::syscallredirect::MirrorSysCall {
-                        cid: *cid,
-                        api: "NtQueryDirectoryFile".into(),
-                        args,
-                        responder: tx,
+                else {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    let mut args =  std::collections::HashMap::<String, String>::new();
+                    args.insert("filehandle".to_string(), path.clone());
+                    args.insert("length".to_string(), length.to_string());
+    
+                    if !file_name.is_null() {
+                        let buffer = (*file_name).Buffer;
+                        let name = crate::utils::convert::lpwstr_2_string(buffer).unwrap();
+                        crate::log!(trace, "nt_query_directory_file path: {:?}", name);
+    
+                        args.insert("filename".to_string(), name);
+                    }
+
+                    let call = {
+                        let mut cid = SYS_CALL_ID.lock().unwrap();
+                        let call = crate::syscallredirect::MirrorSysCall {
+                            cid: *cid,
+                            api: "NtQueryDirectoryFile".into(),
+                            args,
+                            responder: tx,
+                        };
+                        *cid += 1;
+                        call
                     };
-                    *cid += 1;
-                    call
+                    let cid = call.cid.clone();
+    
+                    crate::log!(trace, "nt_query_directory_file file handle cid: {} handle: {:?} path: {}", cid.clone(), &file_handle, path);
+                    crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(call).unwrap();
+                    let result = rx.blocking_recv().unwrap();
+                    crate::log!(trace, "nt_query_directory_file file handle result cid: {} handle: {:?} path: {}", cid, &file_handle, path);
+
+                    if let Some(fileinfo) = result.get("fileinformation").cloned() {
+                        let filenames: Vec<String> = fileinfo.lines().map(|item| item.to_string()).collect();
+                        Some(filenames)
+                    }
+                    else {
+                        None
+                    }
                 };
-                let cid = call.cid.clone();
 
-                crate::log!(trace, "nt_query_directory_file file handle cid: {} handle: {:?} path: {}", cid.clone(), &file_handle, path);
-                crate::syscallredirect::REDIRECT_SYS_CALL_CHANNEL.tx.try_send(call).unwrap();
-                let result = rx.blocking_recv().unwrap();
-                crate::log!(trace, "nt_query_directory_file file handle result cid: {} handle: {:?} path: {}", cid, &file_handle, path);
-
-                if let Some(fileinfo) = result.get("fileinformation") {
+                if let Some(filenames) = fileinformation {
                     if file_information_class != windows_sys::Wdk::Storage::FileSystem::FileDirectoryInformation {
                         crate::log!(warn, "unsupported file_information_class: {:?}, falling back to original", file_information_class);
                     }
@@ -1408,8 +1423,6 @@ pub unsafe fn nt_query_directory_file(
                     }
 
                     let mut current_offset = 0usize;
-
-                    let filenames: Vec<String> = fileinfo.lines().map(|item| item.to_string()).collect();
                     let files_count = filenames.len();
 
                     let mut entries_written = 0;
@@ -1613,6 +1626,54 @@ pub unsafe fn nt_query_directory_file(
             }
         }
     }
+}
+
+fn fetch_directory_file_information(filename: &str) -> std::vec::Vec<String> {
+
+    let keys = crate::DEPENDENCYS.get().unwrap()
+        .keys()
+        .filter(|key| key.starts_with(&filename[4..]))
+        .collect::<Vec<_>>();
+
+    let mut filenames = Vec::new();
+    filenames.push(".|16".to_string());
+    filenames.push("..|16".to_string());
+
+    let filenamepath = std::path::Path::new(&filename[4..]);
+    let len = keys.len();
+    for (index, key ) in keys.iter().enumerate() {
+        let path = std::path::Path::new(key);
+        if let Ok(relative) = path.strip_prefix(filenamepath) {
+
+            let mut components = relative.components();
+            let first = match components.next() {
+                Some(std::path::Component::Normal(name)) => {
+                    name.to_string_lossy().into_owned()
+                },
+                _ => continue,
+            };
+            
+            let more = components.next();
+            if more.is_some() {
+                if index == len - 1 {
+                    
+                    filenames.push(format!("{}|{}", first, 17));
+                } 
+                else {
+                    filenames.push(format!("{}|{}", first, 16));
+                }
+            }
+            else {
+                if index == len - 1 {
+                    filenames.push(format!("{}|{}", first, 33));
+                }
+                else {
+                    filenames.push(format!("{}|{}", first, 32));
+                }
+            }
+        }
+    }
+    return filenames;
 }
 
 const PIPE_PREFIX: &[u16] = &[
